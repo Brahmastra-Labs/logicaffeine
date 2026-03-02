@@ -1,0 +1,19 @@
+## To native args () -> Seq of Text
+## To native parseInt (s: Text) -> Int
+
+## To solve (row: Int, cols: Int, diag1: Int, diag2: Int, n: Int) -> Int:
+    If row equals n:
+        Return 1.
+    Let all be (1 shifted left by n) - 1.
+    Let mutable available be all and not (cols or diag1 or diag2).
+    Let mutable count be 0.
+    While available is not 0:
+        Let bit be available and (0 - available).
+        Set available to available xor bit.
+        Set count to count + solve(row + 1, cols or bit, (diag1 or bit) shifted left by 1, (diag2 or bit) shifted right by 1, n).
+    Return count.
+
+## Main
+Let arguments be args().
+Let n be parseInt(item 2 of arguments).
+Show solve(0, 0, 0, 0, n).

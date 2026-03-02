@@ -22,4 +22,5 @@ pub use crdt::{
 pub use types::{
     Bool, Byte, Char, Int, LogosContains, Map, Nat, Real, Seq, Set, Text, Tuple, Unit, Value,
 };
-pub use indexing::{LogosIndex, LogosIndexMut};
+pub use rustc_hash::{FxHashMap, FxHashSet};
+pub use indexing::{LogosGetChar, LogosIndex, LogosIndexMut};

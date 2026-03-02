@@ -60,15 +60,17 @@ fn fold_stmt<'a>(
             iterable: fold_expr(iterable, expr_arena, stmt_arena, interner),
             body: fold_block(body, expr_arena, stmt_arena, interner),
         },
-        Stmt::FunctionDef { name, params, body, return_type, is_native, native_path, is_exported, export_target } => Stmt::FunctionDef {
+        Stmt::FunctionDef { name, params, generics, body, return_type, is_native, native_path, is_exported, export_target, opt_flags } => Stmt::FunctionDef {
             name,
             params,
+            generics,
             body: fold_block(body, expr_arena, stmt_arena, interner),
             return_type,
             is_native,
             native_path,
             is_exported,
             export_target,
+            opt_flags,
         },
         Stmt::Show { object, recipient } => Stmt::Show {
             object: fold_expr(object, expr_arena, stmt_arena, interner),
@@ -289,6 +291,16 @@ pub fn fold_expr<'a>(
             let fv = fold_expr(value, arena, stmt_arena, interner);
             if std::ptr::eq(fv, *value) { expr } else { arena.alloc(Expr::OptionSome { value: fv }) }
         }
+        Expr::Not { operand } => {
+            let fo = fold_expr(operand, arena, stmt_arena, interner);
+            if let Expr::Literal(Literal::Boolean(b)) = fo {
+                arena.alloc(Expr::Literal(Literal::Boolean(!b)))
+            } else if std::ptr::eq(fo, *operand) {
+                expr
+            } else {
+                arena.alloc(Expr::Not { operand: fo })
+            }
+        }
 
         // Vec of sub-expressions
         Expr::Call { function, args } => {
@@ -378,6 +390,9 @@ pub fn fold_expr<'a>(
                 }
             }
         }
+
+        // Interpolated strings — fold sub-expressions in holes
+        Expr::InterpolatedString(_) => expr,
 
         // Leaves — no sub-expressions to fold
         Expr::Literal(_) | Expr::Identifier(_) | Expr::OptionNone | Expr::Escape { .. } => expr,

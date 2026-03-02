@@ -42,7 +42,7 @@ jobs:
             ${{ runner.os }}-cargo-
 
       - name: Install Dioxus CLI
-        run: cargo install dioxus-cli@0.6.3 --locked || true
+        run: cargo install dioxus-cli@0.7.3 --locked || true
 
       - name: Build Dioxus App
         run: cd apps/logicaffeine_web && dx build --release

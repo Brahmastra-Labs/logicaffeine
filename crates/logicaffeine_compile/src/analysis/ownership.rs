@@ -37,7 +37,7 @@
 //! ```
 
 use std::collections::HashMap;
-use crate::ast::stmt::{Stmt, Expr};
+use crate::ast::stmt::{BinaryOpKind, Literal, Stmt, Expr, TypeExpr};
 use crate::intern::{Interner, Symbol};
 use crate::token::Span;
 
@@ -105,6 +105,8 @@ impl std::error::Error for OwnershipError {}
 pub struct OwnershipChecker<'a> {
     /// Maps variable symbols to their current ownership state
     state: HashMap<Symbol, VarState>,
+    /// Tracks whether each variable is a Copy type (true = Copy, absent = unknown/Copy)
+    types: HashMap<Symbol, bool>,
     /// String interner for resolving symbols
     interner: &'a Interner,
 }
@@ -113,6 +115,7 @@ impl<'a> OwnershipChecker<'a> {
     pub fn new(interner: &'a Interner) -> Self {
         Self {
             state: HashMap::new(),
+            types: HashMap::new(),
             interner,
         }
     }
@@ -120,6 +123,77 @@ impl<'a> OwnershipChecker<'a> {
     /// Access the current variable ownership states.
     pub fn var_states(&self) -> &HashMap<Symbol, VarState> {
         &self.state
+    }
+
+    /// Returns true if a symbol is known to be a Copy type.
+    /// Unknown types conservatively return true (won't produce false positives).
+    fn is_copy_sym(&self, sym: Symbol) -> bool {
+        self.types.get(&sym).copied().unwrap_or(true)
+    }
+
+    /// Infer whether an expression produces a Copy type.
+    /// Conservative: returns true (Copy) when uncertain.
+    fn infer_copy_from_expr(&self, expr: &Expr) -> bool {
+        match expr {
+            Expr::Literal(Literal::Number(_)) => true,
+            Expr::Literal(Literal::Float(_)) => true,
+            Expr::Literal(Literal::Boolean(_)) => true,
+            Expr::Literal(Literal::Nothing) => true,
+            Expr::Literal(Literal::Text(_)) => false,
+            Expr::Identifier(sym) => self.is_copy_sym(*sym),
+            Expr::New { .. } => false,
+            Expr::List(_) => false,
+            Expr::InterpolatedString(_) => false,
+            Expr::Copy { .. } => true,
+            Expr::BinaryOp { op: BinaryOpKind::Concat, .. } => false,
+            Expr::BinaryOp { .. } => true,
+            Expr::Contains { .. } => true,
+            Expr::Length { .. } => true,
+            _ => true,
+        }
+    }
+
+    /// After an expression has been validated, walk it to mark non-Copy
+    /// function call arguments as Moved.
+    fn mark_moves_in_expr(&mut self, expr: &Expr) {
+        match expr {
+            Expr::Call { args, .. } | Expr::CallExpr { args, .. } => {
+                for arg in args.iter() {
+                    if let Expr::Identifier(sym) = arg {
+                        if !self.is_copy_sym(*sym) {
+                            self.state.insert(*sym, VarState::Moved);
+                        }
+                    }
+                    self.mark_moves_in_expr(arg);
+                }
+            }
+            Expr::BinaryOp { left, right, .. } => {
+                self.mark_moves_in_expr(left);
+                self.mark_moves_in_expr(right);
+            }
+            Expr::Index { collection, index } => {
+                self.mark_moves_in_expr(collection);
+                self.mark_moves_in_expr(index);
+            }
+            Expr::FieldAccess { object, .. } => {
+                self.mark_moves_in_expr(object);
+            }
+            _ => {}
+        }
+    }
+
+    /// Infer Copy-ness from a TypeExpr (function parameter type annotation).
+    /// Conservative: returns true (Copy) when uncertain.
+    fn infer_copy_from_type_name(&self, ty: &TypeExpr) -> bool {
+        match ty {
+            TypeExpr::Primitive(sym) | TypeExpr::Named(sym) => {
+                let name = self.interner.resolve(*sym);
+                matches!(name, "Int" | "Nat" | "Float" | "Bool" | "Char" | "Byte")
+            }
+            TypeExpr::Generic { .. } => false,
+            TypeExpr::Function { .. } => true,
+            _ => true,
+        }
     }
 
     /// Check a program for ownership violations
@@ -139,8 +213,18 @@ impl<'a> OwnershipChecker<'a> {
             Stmt::Let { var, value, .. } => {
                 // Check the value expression first
                 self.check_not_moved(value)?;
-                // Register variable as Owned
+                // Mark non-Copy identifiers used as values as Moved
+                if let Expr::Identifier(sym) = value {
+                    if !self.is_copy_sym(*sym) {
+                        self.state.insert(*sym, VarState::Moved);
+                    }
+                }
+                // Mark non-Copy function call arguments as Moved
+                self.mark_moves_in_expr(value);
+                // Register variable as Owned and track its type
+                let is_copy = self.infer_copy_from_expr(value);
                 self.state.insert(*var, VarState::Owned);
+                self.types.insert(*var, is_copy);
             }
 
             Stmt::Give { object, .. } => {
@@ -257,18 +341,44 @@ impl<'a> OwnershipChecker<'a> {
 
             Stmt::Return { value: Some(expr) } => {
                 self.check_not_moved(expr)?;
+                self.mark_moves_in_expr(expr);
             }
 
             Stmt::Return { value: None } => {}
 
             Stmt::Set { value, .. } => {
                 self.check_not_moved(value)?;
+                // Mark non-Copy function call arguments as Moved
+                self.mark_moves_in_expr(value);
             }
 
             Stmt::Call { args, .. } => {
-                for arg in args {
+                for arg in args.iter() {
                     self.check_not_moved(arg)?;
                 }
+                // Mark non-Copy identifier arguments as Moved
+                for arg in args.iter() {
+                    if let Expr::Identifier(sym) = arg {
+                        if !self.is_copy_sym(*sym) {
+                            self.state.insert(*sym, VarState::Moved);
+                        }
+                    }
+                }
+            }
+
+            Stmt::FunctionDef { params, body, .. } => {
+                // Save state — function body is a separate scope
+                let saved_state = self.state.clone();
+                let saved_types = self.types.clone();
+                // Register parameters as Owned with inferred Copy-ness
+                for (param_sym, param_type) in params.iter() {
+                    self.state.insert(*param_sym, VarState::Owned);
+                    let is_copy = self.infer_copy_from_type_name(param_type);
+                    self.types.insert(*param_sym, is_copy);
+                }
+                self.check_block(body)?;
+                self.state = saved_state;
+                self.types = saved_types;
             }
 
             // Escape blocks are opaque to ownership analysis — the Rust compiler
@@ -284,6 +394,14 @@ impl<'a> OwnershipChecker<'a> {
     /// Check that an expression doesn't reference a moved variable
     fn check_not_moved(&self, expr: &Expr<'_>) -> Result<(), OwnershipError> {
         match expr {
+            Expr::InterpolatedString(parts) => {
+                for part in parts {
+                    if let crate::ast::stmt::StringPart::Expr { value, .. } = part {
+                        self.check_not_moved(value)?;
+                    }
+                }
+                Ok(())
+            }
             Expr::Identifier(sym) => {
                 match self.state.get(sym).copied() {
                     Some(VarState::Moved) => {
@@ -354,7 +472,8 @@ impl<'a> OwnershipChecker<'a> {
                 }
                 Ok(())
             }
-            Expr::Copy { expr } | Expr::Give { value: expr } | Expr::Length { collection: expr } => {
+            Expr::Copy { expr } | Expr::Give { value: expr } | Expr::Length { collection: expr }
+            | Expr::Not { operand: expr } => {
                 self.check_not_moved(expr)
             }
             Expr::ManifestOf { zone } => {

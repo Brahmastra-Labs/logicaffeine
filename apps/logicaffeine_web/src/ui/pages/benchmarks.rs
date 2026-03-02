@@ -21,6 +21,10 @@ struct Metadata {
     logos_version: String,
     cpu: String,
     os: String,
+    #[serde(default)]
+    warmup: Option<u32>,
+    #[serde(default)]
+    runs: Option<u32>,
     versions: HashMap<String, String>,
 }
 
@@ -43,6 +47,8 @@ struct Benchmark {
     generated_rust: String,
     scaling: HashMap<String, HashMap<String, TimingResult>>,
     compilation: HashMap<String, CompilationResult>,
+    #[serde(default)]
+    timeouts: HashMap<String, f64>,
 }
 
 #[derive(Deserialize, Clone)]
@@ -54,6 +60,10 @@ struct TimingResult {
     max_ms: f64,
     cv: f64,
     runs: u32,
+    #[serde(default)]
+    user_ms: Option<f64>,
+    #[serde(default)]
+    system_ms: Option<f64>,
 }
 
 #[derive(Deserialize, Clone)]
@@ -85,85 +95,67 @@ struct BenchSources {
     logos: &'static str,
 }
 
-static SOURCES: LazyLock<[BenchSources; 6]> = LazyLock::new(|| [
-    BenchSources {
-        c: include_str!("../../../../../benchmarks/programs/fib/main.c"),
-        cpp: include_str!("../../../../../benchmarks/programs/fib/main.cpp"),
-        rust: include_str!("../../../../../benchmarks/programs/fib/main.rs"),
-        zig: include_str!("../../../../../benchmarks/programs/fib/main.zig"),
-        go: include_str!("../../../../../benchmarks/programs/fib/main.go"),
-        java: include_str!("../../../../../benchmarks/programs/fib/Main.java"),
-        js: include_str!("../../../../../benchmarks/programs/fib/main.js"),
-        python: include_str!("../../../../../benchmarks/programs/fib/main.py"),
-        ruby: include_str!("../../../../../benchmarks/programs/fib/main.rb"),
-        nim: include_str!("../../../../../benchmarks/programs/fib/main.nim"),
-        logos: include_str!("../../../../../benchmarks/programs/fib/main.lg"),
-    },
-    BenchSources {
-        c: include_str!("../../../../../benchmarks/programs/sieve/main.c"),
-        cpp: include_str!("../../../../../benchmarks/programs/sieve/main.cpp"),
-        rust: include_str!("../../../../../benchmarks/programs/sieve/main.rs"),
-        zig: include_str!("../../../../../benchmarks/programs/sieve/main.zig"),
-        go: include_str!("../../../../../benchmarks/programs/sieve/main.go"),
-        java: include_str!("../../../../../benchmarks/programs/sieve/Main.java"),
-        js: include_str!("../../../../../benchmarks/programs/sieve/main.js"),
-        python: include_str!("../../../../../benchmarks/programs/sieve/main.py"),
-        ruby: include_str!("../../../../../benchmarks/programs/sieve/main.rb"),
-        nim: include_str!("../../../../../benchmarks/programs/sieve/main.nim"),
-        logos: include_str!("../../../../../benchmarks/programs/sieve/main.lg"),
-    },
-    BenchSources {
-        c: include_str!("../../../../../benchmarks/programs/collect/main.c"),
-        cpp: include_str!("../../../../../benchmarks/programs/collect/main.cpp"),
-        rust: include_str!("../../../../../benchmarks/programs/collect/main.rs"),
-        zig: include_str!("../../../../../benchmarks/programs/collect/main.zig"),
-        go: include_str!("../../../../../benchmarks/programs/collect/main.go"),
-        java: include_str!("../../../../../benchmarks/programs/collect/Main.java"),
-        js: include_str!("../../../../../benchmarks/programs/collect/main.js"),
-        python: include_str!("../../../../../benchmarks/programs/collect/main.py"),
-        ruby: include_str!("../../../../../benchmarks/programs/collect/main.rb"),
-        nim: include_str!("../../../../../benchmarks/programs/collect/main.nim"),
-        logos: include_str!("../../../../../benchmarks/programs/collect/main.lg"),
-    },
-    BenchSources {
-        c: include_str!("../../../../../benchmarks/programs/strings/main.c"),
-        cpp: include_str!("../../../../../benchmarks/programs/strings/main.cpp"),
-        rust: include_str!("../../../../../benchmarks/programs/strings/main.rs"),
-        zig: include_str!("../../../../../benchmarks/programs/strings/main.zig"),
-        go: include_str!("../../../../../benchmarks/programs/strings/main.go"),
-        java: include_str!("../../../../../benchmarks/programs/strings/Main.java"),
-        js: include_str!("../../../../../benchmarks/programs/strings/main.js"),
-        python: include_str!("../../../../../benchmarks/programs/strings/main.py"),
-        ruby: include_str!("../../../../../benchmarks/programs/strings/main.rb"),
-        nim: include_str!("../../../../../benchmarks/programs/strings/main.nim"),
-        logos: include_str!("../../../../../benchmarks/programs/strings/main.lg"),
-    },
-    BenchSources {
-        c: include_str!("../../../../../benchmarks/programs/bubble_sort/main.c"),
-        cpp: include_str!("../../../../../benchmarks/programs/bubble_sort/main.cpp"),
-        rust: include_str!("../../../../../benchmarks/programs/bubble_sort/main.rs"),
-        zig: include_str!("../../../../../benchmarks/programs/bubble_sort/main.zig"),
-        go: include_str!("../../../../../benchmarks/programs/bubble_sort/main.go"),
-        java: include_str!("../../../../../benchmarks/programs/bubble_sort/Main.java"),
-        js: include_str!("../../../../../benchmarks/programs/bubble_sort/main.js"),
-        python: include_str!("../../../../../benchmarks/programs/bubble_sort/main.py"),
-        ruby: include_str!("../../../../../benchmarks/programs/bubble_sort/main.rb"),
-        nim: include_str!("../../../../../benchmarks/programs/bubble_sort/main.nim"),
-        logos: include_str!("../../../../../benchmarks/programs/bubble_sort/main.lg"),
-    },
-    BenchSources {
-        c: include_str!("../../../../../benchmarks/programs/ackermann/main.c"),
-        cpp: include_str!("../../../../../benchmarks/programs/ackermann/main.cpp"),
-        rust: include_str!("../../../../../benchmarks/programs/ackermann/main.rs"),
-        zig: include_str!("../../../../../benchmarks/programs/ackermann/main.zig"),
-        go: include_str!("../../../../../benchmarks/programs/ackermann/main.go"),
-        java: include_str!("../../../../../benchmarks/programs/ackermann/Main.java"),
-        js: include_str!("../../../../../benchmarks/programs/ackermann/main.js"),
-        python: include_str!("../../../../../benchmarks/programs/ackermann/main.py"),
-        ruby: include_str!("../../../../../benchmarks/programs/ackermann/main.rb"),
-        nim: include_str!("../../../../../benchmarks/programs/ackermann/main.nim"),
-        logos: include_str!("../../../../../benchmarks/programs/ackermann/main.lg"),
-    },
+macro_rules! bench_sources {
+    ($name:literal) => {
+        BenchSources {
+            c: include_str!(concat!("../../../../../benchmarks/programs/", $name, "/main.c")),
+            cpp: include_str!(concat!("../../../../../benchmarks/programs/", $name, "/main.cpp")),
+            rust: include_str!(concat!("../../../../../benchmarks/programs/", $name, "/main.rs")),
+            zig: include_str!(concat!("../../../../../benchmarks/programs/", $name, "/main.zig")),
+            go: include_str!(concat!("../../../../../benchmarks/programs/", $name, "/main.go")),
+            java: include_str!(concat!("../../../../../benchmarks/programs/", $name, "/Main.java")),
+            js: include_str!(concat!("../../../../../benchmarks/programs/", $name, "/main.js")),
+            python: include_str!(concat!("../../../../../benchmarks/programs/", $name, "/main.py")),
+            ruby: include_str!(concat!("../../../../../benchmarks/programs/", $name, "/main.rb")),
+            nim: include_str!(concat!("../../../../../benchmarks/programs/", $name, "/main.nim")),
+            logos: include_str!(concat!("../../../../../benchmarks/programs/", $name, "/main.lg")),
+        }
+    };
+}
+
+static SOURCES: LazyLock<[BenchSources; 32]> = LazyLock::new(|| [
+    // Recursion & Function Calls
+    bench_sources!("fib"),
+    bench_sources!("ackermann"),
+    bench_sources!("nqueens"),
+    // Sorting
+    bench_sources!("bubble_sort"),
+    bench_sources!("mergesort"),
+    bench_sources!("quicksort"),
+    bench_sources!("counting_sort"),
+    bench_sources!("heap_sort"),
+    // Floating Point
+    bench_sources!("nbody"),
+    bench_sources!("mandelbrot"),
+    bench_sources!("spectral_norm"),
+    bench_sources!("pi_leibniz"),
+    // Integer Mathematics
+    bench_sources!("gcd"),
+    bench_sources!("collatz"),
+    bench_sources!("primes"),
+    // Array Patterns
+    bench_sources!("sieve"),
+    bench_sources!("matrix_mult"),
+    bench_sources!("prefix_sum"),
+    bench_sources!("array_reverse"),
+    bench_sources!("array_fill"),
+    // Hash Maps & Lookup
+    bench_sources!("collect"),
+    bench_sources!("two_sum"),
+    bench_sources!("histogram"),
+    // Dynamic Programming
+    bench_sources!("knapsack"),
+    bench_sources!("coins"),
+    // Combinatorial
+    bench_sources!("fannkuch"),
+    // Memory & Allocation
+    bench_sources!("strings"),
+    bench_sources!("binary_trees"),
+    // Loop Overhead & Control Flow
+    bench_sources!("loop_sum"),
+    bench_sources!("fib_iterative"),
+    bench_sources!("graph_bfs"),
+    bench_sources!("string_search"),
 ]);
 
 const GITHUB_REPO: &str = "https://github.com/Brahmastra-Labs/logicaffeine";
@@ -178,18 +170,13 @@ fn format_time(ms: f64) -> String {
     }
 }
 
-fn format_n(n: &str) -> String {
-    let bytes: Vec<u8> = n.bytes().collect();
-    let len = bytes.len();
-    if len <= 3 { return n.to_string(); }
-    let mut result = String::with_capacity(len + len / 3);
-    for (i, &b) in bytes.iter().enumerate() {
-        if i > 0 && (len - i) % 3 == 0 {
-            result.push(',');
-        }
-        result.push(b as char);
+fn format_timeout(timeout_ms: f64) -> String {
+    let mins = timeout_ms / 60_000.0;
+    if mins >= 1.0 {
+        format!(">{:.0}min", mins)
+    } else {
+        format!(">{:.0}s", timeout_ms / 1000.0)
     }
-    result
 }
 
 fn tier_label(tier: &str) -> &'static str {
@@ -198,7 +185,6 @@ fn tier_label(tier: &str) -> &'static str {
         "managed" => "Managed",
         "interpreted" => "Interpreted",
         "transpiled" => "Transpiled",
-        "logos" => "LOGOS",
         _ => "Other",
     }
 }
@@ -209,6 +195,7 @@ fn lang_color(lang_id: &str) -> &'static str {
         "cpp" => "#f34b7d",
         "rust" => "#dea584",
         "zig" => "#f7a41d",
+        "logos_release" => "#00d4ff",
         "go" => "#00ADD8",
         "java" => "#b07219",
         "js" => "#f7df1e",
@@ -225,6 +212,7 @@ fn lang_label(lang_id: &str) -> &'static str {
         "cpp" => "C++",
         "rust" => "Rust",
         "zig" => "Zig",
+        "logos_release" => "LOGOS",
         "go" => "Go",
         "java" => "Java",
         "js" => "JavaScript",
@@ -871,16 +859,21 @@ pub fn Benchmarks() -> Element {
 
     let logos_vs_c = data.summary.geometric_mean_speedup_vs_c
         .get("logos_release").copied().unwrap_or(0.0);
-    let python_speedup = data.summary.geometric_mean_speedup_vs_c
-        .get("python").copied().unwrap_or(0.001);
-    let logos_vs_python = if python_speedup > 0.0 { logos_vs_c / python_speedup } else { 0.0 };
+    let langs_with_data = data.summary.geometric_mean_speedup_vs_c.len();
 
     let bench = &data.benchmarks[active_bench()];
     let bench_sources = &sources[active_bench()];
-    let ref_size = &bench.reference_size;
+    // Use reference_size if it has data, otherwise fall back to the largest benchmarked size
+    let ref_size = if bench.scaling.contains_key(bench.reference_size.as_str()) {
+        bench.reference_size.clone()
+    } else {
+        bench.sizes.last().cloned().unwrap_or_else(|| bench.reference_size.clone())
+    };
     let ref_timings = bench.scaling.get(ref_size.as_str());
 
-    let mut chart_entries: Vec<(&str, &str, f64, &str, bool)> = Vec::new();
+    // (label, color, median_ms, tier, is_logos, is_timeout)
+    let mut chart_entries: Vec<(&str, &str, f64, &str, bool, bool)> = Vec::new();
+    let ref_timeout = bench.timeouts.get(ref_size.as_str());
     if let Some(timings) = ref_timings {
         for lang in &data.languages {
             if let Some(t) = timings.get(&lang.id) {
@@ -889,79 +882,74 @@ pub fn Benchmarks() -> Element {
                     &lang.color,
                     t.median_ms,
                     &lang.tier,
-                    lang.id == "logos_release" || lang.id == "logos_interp",
+                    lang.id == "logos_release",
+                    false,
                 ));
-            }
-        }
-    }
-
-    // Find logos_interp from any scaling size (it may run at a smaller n)
-    let mut interp_size_label: Option<String> = None;
-    if !chart_entries.iter().any(|e| e.0 == "LOGOS (interpreted)") {
-        let interp_data: Option<(&str, &TimingResult)> = bench.scaling.iter()
-            .find_map(|(size, langs)| langs.get("logos_interp").map(|t| (size.as_str(), t)));
-        if let Some((size, t)) = interp_data {
-            if let Some(lang) = data.languages.iter().find(|l| l.id == "logos_interp") {
-                chart_entries.push((&lang.label, &lang.color, t.median_ms, &lang.tier, true));
-                if size != ref_size.as_str() {
-                    interp_size_label = Some(format_n(size));
-                }
+            } else if ref_timeout.is_some() {
+                // Language missing from results at a size that had a timeout — it timed out
+                chart_entries.push((
+                    &lang.label,
+                    &lang.color,
+                    ref_timeout.unwrap() + 1.0, // sort after everything else
+                    &lang.tier,
+                    lang.id == "logos_release",
+                    true,
+                ));
             }
         }
     }
 
     chart_entries.sort_by(|a, b| a.2.partial_cmp(&b.2).unwrap_or(std::cmp::Ordering::Equal));
 
-    // Split into compiled and interpreted with independent scales
+    // Split into compiled and interpreted with independent scales (exclude timeouts from max calculation)
     let compiled_max = chart_entries.iter()
-        .filter(|e| e.3 != "interpreted" && e.0 != "LOGOS (interpreted)")
+        .filter(|e| e.3 != "interpreted" && !e.5)
         .map(|e| e.2)
         .max_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal))
         .unwrap_or(1.0);
 
     let interpreted_max = chart_entries.iter()
-        .filter(|e| e.3 == "interpreted" || e.0 == "LOGOS (interpreted)")
+        .filter(|e| e.3 == "interpreted" && !e.5)
         .map(|e| e.2)
         .max_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal))
         .unwrap_or(1.0);
 
-    let compiled_tier_order = ["systems", "managed", "transpiled", "logos"];
-    let mut compiled_grouped: Vec<(&str, Vec<(&str, &str, f64, bool)>)> = Vec::new();
+    let compiled_tier_order = ["systems", "managed", "transpiled"];
+    let mut compiled_grouped: Vec<(&str, Vec<(&str, &str, f64, bool, bool)>)> = Vec::new();
     for &tier in &compiled_tier_order {
         let entries: Vec<_> = chart_entries.iter()
-            .filter(|e| e.3 == tier && e.0 != "LOGOS (interpreted)")
-            .map(|e| (e.0, e.1, e.2, e.4))
+            .filter(|e| e.3 == tier)
+            .map(|e| (e.0, e.1, e.2, e.4, e.5))
             .collect();
         if !entries.is_empty() {
             compiled_grouped.push((tier, entries));
         }
     }
 
-    let interpreted_flat: Vec<(&str, &str, f64, bool)> = chart_entries.iter()
-        .filter(|e| e.3 == "interpreted" || e.0 == "LOGOS (interpreted)")
-        .map(|e| (e.0, e.1, e.2, e.4))
+    let interpreted_flat: Vec<(&str, &str, f64, bool, bool)> = chart_entries.iter()
+        .filter(|e| e.3 == "interpreted")
+        .map(|e| (e.0, e.1, e.2, e.4, e.5))
         .collect();
 
-    // Stats table entries (all fields, sorted by median)
-    let mut stats_entries: Vec<(&str, &str, &TimingResult)> = Vec::new();
+    // Stats table entries (all fields, sorted by median; timed-out langs appended at end)
+    let mut stats_entries: Vec<(&str, &str, Option<&TimingResult>)> = Vec::new();
     if let Some(timings) = ref_timings {
         for lang in &data.languages {
             if let Some(t) = timings.get(&lang.id) {
-                stats_entries.push((&lang.label, &lang.id, t));
+                stats_entries.push((&lang.label, &lang.id, Some(t)));
+            } else if ref_timeout.is_some() {
+                stats_entries.push((&lang.label, &lang.id, None));
             }
         }
     }
-    // Add logos_interp from any scaling size if not already present
-    if !stats_entries.iter().any(|e| e.1 == "logos_interp") {
-        if let Some(t) = bench.scaling.iter()
-            .find_map(|(_, langs)| langs.get("logos_interp"))
-        {
-            if let Some(lang) = data.languages.iter().find(|l| l.id == "logos_interp") {
-                stats_entries.push((&lang.label, &lang.id, t));
-            }
+    stats_entries.sort_by(|a, b| {
+        match (a.2, b.2) {
+            (Some(ta), Some(tb)) => ta.median_ms.partial_cmp(&tb.median_ms).unwrap_or(std::cmp::Ordering::Equal),
+            (Some(_), None) => std::cmp::Ordering::Less,
+            (None, Some(_)) => std::cmp::Ordering::Greater,
+            (None, None) => std::cmp::Ordering::Equal,
         }
-    }
-    stats_entries.sort_by(|a, b| a.2.median_ms.partial_cmp(&b.2.median_ms).unwrap_or(std::cmp::Ordering::Equal));
+    });
 
     // Compilation entries sorted by mean_ms
     let mut compile_entries: Vec<(&str, f64, f64, bool)> = bench.compilation.iter()
@@ -1041,11 +1029,11 @@ pub fn Benchmarks() -> Element {
                         div { class: "bench-summary-label", "LOGOS vs C (geometric mean)" }
                     }
                     div { class: "bench-summary-card",
-                        div { class: "bench-summary-value green", "{logos_vs_python:.0}x" }
-                        div { class: "bench-summary-label", "LOGOS vs Python" }
+                        div { class: "bench-summary-value green", "{data.benchmarks.len()}" }
+                        div { class: "bench-summary-label", "Benchmarks" }
                     }
                     div { class: "bench-summary-card",
-                        div { class: "bench-summary-value purple", "{data.languages.len()}" }
+                        div { class: "bench-summary-value purple", "{langs_with_data}" }
                         div { class: "bench-summary-label", "Languages tested" }
                     }
                 }
@@ -1077,26 +1065,42 @@ pub fn Benchmarks() -> Element {
                     div { class: "bench-chart",
                         for (tier, entries) in compiled_grouped.iter() {
                             div { class: "bench-tier-label", "{tier_label(tier)}" }
-                            for (label, color, median, is_logos) in entries.iter() {
+                            for (label, color, median, is_logos, is_timeout) in entries.iter() {
                                 {
-                                    let pct = (*median / compiled_max * 100.0).min(100.0);
-                                    let time_str = format_time(*median);
-                                    let show_inside = pct > 15.0;
-                                    let bar_class = if *is_logos { "bench-bar-fill logos-highlight" } else { "bench-bar-fill" };
-                                    rsx! {
-                                        div { class: "bench-bar-row",
-                                            div { class: "bench-bar-label", "{label}" }
-                                            div { class: "bench-bar-track",
-                                                div {
-                                                    class: "{bar_class}",
-                                                    style: "width: {pct:.1}%; background: {color};",
-                                                    if show_inside {
-                                                        span { class: "bench-bar-time", "{time_str}" }
+                                    if *is_timeout {
+                                        let timeout_str = ref_timeout.map(|t| format_timeout(*t)).unwrap_or_else(|| ">timeout".to_string());
+                                        rsx! {
+                                            div { class: "bench-bar-row",
+                                                div { class: "bench-bar-label", "{label}" }
+                                                div { class: "bench-bar-track",
+                                                    div {
+                                                        class: "bench-bar-fill",
+                                                        style: "width: 100%; background: repeating-linear-gradient(45deg, {color}33, {color}33 10px, {color}11 10px, {color}11 20px);",
                                                     }
                                                 }
+                                                span { class: "bench-bar-time-outside", "{timeout_str}" }
                                             }
-                                            if !show_inside {
-                                                span { class: "bench-bar-time-outside", "{time_str}" }
+                                        }
+                                    } else {
+                                        let pct = (*median / compiled_max * 100.0).min(100.0);
+                                        let time_str = format_time(*median);
+                                        let show_inside = pct > 15.0;
+                                        let bar_class = if *is_logos { "bench-bar-fill logos-highlight" } else { "bench-bar-fill" };
+                                        rsx! {
+                                            div { class: "bench-bar-row",
+                                                div { class: "bench-bar-label", "{label}" }
+                                                div { class: "bench-bar-track",
+                                                    div {
+                                                        class: "{bar_class}",
+                                                        style: "width: {pct:.1}%; background: {color};",
+                                                        if show_inside {
+                                                            span { class: "bench-bar-time", "{time_str}" }
+                                                        }
+                                                    }
+                                                }
+                                                if !show_inside {
+                                                    span { class: "bench-bar-time-outside", "{time_str}" }
+                                                }
                                             }
                                         }
                                     }
@@ -1109,34 +1113,42 @@ pub fn Benchmarks() -> Element {
                                 style: "border-top: 1px solid rgba(255,255,255,0.08); margin: 16px 0 8px; padding-top: 8px; font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; color: rgba(229,231,235,0.3);",
                                 "Interpreted"
                             }
-                            for (label, color, median, is_logos) in interpreted_flat.iter() {
+                            for (label, color, median, is_logos, is_timeout) in interpreted_flat.iter() {
                                 {
-                                    let pct = (*median / interpreted_max * 100.0).min(100.0);
-                                    let time_str = if *label == "LOGOS (interpreted)" {
-                                        if let Some(ref n) = interp_size_label {
-                                            format!("{} (n={})", format_time(*median), n)
-                                        } else {
-                                            format_time(*median)
-                                        }
-                                    } else {
-                                        format_time(*median)
-                                    };
-                                    let show_inside = pct > 15.0;
-                                    let bar_class = if *is_logos { "bench-bar-fill logos-highlight" } else { "bench-bar-fill" };
-                                    rsx! {
-                                        div { class: "bench-bar-row",
-                                            div { class: "bench-bar-label", "{label}" }
-                                            div { class: "bench-bar-track",
-                                                div {
-                                                    class: "{bar_class}",
-                                                    style: "width: {pct:.1}%; background: {color};",
-                                                    if show_inside {
-                                                        span { class: "bench-bar-time", "{time_str}" }
+                                    if *is_timeout {
+                                        let timeout_str = ref_timeout.map(|t| format_timeout(*t)).unwrap_or_else(|| ">timeout".to_string());
+                                        rsx! {
+                                            div { class: "bench-bar-row",
+                                                div { class: "bench-bar-label", "{label}" }
+                                                div { class: "bench-bar-track",
+                                                    div {
+                                                        class: "bench-bar-fill",
+                                                        style: "width: 100%; background: repeating-linear-gradient(45deg, {color}33, {color}33 10px, {color}11 10px, {color}11 20px);",
                                                     }
                                                 }
+                                                span { class: "bench-bar-time-outside", "{timeout_str}" }
                                             }
-                                            if !show_inside {
-                                                span { class: "bench-bar-time-outside", "{time_str}" }
+                                        }
+                                    } else {
+                                        let pct = (*median / interpreted_max * 100.0).min(100.0);
+                                        let time_str = format_time(*median);
+                                        let show_inside = pct > 15.0;
+                                        let bar_class = if *is_logos { "bench-bar-fill logos-highlight" } else { "bench-bar-fill" };
+                                        rsx! {
+                                            div { class: "bench-bar-row",
+                                                div { class: "bench-bar-label", "{label}" }
+                                                div { class: "bench-bar-track",
+                                                    div {
+                                                        class: "{bar_class}",
+                                                        style: "width: {pct:.1}%; background: {color};",
+                                                        if show_inside {
+                                                            span { class: "bench-bar-time", "{time_str}" }
+                                                        }
+                                                    }
+                                                }
+                                                if !show_inside {
+                                                    span { class: "bench-bar-time-outside", "{time_str}" }
+                                                }
                                             }
                                         }
                                     }
@@ -1166,22 +1178,47 @@ pub fn Benchmarks() -> Element {
                                     th { "StdDev" }
                                     th { "Min" }
                                     th { "Max" }
+                                    th { "User" }
+                                    th { "System" }
                                     th { "CV" }
                                     th { "Runs" }
                                 }
                             }
                             tbody {
-                                for (label, lid, t) in stats_entries.iter() {
-                                    tr {
-                                        class: if *lid == "logos_release" || *lid == "logos_interp" { "highlight" } else { "" },
-                                        td { "{label}" }
-                                        td { "{format_time(t.mean_ms)}" }
-                                        td { "{format_time(t.median_ms)}" }
-                                        td { "\u{00b1}{format_time(t.stddev_ms)}" }
-                                        td { "{format_time(t.min_ms)}" }
-                                        td { "{format_time(t.max_ms)}" }
-                                        td { "{t.cv:.3}" }
-                                        td { "{t.runs}" }
+                                for (label, lid, maybe_t) in stats_entries.iter() {
+                                    if let Some(t) = maybe_t {
+                                        tr {
+                                            class: if *lid == "logos_release" { "highlight" } else { "" },
+                                            td { "{label}" }
+                                            td { "{format_time(t.mean_ms)}" }
+                                            td { "{format_time(t.median_ms)}" }
+                                            td { "\u{00b1}{format_time(t.stddev_ms)}" }
+                                            td { "{format_time(t.min_ms)}" }
+                                            td { "{format_time(t.max_ms)}" }
+                                            td { "{t.user_ms.map(|v| format_time(v)).unwrap_or_else(|| \"\u{2014}\".to_string())}" }
+                                            td { "{t.system_ms.map(|v| format_time(v)).unwrap_or_else(|| \"\u{2014}\".to_string())}" }
+                                            td { "{t.cv:.3}" }
+                                            td { "{t.runs}" }
+                                        }
+                                    } else {
+                                        {
+                                            let timeout_str = ref_timeout.map(|t| format_timeout(*t)).unwrap_or_else(|| ">timeout".to_string());
+                                            rsx! {
+                                                tr {
+                                                    class: if *lid == "logos_release" { "highlight" } else { "" },
+                                                    td { "{label}" }
+                                                    td { "{timeout_str}" }
+                                                    td { "{timeout_str}" }
+                                                    td { "\u{2014}" }
+                                                    td { "\u{2014}" }
+                                                    td { "\u{2014}" }
+                                                    td { "\u{2014}" }
+                                                    td { "\u{2014}" }
+                                                    td { "\u{2014}" }
+                                                    td { "\u{2014}" }
+                                                }
+                                            }
+                                        }
                                     }
                                 }
                             }
@@ -1325,7 +1362,7 @@ pub fn Benchmarks() -> Element {
                 // =============== SUMMARY ===============
                 div { class: "bench-section", id: "summary",
                     div { class: "bench-section-title", "Cross-Benchmark Summary" }
-                    div { class: "bench-section-desc", "Geometric mean speedup vs C across all 6 benchmarks (log scale, higher is better)." }
+                    div { class: "bench-section-desc", "Geometric mean speedup vs C across all {data.benchmarks.len()} benchmarks (log scale, higher is better)." }
 
                     div { class: "bench-chart",
                         for (label, val, color, is_logos) in summary_entries.iter() {
@@ -1383,7 +1420,7 @@ pub fn Benchmarks() -> Element {
                         class: if methodology_open() { "bench-collapsible-body open" } else { "bench-collapsible-body" },
                         div { class: "bench-methodology",
                             ul {
-                                li { "Each benchmark measured with hyperfine ({data.benchmarks[0].scaling.values().next().and_then(|s| s.values().next()).map(|t| t.runs).unwrap_or(10)} runs, 3 warmup)." }
+                                li { "Each benchmark measured with hyperfine ({data.metadata.runs.unwrap_or(20)} runs, {data.metadata.warmup.unwrap_or(5)} warmup)." }
                                 li { "CPU: {data.metadata.cpu}." }
                                 li { "OS: {data.metadata.os}." }
                                 li { "All benchmarks produce identical verified output across all languages." }

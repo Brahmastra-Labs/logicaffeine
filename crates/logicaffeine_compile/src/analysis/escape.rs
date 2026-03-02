@@ -228,7 +228,8 @@ impl<'a> EscapeChecker<'a> {
                 self.check_no_escape(end, max_depth)?;
             }
 
-            Expr::Copy { expr } | Expr::Give { value: expr } | Expr::Length { collection: expr } => {
+            Expr::Copy { expr } | Expr::Give { value: expr } | Expr::Length { collection: expr }
+            | Expr::Not { operand: expr } => {
                 self.check_no_escape(expr, max_depth)?;
             }
 
@@ -304,6 +305,14 @@ impl<'a> EscapeChecker<'a> {
                 self.check_no_escape(callee, max_depth)?;
                 for arg in args {
                     self.check_no_escape(arg, max_depth)?;
+                }
+            }
+
+            Expr::InterpolatedString(parts) => {
+                for part in parts {
+                    if let crate::ast::stmt::StringPart::Expr { value, .. } = part {
+                        self.check_no_escape(value, max_depth)?;
+                    }
                 }
             }
 

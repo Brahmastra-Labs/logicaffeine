@@ -10,9 +10,31 @@
 //!
 //! The imperative AST is used in LOGOS mode for generating executable Rust code.
 
+use std::collections::HashSet;
+
 use super::logic::LogicExpr;
 use super::theorem::TheoremBlock;
 use logicaffeine_base::Symbol;
+
+/// Per-function optimization control flags.
+///
+/// Annotations placed above `## To` disable specific optimization passes
+/// for that function. This gives the programmer explicit control when
+/// an optimization hurts rather than helps (e.g., memoization on a function
+/// whose body is cheaper than a hash lookup).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum OptFlag {
+    /// `## No Memo` — disable auto-memoization (TLS FxHashMap cache)
+    NoMemo,
+    /// `## No TCO` — disable tail-call elimination (loop conversion)
+    NoTCO,
+    /// `## No Peephole` — disable peephole patterns (swap, vec-fill, for-range, etc.)
+    NoPeephole,
+    /// `## No Borrow` — disable readonly/mutable borrow analysis (&[T]/&mut [T] params)
+    NoBorrow,
+    /// `## No Optimize` — disable ALL of the above (master switch)
+    NoOptimize,
+}
 
 /// Type expression for explicit type annotations.
 ///
@@ -90,11 +112,17 @@ pub enum BinaryOpKind {
     Gt,
     LtEq,
     GtEq,
-    // Logical operators for compound conditions
+    // Logical/bitwise operators — type-aware in codegen (&&/|| for Bool, &/| for Int)
     And,
     Or,
     /// String concatenation ("X combined with Y")
     Concat,
+    /// Bitwise XOR: "x xor y" → `x ^ y`
+    BitXor,
+    /// Left shift: "x shifted left by y" → `x << y`
+    Shl,
+    /// Right shift: "x shifted right by y" → `x >> y`
+    Shr,
 }
 
 /// Block is a sequence of statements.
@@ -162,6 +190,9 @@ pub enum Stmt<'a> {
         value: Option<&'a Expr<'a>>,
     },
 
+    /// Break: `Break.` — exits the innermost while loop.
+    Break,
+
     /// Bridge to Logic Kernel: `Assert that P.`
     Assert {
         proposition: &'a LogicExpr<'a>,
@@ -212,6 +243,8 @@ pub enum Stmt<'a> {
     /// Function definition.
     FunctionDef {
         name: Symbol,
+        /// Generic type parameters: empty for monomorphic functions, e.g. `[T, U]` for polymorphic.
+        generics: Vec<Symbol>,
         params: Vec<(Symbol, &'a TypeExpr<'a>)>,
         body: Block<'a>,
         return_type: Option<&'a TypeExpr<'a>>,
@@ -223,6 +256,8 @@ pub enum Stmt<'a> {
         is_exported: bool,
         /// Export target: None = C ABI (#[no_mangle] extern "C"), Some("wasm") = #[wasm_bindgen].
         export_target: Option<Symbol>,
+        /// Per-function optimization flags from `## No <X>` annotations.
+        opt_flags: HashSet<OptFlag>,
     },
 
     /// Pattern matching on sum types.
@@ -602,6 +637,11 @@ pub enum Expr<'a> {
         right: &'a Expr<'a>,
     },
 
+    /// Unary NOT: "not x" → `!x` (logical for Bool, bitwise for Int)
+    Not {
+        operand: &'a Expr<'a>,
+    },
+
     /// Function call as expression: f(x, y)
     Call {
         function: Symbol,
@@ -737,6 +777,23 @@ pub enum Expr<'a> {
     CallExpr {
         callee: &'a Expr<'a>,
         args: Vec<&'a Expr<'a>>,
+    },
+
+    /// Interpolated string: `"Hello, {name}! Value: {x:.2}"`
+    InterpolatedString(Vec<StringPart<'a>>),
+}
+
+/// A segment of an interpolated string.
+#[derive(Debug, Clone)]
+pub enum StringPart<'a> {
+    /// Literal text segment
+    Literal(Symbol),
+    /// Expression with optional format specifier
+    Expr {
+        value: &'a Expr<'a>,
+        format_spec: Option<Symbol>,
+        /// Self-documenting debug format: `{var=}` → `"var=42"`
+        debug: bool,
     },
 }
 

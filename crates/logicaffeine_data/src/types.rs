@@ -41,11 +41,11 @@ pub type Byte = u8;
 /// Ordered sequences (lists).
 pub type Seq<T> = Vec<T>;
 
-/// Key-value mappings with hash-based lookup.
-pub type Map<K, V> = std::collections::HashMap<K, V>;
+/// Key-value mappings with FxHash for fast integer-key performance.
+pub type Map<K, V> = rustc_hash::FxHashMap<K, V>;
 
-/// Unordered collections of unique elements.
-pub type Set<T> = std::collections::HashSet<T>;
+/// Unordered collections of unique elements with FxHash.
+pub type Set<T> = rustc_hash::FxHashSet<T>;
 
 /// Unified containment testing for all collection types.
 ///
@@ -91,14 +91,21 @@ impl<T: PartialEq> LogosContains<T> for Vec<T> {
     }
 }
 
-impl<T: Eq + Hash> LogosContains<T> for std::collections::HashSet<T> {
+impl<T: PartialEq> LogosContains<T> for [T] {
     #[inline(always)]
     fn logos_contains(&self, value: &T) -> bool {
         self.contains(value)
     }
 }
 
-impl<K: Eq + Hash, V> LogosContains<K> for std::collections::HashMap<K, V> {
+impl<T: Eq + Hash> LogosContains<T> for rustc_hash::FxHashSet<T> {
+    #[inline(always)]
+    fn logos_contains(&self, value: &T) -> bool {
+        self.contains(value)
+    }
+}
+
+impl<K: Eq + Hash, V> LogosContains<K> for rustc_hash::FxHashMap<K, V> {
     #[inline(always)]
     fn logos_contains(&self, key: &K) -> bool {
         self.contains_key(key)

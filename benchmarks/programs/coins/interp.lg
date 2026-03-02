@@ -1,0 +1,24 @@
+## Main
+Let n be 1000.
+Let mutable coinList be a new Seq of Int.
+Push 1 to coinList.
+Push 5 to coinList.
+Push 10 to coinList.
+Push 25 to coinList.
+Push 50 to coinList.
+Push 100 to coinList.
+Let mutable dp be a new Seq of Int.
+Push 1 to dp.
+Let mutable i be 1.
+While i is at most n:
+    Push 0 to dp.
+    Set i to i + 1.
+Let mutable c be 1.
+While c is at most 6:
+    Let coin be item c of coinList.
+    Let mutable j be coin.
+    While j is at most n:
+        Set item (j + 1) of dp to (item (j + 1) of dp + item (j - coin + 1) of dp) % 1000000007.
+        Set j to j + 1.
+    Set c to c + 1.
+Show item (n + 1) of dp.

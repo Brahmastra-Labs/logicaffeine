@@ -122,7 +122,7 @@ pub mod codegen_c;
 
 // Compilation pipeline
 pub mod compile;
-pub use compile::{CompileOutput, CrateDependency, compile_program_full};
+pub use compile::{CompileOutput, CrateDependency, compile_program_full, compile_to_rust};
 
 // Diagnostics
 pub mod diagnostic;

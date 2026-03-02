@@ -39,13 +39,21 @@
 //! - [`PolicyRegistry`], [`PredicateDef`], [`CapabilityDef`] - Security policies
 //! - [`DiscoveryPass`] - Token-level type discovery
 
+pub mod callgraph;
+pub mod check;
 pub mod escape;
+pub mod liveness;
 pub mod ownership;
+pub mod readonly;
+pub mod types;
+pub mod unify;
 mod discovery;
 
 pub use escape::{EscapeChecker, EscapeError, EscapeErrorKind};
 pub use ownership::{OwnershipChecker, OwnershipError, OwnershipErrorKind, VarState};
 pub use discovery::discover_with_imports;
+pub use types::{LogosType, TypeEnv, FnSig, RustNames};
+pub use check::check_program;
 
 // Re-export language analysis types with submodule aliases
 pub mod registry {

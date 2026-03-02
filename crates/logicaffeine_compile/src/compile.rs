@@ -307,7 +307,12 @@ pub fn compile_program_full(source: &str) -> Result<CompileOutput, ParseError> {
     // Note: Static verification is available when the `verification` feature is enabled,
     // but must be explicitly invoked via compile_to_rust_verified().
 
-    let rust_code = codegen_program(&stmts, &codegen_registry, &codegen_policies, &interner);
+    let type_env = crate::analysis::check_program(&stmts, &interner, &codegen_registry)
+        .map_err(|e| ParseError {
+            kind: e.to_parse_error_kind(&interner),
+            span: crate::token::Span::default(),
+        })?;
+    let rust_code = codegen_program(&stmts, &codegen_registry, &codegen_policies, &interner, &type_env);
 
     // Universal ABI: Generate C header + bindings if any C exports exist
     let has_c = stmts.iter().any(|stmt| {
@@ -489,7 +494,12 @@ pub fn compile_to_rust_checked(source: &str) -> Result<String, ParseError> {
         }
     })?;
 
-    let rust_code = codegen_program(&stmts, &codegen_registry, &codegen_policies, &interner);
+    let type_env = crate::analysis::check_program(&stmts, &interner, &codegen_registry)
+        .map_err(|e| ParseError {
+            kind: e.to_parse_error_kind(&interner),
+            span: crate::token::Span::default(),
+        })?;
+    let rust_code = codegen_program(&stmts, &codegen_registry, &codegen_policies, &interner, &type_env);
 
     Ok(rust_code)
 }
@@ -606,7 +616,12 @@ pub fn compile_to_rust_verified(source: &str) -> Result<String, ParseError> {
         }
     })?;
 
-    let rust_code = codegen_program(&stmts, &codegen_registry, &codegen_policies, &interner);
+    let type_env = crate::analysis::check_program(&stmts, &interner, &codegen_registry)
+        .map_err(|e| ParseError {
+            kind: e.to_parse_error_kind(&interner),
+            span: crate::token::Span::default(),
+        })?;
+    let rust_code = codegen_program(&stmts, &codegen_registry, &codegen_policies, &interner, &type_env);
 
     Ok(rust_code)
 }
@@ -663,6 +678,9 @@ edition = "2021"
 logicaffeine-data = { path = "./crates/logicaffeine_data" }
 logicaffeine-system = { path = "./crates/logicaffeine_system", features = ["full"] }
 tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
+
+[target.'cfg(target_os = "linux")'.dependencies]
+logicaffeine-system = { path = "./crates/logicaffeine_system", features = ["full", "io-uring"] }
 "#);
 
     // Append user-declared dependencies from ## Requires blocks
@@ -687,6 +705,14 @@ tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
     let cargo_path = output_dir.join("Cargo.toml");
     let mut file = fs::File::create(&cargo_path).map_err(|e| CompileError::Io(e.to_string()))?;
     file.write_all(cargo_toml.as_bytes()).map_err(|e| CompileError::Io(e.to_string()))?;
+
+    // Write .cargo/config.toml with target-cpu=native for optimal codegen.
+    // Enables SIMD auto-vectorization and CPU-specific instruction selection.
+    let cargo_config_dir = output_dir.join(".cargo");
+    fs::create_dir_all(&cargo_config_dir).map_err(|e| CompileError::Io(e.to_string()))?;
+    let config_content = "[build]\nrustflags = [\"-C\", \"target-cpu=native\"]\n";
+    let config_path = cargo_config_dir.join("config.toml");
+    fs::write(&config_path, config_content).map_err(|e| CompileError::Io(e.to_string()))?;
 
     // Copy runtime crates to output directory
     copy_runtime_crates(output_dir)?;
@@ -921,6 +947,10 @@ fn copy_dir_recursive(src: &Path, dst: &Path) -> Result<(), CompileError> {
 /// # }
 /// ```
 pub fn compile_and_run(source: &str, output_dir: &Path) -> Result<String, CompileError> {
+    // Pre-check: catch ownership errors (use-after-move) with friendly messages
+    // before codegen runs (codegen defensively clones, masking these errors)
+    compile_to_rust_checked(source).map_err(CompileError::Parse)?;
+
     compile_to_dir(source, output_dir)?;
 
     // Run cargo build with JSON message format for structured error parsing
@@ -1086,7 +1116,12 @@ fn compile_to_rust_with_registry_full(
         }
     })?;
 
-    let rust_code = codegen_program(&stmts, &codegen_registry, &codegen_policies, interner);
+    let type_env = crate::analysis::check_program(&stmts, interner, &codegen_registry)
+        .map_err(|e| ParseError {
+            kind: e.to_parse_error_kind(interner),
+            span: crate::token::Span::default(),
+        })?;
+    let rust_code = codegen_program(&stmts, &codegen_registry, &codegen_policies, interner, &type_env);
 
     // Universal ABI: Generate C header + bindings if any C exports exist
     let has_c = stmts.iter().any(|stmt| {

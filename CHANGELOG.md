@@ -4,6 +4,44 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.9.2] - 2026-02-28
+
+### Fixed
+- **Benchmark timeout isolation** — each language now runs in its own hyperfine invocation with an independent timeout. Previously, all 11 languages ran in a single hyperfine call; when one language (e.g., Python on ackermann n=11) exceeded the timeout, `run_timeout` killed the entire process and remaining languages (JS, Ruby, Nim, LOGOS) were never measured. Per-language results are merged into the same JSON format so downstream assembly is unchanged.
+- **Smart timeout skipping** — if a language times out at size N, it is automatically skipped for all larger sizes of that benchmark, avoiding wasted CI minutes on languages known to be too slow.
+- **Trimmed benchmark sizes** — removed noise sizes from all 32 `sizes.txt` files where C runtime is <10ms (process startup dominates measurement). Keeps 3-5 meaningful sizes per benchmark for real scaling data.
+- Applied to all three benchmark scripts: `run.sh`, `run-quick.sh`, `run-logos-vs-c.sh`.
+
+## [0.9.1] - 2026-02-28
+
+### Fixed
+- **Benchmark CI completely broken** — all hyperfine calls used `--timeout` flag which doesn't exist in any version of hyperfine, causing every benchmark to fail with zero data and empty geometric mean results. Removed the invalid flag; the `run_timeout` wrapper already handles timeouts via the system `timeout` command.
+
+## [0.9.0] - 2026-02-27
+
+### Added
+- **Bidirectional type checker** — Robinson unification-based inference (`analysis/check.rs`, `analysis/unify.rs`). Eliminates `Unknown` types for field access, empty collections, option literals, pipe receives, inspect arm bindings, and closure calls.
+- **Call graph analysis** (`analysis/callgraph.rs`) — whole-program call graph with Kosaraju SCC detection for readonly and purity analysis.
+- **Liveness analysis** (`analysis/liveness.rs`) — backward dataflow computing per-statement live-after sets, enabling last-use move optimization.
+- **Read-only parameter inference** (`analysis/readonly.rs`) — fixed-point iteration over the call graph identifies `Seq<T>` parameters never mutated, emitting `&[T]` borrows instead of clones.
+- **Bitwise operators** — `x xor y`, `x shifted left by y`, `x shifted right by y`.
+- **Break statement** — `Break.` exits the innermost while loop.
+- **Unary NOT** — `not x` for logical and bitwise negation.
+- **Generic function type parameters** — polymorphic type variable declarations on functions.
+- **Triple-quote strings** — `"""multi-line"""` with automatic indentation stripping.
+- **Scientific notation** — `4.84e+00`, `2.5e-2` in numeric literals.
+- **io_uring VFS** (`logicaffeine_system`) — Linux kernel-async file I/O via dedicated worker thread.
+- **~392 new tests** across 8 new test files covering type checker, bitwise ops, break, codegen optimization, math builtins, string interpolation, and optimizer features.
+
+### Changed
+- **Codegen architecture** — monolithic `codegen.rs` (8,300 lines) split into 13 modules (`context`, `detection`, `expr`, `stmt`, `peephole`, `program`, `ffi`, `marshal`, `policy`, `bindings`, `tce`, `types`). Public API preserved via re-exports.
+- **C backend architecture** — `codegen_c.rs` (2,000 lines) split into 4 modules (`emit`, `runtime`, `types`).
+- **Compilation pipeline** — `check_program()` now runs between analysis and codegen, producing a `TypeEnv` for optimization decisions.
+- **FxHashMap/FxHashSet** — generated code uses `rustc-hash` for faster integer-key hashing.
+- **15 codegen optimizations** — last-use clone elimination, liveness-based move, sentinel exit detection, dead post-loop counter elimination, HashMap `.get()` for comparisons, string byte comparison, self-append via `write!`, flattened string concatenation, read-only `&[T]` borrows, `Vec::with_capacity`, `assert_unchecked` for proven bounds, raised inline threshold, power-of-2 modulo strength reduction, `target-cpu=native`.
+- **Benchmark suite** — expanded from ~6 to 30+ programs with multi-language implementations and correctness verification.
+- **C backend** — extended with interpolated strings, bitwise ops, shifts, enums, slices, sets, and multiple map type variants.
+
 ## [0.8.19] - 2026-02-15
 
 ### Added

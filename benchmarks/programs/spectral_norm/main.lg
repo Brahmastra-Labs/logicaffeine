@@ -1,0 +1,62 @@
+## To native args () -> Seq of Text
+## To native parseInt (s: Text) -> Int
+
+## To aVal (i: Int, j: Int) -> Float:
+    Return 1.0 / ((i + j) * (i + j + 1) / 2 + i + 1).
+
+## To mulAv (n: Int, v: Seq of Float, out: Seq of Float) -> Seq of Float:
+    Let mutable result be out.
+    Let mutable i be 0.
+    While i is less than n:
+        Let mutable sum be 0.0.
+        Let mutable j be 0.
+        While j is less than n:
+            Set sum to sum + aVal(i, j) * item (j + 1) of v.
+            Set j to j + 1.
+        Set item (i + 1) of result to sum.
+        Set i to i + 1.
+    Return result.
+
+## To mulAtv (n: Int, v: Seq of Float, out: Seq of Float) -> Seq of Float:
+    Let mutable result be out.
+    Let mutable i be 0.
+    While i is less than n:
+        Let mutable sum be 0.0.
+        Let mutable j be 0.
+        While j is less than n:
+            Set sum to sum + aVal(j, i) * item (j + 1) of v.
+            Set j to j + 1.
+        Set item (i + 1) of result to sum.
+        Set i to i + 1.
+    Return result.
+
+## To mulAtav (n: Int, v: Seq of Float, result: Seq of Float, tmp: Seq of Float) -> Seq of Float:
+    Let t be mulAv(n, v, tmp).
+    Return mulAtv(n, t, result).
+
+## Main
+Let arguments be args().
+Let n be parseInt(item 2 of arguments).
+Let mutable u be a new Seq of Float.
+Let mutable v be a new Seq of Float.
+Let mutable tmp be a new Seq of Float.
+Let mutable i be 0.
+While i is less than n:
+    Push 1.0 to u.
+    Push 0.0 to v.
+    Push 0.0 to tmp.
+    Set i to i + 1.
+Set i to 0.
+While i is less than 10:
+    Set v to mulAtav(n, u, v, tmp).
+    Set u to mulAtav(n, v, u, tmp).
+    Set i to i + 1.
+Let mutable vbv be 0.0.
+Let mutable vv be 0.0.
+Set i to 1.
+While i is at most n:
+    Set vbv to vbv + item i of u * item i of v.
+    Set vv to vv + item i of v * item i of v.
+    Set i to i + 1.
+Let result be sqrt(vbv / vv).
+Show "{result:.9}".

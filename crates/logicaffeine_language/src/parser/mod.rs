@@ -73,8 +73,9 @@ pub use verb::{LogicVerbParsing, ImperativeVerbParsing};
 
 use crate::analysis::TypeRegistry;
 use crate::arena_ctx::AstContext;
-use crate::ast::{AspectOperator, LogicExpr, NeoEventData, NumberKind, QuantifierKind, TemporalOperator, Term, ThematicRole, Stmt, Expr, Literal, TypeExpr, BinaryOpKind, MatchArm};
+use crate::ast::{AspectOperator, LogicExpr, NeoEventData, NumberKind, QuantifierKind, TemporalOperator, Term, ThematicRole, Stmt, Expr, Literal, TypeExpr, BinaryOpKind, MatchArm, OptFlag};
 use crate::ast::stmt::{ReadSource, Pattern};
+use std::collections::HashSet;
 use crate::drs::{Case, Gender, Number, ReferentSource};
 use crate::drs::{Drs, BoxType, WorldState};
 use crate::error::{ParseError, ParseErrorKind};
@@ -419,6 +420,8 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
             TokenType::CollaborativeSequence => Ok(self.interner.intern("CollaborativeSequence")),
             TokenType::SharedMap => Ok(self.interner.intern("SharedMap")),
             TokenType::Divergent => Ok(self.interner.intern("Divergent")),
+            // Type parameter names (e.g. T, U) can be tokenized as articles by the English lexer
+            TokenType::Article(_) => Ok(t.lexeme),
             other => Err(ParseError {
                 kind: ParseErrorKind::ExpectedContentWord { found: other },
                 span: self.current_span(),
@@ -737,6 +740,7 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                     BlockType::Theorem | BlockType::Definition | BlockType::Proof |
                     BlockType::Example | BlockType::Logic | BlockType::Note | BlockType::TypeDef |
                     BlockType::Policy | BlockType::Requires => ParserMode::Declarative,
+                    BlockType::No => self.mode, // Annotation — keep current mode
                 };
                 self.current += 1;
             } else {
@@ -1102,6 +1106,7 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
     pub fn parse_program(&mut self) -> ParseResult<Vec<Stmt<'a>>> {
         let mut statements = Vec::new();
         let mut in_definition_block = false;
+        let mut pending_opt_flags: HashSet<OptFlag> = HashSet::new();
 
         // Check if we started in a Definition block (from process_block_headers)
         if self.mode == ParserMode::Declarative {
@@ -1126,12 +1131,42 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                         self.advance();
                         continue;
                     }
+                    BlockType::No => {
+                        // Optimization annotation: ## No Memo, ## No TCO, etc.
+                        self.advance(); // consume the ## No header
+                        // Parse the annotation keyword that follows.
+                        // Use the token's lexeme for a universal approach regardless of token type.
+                        if let Some(token) = self.tokens.get(self.current) {
+                            let word = self.interner.resolve(token.lexeme).to_lowercase();
+                            match word.as_str() {
+                                "memo" => { pending_opt_flags.insert(OptFlag::NoMemo); }
+                                "tco" => { pending_opt_flags.insert(OptFlag::NoTCO); }
+                                "peephole" => { pending_opt_flags.insert(OptFlag::NoPeephole); }
+                                "borrow" => { pending_opt_flags.insert(OptFlag::NoBorrow); }
+                                "optimize" => {
+                                    pending_opt_flags.insert(OptFlag::NoOptimize);
+                                    pending_opt_flags.insert(OptFlag::NoMemo);
+                                    pending_opt_flags.insert(OptFlag::NoTCO);
+                                    pending_opt_flags.insert(OptFlag::NoPeephole);
+                                    pending_opt_flags.insert(OptFlag::NoBorrow);
+                                }
+                                _ => {} // Unknown annotation — ignore silently
+                            }
+                            self.advance(); // consume the flag word
+                        }
+                        // Skip any trailing newlines
+                        while self.check(&TokenType::Newline) {
+                            self.advance();
+                        }
+                        continue;
+                    }
                     BlockType::Function => {
                         in_definition_block = false;
                         self.mode = ParserMode::Imperative;
                         self.advance();
-                        // Parse function definition
-                        let func_def = self.parse_function_def()?;
+                        // Parse function definition, passing pending annotations
+                        let flags = std::mem::take(&mut pending_opt_flags);
+                        let func_def = self.parse_function_def_with_flags(flags)?;
                         statements.push(func_def);
                         continue;
                     }
@@ -1230,6 +1265,9 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
         }
         if self.check(&TokenType::Return) {
             return self.parse_return_statement();
+        }
+        if self.check(&TokenType::Break) {
+            return self.parse_break_statement();
         }
         if self.check(&TokenType::If) {
             return self.parse_if_statement();
@@ -1931,12 +1969,13 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
         // Check for Give keyword to mark ownership transfer
         if self.check(&TokenType::Give) {
             self.advance(); // consume "Give"
-            let value = self.parse_imperative_expr()?;
+            let value = self.parse_comparison()?;
             return Ok(self.ctx.alloc_imperative_expr(Expr::Give { value }));
         }
 
-        // Otherwise parse normal expression
-        self.parse_imperative_expr()
+        // Otherwise parse normal expression — use parse_comparison() so that
+        // "and" remains available as an argument separator in parse_call_arguments()
+        self.parse_comparison()
     }
 
     fn parse_condition(&mut self) -> ParseResult<&'a Expr<'a>> {
@@ -1981,19 +2020,14 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
 
     /// Grand Challenge: Parse a single comparison expression
     fn parse_comparison(&mut self) -> ParseResult<&'a Expr<'a>> {
-        // Handle unary "not" operator: "not a" or "not (x > 5)"
+        // Handle unary "not" operator: "not x" or "not (expr)"
         if self.check(&TokenType::Not) || self.check_word("not") {
             self.advance(); // consume "not"
-            let operand = self.parse_comparison()?; // recursive to handle "not not x"
-            // Implement as: operand == false (since we don't have UnaryNot)
-            return Ok(self.ctx.alloc_imperative_expr(Expr::BinaryOp {
-                op: BinaryOpKind::Eq,
-                left: operand,
-                right: self.ctx.alloc_imperative_expr(Expr::Literal(Literal::Boolean(false))),
-            }));
+            let operand = self.parse_comparison()?; // recursive for "not not x"
+            return Ok(self.ctx.alloc_imperative_expr(Expr::Not { operand }));
         }
 
-        let left = self.parse_imperative_expr()?;
+        let left = self.parse_xor_expr()?;
 
         // Check for comparison operators
         let op = if self.check(&TokenType::Equals) {
@@ -2079,7 +2113,7 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
         };
 
         if let Some(op) = op {
-            let right = self.parse_imperative_expr()?;
+            let right = self.parse_xor_expr()?;
             Ok(self.ctx.alloc_imperative_expr(Expr::BinaryOp { op, left, right }))
         } else {
             Ok(left)
@@ -2492,6 +2526,11 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
         // Use parse_comparison to support returning comparison results like "n equals 5"
         let value = self.parse_comparison()?;
         Ok(Stmt::Return { value: Some(value) })
+    }
+
+    fn parse_break_statement(&mut self) -> ParseResult<Stmt<'a>> {
+        self.advance(); // consume "Break"
+        Ok(Stmt::Break)
     }
 
     fn parse_assert_statement(&mut self) -> ParseResult<Stmt<'a>> {
@@ -4390,8 +4429,9 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
             // Parse field name
             let field_name = self.expect_identifier()?;
 
-            // Parse field value expression
-            let value = self.parse_imperative_expr()?;
+            // Parse field value expression — use parse_comparison to stop before
+            // "and"/"or" which serve as field separators in constructor syntax
+            let value = self.parse_comparison()?;
 
             fields.push((field_name, value));
 
@@ -4629,6 +4669,11 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
     /// Syntax: [To] [native] name (a: Type) [and (b: Type)] [-> ReturnType]
     ///         body statements... (only if not native)
     fn parse_function_def(&mut self) -> ParseResult<Stmt<'a>> {
+        self.parse_function_def_with_flags(HashSet::new())
+    }
+
+    /// Parse function definition with optimization annotation flags.
+    fn parse_function_def_with_flags(&mut self, opt_flags: HashSet<OptFlag>) -> ParseResult<Stmt<'a>> {
         // Consume "To" if present (when called from parse_statement)
         if self.check(&TokenType::To) || self.check_preposition_is("to") {
             self.advance();
@@ -4644,6 +4689,35 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
 
         // Parse function name (first identifier after ## To [native])
         let name = self.expect_identifier()?;
+
+        // Parse optional generic type parameters: "of [T]" or "of [T] and [U]"
+        let mut parsed_generics: Vec<Symbol> = Vec::new();
+        if self.check_preposition_is("of") {
+            self.advance(); // consume "of"
+            loop {
+                if !self.check(&TokenType::LBracket) {
+                    return Err(ParseError {
+                        kind: ParseErrorKind::Custom("Expected '[TypeParam]' after 'of' in generic function".to_string()),
+                        span: self.current_span(),
+                    });
+                }
+                self.advance(); // consume [
+                let type_param = self.expect_identifier()?;
+                parsed_generics.push(type_param);
+                if !self.check(&TokenType::RBracket) {
+                    return Err(ParseError {
+                        kind: ParseErrorKind::Custom("Expected ']' after type parameter name".to_string()),
+                        span: self.current_span(),
+                    });
+                }
+                self.advance(); // consume ]
+                if self.check_word("and") {
+                    self.advance(); // consume "and"
+                } else {
+                    break;
+                }
+            }
+        }
 
         // Parse parameters: (name: Type) groups separated by "and", or comma-separated in one group
         let mut params = Vec::new();
@@ -4767,6 +4841,7 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
 
             return Ok(Stmt::FunctionDef {
                 name,
+                generics: parsed_generics,
                 params,
                 body: empty_body,
                 return_type,
@@ -4774,6 +4849,7 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                 native_path,
                 is_exported: false,
                 export_target: None,
+                opt_flags: opt_flags.clone(),
             });
         }
 
@@ -4825,6 +4901,7 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
 
         Ok(Stmt::FunctionDef {
             name,
+            generics: parsed_generics,
             params,
             body,
             return_type,
@@ -4832,6 +4909,7 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
             native_path: None,
             is_exported,
             export_target,
+            opt_flags,
         })
     }
 
@@ -5104,6 +5182,18 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                     }
                     self.advance(); // consume ')'
                     inner
+                } else if self.check(&TokenType::Length) {
+                    // "length of X" compound expression as start index
+                    self.advance(); // consume "length"
+                    if self.check_preposition_is("of") {
+                        self.advance(); // consume "of"
+                        let target = self.parse_primary_expr()?;
+                        self.ctx.alloc_imperative_expr(Expr::Length { collection: target })
+                    } else {
+                        // Bare "length" as identifier
+                        let sym = self.tokens[self.current - 1].lexeme;
+                        self.ctx.alloc_imperative_expr(Expr::Identifier(sym))
+                    }
                 } else if !self.check_preposition_is("through") {
                     // Variable identifier like mid, idx
                     let sym = self.peek().lexeme;
@@ -5156,8 +5246,20 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                     }
                     self.advance(); // consume ')'
                     inner
+                } else if self.check(&TokenType::Length) {
+                    // "length of X" compound expression as end index
+                    self.advance(); // consume "length"
+                    if self.check_preposition_is("of") {
+                        self.advance(); // consume "of"
+                        let target = self.parse_primary_expr()?;
+                        self.ctx.alloc_imperative_expr(Expr::Length { collection: target })
+                    } else {
+                        // Bare "length" as identifier
+                        let sym = self.tokens[self.current - 1].lexeme;
+                        self.ctx.alloc_imperative_expr(Expr::Identifier(sym))
+                    }
                 } else if !self.check_preposition_is("of") {
-                    // Variable identifier like n, length
+                    // Variable identifier like n, mid
                     let sym = self.peek().lexeme;
                     self.advance();
                     self.ctx.alloc_imperative_expr(Expr::Identifier(sym))
@@ -5235,8 +5337,8 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                     return self.parse_span_literal_from_num(&num_str);
                 }
 
-                // Check if it's a float (contains decimal point)
-                if num_str.contains('.') {
+                // Check if it's a float (contains decimal point or scientific notation)
+                if num_str.contains('.') || num_str.contains('e') || num_str.contains('E') {
                     let num = num_str.parse::<f64>().unwrap_or(0.0);
                     Ok(self.ctx.alloc_imperative_expr(Expr::Literal(Literal::Float(num))))
                 } else {
@@ -5249,6 +5351,14 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
             TokenType::StringLiteral(sym) => {
                 self.advance();
                 Ok(self.ctx.alloc_imperative_expr(Expr::Literal(Literal::Text(*sym))))
+            }
+
+            // String interpolation: "Hello, {name}!"
+            TokenType::InterpolatedString(sym) => {
+                let raw = self.interner.resolve(*sym).to_string();
+                self.advance();
+                let parts = self.parse_interpolation_parts(&raw)?;
+                Ok(self.ctx.alloc_imperative_expr(Expr::InterpolatedString(parts)))
             }
 
             // Character literals
@@ -5339,7 +5449,9 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                 }
                 self.advance(); // consume "of"
 
-                let collection = self.parse_imperative_expr()?;
+                // Use parse_primary_expr so "length of arr / 2" binds as
+                // "(length of arr) / 2" rather than "length of (arr / 2)"
+                let collection = self.parse_primary_expr()?;
                 Ok(self.ctx.alloc_imperative_expr(Expr::Length { collection }))
             }
 
@@ -5579,7 +5691,10 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
             TokenType::Both |      // correlative: "both X and Y"
             TokenType::Either |    // correlative: "either X or Y"
             TokenType::Combined |  // string concat: "combined with"
-            TokenType::Shared => { // CRDT modifier
+            TokenType::Shared |    // CRDT modifier
+            TokenType::Particle(_) |  // phrasal verb particles: out, up, down, etc.
+            TokenType::Preposition(_) |  // prepositions: from, into, etc.
+            TokenType::All => {    // quantifier in FOL, but valid variable name in imperative code
                 let sym = token.lexeme;
                 self.advance();
 
@@ -5817,21 +5932,40 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
         }))
     }
 
-    /// Parse a complete imperative expression including binary operators.
-    /// Uses precedence climbing for correct associativity and precedence.
+    /// Parse a complete imperative expression with full operator precedence.
+    /// Delegates to parse_condition to support and/or/xor/shifts/comparisons
+    /// in all expression contexts (Let, Set, function arguments, etc.).
     fn parse_imperative_expr(&mut self) -> ParseResult<&'a Expr<'a>> {
-        self.parse_additive_expr()
+        self.parse_condition()
+    }
+
+    /// Parse XOR expressions: "x xor y" → `x ^ y`
+    /// Precedence: below comparison, above additive.
+    fn parse_xor_expr(&mut self) -> ParseResult<&'a Expr<'a>> {
+        let mut left = self.parse_additive_expr()?;
+
+        while self.check(&TokenType::Xor) {
+            self.advance(); // consume "xor"
+            let right = self.parse_additive_expr()?;
+            left = self.ctx.alloc_imperative_expr(Expr::BinaryOp {
+                op: BinaryOpKind::BitXor,
+                left,
+                right,
+            });
+        }
+
+        Ok(left)
     }
 
     /// Parse additive expressions (+, -, combined with, union, intersection, contains) - left-to-right associative
     fn parse_additive_expr(&mut self) -> ParseResult<&'a Expr<'a>> {
-        let mut left = self.parse_multiplicative_expr()?;
+        let mut left = self.parse_shift_expr()?;
 
         loop {
             match &self.peek().kind {
                 TokenType::Plus => {
                     self.advance();
-                    let right = self.parse_multiplicative_expr()?;
+                    let right = self.parse_shift_expr()?;
                     left = self.ctx.alloc_imperative_expr(Expr::BinaryOp {
                         op: BinaryOpKind::Add,
                         left,
@@ -5840,7 +5974,7 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                 }
                 TokenType::Minus => {
                     self.advance();
-                    let right = self.parse_multiplicative_expr()?;
+                    let right = self.parse_shift_expr()?;
                     left = self.ctx.alloc_imperative_expr(Expr::BinaryOp {
                         op: BinaryOpKind::Subtract,
                         left,
@@ -5858,7 +5992,7 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                         });
                     }
                     self.advance(); // consume "with"
-                    let right = self.parse_multiplicative_expr()?;
+                    let right = self.parse_shift_expr()?;
                     left = self.ctx.alloc_imperative_expr(Expr::BinaryOp {
                         op: BinaryOpKind::Concat,
                         left,
@@ -5868,7 +6002,7 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                 // Set operations: union, intersection
                 TokenType::Union => {
                     self.advance(); // consume "union"
-                    let right = self.parse_multiplicative_expr()?;
+                    let right = self.parse_shift_expr()?;
                     left = self.ctx.alloc_imperative_expr(Expr::Union {
                         left,
                         right,
@@ -5876,7 +6010,7 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                 }
                 TokenType::Intersection => {
                     self.advance(); // consume "intersection"
-                    let right = self.parse_multiplicative_expr()?;
+                    let right = self.parse_shift_expr()?;
                     left = self.ctx.alloc_imperative_expr(Expr::Intersection {
                         left,
                         right,
@@ -5885,7 +6019,7 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                 // Set membership: "set contains value"
                 TokenType::Contains => {
                     self.advance(); // consume "contains"
-                    let value = self.parse_multiplicative_expr()?;
+                    let value = self.parse_shift_expr()?;
                     left = self.ctx.alloc_imperative_expr(Expr::Contains {
                         collection: left,
                         value,
@@ -5893,6 +6027,46 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                 }
                 _ => break,
             }
+        }
+
+        Ok(left)
+    }
+
+    /// Parse shift expressions: "x shifted left by y" / "x shifted right by y"
+    /// Precedence: below additive, above multiplicative.
+    fn parse_shift_expr(&mut self) -> ParseResult<&'a Expr<'a>> {
+        let mut left = self.parse_multiplicative_expr()?;
+
+        loop {
+            if !self.check(&TokenType::Shifted) {
+                break;
+            }
+            self.advance(); // consume "shifted"
+
+            let is_left = self.check_word("left");
+            if is_left {
+                self.advance(); // consume "left"
+            } else if self.check_word("right") {
+                self.advance(); // consume "right"
+            } else {
+                return Err(ParseError {
+                    kind: ParseErrorKind::ExpectedKeyword { keyword: "left or right".to_string() },
+                    span: self.current_span(),
+                });
+            }
+
+            // Expect "by"
+            if !self.check_preposition_is("by") && !self.check_word("by") {
+                return Err(ParseError {
+                    kind: ParseErrorKind::ExpectedKeyword { keyword: "by".to_string() },
+                    span: self.current_span(),
+                });
+            }
+            self.advance(); // consume "by"
+
+            let right = self.parse_multiplicative_expr()?;
+            let op = if is_left { BinaryOpKind::Shl } else { BinaryOpKind::Shr };
+            left = self.ctx.alloc_imperative_expr(Expr::BinaryOp { op, left, right });
         }
 
         Ok(left)
@@ -5971,6 +6145,176 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
 
     /// Parse a Span literal starting from a number that was already consumed.
     /// Handles patterns like: "3 days", "2 months", "1 year and 3 days"
+    /// Parse the contents of an interpolated string into a sequence of literal/expression parts.
+    ///
+    /// Input is the raw string content (without quotes), e.g., `Hello, {name}! Value: {x:.2}`
+    /// `{{` and `}}` are escape sequences for literal braces.
+    fn parse_interpolation_parts(&mut self, raw: &str) -> ParseResult<Vec<crate::ast::stmt::StringPart<'a>>> {
+        use crate::ast::stmt::StringPart;
+
+        let mut parts = Vec::new();
+        let chars: Vec<char> = raw.chars().collect();
+        let mut i = 0;
+        let mut literal_buf = String::new();
+
+        while i < chars.len() {
+            match chars[i] {
+                '{' if i + 1 < chars.len() && chars[i + 1] == '{' => {
+                    // Escaped brace: {{ → literal {
+                    literal_buf.push('{');
+                    i += 2;
+                }
+                '{' => {
+                    // Flush literal buffer
+                    if !literal_buf.is_empty() {
+                        let sym = self.interner.intern(&literal_buf);
+                        parts.push(StringPart::Literal(sym));
+                        literal_buf.clear();
+                    }
+
+                    // Find matching closing brace
+                    let start = i + 1;
+                    let mut depth = 1;
+                    let mut j = start;
+                    while j < chars.len() && depth > 0 {
+                        if chars[j] == '{' { depth += 1; }
+                        if chars[j] == '}' { depth -= 1; }
+                        if depth > 0 { j += 1; }
+                    }
+                    if depth != 0 {
+                        return Err(ParseError {
+                            kind: crate::error::ParseErrorKind::Custom(
+                                "Unclosed interpolation brace in string".to_string()
+                            ),
+                            span: self.current_span(),
+                        });
+                    }
+
+                    let hole_content: String = chars[start..j].iter().collect();
+
+                    // Detect debug format: {var=} or {var=:.2}
+                    // Debug `=` is always the LAST `=` in the hole content.
+                    // Using rfind ensures comparison operators like `==` don't trigger
+                    // false positives — `{x == 5}` has no trailing `=` after an identifier.
+                    let (hole_after_debug, is_debug) = {
+                        if let Some(eq_pos) = hole_content.rfind('=') {
+                            let before_eq = hole_content[..eq_pos].trim();
+                            // Only treat as debug if the part before = is a simple identifier
+                            // and the `=` is not part of `==`, `<=`, `>=`, `!=`
+                            let is_double_eq = eq_pos > 0 && hole_content.as_bytes().get(eq_pos - 1) == Some(&b'=');
+                            let is_preceded_by_comparison = eq_pos > 0 && matches!(hole_content.as_bytes().get(eq_pos - 1), Some(b'!' | b'<' | b'>'));
+                            if !is_double_eq && !is_preceded_by_comparison
+                                && !before_eq.is_empty()
+                                && before_eq.chars().all(|c| c.is_alphanumeric() || c == '_')
+                            {
+                                (hole_content[..eq_pos].to_string() + &hole_content[eq_pos + 1..], true)
+                            } else {
+                                (hole_content.clone(), false)
+                            }
+                        } else {
+                            (hole_content.clone(), false)
+                        }
+                    };
+
+                    // Split on `:` for format specifier (but not `::`)
+                    let (expr_str, format_spec) = if let Some(colon_pos) = hole_after_debug.rfind(':') {
+                        let before = &hole_after_debug[..colon_pos];
+                        let after = &hole_after_debug[colon_pos + 1..];
+                        // Only treat as format spec if the part after `:` looks like a format spec
+                        // (starts with `.`, `<`, `>`, `^`, `$`, or a digit, or is a known specifier letter)
+                        if !after.is_empty() && (after.starts_with('.') || after.starts_with('<') || after.starts_with('>') || after.starts_with('^') || after == "$" || after.chars().next().map_or(false, |c| c.is_ascii_digit())) {
+                            // Validate the format spec matches a known pattern
+                            let valid = if after == "$" {
+                                true
+                            } else if after.starts_with('.') {
+                                after[1..].parse::<usize>().is_ok()
+                            } else if after.starts_with('<') || after.starts_with('>') || after.starts_with('^') {
+                                after[1..].parse::<usize>().is_ok()
+                            } else {
+                                after.parse::<usize>().is_ok()
+                            };
+                            if !valid {
+                                return Err(ParseError {
+                                    kind: crate::error::ParseErrorKind::Custom(
+                                        format!("Invalid format specifier `{}` in interpolation hole", after)
+                                    ),
+                                    span: self.current_span(),
+                                });
+                            }
+                            (before.to_string(), Some(after.to_string()))
+                        } else {
+                            (hole_after_debug.clone(), None)
+                        }
+                    } else {
+                        (hole_after_debug.clone(), None)
+                    };
+
+                    // Parse the expression through a sub-parser
+                    let expr_source = expr_str.trim().to_string();
+                    if expr_source.is_empty() {
+                        return Err(ParseError {
+                            kind: crate::error::ParseErrorKind::Custom(
+                                "Empty interpolation hole in string".to_string()
+                            ),
+                            span: self.current_span(),
+                        });
+                    }
+
+                    // Lex + parse the expression fragment by temporarily swapping
+                    // the parser's token stream
+                    let sub_expr = {
+                        let mut sub_lexer = crate::lexer::Lexer::new(&expr_source, self.interner);
+                        let sub_tokens = sub_lexer.tokenize();
+
+                        // Save and swap parser state
+                        let saved_tokens = std::mem::replace(&mut self.tokens, sub_tokens);
+                        let saved_current = self.current;
+                        self.current = 0;
+
+                        let result = self.parse_primary_or_binary_expr();
+
+                        // Restore parser state
+                        self.tokens = saved_tokens;
+                        self.current = saved_current;
+
+                        result?
+                    };
+
+                    let format_sym = format_spec.map(|s| self.interner.intern(&s));
+                    parts.push(StringPart::Expr {
+                        value: sub_expr,
+                        format_spec: format_sym,
+                        debug: is_debug,
+                    });
+
+                    i = j + 1; // skip past closing '}'
+                }
+                '}' if i + 1 < chars.len() && chars[i + 1] == '}' => {
+                    // Escaped brace: }} → literal }
+                    literal_buf.push('}');
+                    i += 2;
+                }
+                _ => {
+                    literal_buf.push(chars[i]);
+                    i += 1;
+                }
+            }
+        }
+
+        // Flush remaining literal
+        if !literal_buf.is_empty() {
+            let sym = self.interner.intern(&literal_buf);
+            parts.push(StringPart::Literal(sym));
+        }
+
+        Ok(parts)
+    }
+
+    /// Parse a primary expression or a full binary expression for interpolation holes.
+    fn parse_primary_or_binary_expr(&mut self) -> ParseResult<&'a Expr<'a>> {
+        self.parse_imperative_expr()
+    }
+
     fn parse_span_literal_from_num(&mut self, first_num_str: &str) -> ParseResult<&'a Expr<'a>> {
         use crate::ast::Literal;
         use crate::token::CalendarUnit;
@@ -6184,10 +6528,15 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
             TokenType::Either |          // "either" (correlative: either X or Y)
             TokenType::Combined |        // "combined" (string concat: combined with)
             TokenType::Shared |          // "shared" (CRDT type modifier)
+            TokenType::All |             // "all" (FOL quantifier, valid variable name in imperative)
             // Calendar units can be type/variable names (Day, Week, Month, Year)
             TokenType::CalendarUnit(_) |
             // Phase 103: Focus particles can be variant names (Just, Only, Even)
             TokenType::Focus(_) |
+            // Phrasal verb particles can be variable names (out, up, down, etc.)
+            TokenType::Particle(_) |
+            // Prepositions can be variable names in code context (from, into, etc.)
+            TokenType::Preposition(_) |
             // Escape hatch keyword can be a variable name
             TokenType::Escape => {
                 // Use the raw lexeme (interned string) as the symbol

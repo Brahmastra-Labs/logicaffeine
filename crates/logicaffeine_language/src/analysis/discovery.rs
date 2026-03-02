@@ -1071,6 +1071,18 @@ impl<'a> DiscoveryPass<'a> {
                 self.advance();
                 Some(sym)
             }
+            // Phrasal verb particles can be identifiers (out, up, down, etc.)
+            TokenType::Particle(_) => {
+                let sym = t.lexeme;
+                self.advance();
+                Some(sym)
+            }
+            // Prepositions can be identifiers in code context (from, into, etc.)
+            TokenType::Preposition(_) => {
+                let sym = t.lexeme;
+                self.advance();
+                Some(sym)
+            }
             // Phase 103: Accept Focus tokens as identifiers (e.g., "Just" for Maybe variants)
             TokenType::Focus(_) => {
                 let sym = t.lexeme;

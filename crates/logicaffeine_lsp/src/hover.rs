@@ -50,6 +50,7 @@ pub fn hover(doc: &DocumentState, position: Position) -> Option<Hover> {
                 BlockType::Example => "Illustrative example",
                 BlockType::Note => "Documentation note",
                 BlockType::Requires => "External dependencies",
+                BlockType::No => "Optimization annotation",
             };
             let mut result = format!("**Block Header** — {}", desc);
 

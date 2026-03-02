@@ -2,7 +2,7 @@
 # Requires bash 4+ for associative arrays (macOS: brew install bash)
 # LOGICAFFEINE Cross-Language Benchmark Suite
 #
-# Builds, verifies, and benchmarks implementations across 10 languages + 3 LOGOS variants.
+# Builds, verifies, and benchmarks implementations across 11 languages.
 # Produces results/latest.json consumed by the /benchmarks website page.
 #
 # Requirements: gcc, g++, rustc, zig, go, java/javac, node, python3, ruby, nim, hyperfine, jq, bc
@@ -20,12 +20,34 @@ RESULTS_DIR="$SCRIPT_DIR/results"
 RAW_DIR="$RESULTS_DIR/raw"
 GENERATED_DIR="$SCRIPT_DIR/generated"
 
-BENCHMARKS=(fib sieve collect strings bubble_sort ackermann)
+BENCHMARKS=(
+    # Recursion & Function Calls
+    fib ackermann nqueens
+    # Sorting
+    bubble_sort mergesort quicksort counting_sort heap_sort
+    # Floating Point
+    nbody mandelbrot spectral_norm pi_leibniz
+    # Integer Mathematics
+    gcd collatz primes
+    # Array Patterns
+    sieve matrix_mult prefix_sum array_reverse array_fill
+    # Hash Maps & Lookup
+    collect two_sum histogram
+    # Dynamic Programming
+    knapsack coins
+    # Combinatorial
+    fannkuch
+    # Memory & Allocation
+    strings binary_trees
+    # Loop Overhead & Control Flow
+    loop_sum fib_iterative graph_bfs string_search
+)
 
-WARMUP="${BENCH_WARMUP:-5}"
-RUNS="${BENCH_RUNS:-20}"
+WARMUP="${BENCH_WARMUP:-2}"
+RUNS="${BENCH_RUNS:-10}"
 TIMEOUT="${BENCH_TIMEOUT:-120}"
 BUILD_TIMEOUT="${BUILD_TIMEOUT:-60}"
+HYPERFINE_TIMEOUT="${BENCH_HYPERFINE_TIMEOUT:-300}"  # 5 min per hyperfine invocation
 SIZES_MODE="${BENCH_SIZES:-all}"  # "all" or "ref" (reference only)
 SKIP_LANGS="${SKIP_LANGS:-}"      # comma-separated list of langs to skip (e.g., "zig,nim")
 
@@ -80,6 +102,20 @@ else
     }
 fi
 
+# Merge multiple single-language hyperfine JSONs into one combined result.
+# Output matches hyperfine's native multi-command format so downstream
+# Phase 5 assembly code works unchanged.
+merge_hyperfine_results() {
+    local output_file="$1"
+    shift
+    local files=("$@")
+    if [ ${#files[@]} -eq 0 ]; then
+        echo '{"results":[]}' > "$output_file"
+        return
+    fi
+    jq -s '{ results: [.[].results[]] }' "${files[@]}" > "$output_file"
+}
+
 # ===========================================================================
 # Phase 1: Build Everything
 # ===========================================================================
@@ -88,7 +124,13 @@ info "Phase 1: Building all implementations..."
 # Build largo (the LOGOS CLI)
 info "Building largo..."
 cargo build -p logicaffeine-cli --release --manifest-path "$SCRIPT_DIR/../Cargo.toml" 2>/dev/null
-LARGO="$SCRIPT_DIR/../target/release/logicaffeine-cli"
+LARGO="$LOGOS_TARGET_DIR/release/logicaffeine-cli"
+if [ ! -f "$LARGO" ]; then
+    LARGO="$LOGOS_TARGET_DIR/release/largo"
+fi
+if [ ! -f "$LARGO" ]; then
+    LARGO="$SCRIPT_DIR/../target/release/logicaffeine-cli"
+fi
 if [ ! -f "$LARGO" ]; then
     LARGO="$SCRIPT_DIR/../target/release/largo"
 fi
@@ -167,6 +209,7 @@ TOML
                 LOGOS_BIN=$(find "$LOGOS_TMP/target/release" -type f -executable -name "bench" 2>/dev/null | head -1)
             fi
             if [ -n "$LOGOS_BIN" ]; then
+                rm -f "$BIN_DIR/${bench}_logos_release"
                 cp "$LOGOS_BIN" "$BIN_DIR/${bench}_logos_release"
                 ok "  LOGOS (release)"
             else
@@ -178,22 +221,6 @@ TOML
                 cp "$GENERATED_RS" "$GENERATED_DIR/$bench.rs" 2>/dev/null || true
             fi
         } || warn "  LOGOS (release) build failed"
-
-        # LOGOS (debug)
-        (cd "$LOGOS_TMP" && "$LARGO" build 2>/dev/null) && {
-            LOGOS_BIN=""
-            if [ -n "${CARGO_TARGET_DIR:-}" ] && [ -f "$CARGO_TARGET_DIR/debug/bench" ]; then
-                LOGOS_BIN="$CARGO_TARGET_DIR/debug/bench"
-            elif [[ "$(uname -s)" == "Darwin" ]]; then
-                LOGOS_BIN=$(find "$LOGOS_TMP/target/debug" -type f -perm +111 -name "bench" 2>/dev/null | head -1)
-            else
-                LOGOS_BIN=$(find "$LOGOS_TMP/target/debug" -type f -executable -name "bench" 2>/dev/null | head -1)
-            fi
-            if [ -n "$LOGOS_BIN" ]; then
-                cp "$LOGOS_BIN" "$BIN_DIR/${bench}_logos_debug"
-                ok "  LOGOS (debug)"
-            fi
-        } || warn "  LOGOS (debug) build failed"
 
         rm -rf "$LOGOS_TMP"
     fi
@@ -208,15 +235,19 @@ info "Phase 2: Verifying correctness at reference sizes..."
 
 ref_size() {
     case "$1" in
-        fib) echo 30 ;; sieve) echo 1000000 ;; collect) echo 50000 ;;
-        strings) echo 50000 ;; bubble_sort) echo 2000 ;; ackermann) echo 10 ;;
-    esac
-}
-
-interp_size() {
-    case "$1" in
-        fib) echo 35 ;; sieve) echo 10000 ;; collect) echo 1000 ;;
-        strings) echo 1000 ;; bubble_sort) echo 1000 ;; ackermann) echo 3 ;;
+        fib) echo 30 ;; ackermann) echo 10 ;; nqueens) echo 11 ;;
+        bubble_sort) echo 2000 ;; mergesort) echo 10000 ;; quicksort) echo 10000 ;;
+        counting_sort) echo 100000 ;; heap_sort) echo 10000 ;;
+        nbody) echo 10000 ;; mandelbrot) echo 500 ;; spectral_norm) echo 1000 ;; pi_leibniz) echo 10000000 ;;
+        gcd) echo 2000 ;; collatz) echo 1000000 ;; primes) echo 100000 ;;
+        sieve) echo 1000000 ;; matrix_mult) echo 200 ;; prefix_sum) echo 1000000 ;;
+        array_reverse) echo 1000000 ;; array_fill) echo 5000000 ;;
+        collect) echo 50000 ;; two_sum) echo 10000 ;; histogram) echo 1000000 ;;
+        knapsack) echo 1000 ;; coins) echo 10000 ;;
+        fannkuch) echo 9 ;;
+        strings) echo 50000 ;; binary_trees) echo 16 ;;
+        loop_sum) echo 100000000 ;; fib_iterative) echo 100000000 ;;
+        graph_bfs) echo 10000 ;; string_search) echo 100000 ;;
     esac
 }
 
@@ -233,32 +264,6 @@ verify() {
         fail "  $name: got '$output', expected '$expected'"
         ERRORS=$((ERRORS + 1))
     fi
-}
-
-verify_interp() {
-    local bench="$1" name="$2" expected="$3"
-    local interp_file="$PROGRAMS_DIR/$bench/interp.lg"
-    [ ! -f "$interp_file" ] && return
-
-    local INTERP_TMP
-    INTERP_TMP=$(mktemp -d)
-    mkdir -p "$INTERP_TMP/src"
-    cp "$interp_file" "$INTERP_TMP/src/main.lg"
-    cat > "$INTERP_TMP/Largo.toml" << 'TOML'
-[package]
-name = "bench_interp"
-version = "0.1.0"
-entry = "src/main.lg"
-TOML
-    local output
-    output=$(run_timeout "$TIMEOUT" bash -c "cd '$INTERP_TMP' && '$LARGO' run --interpret" 2>/dev/null | tr -d '[:space:]') || true
-    expected=$(echo "$expected" | tr -d '[:space:]')
-    if [ "$output" = "$expected" ]; then
-        ok "  $name: $output"
-    else
-        warn "  $name: got '$output', expected '$expected' (interpreter may not support this benchmark)"
-    fi
-    rm -rf "$INTERP_TMP"
 }
 
 for bench in "${BENCHMARKS[@]}"; do
@@ -282,15 +287,6 @@ for bench in "${BENCHMARKS[@]}"; do
     [ -f "$PROGRAMS_DIR/$bench/main.rb" ]  && verify "$bench" "Ruby" "RUBY_THREAD_VM_STACK_SIZE=67108864 ruby $PROGRAMS_DIR/$bench/main.rb" "$size" "$expected"
     [ -f "$BIN_DIR/${bench}_nim" ] && verify "$bench" "Nim" "$BIN_DIR/${bench}_nim" "$size" "$expected"
     [ -f "$BIN_DIR/${bench}_logos_release" ] && verify "$bench" "LOGOS (release)" "$BIN_DIR/${bench}_logos_release" "$size" "$expected"
-    [ -f "$BIN_DIR/${bench}_logos_debug" ]   && verify "$bench" "LOGOS (debug)" "$BIN_DIR/${bench}_logos_debug" "$size" "$expected"
-
-    # Verify interpreter (uses hardcoded smaller size, expected from corresponding file)
-    interp_size="$(interp_size "$bench")"
-    interp_expected_file="$PROGRAMS_DIR/$bench/expected_${interp_size}.txt"
-    if [ -f "$interp_expected_file" ] && [ -f "$PROGRAMS_DIR/$bench/interp.lg" ]; then
-        interp_expected=$(cat "$interp_expected_file")
-        verify_interp "$bench" "LOGOS (interpreted)" "$interp_expected"
-    fi
 done
 
 if [ "$ERRORS" -gt 0 ]; then
@@ -300,9 +296,50 @@ fi
 ok "Phase 2 complete: all implementations verified"
 
 # ===========================================================================
-# Phase 3: Benchmark Runtime (Scaling) + Interpreter
+# Phase 3: Benchmark Runtime (Scaling) — per-language timeout isolation
 # ===========================================================================
 info "Phase 3: Benchmarking runtime performance..."
+
+PER_LANG_DIR="$RAW_DIR/per_lang"
+mkdir -p "$PER_LANG_DIR"
+
+# Track which languages have timed out per benchmark.
+# Key: "${bench}_${lang_id}", Value: "1" if timed out.
+# A language that times out at size N is automatically skipped for all
+# larger sizes of that benchmark, avoiding wasted CI minutes.
+declare -A LANG_TIMEOUTS
+
+# Run a single language through hyperfine with its own timeout.
+# If it times out, mark it so larger sizes are skipped.
+try_bench() {
+    local lang_id="$1" label="$2" cmd="$3"
+
+    if skip_lang "$lang_id"; then
+        return
+    fi
+
+    if [[ "${LANG_TIMEOUTS[${bench}_${lang_id}]:-}" == "1" ]]; then
+        warn "  Skipping $label (timed out at smaller size)"
+        return
+    fi
+
+    local pf="$PER_LANG_DIR/${bench}_${size}_${lang_id}.json"
+    local rc=0
+    run_timeout "$HYPERFINE_TIMEOUT" hyperfine \
+        --warmup "$WARMUP" --runs "$RUNS" \
+        --export-json "$pf" --time-unit millisecond \
+        -n "$label" "$cmd" || rc=$?
+
+    if [ "$rc" -eq 124 ] || [ "$rc" -eq 143 ]; then
+        LANG_TIMEOUTS["${bench}_${lang_id}"]=1
+        warn "  $label timed out for $bench at $size — skipping larger sizes"
+        echo "$HYPERFINE_TIMEOUT" > "$RAW_DIR/${bench}_${size}_${lang_id}.timeout"
+    elif [ "$rc" -ne 0 ]; then
+        warn "  $label benchmark failed for $bench at $size"
+    fi
+
+    [ -f "$pf" ] && MERGE_FILES+=("$pf")
+}
 
 for bench in "${BENCHMARKS[@]}"; do
     if [ "$SIZES_MODE" = "ref" ]; then
@@ -312,91 +349,92 @@ for bench in "${BENCHMARKS[@]}"; do
     fi
     for size in $sizes; do
         info "Benchmarking $bench at n=$size..."
+        MERGE_FILES=()
 
-        # Build hyperfine command dynamically based on available binaries
-        HYPERFINE_ARGS=(
-            --warmup "$WARMUP"
-            --runs "$RUNS"
-            --export-json "$RAW_DIR/${bench}_${size}.json"
-            --time-unit millisecond
-        )
-
-        [ -f "$BIN_DIR/${bench}_c" ]   && HYPERFINE_ARGS+=(-n "C" "$BIN_DIR/${bench}_c $size")
-        [ -f "$BIN_DIR/${bench}_cpp" ] && HYPERFINE_ARGS+=(-n "C++" "$BIN_DIR/${bench}_cpp $size")
-        [ -f "$BIN_DIR/${bench}_rs" ]  && HYPERFINE_ARGS+=(-n "Rust" "$BIN_DIR/${bench}_rs $size")
-        [ -f "$BIN_DIR/${bench}_zig" ] && HYPERFINE_ARGS+=(-n "Zig" "$BIN_DIR/${bench}_zig $size")
-        [ -f "$BIN_DIR/${bench}_go" ]  && HYPERFINE_ARGS+=(-n "Go" "$BIN_DIR/${bench}_go $size")
-        [ -d "$BIN_DIR/java/$bench" ]  && HYPERFINE_ARGS+=(-n "Java" "java -cp $BIN_DIR/java/$bench Main $size")
-        # Skip JS for ackermann at n>10 (Node.js stack overflow crashes hyperfine, losing all results for that size)
+        [ -f "$BIN_DIR/${bench}_c" ]   && try_bench c "C" "$BIN_DIR/${bench}_c $size"
+        [ -f "$BIN_DIR/${bench}_cpp" ] && try_bench cpp "C++" "$BIN_DIR/${bench}_cpp $size"
+        [ -f "$BIN_DIR/${bench}_rs" ]  && try_bench rust "Rust" "$BIN_DIR/${bench}_rs $size"
+        [ -f "$BIN_DIR/${bench}_zig" ] && try_bench zig "Zig" "$BIN_DIR/${bench}_zig $size"
+        [ -f "$BIN_DIR/${bench}_go" ]  && try_bench go "Go" "$BIN_DIR/${bench}_go $size"
+        [ -d "$BIN_DIR/java/$bench" ]  && try_bench java "Java" "java -cp $BIN_DIR/java/$bench Main $size"
+        # Skip JS for ackermann at n>10 (Node.js stack overflow)
         if [ "$bench" != "ackermann" ] || [ "$size" -le 10 ]; then
-            [ -f "$PROGRAMS_DIR/$bench/main.js" ]  && HYPERFINE_ARGS+=(-n "JavaScript" "node $PROGRAMS_DIR/$bench/main.js $size")
+            [ -f "$PROGRAMS_DIR/$bench/main.js" ]  && try_bench js "JavaScript" "node $PROGRAMS_DIR/$bench/main.js $size"
         fi
-        [ -f "$PROGRAMS_DIR/$bench/main.py" ]  && HYPERFINE_ARGS+=(-n "Python" "python3 $PROGRAMS_DIR/$bench/main.py $size")
-        [ -f "$PROGRAMS_DIR/$bench/main.rb" ]  && HYPERFINE_ARGS+=(-n "Ruby" "RUBY_THREAD_VM_STACK_SIZE=67108864 ruby $PROGRAMS_DIR/$bench/main.rb $size")
-        [ -f "$BIN_DIR/${bench}_nim" ] && HYPERFINE_ARGS+=(-n "Nim" "$BIN_DIR/${bench}_nim $size")
-        [ -f "$BIN_DIR/${bench}_logos_release" ] && HYPERFINE_ARGS+=(-n "LOGOS (release)" "$BIN_DIR/${bench}_logos_release $size")
-        [ -f "$BIN_DIR/${bench}_logos_debug" ]   && HYPERFINE_ARGS+=(-n "LOGOS (debug)" "$BIN_DIR/${bench}_logos_debug $size")
+        [ -f "$PROGRAMS_DIR/$bench/main.py" ]  && try_bench python "Python" "python3 $PROGRAMS_DIR/$bench/main.py $size"
+        [ -f "$PROGRAMS_DIR/$bench/main.rb" ]  && try_bench ruby "Ruby" "RUBY_THREAD_VM_STACK_SIZE=67108864 ruby $PROGRAMS_DIR/$bench/main.rb $size"
+        [ -f "$BIN_DIR/${bench}_nim" ] && try_bench nim "Nim" "$BIN_DIR/${bench}_nim $size"
+        [ -f "$BIN_DIR/${bench}_logos_release" ] && try_bench logos_release "LOGOS (release)" "$BIN_DIR/${bench}_logos_release $size"
 
-        hyperfine "${HYPERFINE_ARGS[@]}" || warn "hyperfine failed for $bench at $size"
+        # Merge per-language results into the combined file Phase 5 expects
+        if [ ${#MERGE_FILES[@]} -gt 0 ]; then
+            merge_hyperfine_results "$RAW_DIR/${bench}_${size}.json" "${MERGE_FILES[@]}"
+        else
+            echo '{"results":[]}' > "$RAW_DIR/${bench}_${size}.json"
+        fi
+
+        # Collect per-language timeout markers into a single size-level marker
+        has_timeout=false
+        for tf in "$RAW_DIR/${bench}_${size}_"*.timeout; do
+            [ -f "$tf" ] && has_timeout=true && break
+        done
+        if [ "$has_timeout" = true ]; then
+            echo "$HYPERFINE_TIMEOUT" > "$RAW_DIR/${bench}_${size}.timeout"
+        fi
     done
-
-    # Interpreter benchmark (fixed size, separate run)
-    if [ -f "$PROGRAMS_DIR/$bench/interp.lg" ]; then
-        interp_size="$(interp_size "$bench")"
-        info "Benchmarking $bench interpreter at n=$interp_size..."
-
-        INTERP_TMP=$(mktemp -d)
-        mkdir -p "$INTERP_TMP/src"
-        cp "$PROGRAMS_DIR/$bench/interp.lg" "$INTERP_TMP/src/main.lg"
-        cat > "$INTERP_TMP/Largo.toml" << 'TOML'
-[package]
-name = "bench_interp"
-version = "0.1.0"
-entry = "src/main.lg"
-TOML
-        hyperfine \
-            --warmup "$WARMUP" \
-            --runs "$RUNS" \
-            --export-json "$RAW_DIR/${bench}_interp.json" \
-            --time-unit millisecond \
-            -n "LOGOS (interpreted)" \
-            "cd '$INTERP_TMP' && '$LARGO' run --interpret" \
-            || warn "interpreter benchmark failed for $bench"
-
-        rm -rf "$INTERP_TMP"
-    fi
 done
 
 ok "Phase 3 complete"
 
 # ===========================================================================
-# Phase 4: Benchmark Compilation Time
+# Phase 4: Benchmark Compilation Time — per-compiler timeout isolation
 # ===========================================================================
 info "Phase 4: Benchmarking compilation times..."
 
+declare -A COMPILE_TIMEOUTS
+
+try_compile_bench() {
+    local lang_id="$1" label="$2" cmd="$3"
+
+    if [[ "${COMPILE_TIMEOUTS[${bench}_${lang_id}]:-}" == "1" ]]; then
+        return
+    fi
+
+    local pf="$PER_LANG_DIR/compile_${bench}_${lang_id}.json"
+    local rc=0
+    run_timeout "$HYPERFINE_TIMEOUT" hyperfine \
+        --warmup 1 --runs 5 \
+        --export-json "$pf" --time-unit millisecond \
+        -n "$label" "$cmd" || rc=$?
+
+    if [ "$rc" -eq 124 ] || [ "$rc" -eq 143 ]; then
+        COMPILE_TIMEOUTS["${bench}_${lang_id}"]=1
+        warn "  $label compile timed out"
+    elif [ "$rc" -ne 0 ]; then
+        warn "  $label compile benchmark failed"
+    fi
+
+    [ -f "$pf" ] && COMPILE_MERGE_FILES+=("$pf")
+}
+
 for bench in "${BENCHMARKS[@]}"; do
     info "Compilation benchmark: $bench"
-    COMPILE_ARGS=(
-        --warmup 1
-        --runs 5
-        --export-json "$RAW_DIR/compile_${bench}.json"
-        --time-unit millisecond
-    )
+    COMPILE_MERGE_FILES=()
 
     [ -f "$PROGRAMS_DIR/$bench/main.c" ] && \
-        COMPILE_ARGS+=(-n "gcc -O2" "gcc -O2 -o /dev/null $PROGRAMS_DIR/$bench/main.c -lm")
+        try_compile_bench "gcc_-o2" "gcc -O2" "gcc -O2 -o /dev/null $PROGRAMS_DIR/$bench/main.c -lm"
     [ -f "$PROGRAMS_DIR/$bench/main.cpp" ] && \
-        COMPILE_ARGS+=(-n "g++ -O2" "g++ -O2 -std=c++17 -o /dev/null $PROGRAMS_DIR/$bench/main.cpp")
+        try_compile_bench "g++_-o2" "g++ -O2" "g++ -O2 -std=c++17 -o /dev/null $PROGRAMS_DIR/$bench/main.cpp"
     [ -f "$PROGRAMS_DIR/$bench/main.rs" ] && \
-        COMPILE_ARGS+=(-n "rustc -O" "rustc --edition 2021 -O -o /tmp/bench_rustc_out $PROGRAMS_DIR/$bench/main.rs && rm -f /tmp/bench_rustc_out")
+        try_compile_bench "rustc_-o" "rustc -O" "rustc --edition 2021 -O -o /tmp/bench_rustc_out $PROGRAMS_DIR/$bench/main.rs && rm -f /tmp/bench_rustc_out"
     [ -f "$PROGRAMS_DIR/$bench/main.go" ] && \
-        COMPILE_ARGS+=(-n "go build" "go build -o /dev/null $PROGRAMS_DIR/$bench/main.go")
+        try_compile_bench "go_build" "go build" "go build -o /dev/null $PROGRAMS_DIR/$bench/main.go"
     [ -f "$PROGRAMS_DIR/$bench/Main.java" ] && \
-        COMPILE_ARGS+=(-n "javac" "javac -d /tmp $PROGRAMS_DIR/$bench/Main.java")
+        try_compile_bench "javac" "javac" "javac -d /tmp $PROGRAMS_DIR/$bench/Main.java"
     command -v nim &>/dev/null && [ -f "$PROGRAMS_DIR/$bench/main.nim" ] && \
-        COMPILE_ARGS+=(-n "nim c" "nim c -d:release --hints:off -o:/dev/null $PROGRAMS_DIR/$bench/main.nim")
+        try_compile_bench "nim_c" "nim c" "nim c -d:release --hints:off -o:/dev/null $PROGRAMS_DIR/$bench/main.nim"
     command -v zig &>/dev/null && [ -f "$PROGRAMS_DIR/$bench/main.zig" ] && \
-        COMPILE_ARGS+=(-n "zig build-exe" "zig build-exe -O ReleaseFast --name /tmp/bench_zig_out $PROGRAMS_DIR/$bench/main.zig && rm -f /tmp/bench_zig_out")
+        try_compile_bench "zig_build-exe" "zig build-exe" "zig build-exe -O ReleaseFast --name /tmp/bench_zig_out $PROGRAMS_DIR/$bench/main.zig && rm -f /tmp/bench_zig_out"
 
     # LOGOS compilation (largo build + largo build --release)
     if [ -f "$PROGRAMS_DIR/$bench/main.lg" ]; then
@@ -409,11 +447,16 @@ name = "bench"
 version = "0.1.0"
 entry = "src/main.lg"
 TOML
-        COMPILE_ARGS+=(-n "largo build" "cd '$LOGOS_COMPILE_TMP' && '$LARGO' build")
-        COMPILE_ARGS+=(-n "largo build --release" "cd '$LOGOS_COMPILE_TMP' && '$LARGO' build --release")
+        try_compile_bench "largo_build" "largo build" "cd '$LOGOS_COMPILE_TMP' && '$LARGO' build"
+        try_compile_bench "largo_build_--release" "largo build --release" "cd '$LOGOS_COMPILE_TMP' && '$LARGO' build --release"
     fi
 
-    hyperfine "${COMPILE_ARGS[@]}" || warn "compile benchmark failed for $bench"
+    # Merge per-compiler results
+    if [ ${#COMPILE_MERGE_FILES[@]} -gt 0 ]; then
+        merge_hyperfine_results "$RAW_DIR/compile_${bench}.json" "${COMPILE_MERGE_FILES[@]}"
+    else
+        echo '{"results":[]}' > "$RAW_DIR/compile_${bench}.json"
+    fi
 
     # Clean up LOGOS compile temp dir if it was created
     [ -n "${LOGOS_COMPILE_TMP:-}" ] && rm -rf "$LOGOS_COMPILE_TMP"
@@ -505,15 +548,13 @@ LANGUAGES='[
   {"id":"cpp","label":"C++","color":"#f34b7d","tier":"systems"},
   {"id":"rust","label":"Rust","color":"#dea584","tier":"systems"},
   {"id":"zig","label":"Zig","color":"#f7a41d","tier":"systems"},
+  {"id":"logos_release","label":"LOGOS","color":"#00d4ff","tier":"systems"},
   {"id":"go","label":"Go","color":"#00ADD8","tier":"managed"},
   {"id":"java","label":"Java","color":"#b07219","tier":"managed"},
   {"id":"js","label":"JavaScript","color":"#f7df1e","tier":"managed"},
   {"id":"python","label":"Python","color":"#3776ab","tier":"interpreted"},
   {"id":"ruby","label":"Ruby","color":"#cc342d","tier":"interpreted"},
-  {"id":"nim","label":"Nim","color":"#ffe953","tier":"transpiled"},
-  {"id":"logos_release","label":"LOGOS (release)","color":"#00d4ff","tier":"logos"},
-  {"id":"logos_debug","label":"LOGOS (debug)","color":"#818cf8","tier":"logos"},
-  {"id":"logos_interp","label":"LOGOS (interpreted)","color":"#c084fc","tier":"logos"}
+  {"id":"nim","label":"Nim","color":"#ffe953","tier":"transpiled"}
 ]'
 
 # Map display names to JSON IDs
@@ -530,8 +571,6 @@ lang_id() {
         "Ruby")             echo ruby ;;
         "Nim")              echo nim ;;
         "LOGOS (release)")  echo logos_release ;;
-        "LOGOS (debug)")    echo logos_debug ;;
-        "LOGOS (interpreted)")  echo logos_interp ;;
         "gcc -O2")          echo "gcc_-o2" ;;
         "g++ -O2")          echo "g++_-o2" ;;
         "rustc -O")         echo "rustc_-o" ;;
@@ -548,20 +587,57 @@ lang_id() {
 # Benchmark descriptions
 bench_name() {
     case "$1" in
-        fib) echo "Recursive Fibonacci" ;; sieve) echo "Sieve of Eratosthenes" ;;
-        collect) echo "Collection Operations" ;; strings) echo "String Assembly" ;;
-        bubble_sort) echo "Bubble Sort" ;; ackermann) echo "Ackermann Function" ;;
+        fib) echo "Recursive Fibonacci" ;; ackermann) echo "Ackermann Function" ;; nqueens) echo "N-Queens" ;;
+        bubble_sort) echo "Bubble Sort" ;; mergesort) echo "Merge Sort" ;; quicksort) echo "Quicksort" ;;
+        counting_sort) echo "Counting Sort" ;; heap_sort) echo "Heap Sort" ;;
+        nbody) echo "N-Body Simulation" ;; mandelbrot) echo "Mandelbrot Set" ;;
+        spectral_norm) echo "Spectral Norm" ;; pi_leibniz) echo "Pi (Leibniz Series)" ;;
+        gcd) echo "GCD Sum" ;; collatz) echo "Collatz Conjecture" ;; primes) echo "Primes (Trial Division)" ;;
+        sieve) echo "Sieve of Eratosthenes" ;; matrix_mult) echo "Matrix Multiply" ;;
+        prefix_sum) echo "Prefix Sum" ;; array_reverse) echo "Array Reverse" ;; array_fill) echo "Array Fill & Sum" ;;
+        collect) echo "Collection Operations" ;; two_sum) echo "Two Sum" ;; histogram) echo "Histogram" ;;
+        knapsack) echo "0/1 Knapsack" ;; coins) echo "Coin Change" ;;
+        fannkuch) echo "Fannkuch Redux" ;;
+        strings) echo "String Assembly" ;; binary_trees) echo "Binary Trees" ;;
+        loop_sum) echo "Loop Sum" ;; fib_iterative) echo "Iterative Fibonacci" ;;
+        graph_bfs) echo "Graph BFS" ;; string_search) echo "Naive String Search" ;;
     esac
 }
 
 bench_desc() {
     case "$1" in
         fib) echo "Naive recursive fibonacci. Measures function call overhead and recursion depth." ;;
-        sieve) echo "Classic prime sieve. Measures indexed array mutation, tight loops, and conditional branching." ;;
-        collect) echo "Hash map insert and lookup. Measures hash computation, allocation pressure, and cache behavior." ;;
-        strings) echo "String concatenation and assembly. Measures allocator throughput and GC pressure." ;;
-        bubble_sort) echo "O(n^2) bubble sort. Measures nested loops, indexed array mutation, and swap patterns." ;;
         ackermann) echo "Ackermann(3, m). Measures extreme recursion depth and stack frame overhead." ;;
+        nqueens) echo "N-Queens backtracking. Measures recursive constraint solving." ;;
+        bubble_sort) echo "O(n^2) bubble sort. Measures nested loops, indexed array mutation, and swap patterns." ;;
+        mergesort) echo "Top-down merge sort. Measures allocation-heavy divide-and-conquer." ;;
+        quicksort) echo "Lomuto-partition quicksort. Measures in-place swap-heavy recursion." ;;
+        counting_sort) echo "Non-comparison O(n+k) sort. Measures pure array indexing throughput." ;;
+        heap_sort) echo "Heap sort with sift-down. Measures logarithmic array jumps." ;;
+        nbody) echo "5-body gravitational simulation. Measures FP struct arrays and sqrt." ;;
+        mandelbrot) echo "Mandelbrot set escape iteration. Measures FP branching and convergence." ;;
+        spectral_norm) echo "Spectral norm power method. Measures FP dot products and array throughput." ;;
+        pi_leibniz) echo "Leibniz series for pi. Measures pure FP loop overhead." ;;
+        gcd) echo "GCD sum via Euclidean algorithm. Measures modulo-heavy tight loops." ;;
+        collatz) echo "Collatz step counting. Measures unpredictable branching." ;;
+        primes) echo "Trial division prime counting. Measures nested loops with early exit." ;;
+        sieve) echo "Classic prime sieve. Measures indexed array mutation and tight loops." ;;
+        matrix_mult) echo "O(n^3) matrix multiply. Measures cache locality and triple-nested loops." ;;
+        prefix_sum) echo "Sequential prefix sum scan. Measures read-modify-write bandwidth." ;;
+        array_reverse) echo "Two-pointer in-place reversal. Measures strided cache access." ;;
+        array_fill) echo "Array push and sum. Measures raw memory bandwidth and allocation." ;;
+        collect) echo "Hash map insert and lookup. Measures hash computation and cache behavior." ;;
+        two_sum) echo "Interleaved hash insert+lookup. Measures hash table under mixed workload." ;;
+        histogram) echo "Array-indexed frequency counting. Measures random array access." ;;
+        knapsack) echo "0/1 knapsack DP. Measures 2D table fills and conditional max." ;;
+        coins) echo "Coin change DP. Measures 1D DP with inner-loop additions." ;;
+        fannkuch) echo "Fannkuch permutation benchmark. Measures tight array reversal loops." ;;
+        strings) echo "String concatenation and assembly. Measures allocator throughput and GC pressure." ;;
+        binary_trees) echo "Recursive tree creation and checksum. Measures allocation pressure." ;;
+        loop_sum) echo "Pure loop accumulation. Measures raw loop overhead with minimal body." ;;
+        fib_iterative) echo "Iterative fibonacci mod. Measures loop + data dependency chain." ;;
+        graph_bfs) echo "BFS on generated graph. Measures queue operations and random access." ;;
+        string_search) echo "Naive O(nm) string search. Measures character-level access and inner loop." ;;
     esac
 }
 
@@ -601,18 +677,30 @@ assemble_benchmark() {
                 name=$(extract_name "$result")
                 local lid
                 lid=$(lang_id "$name")
-                local mean_s median_s stddev_s min_s max_s
+                local mean_s median_s stddev_s min_s max_s user_s system_s
                 mean_s=$(echo "$result" | jq '.mean')
                 median_s=$(echo "$result" | jq '.median')
                 stddev_s=$(echo "$result" | jq '.stddev')
                 min_s=$(echo "$result" | jq '.min')
                 max_s=$(echo "$result" | jq '.max')
-                local mean_ms median_ms stddev_ms min_ms max_ms cv
+                user_s=$(echo "$result" | jq '.user // null')
+                system_s=$(echo "$result" | jq '.system // null')
+                local mean_ms median_ms stddev_ms min_ms max_ms cv user_ms system_ms
                 mean_ms=$(echo "$mean_s * 1000" | bc -l 2>/dev/null || echo "0")
                 median_ms=$(echo "$median_s * 1000" | bc -l 2>/dev/null || echo "0")
                 stddev_ms=$(echo "$stddev_s * 1000" | bc -l 2>/dev/null || echo "0")
                 min_ms=$(echo "$min_s * 1000" | bc -l 2>/dev/null || echo "0")
                 max_ms=$(echo "$max_s * 1000" | bc -l 2>/dev/null || echo "0")
+                if [ "$user_s" != "null" ] && [ -n "$user_s" ]; then
+                    user_ms=$(echo "$user_s * 1000" | bc -l 2>/dev/null || echo "null")
+                else
+                    user_ms="null"
+                fi
+                if [ "$system_s" != "null" ] && [ -n "$system_s" ]; then
+                    system_ms=$(echo "$system_s * 1000" | bc -l 2>/dev/null || echo "null")
+                else
+                    system_ms="null"
+                fi
                 if [ "$(echo "$mean_ms > 0" | bc -l 2>/dev/null)" = "1" ]; then
                     cv=$(echo "$stddev_ms / $mean_ms" | bc -l 2>/dev/null || echo "0")
                 else
@@ -627,52 +715,13 @@ assemble_benchmark() {
                     --argjson max "$max_ms" \
                     --argjson cv "$cv" \
                     --argjson runs "$RUNS" \
-                    '.[$lid] = {mean_ms: $mean, median_ms: $median, stddev_ms: $stddev, min_ms: $min, max_ms: $max, cv: $cv, runs: $runs}')
+                    --argjson user "$user_ms" \
+                    --argjson sys "$system_ms" \
+                    '.[$lid] = {mean_ms: $mean, median_ms: $median, stddev_ms: $stddev, min_ms: $min, max_ms: $max, cv: $cv, runs: $runs, user_ms: $user, system_ms: $sys}')
             done <<< "$results"
             scaling=$(echo "$scaling" | jq --arg size "$size" --argjson data "$size_data" '.[$size] = $data')
         fi
     done
-
-    # B7: Merge interpreter results into scaling at the interpreter's reference size
-    local interp_file="$RAW_DIR/${bench}_interp.json"
-    if [ -f "$interp_file" ]; then
-        local interp_size="$(interp_size "$bench")"
-        local results
-        results=$(jq -c '.results[]' "$interp_file" 2>/dev/null) || true
-        while IFS= read -r result; do
-            [ -z "$result" ] && continue
-            local mean_s median_s stddev_s min_s max_s
-            mean_s=$(echo "$result" | jq '.mean')
-            median_s=$(echo "$result" | jq '.median')
-            stddev_s=$(echo "$result" | jq '.stddev')
-            min_s=$(echo "$result" | jq '.min')
-            max_s=$(echo "$result" | jq '.max')
-            local mean_ms median_ms stddev_ms min_ms max_ms cv
-            mean_ms=$(echo "$mean_s * 1000" | bc -l 2>/dev/null || echo "0")
-            median_ms=$(echo "$median_s * 1000" | bc -l 2>/dev/null || echo "0")
-            stddev_ms=$(echo "$stddev_s * 1000" | bc -l 2>/dev/null || echo "0")
-            min_ms=$(echo "$min_s * 1000" | bc -l 2>/dev/null || echo "0")
-            max_ms=$(echo "$max_s * 1000" | bc -l 2>/dev/null || echo "0")
-            if [ "$(echo "$mean_ms > 0" | bc -l 2>/dev/null)" = "1" ]; then
-                cv=$(echo "$stddev_ms / $mean_ms" | bc -l 2>/dev/null || echo "0")
-            else
-                cv="0"
-            fi
-            # Add to the reference size entry (or create it if this size isn't in sizes.txt)
-            local existing_data
-            existing_data=$(echo "$scaling" | jq --arg size "$interp_size" '.[$size] // {}')
-            existing_data=$(echo "$existing_data" | jq \
-                --argjson mean "$mean_ms" \
-                --argjson median "$median_ms" \
-                --argjson stddev "$stddev_ms" \
-                --argjson min "$min_ms" \
-                --argjson max "$max_ms" \
-                --argjson cv "$cv" \
-                --argjson runs "$RUNS" \
-                '.logos_interp = {mean_ms: $mean, median_ms: $median, stddev_ms: $stddev, min_ms: $min, max_ms: $max, cv: $cv, runs: $runs}')
-            scaling=$(echo "$scaling" | jq --arg size "$interp_size" --argjson data "$existing_data" '.[$size] = $data')
-        done <<< "$results"
-    fi
 
     # Build compilation object
     local compilation="{}"
@@ -700,6 +749,25 @@ assemble_benchmark() {
         done <<< "$results"
     fi
 
+    # Collect timeout markers (size → timeout_ms)
+    local timeouts="{}"
+    for size in $sizes; do
+        if [ -f "$RAW_DIR/${bench}_${size}.timeout" ]; then
+            local timeout_secs
+            timeout_secs=$(cat "$RAW_DIR/${bench}_${size}.timeout")
+            local timeout_ms
+            timeout_ms=$(echo "$timeout_secs * 1000" | bc -l 2>/dev/null || echo "600000")
+            timeouts=$(echo "$timeouts" | jq --arg size "$size" --argjson ms "$timeout_ms" '.[$size] = $ms')
+        fi
+    done
+    if [ -f "$RAW_DIR/compile_${bench}.timeout" ]; then
+        local timeout_secs
+        timeout_secs=$(cat "$RAW_DIR/compile_${bench}.timeout")
+        local timeout_ms
+        timeout_ms=$(echo "$timeout_secs * 1000" | bc -l 2>/dev/null || echo "600000")
+        timeouts=$(echo "$timeouts" | jq --arg size "compile" --argjson ms "$timeout_ms" '.[$size] = $ms')
+    fi
+
     # Output benchmark JSON
     jq -n \
         --arg id "$bench" \
@@ -711,6 +779,7 @@ assemble_benchmark() {
         --arg sizes_str "$(cat "$PROGRAMS_DIR/$bench/sizes.txt")" \
         --argjson scaling "$scaling" \
         --argjson compilation "$compilation" \
+        --argjson timeouts "$timeouts" \
         '{
             id: $id,
             name: $name,
@@ -720,7 +789,8 @@ assemble_benchmark() {
             logos_source: $logos_src,
             generated_rust: $gen_rust,
             scaling: $scaling,
-            compilation: $compilation
+            compilation: $compilation,
+            timeouts: $timeouts
         }'
 }
 
@@ -801,6 +871,8 @@ jq -n \
     --arg cpu "$CPU" \
     --arg os "$OS" \
     --arg logos_version "$LOGOS_VER" \
+    --argjson warmup "$WARMUP" \
+    --argjson runs "$RUNS" \
     --argjson versions "$VERSIONS" \
     --argjson languages "$LANGUAGES" \
     --slurpfile benchmarks "$BENCHMARKS_JSON_FILE" \
@@ -813,6 +885,8 @@ jq -n \
             logos_version: $logos_version,
             cpu: $cpu,
             os: $os,
+            warmup: $warmup,
+            runs: $runs,
             versions: $versions
         },
         languages: $languages,

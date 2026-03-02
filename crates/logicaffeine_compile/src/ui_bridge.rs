@@ -663,7 +663,8 @@ pub fn generate_rust_code(source: &str) -> Result<String, ParseError> {
     let mut parser = Parser::new(tokens, &mut world_state, &mut interner, ast_ctx, type_registry);
     let stmts = parser.parse_program()?;
 
-    let rust_code = crate::codegen::codegen_program(&stmts, &codegen_registry, &codegen_policies, &interner);
+    let type_env = crate::analysis::types::TypeEnv::infer_program(&stmts, &interner, &codegen_registry);
+    let rust_code = crate::codegen::codegen_program(&stmts, &codegen_registry, &codegen_policies, &interner, &type_env);
     Ok(rust_code)
 }
 

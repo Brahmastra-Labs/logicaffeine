@@ -95,16 +95,16 @@ fn propagate_stmt<'a>(
             iterable,
             body: propagate_nested_block(body, env, mutated, expr_arena, stmt_arena, interner),
         },
-        Stmt::FunctionDef { name, params, body, return_type, is_native, native_path, is_exported, export_target } => {
+        Stmt::FunctionDef { name, params, generics, body, return_type, is_native, native_path, is_exported, export_target, opt_flags } => {
             let func_mutated = collect_all_set_targets_from_block(body);
             let mut func_env: HashMap<Symbol, &'a Expr<'a>> = HashMap::new();
             let new_body: Vec<Stmt<'a>> = body.iter().cloned().map(|stmt| {
                 propagate_stmt(stmt, &mut func_env, &func_mutated, expr_arena, stmt_arena, interner)
             }).collect();
             Stmt::FunctionDef {
-                name, params,
+                name, params, generics,
                 body: stmt_arena.alloc_slice(new_body),
-                return_type, is_native, native_path, is_exported, export_target,
+                return_type, is_native, native_path, is_exported, export_target, opt_flags,
             }
         }
         Stmt::Inspect { target, arms, has_otherwise } => Stmt::Inspect {
@@ -282,6 +282,10 @@ fn substitute_identifiers<'a>(
             let sv = substitute_identifiers(value, env, arena);
             if std::ptr::eq(sv, *value) { expr } else { arena.alloc(Expr::OptionSome { value: sv }) }
         }
+        Expr::Not { operand } => {
+            let so = substitute_identifiers(operand, env, arena);
+            if std::ptr::eq(so, *operand) { expr } else { arena.alloc(Expr::Not { operand: so }) }
+        }
         Expr::List(elems) => {
             let se: Vec<&'a Expr<'a>> = elems.iter().map(|e| substitute_identifiers(e, env, arena)).collect();
             let changed = se.iter().zip(elems.iter()).any(|(s, o)| !std::ptr::eq(*s, *o));
@@ -310,6 +314,8 @@ fn substitute_identifiers<'a>(
         }
         // Don't propagate into closures (captured variables may change)
         Expr::Closure { .. } => expr,
+        // Interpolated strings — don't substitute (preserves format string shape)
+        Expr::InterpolatedString(_) => expr,
         // Leaves
         Expr::Literal(_) | Expr::OptionNone | Expr::Escape { .. } => expr,
     }
