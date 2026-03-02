@@ -1094,7 +1094,13 @@ pub(crate) fn codegen_interpolated_string(
 
 pub(crate) fn codegen_literal(lit: &Literal, interner: &Interner) -> String {
     match lit {
-        Literal::Number(n) => n.to_string(),
+        Literal::Number(n) => {
+            if *n > i32::MAX as i64 || *n < i32::MIN as i64 {
+                format!("{}_i64", n)
+            } else {
+                n.to_string()
+            }
+        }
         Literal::Float(f) => format!("{}f64", f),
         // String literals are converted to String for consistent Text type handling
         Literal::Text(sym) => {

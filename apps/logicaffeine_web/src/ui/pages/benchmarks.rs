@@ -859,13 +859,16 @@ pub fn Benchmarks() -> Element {
 
     let logos_vs_c = data.summary.geometric_mean_speedup_vs_c
         .get("logos_release").copied().unwrap_or(0.0);
-    let python_speedup = data.summary.geometric_mean_speedup_vs_c
-        .get("python").copied().unwrap_or(0.001);
-    let logos_vs_python = if python_speedup > 0.0 { logos_vs_c / python_speedup } else { 0.0 };
+    let langs_with_data = data.summary.geometric_mean_speedup_vs_c.len();
 
     let bench = &data.benchmarks[active_bench()];
     let bench_sources = &sources[active_bench()];
-    let ref_size = &bench.reference_size;
+    // Use reference_size if it has data, otherwise fall back to the largest benchmarked size
+    let ref_size = if bench.scaling.contains_key(bench.reference_size.as_str()) {
+        bench.reference_size.clone()
+    } else {
+        bench.sizes.last().cloned().unwrap_or_else(|| bench.reference_size.clone())
+    };
     let ref_timings = bench.scaling.get(ref_size.as_str());
 
     // (label, color, median_ms, tier, is_logos, is_timeout)
@@ -1026,11 +1029,11 @@ pub fn Benchmarks() -> Element {
                         div { class: "bench-summary-label", "LOGOS vs C (geometric mean)" }
                     }
                     div { class: "bench-summary-card",
-                        div { class: "bench-summary-value green", "{logos_vs_python:.0}x" }
-                        div { class: "bench-summary-label", "LOGOS vs Python" }
+                        div { class: "bench-summary-value green", "{data.benchmarks.len()}" }
+                        div { class: "bench-summary-label", "Benchmarks" }
                     }
                     div { class: "bench-summary-card",
-                        div { class: "bench-summary-value purple", "{data.languages.len()}" }
+                        div { class: "bench-summary-value purple", "{langs_with_data}" }
                         div { class: "bench-summary-label", "Languages tested" }
                     }
                 }
