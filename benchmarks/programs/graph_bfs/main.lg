@@ -1,0 +1,61 @@
+## To native args () -> Seq of Text
+## To native parseInt (s: Text) -> Int
+
+## Main
+Let arguments be args().
+Let n be parseInt(item 2 of arguments).
+Let mutable adj be a new Seq of Int.
+Let mutable adjStarts be a new Seq of Int.
+Let mutable adjCounts be a new Seq of Int.
+Let mutable i be 0.
+While i is less than n:
+    Push i * 5 to adjStarts.
+    Push 0 to adjCounts.
+    Push 0 to adj. Push 0 to adj. Push 0 to adj. Push 0 to adj. Push 0 to adj.
+    Set i to i + 1.
+Let mutable primes be a new Seq of Int.
+Push 31 to primes. Push 37 to primes. Push 41 to primes. Push 43 to primes. Push 47 to primes.
+Let mutable offsets be a new Seq of Int.
+Push 7 to offsets. Push 13 to offsets. Push 17 to offsets. Push 23 to offsets. Push 29 to offsets.
+Let mutable p be 1.
+While p is at most 5:
+    Set i to 0.
+    While i is less than n:
+        Let neighbor be (i * item p of primes + item p of offsets) % n.
+        If neighbor is not i:
+            Let start be item (i + 1) of adjStarts.
+            Let cnt be item (i + 1) of adjCounts.
+            Set item (start + cnt + 1) of adj to neighbor.
+            Set item (i + 1) of adjCounts to cnt + 1.
+        Set i to i + 1.
+    Set p to p + 1.
+Let mutable queue be a new Seq of Int.
+Let mutable dist be a new Seq of Int.
+Set i to 0.
+While i is less than n:
+    Push 0 - 1 to dist.
+    Set i to i + 1.
+Push 0 to queue.
+Set item 1 of dist to 0.
+Let mutable front be 1.
+While front is at most length of queue:
+    Let v be item front of queue.
+    Let start be item (v + 1) of adjStarts.
+    Let cnt be item (v + 1) of adjCounts.
+    Let mutable e be 0.
+    While e is less than cnt:
+        Let u be item (start + e + 1) of adj.
+        If item (u + 1) of dist equals 0 - 1:
+            Set item (u + 1) of dist to item (v + 1) of dist + 1.
+            Push u to queue.
+        Set e to e + 1.
+    Set front to front + 1.
+Let mutable reachable be 0.
+Let mutable totalDist be 0.
+Set i to 0.
+While i is less than n:
+    If item (i + 1) of dist is at least 0:
+        Set reachable to reachable + 1.
+        Set totalDist to totalDist + item (i + 1) of dist.
+    Set i to i + 1.
+Show "" + reachable + " " + totalDist.

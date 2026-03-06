@@ -1,0 +1,35 @@
+## To native args () -> Seq of Text
+## To native parseInt (s: Text) -> Int
+
+## Main
+Let arguments be args().
+Let n be parseInt(item 2 of arguments).
+Let mutable a be a new Seq of Int.
+Let mutable b be a new Seq of Int.
+Let mutable c be a new Seq of Int.
+Let mutable i be 0.
+While i is less than n:
+    Let mutable j be 0.
+    While j is less than n:
+        Push (i * n + j) % 100 to a.
+        Push (j * n + i) % 100 to b.
+        Push 0 to c.
+        Set j to j + 1.
+    Set i to i + 1.
+Set i to 0.
+While i is less than n:
+    Let mutable k be 0.
+    While k is less than n:
+        Let mutable j be 0.
+        While j is less than n:
+            Let idx be i * n + j + 1.
+            Set item idx of c to (item idx of c + item (i * n + k + 1) of a * item (k * n + j + 1) of b) % 1000000007.
+            Set j to j + 1.
+        Set k to k + 1.
+    Set i to i + 1.
+Let mutable checksum be 0.
+Set i to 1.
+While i is at most n * n:
+    Set checksum to (checksum + item i of c) % 1000000007.
+    Set i to i + 1.
+Show checksum.

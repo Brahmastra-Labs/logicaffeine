@@ -62,6 +62,64 @@ pub fn get_articles_by_tag(tag: &str) -> Vec<&'static Article> {
 /// All news articles
 static ARTICLES: &[Article] = &[
     Article {
+        slug: "release-0-9-0-type-checker",
+        title: "v0.9.0 — Type Checker, Codegen Refactor & Performance Push",
+        date: "2026-02-27",
+        summary: "Bidirectional type checker with Robinson unification, codegen split into 13 modules, 15 performance optimizations, 6 new language features, and ~392 new tests.",
+        content: r#"
+## Bidirectional Type Checker
+
+The compiler now includes a full bidirectional type checker built on Robinson unification. It eliminates `Unknown` types across the board — field access, empty collections, option literals, pipe receives, inspect arm bindings, and closure calls all get concrete types. The checker runs between analysis and codegen, producing a `TypeEnv` that downstream optimization passes use for better decisions.
+
+## Codegen Architecture Refactor
+
+The monolithic `codegen.rs` (8,300 lines) has been split into 13 focused modules: `context`, `detection`, `expr`, `stmt`, `peephole`, `program`, `ffi`, `marshal`, `policy`, `bindings`, `tce`, and `types`. The public API is preserved via re-exports — no downstream breakage. The C backend (`codegen_c.rs`, 2,000 lines) was similarly split into `emit`, `runtime`, and `types`.
+
+## 15 Codegen Optimizations
+
+This release adds a battery of performance improvements:
+
+- **Last-use clone elimination** — skips `.clone()` when a value's last use is detected
+- **Liveness-based move** — backward dataflow analysis identifies variables that can be moved instead of cloned
+- **Sentinel exit detection** — eliminates redundant loop condition checks
+- **Dead post-loop counter elimination** — removes counter variables unused after loop exit
+- **HashMap `.get()` for comparisons** — avoids cloning map values just to compare them
+- **String byte comparison** — uses `.as_bytes()` for ASCII string equality
+- **Self-append via `write!`** — eliminates temporary allocations in string concatenation
+- **Flattened string concatenation** — chains of `+` on strings collapse into a single `format!`
+- **Read-only `&[T]` borrows** — call graph analysis identifies parameters that are never mutated
+- **`Vec::with_capacity`** — pre-allocates vectors when the size is known
+- **`assert_unchecked` for proven bounds** — removes redundant bounds checks
+- **Raised inline threshold** — more aggressive inlining for small functions
+- **Power-of-2 modulo strength reduction** — `x % 2^n` becomes `x & (2^n - 1)`
+- **`target-cpu=native`** — generated projects compile for the host CPU architecture
+- **FxHashMap/FxHashSet** — `rustc-hash` for faster integer-key hashing
+
+## New Language Features
+
+- **Bitwise operators**: `x xor y`, `x shifted left by y`, `x shifted right by y`
+- **Break statement**: `Break.` exits the innermost while loop
+- **Unary NOT**: `not x` for logical and bitwise negation
+- **Generic function type parameters**: polymorphic type variable declarations
+- **Triple-quote strings**: `"""multi-line"""` with automatic indentation stripping
+- **Scientific notation**: `4.84e+00`, `2.5e-2` in numeric literals
+
+## Analysis Infrastructure
+
+Three new analysis passes power the optimization pipeline:
+
+- **Call graph analysis** (`callgraph.rs`) — whole-program call graph with Kosaraju SCC detection
+- **Liveness analysis** (`liveness.rs`) — backward dataflow for per-statement live-after sets
+- **Read-only parameter inference** (`readonly.rs`) — fixed-point iteration over the call graph
+
+## Testing
+
+~392 new tests across 8 new test files covering the type checker, bitwise operations, break statements, codegen optimization, math builtins, string interpolation, and optimizer features. The benchmark suite expanded from ~6 to 30+ programs with multi-language implementations and correctness verification.
+"#,
+        tags: &["release", "compiler", "performance", "type-system"],
+        author: "LOGICAFFEINE Team",
+    },
+    Article {
         slug: "release-0-8-19-benchmark-fixes",
         title: "v0.8.19 — Benchmark Reliability",
         date: "2026-02-15",

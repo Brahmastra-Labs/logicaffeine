@@ -1,0 +1,102 @@
+## Main
+Let n be 1000.
+Let pi be 3.141592653589793.
+Let solarMass be 4.0 * pi * pi.
+Let daysPerYear be 365.24.
+
+Let mutable bx be a new Seq of Float.
+Let mutable posY be a new Seq of Float.
+Let mutable bz be a new Seq of Float.
+Let mutable bvx be a new Seq of Float.
+Let mutable bvy be a new Seq of Float.
+Let mutable bvz be a new Seq of Float.
+Let mutable bm be a new Seq of Float.
+
+Push 0.0 to bx. Push 0.0 to posY. Push 0.0 to bz.
+Push 0.0 to bvx. Push 0.0 to bvy. Push 0.0 to bvz.
+Push solarMass to bm.
+
+Push 4.84143144246472090e+00 to bx. Push 0.0 - 1.16032004402742839e+00 to posY. Push 0.0 - 1.03622044471123109e-01 to bz.
+Push 1.66007664274403694e-03 * daysPerYear to bvx. Push 7.69901118419740425e-03 * daysPerYear to bvy. Push 0.0 - 6.90460016972063023e-05 * daysPerYear to bvz.
+Push 9.54791938424326609e-04 * solarMass to bm.
+
+Push 8.34336671824457987e+00 to bx. Push 4.12479856412430479e+00 to posY. Push 0.0 - 4.03523417114321381e-01 to bz.
+Push 0.0 - 2.76742510726862411e-03 * daysPerYear to bvx. Push 4.99852801234917238e-03 * daysPerYear to bvy. Push 2.30417297573763929e-05 * daysPerYear to bvz.
+Push 2.85885980666130812e-04 * solarMass to bm.
+
+Push 1.28943695621391310e+01 to bx. Push 0.0 - 1.51111514016986312e+01 to posY. Push 0.0 - 2.23307578892655734e-01 to bz.
+Push 2.96460137564761618e-03 * daysPerYear to bvx. Push 2.37847173959480950e-03 * daysPerYear to bvy. Push 0.0 - 2.96589568540237556e-05 * daysPerYear to bvz.
+Push 4.36624404335156298e-05 * solarMass to bm.
+
+Push 1.53796971148509165e+01 to bx. Push 0.0 - 2.59193146099879641e+01 to posY. Push 1.79258772950371181e-01 to bz.
+Push 2.68067772490389322e-03 * daysPerYear to bvx. Push 1.62824170038242295e-03 * daysPerYear to bvy. Push 0.0 - 9.51592254519715870e-05 * daysPerYear to bvz.
+Push 5.15138902046611451e-05 * solarMass to bm.
+
+Let mutable px be 0.0.
+Let mutable py be 0.0.
+Let mutable pz be 0.0.
+Let mutable i be 1.
+While i is at most 5:
+    Set px to px + item i of bvx * item i of bm.
+    Set py to py + item i of bvy * item i of bm.
+    Set pz to pz + item i of bvz * item i of bm.
+    Set i to i + 1.
+Set item 1 of bvx to 0.0 - px / solarMass.
+Set item 1 of bvy to 0.0 - py / solarMass.
+Set item 1 of bvz to 0.0 - pz / solarMass.
+
+Let mutable e be 0.0.
+Set i to 1.
+While i is at most 5:
+    Set e to e + 0.5 * item i of bm * (item i of bvx * item i of bvx + item i of bvy * item i of bvy + item i of bvz * item i of bvz).
+    Let mutable j be i + 1.
+    While j is at most 5:
+        Let dx be item i of bx - item j of bx.
+        Let dy be item i of posY - item j of posY.
+        Let dz be item i of bz - item j of bz.
+        Set e to e - item i of bm * item j of bm / sqrt(dx * dx + dy * dy + dz * dz).
+        Set j to j + 1.
+    Set i to i + 1.
+Show e.
+
+Let dt be 0.01.
+Let mutable step be 0.
+While step is less than n:
+    Set i to 1.
+    While i is at most 5:
+        Let mutable j be i + 1.
+        While j is at most 5:
+            Let dx be item i of bx - item j of bx.
+            Let dy be item i of posY - item j of posY.
+            Let dz be item i of bz - item j of bz.
+            Let dist be sqrt(dx * dx + dy * dy + dz * dz).
+            Let mag be dt / (dist * dist * dist).
+            Set item i of bvx to item i of bvx - dx * item j of bm * mag.
+            Set item i of bvy to item i of bvy - dy * item j of bm * mag.
+            Set item i of bvz to item i of bvz - dz * item j of bm * mag.
+            Set item j of bvx to item j of bvx + dx * item i of bm * mag.
+            Set item j of bvy to item j of bvy + dy * item i of bm * mag.
+            Set item j of bvz to item j of bvz + dz * item i of bm * mag.
+            Set j to j + 1.
+        Set i to i + 1.
+    Set i to 1.
+    While i is at most 5:
+        Set item i of bx to item i of bx + dt * item i of bvx.
+        Set item i of posY to item i of posY + dt * item i of bvy.
+        Set item i of bz to item i of bz + dt * item i of bvz.
+        Set i to i + 1.
+    Set step to step + 1.
+
+Set e to 0.0.
+Set i to 1.
+While i is at most 5:
+    Set e to e + 0.5 * item i of bm * (item i of bvx * item i of bvx + item i of bvy * item i of bvy + item i of bvz * item i of bvz).
+    Let mutable j be i + 1.
+    While j is at most 5:
+        Let dx be item i of bx - item j of bx.
+        Let dy be item i of posY - item j of posY.
+        Let dz be item i of bz - item j of bz.
+        Set e to e - item i of bm * item j of bm / sqrt(dx * dx + dy * dy + dz * dz).
+        Set j to j + 1.
+    Set i to i + 1.
+Show e.

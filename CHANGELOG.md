@@ -4,6 +4,81 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.9.3] - 2026-03-06
+
+### Added
+- **Futamura projections** — all three projections implemented and verified with 276 tests (`phase_futamura.rs`):
+  - **Projection 1**: `pe(interpreter, program) = compiled` — partial evaluation specializes the self-interpreter on a source program to produce a compiled executable.
+  - **Projection 2**: `pe(pe, interpreter) = compiler` — partial evaluation applied to itself with the interpreter produces a standalone compiler.
+  - **Projection 3**: `pe(pe, pe) = compiler_generator` — partial evaluation applied to itself twice produces a compiler generator.
+- **Self-interpreter** — complete LOGOS interpreter written in LOGOS itself (`compile.rs`), supporting all core value types (int, float, text, bool, nothing, seq, map, set, error, crdt), arithmetic, comparisons, control flow, functions, recursion, and data structures.
+- **Binding-time analysis** (`optimize/bta.rs`, 758 LOC) — classifies expressions as static or dynamic for partial evaluation, with 33 tests (`phase_bta.rs`).
+- **Partial evaluator** (`optimize/partial_eval.rs`, 960 LOC) — online partial evaluation with environment-based specialization, function unfolding, and residual code generation, with 35 tests (`phase_partial_eval.rs`).
+- **Supercompiler** (`optimize/supercompile.rs`, 878 LOC) — driving, generalization, and homeomorphic embedding for aggressive program specialization, with 50 tests (`phase_supercompile.rs`).
+- **PE source language** (`optimize/pe_source.logos`, 556 LOC) — the partial evaluator's own source in LOGOS, enabling self-application.
+- **Abstract interpretation** (`optimize/abstract_interp.rs`, 668 LOC) — forward abstract interpretation framework with interval and sign domains, with 13 tests (`phase_abstract_interp.rs`).
+- **Deforestation** (`optimize/deforest.rs`, 539 LOC) — eliminates intermediate data structures in compositions, with 9 tests (`phase_deforestation.rs`).
+- **Effect analysis** (`optimize/effects.rs`, 698 LOC) — tracks computational effects (pure, IO, mutation, divergence) for optimization safety, with 9 tests (`phase_effects.rs`).
+- **Global value numbering** (`optimize/gvn.rs`, 483 LOC) — hash-consing based redundant computation elimination.
+- **Loop-invariant code motion** (`optimize/licm.rs`, 391 LOC) — hoists loop-invariant expressions out of loops.
+- **Compile-time function evaluation** (`optimize/ctfe.rs`, 443 LOC) — evaluates pure functions at compile time.
+- **Closed-form optimization** (`optimize/closed_form.rs`, 354 LOC) — replaces simple loops with closed-form expressions.
+- **Polyhedral optimization** tests (`phase_polyhedral.rs`) — 8 tests for polyhedral loop transformations.
+- **Auto-parallelization** tests (`phase_autoparallel.rs`) — 5 tests for automatic parallelization detection.
+- **Mountain climb** tests (`phase_mountain_climb.rs`) — 10 tests for optimization composition.
+- **~600 new tests** across 10 new test files and expanded existing test files.
+
+### Changed
+- **Optimizer pipeline** — extended with constant propagation, enhanced DCE, and new optimization passes. Pipeline: fold → propagate → dce with expanded pattern coverage.
+- **Codegen peephole optimizations** — extended with new patterns including `(j+1)-1 → j` index simplification.
+- **DCE** — expanded from basic dead-code elimination to include unused variable removal and dead-store elimination (282 lines added).
+- **Constant folding** — extended with additional algebraic simplifications (90 lines added).
+- **Constant propagation** — enhanced with safety guards for index/slice contexts (49 lines added).
+
+### Fixed
+- **Self-interpreter error casing** — `valToText` returned `"error: {msg}"` (lowercase) instead of `"Error: {msg}"` (capital E).
+- **PE substring false positives** — renamed `CEscapeExpr`/`CEscapeStmt` to `CEscExpr`/`CEscStmt` to eliminate false substring matches with `peExpr`/`peStmt` in Futamura projection tests.
+- **Codegen boilerplate false positives** — pre-computed stack size literal (`67_108_864`) and used function pointer (`_logos_main`) to avoid `* 1` and `||` matches in optimizer test assertions.
+- **FFI snapshot refresh** — regenerated 5 FFI codegen snapshots to match current output.
+
+## [0.9.2] - 2026-02-28
+
+### Fixed
+- **Benchmark timeout isolation** — each language now runs in its own hyperfine invocation with an independent timeout. Previously, all 11 languages ran in a single hyperfine call; when one language (e.g., Python on ackermann n=11) exceeded the timeout, `run_timeout` killed the entire process and remaining languages (JS, Ruby, Nim, LOGOS) were never measured. Per-language results are merged into the same JSON format so downstream assembly is unchanged.
+- **Smart timeout skipping** — if a language times out at size N, it is automatically skipped for all larger sizes of that benchmark, avoiding wasted CI minutes on languages known to be too slow.
+- **Trimmed benchmark sizes** — removed noise sizes from all 32 `sizes.txt` files where C runtime is <10ms (process startup dominates measurement). Keeps 3-5 meaningful sizes per benchmark for real scaling data.
+- Applied to all three benchmark scripts: `run.sh`, `run-quick.sh`, `run-logos-vs-c.sh`.
+
+## [0.9.1] - 2026-02-28
+
+### Fixed
+- **Benchmark CI completely broken** — all hyperfine calls used `--timeout` flag which doesn't exist in any version of hyperfine, causing every benchmark to fail with zero data and empty geometric mean results. Removed the invalid flag; the `run_timeout` wrapper already handles timeouts via the system `timeout` command.
+
+## [0.9.0] - 2026-02-27
+
+### Added
+- **Bidirectional type checker** — Robinson unification-based inference (`analysis/check.rs`, `analysis/unify.rs`). Eliminates `Unknown` types for field access, empty collections, option literals, pipe receives, inspect arm bindings, and closure calls.
+- **Call graph analysis** (`analysis/callgraph.rs`) — whole-program call graph with Kosaraju SCC detection for readonly and purity analysis.
+- **Liveness analysis** (`analysis/liveness.rs`) — backward dataflow computing per-statement live-after sets, enabling last-use move optimization.
+- **Read-only parameter inference** (`analysis/readonly.rs`) — fixed-point iteration over the call graph identifies `Seq<T>` parameters never mutated, emitting `&[T]` borrows instead of clones.
+- **Bitwise operators** — `x xor y`, `x shifted left by y`, `x shifted right by y`.
+- **Break statement** — `Break.` exits the innermost while loop.
+- **Unary NOT** — `not x` for logical and bitwise negation.
+- **Generic function type parameters** — polymorphic type variable declarations on functions.
+- **Triple-quote strings** — `"""multi-line"""` with automatic indentation stripping.
+- **Scientific notation** — `4.84e+00`, `2.5e-2` in numeric literals.
+- **io_uring VFS** (`logicaffeine_system`) — Linux kernel-async file I/O via dedicated worker thread.
+- **~392 new tests** across 8 new test files covering type checker, bitwise ops, break, codegen optimization, math builtins, string interpolation, and optimizer features.
+
+### Changed
+- **Codegen architecture** — monolithic `codegen.rs` (8,300 lines) split into 13 modules (`context`, `detection`, `expr`, `stmt`, `peephole`, `program`, `ffi`, `marshal`, `policy`, `bindings`, `tce`, `types`). Public API preserved via re-exports.
+- **C backend architecture** — `codegen_c.rs` (2,000 lines) split into 4 modules (`emit`, `runtime`, `types`).
+- **Compilation pipeline** — `check_program()` now runs between analysis and codegen, producing a `TypeEnv` for optimization decisions.
+- **FxHashMap/FxHashSet** — generated code uses `rustc-hash` for faster integer-key hashing.
+- **15 codegen optimizations** — last-use clone elimination, liveness-based move, sentinel exit detection, dead post-loop counter elimination, HashMap `.get()` for comparisons, string byte comparison, self-append via `write!`, flattened string concatenation, read-only `&[T]` borrows, `Vec::with_capacity`, `assert_unchecked` for proven bounds, raised inline threshold, power-of-2 modulo strength reduction, `target-cpu=native`.
+- **Benchmark suite** — expanded from ~6 to 30+ programs with multi-language implementations and correctness verification.
+- **C backend** — extended with interpolated strings, bitwise ops, shifts, enums, slices, sets, and multiple map type variants.
+
 ## [0.8.19] - 2026-02-15
 
 ### Added

@@ -1,0 +1,18 @@
+## To native args () -> Seq of Text
+## To native parseInt (s: Text) -> Int
+
+## Main
+Let arguments be args().
+Let n be parseInt(item 2 of arguments).
+Let mutable total be 0.
+Let mutable i be 1.
+While i is at most n:
+    Let mutable k be i.
+    While k is not 1:
+        If k % 2 equals 0:
+            Set k to k / 2.
+        Otherwise:
+            Set k to 3 * k + 1.
+        Set total to total + 1.
+    Set i to i + 1.
+Show total.

@@ -1,0 +1,64 @@
+## To native args () -> Seq of Text
+## To native parseInt (s: Text) -> Int
+
+## Main
+Let arguments be args().
+Let n be parseInt(item 2 of arguments).
+Let mutable perm1 be a new Seq of Int.
+Let mutable count be a new Seq of Int.
+Let mutable i be 0.
+While i is less than n:
+    Push i to perm1.
+    Push 0 to count.
+    Set i to i + 1.
+Let mutable maxFlips be 0.
+Let mutable checksum be 0.
+Let mutable permCount be 0.
+Let mutable r be n.
+Let mutable done be 0.
+While done equals 0:
+    While r is greater than 1:
+        Set item r of count to r.
+        Set r to r - 1.
+    Let mutable perm be a new Seq of Int.
+    Set i to 1.
+    While i is at most n:
+        Push item i of perm1 to perm.
+        Set i to i + 1.
+    Let mutable flips be 0.
+    While item 1 of perm is not 0:
+        Let k be item 1 of perm + 1.
+        Let mutable lo be 1.
+        Let mutable hi be k.
+        While lo is less than hi:
+            Let tmp be item lo of perm.
+            Set item lo of perm to item hi of perm.
+            Set item hi of perm to tmp.
+            Set lo to lo + 1.
+            Set hi to hi - 1.
+        Set flips to flips + 1.
+    If flips is greater than maxFlips:
+        Set maxFlips to flips.
+    If permCount % 2 equals 0:
+        Set checksum to checksum + flips.
+    Otherwise:
+        Set checksum to checksum - flips.
+    Set permCount to permCount + 1.
+    Set done to 1.
+    While done equals 1:
+        If r equals n:
+            Set done to 2.
+        Otherwise:
+            Let perm0 be item 1 of perm1.
+            Set i to 1.
+            While i is at most r:
+                Set item i of perm1 to item (i + 1) of perm1.
+                Set i to i + 1.
+            Set item (r + 1) of perm1 to perm0.
+            Set item (r + 1) of count to (item (r + 1) of count) - 1.
+            If item (r + 1) of count is greater than 0:
+                Set done to 0.
+            Otherwise:
+                Set r to r + 1.
+Show checksum.
+Show maxFlips.

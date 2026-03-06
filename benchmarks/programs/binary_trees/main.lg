@@ -1,0 +1,36 @@
+## To native args () -> Seq of Text
+## To native parseInt (s: Text) -> Int
+
+## To makeCheck (depth: Int) -> Int:
+    If depth equals 0:
+        Return 1.
+    Return 1 + makeCheck(depth - 1) + makeCheck(depth - 1).
+
+## Main
+Let arguments be args().
+Let n be parseInt(item 2 of arguments).
+Let minDepth be 4.
+Let mutable maxDepth be n.
+If minDepth + 2 is greater than maxDepth:
+    Set maxDepth to minDepth + 2.
+
+Let stretchCheck be makeCheck(maxDepth + 1).
+Show "stretch tree of depth " + (maxDepth + 1) + " check: " + stretchCheck.
+
+Let longLived be makeCheck(maxDepth).
+
+Let mutable depth be minDepth.
+While depth is at most maxDepth:
+    Let mutable iterations be 1.
+    Let mutable p be 0.
+    While p is less than maxDepth - depth + minDepth:
+        Set iterations to iterations * 2.
+        Set p to p + 1.
+    Let mutable totalCheck be 0.
+    Let mutable i be 0.
+    While i is less than iterations:
+        Set totalCheck to totalCheck + makeCheck(depth).
+        Set i to i + 1.
+    Show "" + iterations + " trees of depth " + depth + " check: " + totalCheck.
+    Set depth to depth + 2.
+Show "long lived tree of depth " + maxDepth + " check: " + longLived.

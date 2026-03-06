@@ -1,0 +1,20 @@
+## To native args () -> Seq of Text
+## To native parseInt (s: Text) -> Int
+
+## Main
+Let arguments be args().
+Let n be parseInt(item 2 of arguments).
+Let mutable count be 0.
+Let mutable i be 2.
+While i is at most n:
+    Let mutable isPrime be 1.
+    Let mutable d be 2.
+    While d * d is at most i:
+        If i % d equals 0:
+            Set isPrime to 0.
+            Break.
+        Set d to d + 1.
+    If isPrime equals 1:
+        Set count to count + 1.
+    Set i to i + 1.
+Show count.

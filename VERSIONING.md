@@ -206,6 +206,16 @@ These crates still follow lockstep versioning for consistency.
 
 | Version | Date | Notes |
 |---------|------|-------|
+| 0.9.2 | 2026-02-28 | Benchmark timeout isolation: per-language hyperfine, smart skipping |
+| 0.9.1 | 2026-02-28 | Fix benchmark CI: remove invalid hyperfine --timeout flag |
+| 0.9.0 | 2026-02-27 | Type checker, codegen refactor, 15 optimizations, language features |
+| 0.8.19 | 2026-02-15 | Benchmark reliability: Zig 0.15 upgrade, swap pattern regression test |
+| 0.8.18 | 2026-02-15 | Constant propagation safety fix (string + zone scoping) |
+| 0.8.17 | 2026-02-15 | C codegen backend, constant propagation, 334 new E2E tests |
+| 0.8.16 | 2026-02-15 | RangeInclusive loop overhead fix |
+| 0.8.15 | 2026-02-15 | TIER 1 codegen optimizations (for-range, iterators, vec fill, swap) |
+| 0.8.14 | 2026-02-15 | TIER 0 optimizer bedrock, Maybe syntax |
+| 0.8.13 | 2026-02-14 | Accumulator intro, auto-memoization, mutual TCO, purity analysis |
 | 0.8.12 | 2026-02-14 | Optimizer updates |
 | 0.8.11 | 2026-02-14 | Peephole optimizer: vec fill, swap, copy elision, release profile |
 | 0.8.10 | 2026-02-14 | Codegen optimizations: direct indexing, inlining, LTO |

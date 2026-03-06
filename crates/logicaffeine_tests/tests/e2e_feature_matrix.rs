@@ -2593,8 +2593,8 @@ Show item 1 of m.
     );
     assert!(result.success, "Should compile.\nstderr: {}\n\nGenerated Rust:\n{}", result.stderr, result.rust_code);
     assert!(
-        result.rust_code.contains("HashMap::with_capacity("),
-        "Should generate HashMap::with_capacity.\nGenerated Rust:\n{}",
+        result.rust_code.contains("FxHashMap::with_capacity_and_hasher("),
+        "Should generate FxHashMap::with_capacity_and_hasher.\nGenerated Rust:\n{}",
         result.rust_code
     );
 }

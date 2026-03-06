@@ -68,8 +68,13 @@ Show i."#;
 
 #[test]
 fn codegen_c_if_else() {
-    let source = r#"## Main
-Let x be 5.
+    // Use runtime-dynamic condition so optimizer can't fold the branch
+    let source = r#"## To native args () -> Seq of Text
+## To native parseInt (s: Text) -> Int
+
+## Main
+Let a be args().
+Let x be parseInt(item 1 of a).
 If x is less than 10:
     Show 1.
 Otherwise:
@@ -169,8 +174,13 @@ Show fib(10)."#;
 
 #[test]
 fn codegen_c_not_equals_codegen() {
-    let source = r#"## Main
-Let x be 5.
+    // Use runtime-dynamic condition so optimizer can't fold the branch
+    let source = r#"## To native args () -> Seq of Text
+## To native parseInt (s: Text) -> Int
+
+## Main
+Let a be args().
+Let x be parseInt(item 1 of a).
 If x is not 3:
     Show 1.
 Otherwise:
@@ -3031,4 +3041,36 @@ Repeat for (k, v) in m:
     Set total to total + v.
 Show total."#;
     common::assert_c_output(source, "99");
+}
+
+// =============================================================================
+// C Backend String Append Optimization
+// =============================================================================
+
+#[test]
+fn codegen_c_self_append_uses_str_append() {
+    let source = r#"## Main
+Let mutable text be "hello".
+Set text to text + " world".
+Show text."#;
+    let c_code = compile_to_c(source).unwrap();
+    assert!(c_code.contains("str_append"),
+        "Self-append should use str_append, got:\n{}", c_code);
+    assert!(!c_code.contains("str_concat(text"),
+        "Self-append should NOT use str_concat for the target variable, got:\n{}", c_code);
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+#[test]
+fn e2e_c_string_self_append_loop() {
+    common::assert_c_output(
+        r#"## Main
+Let mutable text be "".
+Let mutable i be 1.
+While i is at most 100:
+    Set text to text + "a".
+    Set i to i + 1.
+Show length of text."#,
+        "100",
+    );
 }

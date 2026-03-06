@@ -67,9 +67,10 @@ fn codegen_map_set_string_key() {
     let async_fns = HashSet::new();
     let pipe_vars = HashSet::new();
     let type_registry = TypeRegistry::with_primitives(&mut interner);
+    let type_env = logicaffeine_compile::analysis::types::TypeEnv::new();
     let result = codegen_stmt(&stmt, &interner, 0, &HashSet::new(), &mut ctx,
                                &empty_lww_fields(), &empty_mv_fields(), &mut synced_vars, &empty_var_caps(),
-                               &async_fns, &pipe_vars, &HashSet::new(), &type_registry);
+                               &async_fns, &pipe_vars, &HashSet::new(), &type_registry, &type_env);
 
     // Should use trait method, NOT hardcoded index math
     assert_eq!(result, "LogosIndexMut::logos_set(&mut registry, String::from(\"iron\"), plate);\n");
@@ -119,9 +120,10 @@ fn codegen_vec_set_integer_key() {
     let async_fns = HashSet::new();
     let pipe_vars = HashSet::new();
     let type_registry = TypeRegistry::with_primitives(&mut interner);
+    let type_env = logicaffeine_compile::analysis::types::TypeEnv::new();
     let result = codegen_stmt(&stmt, &interner, 0, &HashSet::new(), &mut ctx,
                                &empty_lww_fields(), &empty_mv_fields(), &mut synced_vars, &empty_var_caps(),
-                               &async_fns, &pipe_vars, &HashSet::new(), &type_registry);
+                               &async_fns, &pipe_vars, &HashSet::new(), &type_registry, &type_env);
 
     // Should use trait method (trait impl handles 1-based conversion)
     assert_eq!(result, "LogosIndexMut::logos_set(&mut items, 2, val);\n");

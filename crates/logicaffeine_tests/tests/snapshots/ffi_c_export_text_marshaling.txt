@@ -158,5 +158,11 @@ pub extern "C" fn logos_greet(name: *const std::os::raw::c_char, out: *mut *mut 
 }
 
 fn main() {
+    std::thread::Builder::new()
+        .stack_size(67_108_864)
+        .spawn(_logos_main)
+        .unwrap().join().unwrap();
+}
+fn _logos_main() {
     show(&42);
 }

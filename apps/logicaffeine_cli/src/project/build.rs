@@ -302,6 +302,19 @@ edition = "2021"
     fs::write(rust_project_dir.join("Cargo.toml"), &cargo_toml)
         .map_err(|e| BuildError::Io(e.to_string()))?;
 
+    // Emit .cargo/config.toml with target-cpu=native for release builds.
+    // Only when not cross-compiling (target-cpu=native refers to the host CPU).
+    if config.release && resolved_target.is_none() {
+        let cargo_config_dir = rust_project_dir.join(".cargo");
+        fs::create_dir_all(&cargo_config_dir)
+            .map_err(|e| BuildError::Io(e.to_string()))?;
+        fs::write(
+            cargo_config_dir.join("config.toml"),
+            "[build]\nrustflags = [\"-C\", \"target-cpu=native\"]\n",
+        )
+        .map_err(|e| BuildError::Io(e.to_string()))?;
+    }
+
     // Copy runtime crates
     copy_runtime_crates(&rust_project_dir)?;
 

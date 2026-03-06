@@ -1,0 +1,31 @@
+## To native args () -> Seq of Text
+## To native parseInt (s: Text) -> Int
+
+## Main
+Let arguments be args().
+Let n be parseInt(item 2 of arguments).
+Let mutable count be 0.
+Let mutable y be 0.
+While y is less than n:
+    Let mutable x be 0.
+    While x is less than n:
+        Let cr be 2.0 * x / n - 1.5.
+        Let ci be 2.0 * y / n - 1.0.
+        Let mutable zr be 0.0.
+        Let mutable zi be 0.0.
+        Let mutable isInside be 1.
+        Let mutable iter be 0.
+        While iter is less than 50:
+            Let zr2 be zr * zr - zi * zi + cr.
+            Let zi2 be 2.0 * zr * zi + ci.
+            Set zr to zr2.
+            Set zi to zi2.
+            If zr * zr + zi * zi is greater than 4.0:
+                Set isInside to 0.
+                Set iter to 50.
+            Set iter to iter + 1.
+        If isInside equals 1:
+            Set count to count + 1.
+        Set x to x + 1.
+    Set y to y + 1.
+Show count.

@@ -103,6 +103,8 @@ pub enum BlockType {
     Policy,
     /// `## Requires` - External crate dependency declarations.
     Requires,
+    /// `## No` - Optimization annotation (followed by Memo, TCO, Peephole, Borrow, or Optimize).
+    No,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -158,6 +160,8 @@ pub enum TokenType {
     Let,
     Set,
     Return,
+    /// Exits the innermost while loop: `Break.`
+    Break,
     Be,
     While,
     Repeat,
@@ -485,6 +489,10 @@ pub enum TokenType {
     /// String literal: `"hello world"`
     StringLiteral(Symbol),
 
+    /// Interpolated string literal: `"Hello, {name}!"`
+    /// Contains raw content with {} holes preserved
+    InterpolatedString(Symbol),
+
     // Character literal: `x` (backtick syntax)
     CharLiteral(Symbol),
 
@@ -502,6 +510,12 @@ pub enum TokenType {
     RBracket,
     Comma,
     Period,
+
+    // Bitwise Operators
+    /// "x xor y" → bitwise XOR (`^`)
+    Xor,
+    /// "x shifted left/right by y" → bit shift (`<<`/`>>`)
+    Shifted,
 
     // Arithmetic Operators
     Plus,

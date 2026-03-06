@@ -11,7 +11,7 @@ env:
 jobs:
   benchmark:
     runs-on: ubuntu-latest-m
-    timeout-minutes: 60
+    timeout-minutes: 2160
     permissions:
       contents: write
       actions: write
@@ -96,6 +96,7 @@ jobs:
       - name: Run benchmarks
         env:
           LOGOS_VERSION: ${{ steps.version.outputs.version }}
+          SKIP_LANGS: python,ruby
         run: bash benchmarks/run.sh
 
       - name: Upload artifact

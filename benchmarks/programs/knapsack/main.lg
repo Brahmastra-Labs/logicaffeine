@@ -1,0 +1,37 @@
+## To native args () -> Seq of Text
+## To native parseInt (s: Text) -> Int
+
+## Main
+Let arguments be args().
+Let n be parseInt(item 2 of arguments).
+Let capacity be n * 5.
+Let mutable weights be a new Seq of Int.
+Let mutable vals be a new Seq of Int.
+Let mutable i be 0.
+While i is less than n:
+    Push (i * 17 + 3) % 50 + 1 to weights.
+    Push (i * 31 + 7) % 100 + 1 to vals.
+    Set i to i + 1.
+Let cols be capacity + 1.
+Let mutable prev be a new Seq of Int.
+Let mutable curr be a new Seq of Int.
+Set i to 0.
+While i is less than cols:
+    Push 0 to prev.
+    Push 0 to curr.
+    Set i to i + 1.
+Set i to 0.
+While i is less than n:
+    Let wi be item (i + 1) of weights.
+    Let vi be item (i + 1) of vals.
+    Let mutable w be 0.
+    While w is at most capacity:
+        Set item (w + 1) of curr to item (w + 1) of prev.
+        If w is at least wi:
+            Let take be item (w - wi + 1) of prev + vi.
+            If take is greater than item (w + 1) of curr:
+                Set item (w + 1) of curr to take.
+        Set w to w + 1.
+    Set prev to curr.
+    Set i to i + 1.
+Show item (capacity + 1) of prev.
