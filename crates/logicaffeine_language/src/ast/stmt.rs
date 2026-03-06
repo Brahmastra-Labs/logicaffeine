@@ -99,7 +99,7 @@ pub enum Pattern {
 }
 
 /// Binary operation kinds for imperative expressions.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum BinaryOpKind {
     Add,
     Subtract,

@@ -220,9 +220,10 @@ Call greet."#;
 
 #[test]
 fn test_io_in_conditional() {
+    // Use runtime-dynamic condition so optimizer can't fold the branch away
     let source = r#"## Main
-Let mode be 1.
-If mode == 1:
+Read mode from the console.
+If mode equals "1":
     Read input from the console.
     Show input.
 Otherwise:

@@ -46,10 +46,12 @@ fn assert_friendly_error(error: &str, expected_contains: &[&str], forbidden_patt
 
 #[test]
 fn e2e_test_use_after_move_simple() {
-    // Simplest case: move a String twice
-    // String::from is NOT Copy, so second Let should fail
+    // Move a Vec twice — Vec is NOT Copy, so second Let should fail.
+    // (Text literals get optimized away by the supercompiler, so we use Seq
+    // which the optimizer cannot propagate.)
     let source = r#"## Main
-Let s be "hello".
+Let s be a new Seq of Int.
+Push 1 to s.
 Let a be s.
 Let b be s."#;
 
@@ -80,12 +82,15 @@ Let b be s."#;
 
 #[test]
 fn e2e_test_use_after_move_with_function() {
-    // Move via function call, then try to use
-    let source = r#"## To consume (x: Text) -> Text:
-    Return x.
+    // Move via function call, then try to use.
+    // Uses Seq instead of Text because the supercompiler propagates text
+    // literals, which eliminates the variable references before Rust sees them.
+    let source = r#"## To consume (data: Seq of Int) -> Seq of Int:
+    Return data.
 
 ## Main
-Let data be "important".
+Let data be a new Seq of Int.
+Push 1 to data.
 Let result be consume(data).
 Let again be data."#;
 

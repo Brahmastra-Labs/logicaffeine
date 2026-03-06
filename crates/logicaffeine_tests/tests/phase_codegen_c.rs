@@ -68,8 +68,13 @@ Show i."#;
 
 #[test]
 fn codegen_c_if_else() {
-    let source = r#"## Main
-Let x be 5.
+    // Use runtime-dynamic condition so optimizer can't fold the branch
+    let source = r#"## To native args () -> Seq of Text
+## To native parseInt (s: Text) -> Int
+
+## Main
+Let a be args().
+Let x be parseInt(item 1 of a).
 If x is less than 10:
     Show 1.
 Otherwise:
@@ -169,8 +174,13 @@ Show fib(10)."#;
 
 #[test]
 fn codegen_c_not_equals_codegen() {
-    let source = r#"## Main
-Let x be 5.
+    // Use runtime-dynamic condition so optimizer can't fold the branch
+    let source = r#"## To native args () -> Seq of Text
+## To native parseInt (s: Text) -> Int
+
+## Main
+Let a be args().
+Let x be parseInt(item 1 of a).
 If x is not 3:
     Show 1.
 Otherwise:

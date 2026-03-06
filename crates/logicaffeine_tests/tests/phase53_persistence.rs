@@ -324,13 +324,14 @@ Increase counter's points by 5."#;
 
 #[test]
 fn test_mount_in_conditional() {
+    // Use runtime-dynamic condition so optimizer can't fold the branch away
     let source = r#"## Definition
 A Counter is Shared and has:
     a points, which is ConvergentCount.
 
 ## Main
-Let load be true.
-If load:
+Read load from the console.
+If load equals "yes":
     Mount c at "counter.journal".
     Show c's points."#;
 

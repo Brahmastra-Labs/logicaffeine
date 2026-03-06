@@ -853,13 +853,29 @@ pub fn codegen_stmt<'a>(
 
             let iter_str = codegen_expr_with_async(iterable, interner, synced_vars, async_functions, ctx.get_variable_types());
 
-            // Check if body contains async operations - if so, use while-let pattern
-            // because standard for loops cannot contain .await
-            let body_has_async = body.iter().any(|s| {
-                requires_async_stmt(s) || calls_async_function(s, async_functions)
-            });
+            // OPT-PAR: Automatic parallelization for commutative reduction patterns.
+            // Detect: Repeat for x in coll: Set acc = acc + expr(x)
+            // Emit: acc += coll.par_iter().copied().map(|x| expr).sum::<i64>()
+            let par_emitted = if let Pattern::Identifier(var_sym) = pattern {
+                if let Some(par_code) = try_emit_parallel_reduction(
+                    *var_sym, &pattern_str, &iter_str, iterable, body,
+                    interner, indent, ctx,
+                    synced_vars, async_functions,
+                ) {
+                    output.push_str(&par_code);
+                    true
+                } else {
+                    false
+                }
+            } else {
+                false
+            };
 
-            if body_has_async {
+            if par_emitted {
+                // Parallel code already emitted — skip normal loop codegen
+            } else if body.iter().any(|s| {
+                requires_async_stmt(s) || calls_async_function(s, async_functions)
+            }) {
                 // Use while-let with explicit iterator for async compatibility
                 writeln!(output, "{}let mut __iter = ({}).into_iter();", indent_str, iter_str).unwrap();
                 writeln!(output, "{}while let Some({}) = __iter.next() {{", indent_str, pattern_str).unwrap();
@@ -883,6 +899,13 @@ pub fn codegen_stmt<'a>(
                             && !body_mutates_collection(body, *coll_sym)
                         {
                             (true, false)
+                        } else if coll_type.starts_with("Vec")
+                            && !body_mutates_collection(body, *coll_sym)
+                        {
+                            // Non-Copy element type, but body doesn't mutate the collection:
+                            // use .iter().cloned() for lazy per-element cloning instead of
+                            // .clone() which copies the entire collection upfront.
+                            (false, true)
                         } else {
                             (false, false)
                         }
@@ -903,43 +926,45 @@ pub fn codegen_stmt<'a>(
                     writeln!(output, "{}for {} in {}.clone() {{", indent_str, pattern_str, iter_str).unwrap();
                 }
             }
-            ctx.push_scope();
-            // Peephole: process body statements with swap, seq-copy, and rotate-left detection
-            {
-                let body_refs: Vec<&Stmt> = body.iter().collect();
-                let mut bi = 0;
-                while bi < body_refs.len() {
-                    if let Some((code, skip)) = try_emit_swap_pattern(&body_refs, bi, interner, indent + 1, ctx.get_variable_types()) {
-                        output.push_str(&code);
-                        bi += 1 + skip;
-                        continue;
+            if !par_emitted {
+                ctx.push_scope();
+                // Peephole: process body statements with swap, seq-copy, and rotate-left detection
+                {
+                    let body_refs: Vec<&Stmt> = body.iter().collect();
+                    let mut bi = 0;
+                    while bi < body_refs.len() {
+                        if let Some((code, skip)) = try_emit_swap_pattern(&body_refs, bi, interner, indent + 1, ctx.get_variable_types()) {
+                            output.push_str(&code);
+                            bi += 1 + skip;
+                            continue;
+                        }
+                        if let Some((code, skip)) = try_emit_seq_from_slice_pattern(&body_refs, bi, interner, indent + 1, mutable_vars, ctx, lww_fields, mv_fields, synced_vars, var_caps, async_functions, pipe_vars, boxed_fields, registry, type_env) {
+                            output.push_str(&code);
+                            bi += 1 + skip;
+                            continue;
+                        }
+                        if let Some((code, skip)) = try_emit_seq_copy_pattern(&body_refs, bi, interner, indent + 1, ctx) {
+                            output.push_str(&code);
+                            bi += 1 + skip;
+                            continue;
+                        }
+                        if let Some((code, skip)) = try_emit_rotate_left_pattern(&body_refs, bi, interner, indent + 1, ctx.get_variable_types()) {
+                            output.push_str(&code);
+                            bi += 1 + skip;
+                            continue;
+                        }
+                        output.push_str(&codegen_stmt(body_refs[bi], interner, indent + 1, mutable_vars, ctx, lww_fields, mv_fields, synced_vars, var_caps, async_functions, pipe_vars, boxed_fields, registry, type_env));
+                        bi += 1;
                     }
-                    if let Some((code, skip)) = try_emit_seq_from_slice_pattern(&body_refs, bi, interner, indent + 1, mutable_vars, ctx, lww_fields, mv_fields, synced_vars, var_caps, async_functions, pipe_vars, boxed_fields, registry, type_env) {
-                        output.push_str(&code);
-                        bi += 1 + skip;
-                        continue;
-                    }
-                    if let Some((code, skip)) = try_emit_seq_copy_pattern(&body_refs, bi, interner, indent + 1, ctx) {
-                        output.push_str(&code);
-                        bi += 1 + skip;
-                        continue;
-                    }
-                    if let Some((code, skip)) = try_emit_rotate_left_pattern(&body_refs, bi, interner, indent + 1, ctx.get_variable_types()) {
-                        output.push_str(&code);
-                        bi += 1 + skip;
-                        continue;
-                    }
-                    output.push_str(&codegen_stmt(body_refs[bi], interner, indent + 1, mutable_vars, ctx, lww_fields, mv_fields, synced_vars, var_caps, async_functions, pipe_vars, boxed_fields, registry, type_env));
-                    bi += 1;
                 }
+                ctx.pop_scope();
+                writeln!(output, "{}}}", indent_str).unwrap();
             }
-            ctx.pop_scope();
-            writeln!(output, "{}}}", indent_str).unwrap();
         }
 
         Stmt::Return { value } => {
             if let Some(v) = value {
-                let value_str = codegen_expr_with_async(v, interner, synced_vars, async_functions, ctx.get_variable_types());
+                let value_str = codegen_expr_boxed_with_types(v, interner, synced_vars, boxed_fields, registry, async_functions, ctx.get_string_vars(), ctx.get_variable_types());
                 // If returning a borrowed slice param, convert to owned Vec
                 let needs_to_vec = if let Expr::Identifier(sym) = v {
                     ctx.get_variable_types().get(sym)
@@ -1458,14 +1483,14 @@ pub fn codegen_stmt<'a>(
         Stmt::Inspect { target, arms, .. } => {
             let target_str = codegen_expr_with_async(target, interner, synced_vars, async_functions, ctx.get_variable_types());
 
-            // Phase 102: Track which bindings come from boxed fields for inner Inspects
-            // Use NAMES (strings) not symbols, because parser may create different symbols
-            // for the same identifier in different syntactic positions.
-            let mut inner_boxed_binding_names: HashSet<String> = HashSet::new();
-
             writeln!(output, "{}match {} {{", indent_str, target_str).unwrap();
 
             for arm in arms {
+                // Phase 102: Track which bindings come from boxed fields for inner Inspects
+                // Use NAMES (strings) not symbols, because parser may create different symbols
+                // for the same identifier in different syntactic positions.
+                // Must be per-arm so bindings from other arms don't leak into this arm's scope.
+                let mut inner_boxed_binding_names: HashSet<String> = HashSet::new();
                 if let Some(variant) = arm.variant {
                     let variant_name = interner.resolve(variant);
                     // Get the enum name from the arm, or fallback to just variant name
@@ -1508,6 +1533,19 @@ pub fn codegen_stmt<'a>(
                 }
 
                 ctx.push_scope();
+
+                // Register pattern-bound variable types from Inspect arms so that
+                // type inference (e.g. for mixed Int/Real coercion) works correctly.
+                if let Some(variant_sym) = arm.variant {
+                    if let Some((_enum_name, variant_def)) = registry.find_variant(variant_sym) {
+                        for (field_sym, binding_sym) in &arm.bindings {
+                            if let Some(field_def) = variant_def.fields.iter().find(|f| f.name == *field_sym) {
+                                let rust_type = super::types::codegen_field_type(&field_def.ty, interner);
+                                ctx.register_variable_type(*binding_sym, rust_type);
+                            }
+                        }
+                    }
+                }
 
                 // Generate explicit dereferences for boxed bindings at the start of the arm
                 // This makes them usable as regular values in the rest of the body
@@ -2306,5 +2344,135 @@ pub(crate) fn has_copy_value_type(map_type: &str) -> bool {
     crate::analysis::types::LogosType::from_rust_type_str(map_type)
         .value_type()
         .map_or(false, |v| v.is_copy())
+}
+
+/// Detect commutative reduction patterns in Repeat loops and emit par_iter() code.
+///
+/// Pattern: `Repeat for x in coll: Set acc = acc + expr(x)`
+/// Emits:
+/// ```text
+/// if coll.len() >= 10000 {
+///     acc += coll.par_iter().copied().map(|x| expr).sum::<i64>();
+/// } else {
+///     for x in coll.iter().copied() { acc = acc + expr; }
+/// }
+/// ```
+fn try_emit_parallel_reduction<'a>(
+    var_sym: Symbol,
+    pattern_str: &str,
+    iter_str: &str,
+    iterable: &'a Expr<'a>,
+    body: &'a [Stmt<'a>],
+    interner: &Interner,
+    indent: usize,
+    ctx: &RefinementContext<'a>,
+    synced_vars: &HashSet<Symbol>,
+    async_functions: &HashSet<Symbol>,
+) -> Option<String> {
+    // Body must be exactly 1 statement: Set acc = acc OP expr
+    if body.len() != 1 { return None; }
+
+    let (acc_sym, op, increment_expr) = match &body[0] {
+        Stmt::Set { target, value } => {
+            if let Expr::BinaryOp { op, left, right } = value {
+                match op {
+                    BinaryOpKind::Add => {
+                        // acc = acc + expr  OR  acc = expr + acc
+                        if let Expr::Identifier(lhs) = left {
+                            if *lhs == *target {
+                                Some((*target, BinaryOpKind::Add, *right))
+                            } else {
+                                None
+                            }
+                        } else if let Expr::Identifier(rhs) = right {
+                            if *rhs == *target {
+                                Some((*target, BinaryOpKind::Add, *left))
+                            } else {
+                                None
+                            }
+                        } else {
+                            None
+                        }
+                    }
+                    _ => None,
+                }
+            } else {
+                None
+            }
+        }
+        _ => None,
+    }?;
+
+    // The increment expression must only involve the loop variable and literals
+    if !expr_is_pure_of(increment_expr, var_sym) {
+        return None;
+    }
+
+    // The collection must be a typed Vec (for .par_iter().copied())
+    let is_vec_i64 = if let Expr::Identifier(coll_sym) = iterable {
+        ctx.get_variable_types().get(coll_sym)
+            .map(|t| {
+                let t = t.split("|__hl:").next().unwrap_or(t.as_str());
+                t.starts_with("Vec<") && has_copy_element_type(t)
+            })
+            .unwrap_or(false)
+    } else {
+        false
+    };
+
+    if !is_vec_i64 { return None; }
+
+    let indent_str = "    ".repeat(indent);
+    let acc_name = interner.resolve(acc_sym);
+
+    // Generate the increment expression as Rust code
+    let incr_code = codegen_expr_with_async(
+        increment_expr, interner, synced_vars, async_functions,
+        ctx.get_variable_types(),
+    );
+
+    // Determine if we need a .map() or can use .sum() directly
+    let needs_map = !matches!(increment_expr, Expr::Identifier(s) if *s == var_sym);
+
+    let mut out = String::new();
+
+    // Emit parallel reduction with runtime threshold
+    writeln!(out, "{}if {}.len() >= 10000 {{", indent_str, iter_str).unwrap();
+    writeln!(out, "{}    use rayon::prelude::*;", indent_str).unwrap();
+    if needs_map {
+        writeln!(out, "{}    {} += {}.par_iter().copied().map(|{}| {}).sum::<i64>();",
+            indent_str, acc_name, iter_str, pattern_str, incr_code).unwrap();
+    } else {
+        writeln!(out, "{}    {} += {}.par_iter().copied().sum::<i64>();",
+            indent_str, acc_name, iter_str).unwrap();
+    }
+    writeln!(out, "{}}} else {{", indent_str).unwrap();
+    writeln!(out, "{}    for {} in {}.iter().copied() {{", indent_str, pattern_str, iter_str).unwrap();
+
+    match op {
+        BinaryOpKind::Add => {
+            writeln!(out, "{}        {} += {};", indent_str, acc_name, incr_code).unwrap();
+        }
+        _ => {
+            writeln!(out, "{}        {} = {} {:?} {};", indent_str, acc_name, acc_name, op, incr_code).unwrap();
+        }
+    }
+    writeln!(out, "{}    }}", indent_str).unwrap();
+    writeln!(out, "{}}}", indent_str).unwrap();
+
+    Some(out)
+}
+
+/// Check if an expression only involves the given symbol and literals (no side effects).
+fn expr_is_pure_of(expr: &Expr, allowed_sym: Symbol) -> bool {
+    match expr {
+        Expr::Identifier(s) => *s == allowed_sym,
+        Expr::Literal(_) => true,
+        Expr::BinaryOp { left, right, .. } => {
+            expr_is_pure_of(left, allowed_sym) && expr_is_pure_of(right, allowed_sym)
+        }
+        Expr::Not { operand } => expr_is_pure_of(operand, allowed_sym),
+        _ => false,
+    }
 }
 

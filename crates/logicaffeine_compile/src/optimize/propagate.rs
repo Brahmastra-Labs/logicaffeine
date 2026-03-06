@@ -79,20 +79,20 @@ fn propagate_stmt<'a>(
             env.remove(&target);
             Stmt::Set { target, value: propagated }
         }
-        // Recurse into nested blocks (propagation env carries through)
+        // Substitute + fold in conditions and recurse into nested blocks
         Stmt::If { cond, then_block, else_block } => Stmt::If {
-            cond,
+            cond: subst_and_fold(cond, env, expr_arena, stmt_arena, interner),
             then_block: propagate_nested_block(then_block, env, mutated, expr_arena, stmt_arena, interner),
             else_block: else_block.map(|b| propagate_nested_block(b, env, mutated, expr_arena, stmt_arena, interner)),
         },
         Stmt::While { cond, body, decreasing } => Stmt::While {
-            cond,
+            cond: subst_and_fold(cond, env, expr_arena, stmt_arena, interner),
             body: propagate_nested_block(body, env, mutated, expr_arena, stmt_arena, interner),
             decreasing,
         },
         Stmt::Repeat { pattern, iterable, body } => Stmt::Repeat {
             pattern,
-            iterable,
+            iterable: subst_and_fold(iterable, env, expr_arena, stmt_arena, interner),
             body: propagate_nested_block(body, env, mutated, expr_arena, stmt_arena, interner),
         },
         Stmt::FunctionDef { name, params, generics, body, return_type, is_native, native_path, is_exported, export_target, opt_flags } => {
@@ -129,6 +129,41 @@ fn propagate_stmt<'a>(
         Stmt::Parallel { tasks } => Stmt::Parallel {
             tasks: propagate_nested_block(tasks, env, mutated, expr_arena, stmt_arena, interner),
         },
+        // Substitute + fold in Return, Show, Push, Call, and other expression-bearing stmts
+        Stmt::Return { value } => Stmt::Return {
+            value: value.map(|v| subst_and_fold(v, env, expr_arena, stmt_arena, interner)),
+        },
+        Stmt::Show { object, recipient } => Stmt::Show {
+            object: subst_and_fold(object, env, expr_arena, stmt_arena, interner),
+            recipient: subst_and_fold(recipient, env, expr_arena, stmt_arena, interner),
+        },
+        Stmt::Push { value, collection } => Stmt::Push {
+            value: subst_and_fold(value, env, expr_arena, stmt_arena, interner),
+            collection,
+        },
+        Stmt::Call { function, args } => Stmt::Call {
+            function,
+            args: args.into_iter().map(|a| subst_and_fold(a, env, expr_arena, stmt_arena, interner)).collect(),
+        },
+        Stmt::RuntimeAssert { condition } => Stmt::RuntimeAssert {
+            condition: subst_and_fold(condition, env, expr_arena, stmt_arena, interner),
+        },
+        // Don't substitute into SetIndex index — preserves AST shape for
+        // swap pattern detection in codegen (matching Expr::Index behavior)
+        Stmt::SetIndex { collection, index, value } => Stmt::SetIndex {
+            collection,
+            index,
+            value: subst_and_fold(value, env, expr_arena, stmt_arena, interner),
+        },
+        Stmt::SetField { object, field, value } => Stmt::SetField {
+            object,
+            field,
+            value: subst_and_fold(value, env, expr_arena, stmt_arena, interner),
+        },
+        Stmt::Give { object, recipient } => Stmt::Give {
+            object: subst_and_fold(object, env, expr_arena, stmt_arena, interner),
+            recipient: subst_and_fold(recipient, env, expr_arena, stmt_arena, interner),
+        },
         // All other statements pass through unchanged
         other => other,
     }
@@ -164,12 +199,8 @@ fn propagate_zone_block<'a>(
     stmt_arena.alloc_slice(folded)
 }
 
-/// Only propagate Copy-type literals. Text literals produce heap-allocated
-/// `String` values in Rust codegen — substituting them replaces a move with
-/// independent allocations, which changes ownership semantics and hides
-/// move-after-use errors (E0382) from rustc.
 fn is_propagatable_literal(expr: &Expr) -> bool {
-    matches!(expr, Expr::Literal(Literal::Number(_) | Literal::Float(_) | Literal::Boolean(_) | Literal::Nothing))
+    matches!(expr, Expr::Literal(Literal::Number(_) | Literal::Float(_) | Literal::Boolean(_) | Literal::Nothing | Literal::Text(_)))
 }
 
 /// Substitute identifiers from env, then fold the result.

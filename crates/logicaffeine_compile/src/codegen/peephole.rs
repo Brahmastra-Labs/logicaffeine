@@ -154,6 +154,21 @@ pub(crate) fn try_emit_for_range_pattern<'a>(
         }
     }
 
+    // OPT-TILE: Tiled loop nest optimization for triple-nested loops.
+    // Detect i<N / k<N / j<N pattern (matrix multiplication) and emit 6-level
+    // tiled loop nest with step_by for L1 cache locality.
+    if counter_start_literal == Some(0) && is_exclusive {
+        if let Some(tiled) = try_emit_tiled_inner(
+            counter_sym, limit_expr, body_without_increment,
+            stmts, idx, is_new_binding, interner, indent,
+            mutable_vars, ctx, lww_fields, mv_fields, synced_vars,
+            var_caps, async_functions, pipe_vars, boxed_fields,
+            registry, type_env,
+        ) {
+            return Some(tiled);
+        }
+    }
+
     // Detect buffer reuse: inner buffer allocated each iteration, transferred to outer var.
     let buffer_reuse = detect_buffer_reuse_in_body(body_without_increment, interner, ctx);
 
@@ -830,6 +845,270 @@ fn expr_contains_symbol(expr: &Expr, sym: Symbol) -> bool {
         Expr::Literal(_) => false,
         _ => false,
     }
+}
+
+/// Check if a statement is `Set counter to counter + 1`.
+fn is_counter_increment(stmt: &Stmt, counter: Symbol) -> bool {
+    match stmt {
+        Stmt::Set { target, value } if *target == counter => {
+            match value {
+                Expr::BinaryOp { op: BinaryOpKind::Add, left, right } => {
+                    match (left, right) {
+                        (Expr::Identifier(s), Expr::Literal(Literal::Number(1))) => *s == counter,
+                        (Expr::Literal(Literal::Number(1)), Expr::Identifier(s)) => *s == counter,
+                        _ => false,
+                    }
+                }
+                _ => false,
+            }
+        }
+        _ => false,
+    }
+}
+
+/// Detect triple-nested for-range loop with same bound and emit tiled loop nest.
+/// Pattern: for i in 0..N { for k in 0..N { for j in 0..N { body } } }
+/// This is the matrix multiplication pattern where tiling dramatically improves
+/// L1 cache locality. Emits 6-level nest: outer tiles (step_by) + inner iteration.
+#[allow(clippy::too_many_arguments)]
+fn try_emit_tiled_inner<'a>(
+    outer_sym: Symbol,
+    outer_bound: &Expr<'a>,
+    outer_body: &[Stmt<'a>],
+    stmts: &[&Stmt<'a>],
+    idx: usize,
+    is_new_binding: bool,
+    interner: &Interner,
+    indent: usize,
+    mutable_vars: &HashSet<Symbol>,
+    ctx: &mut RefinementContext<'a>,
+    lww_fields: &HashSet<(String, String)>,
+    mv_fields: &HashSet<(String, String)>,
+    synced_vars: &mut HashSet<Symbol>,
+    var_caps: &HashMap<Symbol, VariableCapabilities>,
+    async_functions: &HashSet<Symbol>,
+    pipe_vars: &HashSet<Symbol>,
+    boxed_fields: &HashSet<(String, String, String)>,
+    registry: &TypeRegistry,
+    type_env: &crate::analysis::types::TypeEnv,
+) -> Option<(String, usize)> {
+    const TILE_SIZE: i64 = 32;
+
+    // Outer body must be exactly: Let mid = 0, While mid < bound: [mid_body], Set mid = mid+1
+    // After removing the outer increment, we have body_without_increment = outer_body.
+    // This should be exactly 2 statements: Let mid = 0, While mid < bound.
+    if outer_body.len() != 2 {
+        return None;
+    }
+
+    // Match middle loop init: Let mid = 0
+    let mid_sym = match &outer_body[0] {
+        Stmt::Let { var, value, .. } => {
+            if matches!(value, Expr::Literal(Literal::Number(0))) {
+                *var
+            } else {
+                return None;
+            }
+        }
+        _ => return None,
+    };
+
+    // Match middle loop: While mid < bound
+    let mid_body = match &outer_body[1] {
+        Stmt::While { cond, body, .. } => match cond {
+            Expr::BinaryOp { op: BinaryOpKind::Lt, left, right } => {
+                if let Expr::Identifier(s) = left {
+                    if *s == mid_sym && exprs_equal(right, outer_bound) {
+                        *body
+                    } else {
+                        return None;
+                    }
+                } else {
+                    return None;
+                }
+            }
+            _ => return None,
+        },
+        _ => return None,
+    };
+
+    // Check mid body has increment as last statement
+    if mid_body.is_empty() {
+        return None;
+    }
+    if !is_counter_increment(&mid_body[mid_body.len() - 1], mid_sym) {
+        return None;
+    }
+    let mid_body_sans_inc = &mid_body[..mid_body.len() - 1];
+
+    // Middle body (sans increment) must be exactly 2 statements: Let inner = 0, While inner < bound
+    if mid_body_sans_inc.len() != 2 {
+        return None;
+    }
+
+    // Match inner loop init: Let inner = 0
+    let inner_sym = match &mid_body_sans_inc[0] {
+        Stmt::Let { var, value, .. } => {
+            if matches!(value, Expr::Literal(Literal::Number(0))) {
+                *var
+            } else {
+                return None;
+            }
+        }
+        _ => return None,
+    };
+
+    // Match inner loop: While inner < bound
+    let inner_body = match &mid_body_sans_inc[1] {
+        Stmt::While { cond, body, .. } => match cond {
+            Expr::BinaryOp { op: BinaryOpKind::Lt, left, right } => {
+                if let Expr::Identifier(s) = left {
+                    if *s == inner_sym && exprs_equal(right, outer_bound) {
+                        *body
+                    } else {
+                        return None;
+                    }
+                } else {
+                    return None;
+                }
+            }
+            _ => return None,
+        },
+        _ => return None,
+    };
+
+    // Check inner body has increment as last statement
+    if inner_body.is_empty() {
+        return None;
+    }
+    if !is_counter_increment(&inner_body[inner_body.len() - 1], inner_sym) {
+        return None;
+    }
+    let inner_body_sans_inc = &inner_body[..inner_body.len() - 1];
+
+    // All three levels match with the same bound. Emit tiled 6-level loop nest.
+    let names = RustNames::new(interner);
+    let outer_name = names.ident(outer_sym);
+    let mid_name = names.ident(mid_sym);
+    let inner_name = names.ident(inner_sym);
+    let bound_str = codegen_expr_simple(outer_bound, interner);
+
+    let pad = "    ".repeat(indent);
+    let mut out = String::new();
+
+    // Emit assert_unchecked for arrays indexed in the innermost body.
+    // The bound applies to all three counters.
+    {
+        let mut all_indexed: Vec<Symbol> = Vec::new();
+        let indexed_outer = collect_indexed_arrays(inner_body_sans_inc, outer_sym);
+        let indexed_mid = collect_indexed_arrays(inner_body_sans_inc, mid_sym);
+        let indexed_inner = collect_indexed_arrays(inner_body_sans_inc, inner_sym);
+        let mut seen = HashSet::new();
+        for sym in indexed_outer.into_iter().chain(indexed_mid).chain(indexed_inner) {
+            if seen.insert(sym) {
+                // Exclude Maps
+                match ctx.get_variable_types().get(&sym) {
+                    Some(t) if t.contains("HashMap") => {}
+                    _ => all_indexed.push(sym),
+                }
+            }
+        }
+        for arr_sym in &all_indexed {
+            let arr_name = interner.resolve(*arr_sym);
+            writeln!(
+                out,
+                "{}unsafe {{ std::hint::assert_unchecked(({} as usize) <= {}.len()); }}",
+                pad, bound_str, arr_name
+            )
+            .unwrap();
+        }
+    }
+
+    writeln!(out, "{}{{", pad).unwrap();
+    writeln!(out, "{}    let __tile: i64 = {};", pad, TILE_SIZE).unwrap();
+    writeln!(
+        out,
+        "{}    for __{}_t in (0i64..{}).step_by(__tile as usize) {{",
+        pad, outer_name, bound_str
+    )
+    .unwrap();
+    writeln!(
+        out,
+        "{}        for __{}_t in (0i64..{}).step_by(__tile as usize) {{",
+        pad, mid_name, bound_str
+    )
+    .unwrap();
+    writeln!(
+        out,
+        "{}            for __{}_t in (0i64..{}).step_by(__tile as usize) {{",
+        pad, inner_name, bound_str
+    )
+    .unwrap();
+    writeln!(
+        out,
+        "{}                for {} in __{}_t..(__{}_t + __tile).min({}) {{",
+        pad, outer_name, outer_name, outer_name, bound_str
+    )
+    .unwrap();
+    writeln!(
+        out,
+        "{}                    for {} in __{}_t..(__{}_t + __tile).min({}) {{",
+        pad, mid_name, mid_name, mid_name, bound_str
+    )
+    .unwrap();
+    writeln!(
+        out,
+        "{}                        for {} in __{}_t..(__{}_t + __tile).min({}) {{",
+        pad, inner_name, inner_name, inner_name, bound_str
+    )
+    .unwrap();
+
+    // Emit inner body using regular codegen
+    let body_indent = indent + 7;
+    for stmt in inner_body_sans_inc {
+        out.push_str(&super::codegen_stmt(
+            stmt,
+            interner,
+            body_indent,
+            mutable_vars,
+            ctx,
+            lww_fields,
+            mv_fields,
+            synced_vars,
+            var_caps,
+            async_functions,
+            pipe_vars,
+            boxed_fields,
+            registry,
+            type_env,
+        ));
+    }
+
+    writeln!(out, "{}                        }}", pad).unwrap();
+    writeln!(out, "{}                    }}", pad).unwrap();
+    writeln!(out, "{}                }}", pad).unwrap();
+    writeln!(out, "{}            }}", pad).unwrap();
+    writeln!(out, "{}        }}", pad).unwrap();
+    writeln!(out, "{}    }}", pad).unwrap();
+    writeln!(out, "{}}}", pad).unwrap();
+
+    // Post-loop counter value for the outer counter.
+    // Middle and inner counters are scoped inside the outer body and don't escape.
+    let remaining = &stmts[idx + 2..];
+    if symbol_appears_in_stmts(outer_sym, remaining) {
+        let next_overwrites = remaining
+            .first()
+            .map_or(false, |s| matches!(s, Stmt::Set { target, .. } if *target == outer_sym));
+        if next_overwrites {
+            if is_new_binding {
+                writeln!(out, "{}let mut {} = 0;", pad, outer_name).unwrap();
+            }
+        } else {
+            writeln!(out, "{}let mut {} = {};", pad, outer_name, bound_str).unwrap();
+        }
+    }
+
+    Some((out, 1))
 }
 
 /// Peephole optimization: detect `Let vec = new Seq. [Push val to vec.]* Let i = 0. While i <= limit: push const to vec, i = i+1`

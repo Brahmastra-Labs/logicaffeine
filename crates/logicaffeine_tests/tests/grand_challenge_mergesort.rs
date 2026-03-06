@@ -14,12 +14,14 @@ fn comparison_less_than_parses() {
     let source = r#"## Main
 Let x be 5.
 If x is less than 10:
-    Return true.
-Return false."#;
+    Show "yes".
+Otherwise:
+    Show "no"."#;
     let result = compile_to_rust(source);
     assert!(result.is_ok(), "Should parse 'is less than': {:?}", result);
     let rust = result.unwrap();
-    assert!(rust.contains("(x < 10)"), "Should generate < comparison: {}", rust);
+    // After optimization: 5<10 folds to true, dead branch eliminated
+    assert!(rust.contains("\"yes\""), "Should keep true branch after folding: {}", rust);
 }
 
 #[test]
@@ -27,12 +29,13 @@ fn comparison_greater_than_parses() {
     let source = r#"## Main
 Let x be 5.
 If x is greater than 3:
-    Return true.
-Return false."#;
+    Show "yes".
+Otherwise:
+    Show "no"."#;
     let result = compile_to_rust(source);
     assert!(result.is_ok(), "Should parse 'is greater than': {:?}", result);
     let rust = result.unwrap();
-    assert!(rust.contains("(x > 3)"), "Should generate > comparison: {}", rust);
+    assert!(rust.contains("\"yes\""), "Should keep true branch after folding: {}", rust);
 }
 
 #[test]
@@ -67,12 +70,13 @@ fn comparison_symbol_lt() {
     let source = r#"## Main
 Let x be 5.
 If x < 10:
-    Return true.
-Return false."#;
+    Show "yes".
+Otherwise:
+    Show "no"."#;
     let result = compile_to_rust(source);
     assert!(result.is_ok(), "Should parse '<' symbol: {:?}", result);
     let rust = result.unwrap();
-    assert!(rust.contains("(x < 10)"), "Should generate < comparison: {}", rust);
+    assert!(rust.contains("\"yes\""), "Should keep true branch after folding: {}", rust);
 }
 
 #[test]
@@ -115,13 +119,14 @@ Let a be 1.
 Let b be 2.
 Let c be 3.
 If a is less than 5 and b is less than 5 and c is less than 5:
-    Return true.
-Return false."#;
+    Show "all small".
+Otherwise:
+    Show "not all small"."#;
     let result = compile_to_rust(source);
     assert!(result.is_ok(), "Should parse multiple 'and' conditions: {:?}", result);
     let rust = result.unwrap();
-    // Should have at least 2 && operators
-    assert!(rust.matches("&&").count() >= 2, "Should have multiple && operators: {}", rust);
+    // After optimization: all conditions fold to true, dead branch eliminated
+    assert!(rust.contains("\"all small\""), "Should keep true branch after folding: {}", rust);
 }
 
 // =============================================================================

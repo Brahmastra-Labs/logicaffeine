@@ -295,6 +295,9 @@ pub fn fold_expr<'a>(
             let fo = fold_expr(operand, arena, stmt_arena, interner);
             if let Expr::Literal(Literal::Boolean(b)) = fo {
                 arena.alloc(Expr::Literal(Literal::Boolean(!b)))
+            } else if let Expr::Not { operand: inner } = fo {
+                // !!x → x (double negation elimination)
+                inner
             } else if std::ptr::eq(fo, *operand) {
                 expr
             } else {
@@ -438,6 +441,14 @@ fn is_float_one(e: &Expr) -> bool {
     matches!(e, Expr::Literal(Literal::Float(v)) if *v == 1.0)
 }
 
+fn is_power_of_two(n: i64) -> Option<u32> {
+    if n > 1 && (n & (n - 1)) == 0 {
+        Some(n.trailing_zeros())
+    } else {
+        None
+    }
+}
+
 fn try_simplify_algebraic<'a>(
     op: BinaryOpKind,
     left: &'a Expr<'a>,
@@ -451,12 +462,13 @@ fn try_simplify_algebraic<'a>(
             if is_int_zero(left) || is_float_zero(left) { return Some(right); }
             None
         }
-        // x - 0 = x (int and float)
+        // x - 0 = x
         BinaryOpKind::Subtract => {
             if is_int_zero(right) || is_float_zero(right) { return Some(left); }
             None
         }
         // x * 1 = x, 1 * x = x, x * 0 = 0, 0 * x = 0 (int and float)
+        // x * 2^k → x << k (power-of-two strength reduction)
         BinaryOpKind::Multiply => {
             if is_int_one(right) || is_float_one(right) { return Some(left); }
             if is_int_one(left) || is_float_one(left) { return Some(right); }
@@ -464,6 +476,26 @@ fn try_simplify_algebraic<'a>(
             if is_int_zero(left) { return Some(left); }
             if is_float_zero(right) { return Some(arena.alloc(Expr::Literal(Literal::Float(0.0)))); }
             if is_float_zero(left) { return Some(arena.alloc(Expr::Literal(Literal::Float(0.0)))); }
+            // x * 2^k → x << k
+            if let Expr::Literal(Literal::Number(n)) = right {
+                if let Some(shift) = is_power_of_two(*n) {
+                    return Some(arena.alloc(Expr::BinaryOp {
+                        op: BinaryOpKind::Shl,
+                        left,
+                        right: arena.alloc(Expr::Literal(Literal::Number(shift as i64))),
+                    }));
+                }
+            }
+            // 2^k * x → x << k
+            if let Expr::Literal(Literal::Number(n)) = left {
+                if let Some(shift) = is_power_of_two(*n) {
+                    return Some(arena.alloc(Expr::BinaryOp {
+                        op: BinaryOpKind::Shl,
+                        left: right,
+                        right: arena.alloc(Expr::Literal(Literal::Number(shift as i64))),
+                    }));
+                }
+            }
             None
         }
         // x / 1 = x (int and float)
@@ -471,6 +503,45 @@ fn try_simplify_algebraic<'a>(
             if is_int_one(right) || is_float_one(right) { return Some(left); }
             None
         }
+        // x % 2^k → x & (2^k - 1) (power-of-two modulo)
+        BinaryOpKind::Modulo => {
+            if let Expr::Literal(Literal::Number(n)) = right {
+                if let Some(_) = is_power_of_two(*n) {
+                    return Some(arena.alloc(Expr::BinaryOp {
+                        op: BinaryOpKind::And,
+                        left,
+                        right: arena.alloc(Expr::Literal(Literal::Number(n - 1))),
+                    }));
+                }
+            }
+            None
+        }
+        // Boolean algebra: x && true → x, x && false → false, x || true → true, x || false → x
+        BinaryOpKind::And => {
+            if let Expr::Literal(Literal::Boolean(true)) = right { return Some(left); }
+            if let Expr::Literal(Literal::Boolean(true)) = left { return Some(right); }
+            if let Expr::Literal(Literal::Boolean(false)) = right {
+                return Some(arena.alloc(Expr::Literal(Literal::Boolean(false))));
+            }
+            if let Expr::Literal(Literal::Boolean(false)) = left {
+                return Some(arena.alloc(Expr::Literal(Literal::Boolean(false))));
+            }
+            None
+        }
+        BinaryOpKind::Or => {
+            if let Expr::Literal(Literal::Boolean(true)) = right {
+                return Some(arena.alloc(Expr::Literal(Literal::Boolean(true))));
+            }
+            if let Expr::Literal(Literal::Boolean(true)) = left {
+                return Some(arena.alloc(Expr::Literal(Literal::Boolean(true))));
+            }
+            if let Expr::Literal(Literal::Boolean(false)) = right { return Some(left); }
+            if let Expr::Literal(Literal::Boolean(false)) = left { return Some(right); }
+            None
+        }
+        // Note: self-comparison identities (x==x→true, x-x→0, etc.) are NOT safe
+        // on raw identifiers because we lack type info — NaN breaks IEEE 754 equality.
+        // These cases are already handled when both sides are known literals via try_fold_binary.
         _ => None,
     }
 }
@@ -488,6 +559,12 @@ fn fold_int_op(op: BinaryOpKind, l: i64, r: i64) -> Option<Expr<'static>> {
         BinaryOpKind::Gt => Some(Expr::Literal(Literal::Boolean(l > r))),
         BinaryOpKind::LtEq => Some(Expr::Literal(Literal::Boolean(l <= r))),
         BinaryOpKind::GtEq => Some(Expr::Literal(Literal::Boolean(l >= r))),
+        BinaryOpKind::BitXor => Some(Expr::Literal(Literal::Number(l ^ r))),
+        BinaryOpKind::Shl if r >= 0 && r < 64 => Some(Expr::Literal(Literal::Number(l.wrapping_shl(r as u32)))),
+        BinaryOpKind::Shr if r >= 0 && r < 64 => Some(Expr::Literal(Literal::Number(l.wrapping_shr(r as u32)))),
+        // And/Or on integers act as bitwise AND/OR
+        BinaryOpKind::And => Some(Expr::Literal(Literal::Number(l & r))),
+        BinaryOpKind::Or => Some(Expr::Literal(Literal::Number(l | r))),
         _ => None,
     }
 }
@@ -498,6 +575,13 @@ fn fold_float_op(op: BinaryOpKind, l: f64, r: f64) -> Option<Expr<'static>> {
         BinaryOpKind::Subtract => Some(Expr::Literal(Literal::Float(l - r))),
         BinaryOpKind::Multiply => Some(Expr::Literal(Literal::Float(l * r))),
         BinaryOpKind::Divide if r != 0.0 => Some(Expr::Literal(Literal::Float(l / r))),
+        // IEEE 754 comparison semantics (NaN propagates correctly via Rust's f64 ops)
+        BinaryOpKind::Eq => Some(Expr::Literal(Literal::Boolean(l == r))),
+        BinaryOpKind::NotEq => Some(Expr::Literal(Literal::Boolean(l != r))),
+        BinaryOpKind::Lt => Some(Expr::Literal(Literal::Boolean(l < r))),
+        BinaryOpKind::Gt => Some(Expr::Literal(Literal::Boolean(l > r))),
+        BinaryOpKind::LtEq => Some(Expr::Literal(Literal::Boolean(l <= r))),
+        BinaryOpKind::GtEq => Some(Expr::Literal(Literal::Boolean(l >= r))),
         _ => None,
     }
 }
@@ -514,13 +598,15 @@ fn fold_bool_op(op: BinaryOpKind, l: bool, r: bool) -> Option<Expr<'static>> {
 
 fn fold_text_op(op: BinaryOpKind, l: Symbol, r: Symbol, interner: &mut Interner) -> Option<Expr<'static>> {
     match op {
-        BinaryOpKind::Concat => {
+        BinaryOpKind::Concat | BinaryOpKind::Add => {
             let l_str = interner.resolve(l);
             let r_str = interner.resolve(r);
             let combined = format!("{}{}", l_str, r_str);
             let sym = interner.intern(&combined);
             Some(Expr::Literal(Literal::Text(sym)))
         }
+        BinaryOpKind::Eq => Some(Expr::Literal(Literal::Boolean(l == r))),
+        BinaryOpKind::NotEq => Some(Expr::Literal(Literal::Boolean(l != r))),
         _ => None,
     }
 }

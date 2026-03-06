@@ -34,3 +34,5 @@ benchmarks/results/raw/
 # Environment
 .env
 .env.local
+.claude/
+typescript

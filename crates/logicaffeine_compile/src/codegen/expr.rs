@@ -485,6 +485,10 @@ fn codegen_expr_boxed_internal(
                                 if !is_copy_type(ty) {
                                     return format!("{}.clone()", s);
                                 }
+                            } else {
+                                // Unknown type (e.g. pattern-bound variable from Inspect):
+                                // clone defensively to avoid move-after-use in loops
+                                return format!("{}.clone()", s);
                             }
                         }
                         s

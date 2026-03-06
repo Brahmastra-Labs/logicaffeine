@@ -313,6 +313,12 @@ pub fn codegen_program(stmts: &[Stmt], registry: &TypeRegistry, policies: &Polic
         writeln!(output, "async fn main() {{").unwrap();
     } else {
         writeln!(output, "fn main() {{").unwrap();
+        writeln!(output, "    std::thread::Builder::new()").unwrap();
+        writeln!(output, "        .stack_size(67_108_864)").unwrap();
+        writeln!(output, "        .spawn(_logos_main)").unwrap();
+        writeln!(output, "        .unwrap().join().unwrap();").unwrap();
+        writeln!(output, "}}").unwrap();
+        writeln!(output, "fn _logos_main() {{").unwrap();
     }
     // Phase 53: Inject VFS when file operations or persistence is used
     if requires_vfs(stmts) {
