@@ -148,7 +148,7 @@ and MUST be reused:
 
 | Existing | Location | How to Reuse |
 |----------|----------|--------------|
-| Call graph with SCC | `analysis/callgraph.rs` | Effect system fixed-point iteration |
+| Call graph with SCC | `analysis/callgraph.rs` (`pub sccs: Vec<Vec<Symbol>>` via Kosaraju's algorithm) | Effect system fixed-point iteration — no new SCC implementation needed |
 | Fixed-point propagation | `analysis/readonly.rs` | Already does Read/Write tracking for Seq params |
 | Async function detection | `codegen/detection.rs:collect_async_functions()` | Already does 2-pass effect propagation |
 | Liveness analysis | `analysis/liveness.rs` | LICM and DSE need this |
@@ -225,17 +225,19 @@ for-loops during codegen. LICM (Camp 4) needs the WHILE form to see the original
 loop structure.
 
 **Resolution:** LICM runs as an AST-level pass in `optimize/` on While loops, BEFORE
-the codegen peephole chain.
+the codegen peephole chain. (See Camp 4 and "Pipeline Order (Sacred)" for the
+canonical ordering: Optimize → Abstract Interp → LICM → Escape → Codegen.)
 
 ### Pitfall 11 — LICM + Zero-Trip Loops
 
 If a hoisted expression can panic (division by zero, index out of bounds) and the
 loop may execute zero times, hoisting changes behavior.
 
-**Resolution:** LICM is strictly AFTER abstract interpretation in the dependency
-graph. LICM uses range information to prove loops execute at least once before
-hoisting potentially-panicking expressions. For provably-safe expressions (Pure
-arithmetic), hoist unconditionally.
+**Resolution:** LICM is strictly AFTER abstract interpretation in the pipeline
+(see Camp 4 and "Pipeline Order (Sacred)": Optimize → Abstract Interp → LICM →
+Escape → Codegen). LICM uses range information from Camp 3 to prove loops execute
+at least once before hoisting potentially-panicking expressions. For provably-safe
+expressions (Pure arithmetic), hoist unconditionally.
 
 ### Pitfall 12 — Deforestation Linearity Claim Is Overstated
 
@@ -280,8 +282,10 @@ a bubble sort and their program depends on stability, replacing with
 Three priority inversions from the original spec have been corrected:
 
 1. **Bounds check elimination** was buried behind 2 sprints. It's the #1 performance
-   bottleneck (1.3x-2.2x slowdown vs C across 12+ benchmarks). Now in Camp 0b
-   (no dependencies, ships first).
+   bottleneck (1.77x-4.15x slowdown vs C across 12+ benchmarks — bubble_sort 4.15x,
+   counting_sort 2.84x, knapsack 2.60x, prefix_sum 2.52x, string_search 2.35x,
+   coins 2.30x, mergesort 2.28x, array_reverse 1.83x, graph_bfs 1.77x). Now in
+   Camp 0b (no dependencies, ships first).
 
 2. **HashMap performance** was not in the spec at all. `collect` (5.34x) and
    `two_sum` (5.33x) are bottlenecked by SipHash. Now in Camp 0a (one-line fix).
@@ -390,6 +394,12 @@ Result is `Literal::Boolean`.
 Currently `fold_float_op` only handles `Add/Sub/Mul/Div`. Integer comparisons are
 already folded in `fold_int_op` — this brings floats to parity.
 
+**IEEE 754 NaN semantics:** When either operand is NaN, comparisons follow IEEE 754:
+`NaN == NaN → false`, `NaN != NaN → true`, all other NaN comparisons (`<`, `>`,
+`<=`, `>=`) → `false`. Use Rust's built-in `f64` comparison operators which already
+implement IEEE 754 semantics — no special-casing needed in the fold logic itself,
+just document the behavior.
+
 **TDD tests:**
 ```
 fold_float_gt — 3.14 > 0.0 -> true
@@ -398,20 +408,30 @@ fold_float_lt — -1.5 < 2.5 -> true
 fold_float_neq — 1.0 != 2.0 -> true
 fold_float_lteq — 1.0 <= 1.0 -> true
 fold_float_gteq — 0.0 >= 1.0 -> false
+fold_float_nan_eq — NaN == NaN -> false (IEEE 754)
+fold_float_nan_neq — NaN != NaN -> true (IEEE 754)
+fold_float_nan_lt — NaN < 1.0 -> false (IEEE 754)
+fold_float_nan_gt — 1.0 > NaN -> false (IEEE 754)
 ```
 
 ### 0d: Bitwise Operation Folding
 
-**File:** `optimize/fold.rs` — add `BitXor`, `Shl`, `Shr` to `fold_int_op`
+**File:** `optimize/fold.rs` — add `BitXor`, `Shl`, `Shr`, `BitAnd`, `BitOr` to `fold_int_op`
 
-All three exist as `BinaryOpKind` variants but fall through to `_ => None` in
-`fold_int_op`. The `nqueens` benchmark uses bitwise operations heavily.
+`BitXor`, `Shl`, `Shr` exist as `BinaryOpKind` variants but fall through to
+`_ => None` in `fold_int_op`. The `nqueens` benchmark uses bitwise operations heavily.
+
+Additionally, handle `And` and `Or` when both operands are integer literals. These
+operators are type-overloaded: `&&`/`||` for Bool operands, `&`/`|` for Int operands.
+When both operands are `Literal::Integer`, apply bitwise AND / bitwise OR respectively.
 
 **TDD tests:**
 ```
 fold_bitxor — 0xFF xor 0x0F -> 0xF0
 fold_shl — 1 shifted left by 10 -> 1024
 fold_shr — 1024 shifted right by 5 -> 32
+fold_bitand_int — 0xFF and 0x0F -> 0x0F (integer operands -> bitwise AND)
+fold_bitor_int — 0xF0 or 0x0F -> 0xFF (integer operands -> bitwise OR)
 ```
 
 ### 0e: Propagation in All Expression Contexts
@@ -510,13 +530,18 @@ x >= x  → true     (Reflexivity of ≥)
 x < x   → false    (Irreflexivity of strict order)
 x > x   → false    (Irreflexivity of strict order)
 x - x   → 0        (Additive inverse)
-x / x   → 1        (Multiplicative inverse, guard x ≠ 0)
-x % x   → 0        (Modular identity, guard x ≠ 0)
+x / x   → 1        (Multiplicative inverse — see guard below)
+x % x   → 0        (Modular identity — see guard below)
 x xor x → 0        (Self-XOR, Knuth TAOCP 7.1.3)
 ```
 
 **Safety:** Only when both operands are the SAME `Symbol`. Cannot apply to arbitrary
 expressions (side effects).
+
+**Division/modulo guard:** In Camp 0, only fold `x / x → 1` and `x % x → 0` when
+`x` is a literal ≠ 0. When `x` is a variable, preserve unchanged — Camp 0 has no
+way to prove `x ≠ 0`. In Camp 3+, extend using range analysis: fold when
+`0 ∉ range(x)`.
 
 **TDD tests:**
 ```
@@ -551,9 +576,16 @@ b = x + y      // vn(b) = vn(+, vn(x), vn(y)) = V1 — same as a!
 c = a + b      // → c = a + a (substitute b with a)
 ```
 
-**Scope:** Local CSE only — within a single basic block (no control flow). No effect
-system needed for intra-block CSE, just a hash table scoped to the block. Kills the
-table entry when any operand is written.
+**Scope:** Local CSE only — within a single basic block (no control flow).
+
+**Basic block definition:** A basic block is a maximal sequence of consecutive
+statements with no internal control flow. `If`, `While`, `Repeat`, `Inspect`, or a
+function boundary terminates the current block. Each branch of an `If` starts a new
+block. The CSE hash table is fresh per block — no entries carry across block
+boundaries.
+
+No effect system needed for intra-block CSE, just a hash table scoped to the block.
+Kills the table entry when any operand is written.
 
 **Why it matters:** In the spectral norm benchmark, `mulAv` computes
 `1.0 / ((i+j)*(i+j+1)/2 + i + 1)` in the inner loop. The subexpression `i+j` is
@@ -582,20 +614,40 @@ compile time using the existing sync interpreter. This is the simplest form of
 supercompilation — the compiler IS an interpreter that also emits code.
 
 **Algorithm:**
-1. Identify pure functions via `collect_pure_functions()` (check: no IO, no Write
-   to non-local variables, no Escape blocks).
+1. Identify pure functions via **syntactic purity check** (no Camp 1 dependency).
+   A function is syntactically pure if its body contains:
+   - No `Show`, no `Escape` blocks
+   - No `Push`/`Pop`/`Add`/`Remove`/`Set` on non-local variables
+   - No `Call` to non-pure functions (recursive check with depth limit 16;
+     mutual recursion → conservatively impure)
+   This is weaker than the Camp 1 effect system but sufficient for CTFE. When
+   Camp 1 is implemented, CTFE switches to the real effect system for purity.
 2. At each call site, check if all arguments are literals.
 3. If pure + all-literal: run the sync interpreter with a step limit (10,000 steps)
    on the function body with the literal arguments.
+   **Step definition:** One step = one statement executed OR one expression evaluated.
+   A function call costs 1 step for the call itself plus the steps of the callee body.
 4. If evaluation completes within the limit: convert the `RuntimeValue` result back
    to `Literal` and replace the call with the literal.
+
+   **RuntimeValue → Literal conversion table:**
+   | RuntimeValue | Literal / AST | Notes |
+   |---|---|---|
+   | `Int(n)` | `Literal::Integer(n)` | Direct |
+   | `Float(f)` | `Literal::Float(f)` | Direct |
+   | `Bool(b)` | `Literal::Boolean(b)` | Direct |
+   | `Text(s)` | `Literal::String(s)` | Unwrap `Rc<String>` |
+   | `List(elems)` | `Expr::List` with recursive conversion | Each element converted recursively |
+   | `None` | `Literal::None` | Direct |
+   | `Struct` / `Enum` / `Map` | **CANNOT convert** | Fall back to normal compilation |
+
 5. If evaluation exceeds the step limit (infinite recursion, huge computation): fall
    back to normal compilation.
 
 **Prerequisites:**
 - Step-limited interpreter (add `max_steps` parameter to interpreter entry point)
-- `RuntimeValue → Literal` conversion path (new function)
-- Purity check via effect system or ad-hoc `collect_pure_functions`
+- `RuntimeValue → Literal` conversion path (new function, per table above)
+- Syntactic purity check (ad-hoc `collect_pure_functions`, replaced by Camp 1 later)
 
 **TDD tests:**
 ```
@@ -754,6 +806,9 @@ pub struct EffectEnv {
    - `Literal(_)` -> `Pure`
    - `Identifier(sym)` -> `Read({sym})`
    - `BinaryOp { left, right }` -> `join(effects(left), effects(right))`
+     All BinaryOps are themselves Pure — the operator contributes no effect. Div/Mod
+     may panic but panic is a trap, not an observable effect. The overall effect
+     comes from evaluating the operand sub-expressions, not the operator itself.
    - `Call { function, args }` -> `join(lookup(function), effects(args))`
    - `Length { collection }` -> `Read({collection})`
    - `Index { collection, index }` -> `Read({collection}) join effects(index)`
@@ -998,8 +1053,15 @@ effect_check_never_eliminated
 2. **Higher-order functions:** `Repeat for x in items: f(x)` — effect depends on `f`.
    Conservative: if `f` is passed as argument and unknown, assume Unknown.
 3. **Escape blocks:** Always `Unknown`. No analysis inside foreign code.
-4. **Native functions:** Effect must be annotated or conservatively assumed IO.
-   For now: all native functions -> IO (safe overapproximation).
+4. **Native functions:** Annotated per function, not blanket IO:
+
+   | Effect | Native Functions |
+   |--------|-----------------|
+   | Pure | `parseInt`, `length`, `abs`, `min`, `max`, `toString`, `toFloat`, `toInt`, `floor`, `ceil`, `round`, `sqrt` |
+   | IO | `args`, `show`, `readLine`, `sleep`, `spawn`, `readFile`, `writeFile` |
+   | Alloc | `newSeq`, `newMap`, `newSet`, `copy`, `clone` |
+
+   Any native function not in this table defaults to IO (safe conservative overapproximation).
 5. **Collection iteration reads:** `Repeat for x in items` reads `items` on every
    iteration. If body writes `items` (Push), that's a read-write conflict.
 
@@ -1190,12 +1252,18 @@ The interval domain cannot track relationships between variables. For the patter
 when `i < n` and `j < n`, because it doesn't know how `i`, `n`, and `j` relate.
 
 The octagon domain tracks constraints of the form `±x ± y ≤ c` — enough to prove
-these relational properties. This is the key enabler for 2D array bounds check
-elimination in the polyhedral tiling camp (Camp 7).
+these relational properties.
+
+**Camp 7 does NOT require the octagon domain.** Tiling correctness for rectangular
+iteration spaces is verified by the interval domain alone:
+`outer_bounds * tile_size <= array_length`. The octagon domain is only needed for
+non-rectangular tiling (triangular iteration spaces where `j < i`). Without octagon,
+Camp 7 restricts to rectangular iteration spaces — which covers matrix multiply and
+all standard dense linear algebra patterns.
 
 **Not required for initial implementation.** The interval domain handles all 1D
-bounds checking. The octagon domain becomes relevant when Camp 7 (polyhedral tiling)
-needs to prove safety of tiled 2D accesses.
+bounds checking and rectangular 2D tiling. The octagon domain becomes relevant only
+if Camp 7 extends to non-rectangular (triangular, skewed) iteration spaces.
 
 ### TDD Test Specification
 
@@ -1314,8 +1382,20 @@ range_function_call_unknown_return
 2. **Negative ranges:** `Repeat for i from n to 1` (counting down) — range is `[1, n]`
    but iteration direction matters.
 3. **Symbolic bounds:** `Repeat for i from 1 to length of items` — the length is
-   symbolic. Track it as a symbolic interval `[1, len(items)]` where `len(items)` is
-   a separate tracked quantity.
+   symbolic. Track it using the `SymBound` enum:
+   ```rust
+   pub enum SymBound {
+       Finite(i64),
+       NegInf,
+       PosInf,
+       LengthOf(Symbol),          // len(collection)
+       Expr(Symbol, i64),         // symbol + offset, e.g., len(items) - 1
+   }
+   ```
+   When a for-range iterates `from 1 to length of items`, the counter upper bound =
+   `SymBound::LengthOf(items_sym)`. Index safety check: if the collection being
+   indexed is `items_sym` and the index range is `[Finite(1), LengthOf(items_sym)]`,
+   access is provably safe (index is within `[1, len(items)]`).
 4. **Collection length changes INSIDE loops:** `Push` inside a for-loop changes the
    length of the target collection on each iteration. Must update length range
    incrementally.
@@ -1391,9 +1471,13 @@ paths to a point but not all. PRE inserts computations on the missing paths to m
 framework. Noted here as the theoretical unification — the practical implementation
 uses LICM + local CSE (Camp 0i) separately.
 
-**IMPORTANT:** LICM runs as an AST-level pass in `optimize/` on While loops, BEFORE
-the codegen peephole chain that converts While to for-range. This gives LICM access
-to the original loop structure.
+**IMPORTANT — Canonical ordering (see also "Pipeline Order (Sacred)" section):**
+LICM runs AFTER abstract interpretation (Camp 3) and BEFORE codegen peephole.
+Full ordering: Optimize → Abstract Interp → **LICM** → Escape → Codegen.
+LICM uses range info from Camp 3 for zero-trip safety (see Pitfall 11).
+LICM runs as an AST-level pass in `optimize/` on While loops, BEFORE the codegen
+peephole chain that converts While to for-range (see Pitfall 10). This gives LICM
+access to the original loop structure.
 
 **Modified files:**
 - New `optimize/licm.rs` — LICM pass, loop unswitching, loop peeling
@@ -1416,6 +1500,14 @@ For each While/Repeat loop:
 
 **Dead Store Algorithm:**
 
+**Definition of "read":** A variable `v` is considered "read" between two writes if
+any of the following hold:
+- (a) `v` appears in any expression evaluated between the two writes
+- (b) `v` is passed as an argument to a function call between the writes
+  (conservative: assume all calls read their arguments unless the effect system
+  proves the parameter is unused)
+- (c) `v` appears in a loop condition or branch condition between the writes
+
 ```
 For each block:
   last_write: HashMap<Symbol, StmtIndex> = {}
@@ -1423,7 +1515,7 @@ For each block:
   For each statement S:
     // INVARIANT 11: Never eliminate SecurityCheck
     if S is Stmt::Check: skip DSE for this statement
-    For each var read by S:
+    For each var read by S (per definition above):
       reads_since_write[var] = true
     For each var written by S:
       if last_write[var] exists AND !reads_since_write[var]:
@@ -1624,6 +1716,21 @@ in our table of known forms, replace it.
 | `counter` | `+` | `(n - start + 1) * (start + n) / 2` | n >= start |
 | `counter * counter` | `+` | `n*(n+1)*(2*n+1)/6 - (start-1)*start*(2*start-1)/6` | n >= start |
 | `counter * counter * counter` | `+` | `(n*(n+1)/2)^2 - ((start-1)*start/2)^2` | n >= start |
+
+**Modular variants (Pitfall 15):**
+
+When the accumulator has `% M` applied (i.e., `Set sum to (sum + counter) % M`),
+standard formulas cannot be used directly because integer division truncates in
+modular context. The modular variants are:
+
+| Formula | Modular Version | Precondition |
+|---|---|---|
+| `sum(counter) mod M` | `n*(n+1) mod (2*M) / 2` | Since one of n, n+1 is even, `n*(n+1)` is always even. Compute `mod (2*M)` first, then divide by 2 — this avoids the `(n*(n+1) mod M) / 2` trap where integer division truncates. |
+| `sum(counter^2) mod M` | Requires modular inverse of 6 mod M. Only valid when `gcd(6, M) = 1` (i.e., M is coprime to 6). When `6 \| M`, compute `n*(n+1)*(2*n+1) mod (6*M) / 6`. When neither condition holds, fall back to the loop. |
+
+**Key trap:** You CANNOT compute `(n*(n+1) mod M) / 2` — integer division truncates
+the modular result. Must use the `mod (2*M)` trick for sum, or modular inverse for
+higher-order formulas.
 
 5. Emit the closed form with a guard: `if n >= start { formula } else { init_value }`.
 
@@ -1880,8 +1987,13 @@ linear types. Linearity for deforestation must verify:
    - Not returned
    - Not cloned
    - No other reference to `temp` anywhere
-4. Verify safety: producer body effects and consumer body effects are compatible
-   (no write-write conflict on shared variables).
+4. Verify safety: producer body effects and consumer body effects are **compatible**.
+   Two effect sets are compatible for fusion if:
+   - (a) `writes(producer) ∩ writes(consumer) = ∅` — no write-write conflict
+   - (b) `(writes(producer) ∩ reads(consumer)) ⊆ {iteration_var}` — consumer reads
+     producer-written variables only through the fused iteration variable, not
+     independently
+   If either condition fails, do not fuse.
 5. Fuse: inline the consumer body into the producer body, replacing `x` with `expr`.
    Eliminate `temp` entirely.
 
@@ -2134,6 +2246,14 @@ have write effects — commutativity guarantees correctness.
 | `for x in items: Show x` | IO ordering | NOT parallelizable |
 | `for x in items: Increase crdt by f(x)` | Commutative CRDT write | `par_iter()` (safe) |
 
+**Parallel threshold:** Default: 10,000 elements. Configurable via `## Parallel Threshold N`
+annotation on the loop. Decision logic:
+- Compile-time bound below threshold (from abstract interpretation) → sequential
+  unconditionally, no runtime check emitted
+- Compile-time bound above threshold → parallel unconditionally
+- Unknown bound → runtime check:
+  `if items.len() >= THRESHOLD { par_iter } else { iter }`
+
 ### TDD Test Specification
 
 **Test file:** `crates/logicaffeine_tests/tests/phase_autoparallel.rs`
@@ -2202,6 +2322,15 @@ unroll loops with known bounds.
 *dynamic* (D). Propagate: `S op S -> S`, `S op D -> D`, `D op anything -> D`. Generate
 a residual program that only contains dynamic computations.
 
+**BTA for branches and loops:**
+- Branch condition S → evaluate at compile time, take only the true branch (dead
+  branch eliminated entirely from residual program)
+- Branch condition D → keep both branches in residual, specialize each body
+  independently
+- Loop bound S → unroll the loop (up to 256 iterations; beyond that, keep as loop
+  in residual to prevent code bloat)
+- Loop bound D → keep loop structure in residual, specialize the loop body
+
 **The Futamura Projections (1971):** The theoretical foundation for why partial
 evaluation is so powerful:
 
@@ -2219,8 +2348,13 @@ evaluation is so powerful:
    `pe(pe, pe) = compiler_generator`. This is the summit — a system that generates
    optimizers.
 
-Camp 0j (CTFE) implements the first projection in its simplest form. This camp
-generalizes to full binding-time analysis and mixed static/dynamic specialization.
+These projections are the **theoretical motivation**, not literal implementations.
+Camp 0j instantiates the spirit of Projection 1 (running the interpreter on known
+arguments at compile time). The second and third projections are asymptotic goals —
+they describe the theoretical limit of what partial evaluation achieves, not
+deliverables with test cases. This camp generalizes Camp 0j to full binding-time
+analysis and mixed static/dynamic specialization (a practical step toward Projection 1
+in its full generality).
 
 **New file:** `crates/logicaffeine_compile/src/optimize/partial_eval.rs`
 
@@ -2236,14 +2370,23 @@ generalizes to full binding-time analysis and mixed static/dynamic specializatio
    - If ANY arg is S: create a specialized version `f_specialized`.
 
 2. Specialization:
+   - Memoization key: `(function_symbol, static_arg_values: Vec<Literal>)`. If the
+     same key has been specialized before, reuse the existing specialized version.
+     Memoization is scoped to the compilation unit.
    - Clone the function body.
    - Substitute S args with their values.
    - Run constant folding + DCE on the specialized body.
-   - If the specialized body is significantly simpler (fewer statements), use it.
+   - Simplicity check: use the specialized version if
+     `specialized_stmt_count <= original_stmt_count * 0.8` (at most 80% of the
+     original statement count). If the specialized version is not measurably simpler,
+     keep the original to avoid code bloat with no benefit.
 
 3. Depth limiting:
    - Max specialization depth: 16 (prevent infinite unfolding of recursion).
    - Max specialized variants per function: 8 (prevent code bloat).
+   - On the 9th specialization request for the same function: silent fallback to
+     the unspecialized call. The existing 8 specialized variants remain valid and
+     continue to be used at their respective call sites.
 
 4. Effect gating: NEVER partially evaluate a function with IO or Write effects.
    The effect system (Camp 1) gates this.
@@ -2327,10 +2470,38 @@ The supercompilation lineage runs through the entire mountain:
 
 Three operations:
 1. **Driving:** Evaluate one symbolic step. Unfold function calls, split on branches.
-2. **Folding:** If the current state matches a previous state (up to renaming), create
-   a loop. This is the "tying the knot" step.
+2. **Folding:** If the current configuration matches a previous configuration (up to
+   renaming), create a loop. This is the "tying the knot" step.
 3. **Generalization:** If no fold applies and the state space is growing, generalize
    (widen variables) to ensure termination.
+
+**Configuration (the state being tracked):**
+
+A configuration is the pair `(program_point: ASTNodeRef, abstract_store: HashMap<Symbol, AbstractValue>)`.
+
+```rust
+pub enum AbstractValue {
+    Literal(Literal),   // Known concrete value
+    Symbolic(Symbol),   // Unknown but named (for alpha-equivalence)
+    Unknown,            // No information
+}
+```
+
+Two configurations match if they have the same `program_point` AND their
+`abstract_store` maps are alpha-equivalent (same structure, symbolic names may differ
+but must be consistently renamed).
+
+**Termination criterion:** Homeomorphic embedding (Kruskal's tree theorem). If the
+current configuration's abstract store homeomorphically embeds a previously seen
+configuration, generalize to prevent divergence. Hard depth limit of 64 driving
+steps as a safety net — if reached, emit the residual code at the current state
+without further driving.
+
+**Integration strategy:** The Summit prototype runs INSTEAD OF fold/propagate/dce
+on pure integer code (effect = Pure, types = Int | Bool only). Outside this subset,
+the existing pass pipeline runs as usual. This is a parallel path, not a replacement
+— the supercompiler handles what it can, everything else goes through the standard
+passes unchanged.
 
 **Why this is the summit:** Supercompilation subsumes:
 - Constant folding (driving evaluates constants)
@@ -2408,7 +2579,7 @@ Current geometric mean: **2.17x** slower than C across 32 benchmarks.
 | primes | 4.45x | Nested loop + early exit | 0b, Camp 3 |
 | bubble_sort | 4.15x | Bounds-checked swap | 0b |
 | binary_trees | 3.68x | Recursive allocation | Camp 2 |
-| nbody | 3.33x | Struct array + sqrt | Camp 4 (LICM) |
+| nbody | 3.33x | Inner loop computes `sqrt(dx*dx+dy*dy+dz*dz)` — distance is loop-invariant in velocity-update inner dimension; LICM hoists. Also `1.0/(dist^3)` computed identically for both bodies in each pair — CSE deduplicates. | Camp 4 (LICM + CSE) |
 | nqueens | 3.08x | Bitwise + recursion | 0d |
 | counting_sort | 2.84x | Array histogram indexing | 0k |
 | fannkuch | 2.74x | Array permutation + swap | 0b |
@@ -2417,7 +2588,7 @@ Current geometric mean: **2.17x** slower than C across 32 benchmarks.
 | string_search | 2.35x | Character indexing | 0b |
 | coins | 2.30x | 1D DP indexing | 0b |
 | mergesort | 2.28x | Allocation + indexed merge | Camp 2 |
-| pi_leibniz | 1.90x | Loop accumulation | Camp 4 (LICM) |
+| pi_leibniz | 1.90x | Sign alternation `(-1)^i` → strength-reduce to toggle variable. `2*i+1` → strength-reduce to incrementing counter. Primary fix is Camp 5b strength reduction, not LICM. | Camp 5 (strength reduction) |
 | array_reverse | 1.83x | Two-pointer swap | 0b |
 | graph_bfs | 1.77x | Queue random access | 0b |
 | strings | 1.74x | Concatenation | --- |
@@ -2451,8 +2622,8 @@ overall ratio from 2.17x to approximately 1.3-1.4x.
 | 0l (Index lowering) | sieve, prefix_sum, array ops | 5-10% on tight loops |
 | 2 (Output params) | mergesort, binary_trees, quicksort | 20-40% on those 3 |
 | 3 (Abstract interp) | all indexed access benchmarks | 10-20% geometric mean |
-| 4 (LICM + Unswitching) | nbody, pi_leibniz, mandelbrot | 10-30% on loop-heavy |
-| 5 (Strength reduction) | matrix_mult, nqueens, sieve | 10-20% on arithmetic-heavy |
+| 4 (LICM + Unswitching) | nbody, mandelbrot | 10-30% on loop-heavy |
+| 5 (Strength reduction) | matrix_mult, nqueens, sieve, pi_leibniz | 10-20% on arithmetic-heavy |
 | 7 (Polyhedral) | matrix_mult | 30-50% on matrix_mult |
 | 8 (Auto-parallel) | mandelbrot, spectral_norm | 2-4x on parallel-amenable |
 
@@ -2501,17 +2672,21 @@ Performance improvement measured. No benchmark regression allowed.
 
 ## Pipeline Order (Sacred)
 
+> **This is the SINGLE canonical pipeline order.** All other mentions of pipeline
+> ordering in this document are informational context — this section is the
+> authoritative source. If any other section contradicts this order, this section wins.
+
 The pipeline order is fixed. No pass may run before its dependencies are available.
 
 ```
 Parse
-  -> Type Check (moved up from post-optimization)
-  -> Effect Analysis (new — Camp 1)
-  -> Optimize (fold -> propagate -> dce, now type+effect-aware)
-  -> Abstract Interpretation (Camp 3)
-  -> LICM (Camp 4, on While form)
-  -> Escape Analysis
-  -> Codegen (peephole chain runs here: for-range, tiling, closed-form, etc.)
+  → Type Check                 (prereq for Camp 1; moved up from post-optimization)
+  → Effect Analysis            (Camp 1 — depends on type info)
+  → Optimize                   (Camp 0 — fold → propagate → dce, now type+effect-aware)
+  → Abstract Interpretation    (Camp 3 — depends on effects for write-set tracking)
+  → LICM                       (Camp 4 — on While form, uses Camp 3 range info for zero-trip safety)
+  → Escape Analysis            (existing — unchanged)
+  → Codegen                    (peephole chain: for-range, tiling, closed-form, etc.)
 ```
 
 This is a non-trivial reorder from the current pipeline:

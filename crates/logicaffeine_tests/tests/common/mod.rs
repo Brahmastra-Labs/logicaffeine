@@ -284,10 +284,13 @@ rayon = "1"
     std::fs::write(project_dir.join("src/main.rs"), &rust_code).unwrap();
 
     // 4. Run - use shared target dir for caching
+    //    Set RUST_MIN_STACK=64MB so deeply-recursive PE/cogen programs
+    //    don't overflow on structural AST walks.
     let output = Command::new("cargo")
         .args(["run", "--quiet"])
         .current_dir(project_dir)
         .env("CARGO_TARGET_DIR", get_shared_target_dir())
+        .env("RUST_MIN_STACK", "268435456")
         .output()
         .expect("cargo run");
 

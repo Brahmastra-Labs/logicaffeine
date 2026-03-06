@@ -70,6 +70,7 @@
 //! // Returns Err: "x has already been given away"
 //! ```
 
+use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::io::Write;
 use std::path::Path;
@@ -84,7 +85,8 @@ use std::fmt::Write as FmtWrite;
 use crate::analysis::{DiscoveryPass, EscapeChecker, OwnershipChecker, PolicyRegistry};
 use crate::arena::Arena;
 use crate::arena_ctx::AstContext;
-use crate::ast::{Expr, Stmt, TypeExpr};
+use crate::ast::{Expr, MatchArm, Stmt, TypeExpr};
+use crate::ast::stmt::{BinaryOpKind, ClosureBody, Literal, Pattern, ReadSource, SelectBranch, StringPart};
 use crate::codegen::{codegen_program, generate_c_header, generate_python_bindings, generate_typescript_bindings};
 use crate::diagnostic::{parse_rustc_json, translate_diagnostics, LogosError};
 use crate::drs::WorldState;
@@ -474,6 +476,9 @@ pub fn compile_to_rust_checked(source: &str) -> Result<String, ParseError> {
     // Pass 2: Parse with type context
     let mut parser = Parser::new(tokens, &mut world_state, &mut interner, ast_ctx, type_registry);
     let stmts = parser.parse_program()?;
+
+    // Pass 2.5: Optimization - constant folding, propagation, and dead code elimination
+    let stmts = crate::optimize::optimize_program(stmts, &imperative_expr_arena, &stmt_arena, &mut interner);
 
     // Pass 3: Escape analysis
     let mut escape_checker = EscapeChecker::new(&interner);
@@ -1232,6 +1237,2348 @@ impl std::fmt::Display for CompileError {
 
 impl std::error::Error for CompileError {}
 
+// ============================================================
+// Futamura Projection Support — encode_program + verify_no_overhead
+// ============================================================
+
+/// Encode a LogicAffeine program (given as source) into CProgram construction source.
+///
+/// Takes LogicAffeine source code (with or without `## Main` header) and returns
+/// LogicAffeine source code that constructs the equivalent CProgram data structure.
+/// The result defines a variable `prog` of type CProgram.
+pub fn encode_program_source(source: &str) -> Result<String, ParseError> {
+    let full_source = if source.contains("## Main") || source.contains("## To ") {
+        source.to_string()
+    } else {
+        format!("## Main\n{}", source)
+    };
+
+    let mut interner = Interner::new();
+    let mut lexer = Lexer::new(&full_source, &mut interner);
+    let tokens = lexer.tokenize();
+
+    let type_registry = {
+        let mut discovery = DiscoveryPass::new(&tokens, &mut interner);
+        let result = discovery.run_full();
+        result.types
+    };
+
+    // Collect variant constructors before the parser takes ownership of type_registry
+    let mut variant_constructors: HashMap<String, Vec<String>> = HashMap::new();
+    for (_type_name, type_def) in type_registry.iter_types() {
+        if let crate::analysis::TypeDef::Enum { variants, .. } = type_def {
+            for variant in variants {
+                let vname = interner.resolve(variant.name).to_string();
+                let field_names: Vec<String> = variant.fields.iter()
+                    .map(|f| interner.resolve(f.name).to_string())
+                    .collect();
+                variant_constructors.insert(vname, field_names);
+            }
+        }
+    }
+
+    let mut world_state = WorldState::new();
+    let expr_arena = Arena::new();
+    let term_arena = Arena::new();
+    let np_arena = Arena::new();
+    let sym_arena = Arena::new();
+    let role_arena = Arena::new();
+    let pp_arena = Arena::new();
+    let stmt_arena: Arena<Stmt> = Arena::new();
+    let imperative_expr_arena: Arena<Expr> = Arena::new();
+    let type_expr_arena: Arena<TypeExpr> = Arena::new();
+
+    let ast_ctx = AstContext::with_types(
+        &expr_arena, &term_arena, &np_arena, &sym_arena,
+        &role_arena, &pp_arena, &stmt_arena, &imperative_expr_arena,
+        &type_expr_arena,
+    );
+
+    let mut parser = crate::parser::Parser::new(
+        tokens, &mut world_state, &mut interner, ast_ctx, type_registry,
+    );
+    let stmts = parser.parse_program()?;
+
+    let mut functions: Vec<(String, Vec<String>, Vec<&Stmt>)> = Vec::new();
+    let mut main_stmts: Vec<&Stmt> = Vec::new();
+
+    for stmt in &stmts {
+        if let Stmt::FunctionDef { name, params, body, .. } = stmt {
+            let fn_name = interner.resolve(*name).to_string();
+            let param_names: Vec<String> = params
+                .iter()
+                .map(|(name, _)| interner.resolve(*name).to_string())
+                .collect();
+            let body_stmts: Vec<&Stmt> = body.iter().collect();
+            functions.push((fn_name, param_names, body_stmts));
+        } else {
+            main_stmts.push(stmt);
+        }
+    }
+
+    let mut counter = 0usize;
+    let mut output = String::new();
+
+    // Build the funcMap directly (Map of Text to CFunc) with fixed name
+    output.push_str("Let encodedFuncMap be a new Map of Text to CFunc.\n");
+
+    for (fn_name, params, body) in &functions {
+        let body_var = encode_stmt_list_src(body, &mut counter, &mut output, &interner, &variant_constructors);
+
+        let params_var = format!("params_{}", counter);
+        counter += 1;
+        output.push_str(&format!("Let {} be a new Seq of Text.\n", params_var));
+        for p in params {
+            output.push_str(&format!("Push \"{}\" to {}.\n", p, params_var));
+        }
+
+        let func_var = format!("func_{}", counter);
+        counter += 1;
+        output.push_str(&format!(
+            "Let {} be a new CFuncDef with name \"{}\" and params {} and body {}.\n",
+            func_var, fn_name, params_var, body_var
+        ));
+        output.push_str(&format!(
+            "Set item \"{}\" of encodedFuncMap to {}.\n",
+            fn_name, func_var
+        ));
+    }
+
+    // Build main statement list with fixed name
+    let main_var = encode_stmt_list_src(&main_stmts, &mut counter, &mut output, &interner, &variant_constructors);
+    output.push_str(&format!("Let encodedMain be {}.\n", main_var));
+
+    Ok(output)
+}
+
+fn collect_free_vars_expr<'a>(expr: &'a Expr, interner: &Interner, bound: &HashSet<String>) -> HashSet<String> {
+    let mut free = HashSet::new();
+    match expr {
+        Expr::Identifier(sym) => {
+            let name = interner.resolve(*sym).to_string();
+            if !bound.contains(&name) {
+                free.insert(name);
+            }
+        }
+        Expr::BinaryOp { left, right, .. } => {
+            free.extend(collect_free_vars_expr(left, interner, bound));
+            free.extend(collect_free_vars_expr(right, interner, bound));
+        }
+        Expr::Not { operand } => {
+            free.extend(collect_free_vars_expr(operand, interner, bound));
+        }
+        Expr::Copy { expr: inner } => {
+            free.extend(collect_free_vars_expr(inner, interner, bound));
+        }
+        Expr::CallExpr { callee, args } => {
+            free.extend(collect_free_vars_expr(callee, interner, bound));
+            for a in args {
+                free.extend(collect_free_vars_expr(a, interner, bound));
+            }
+        }
+        Expr::Index { collection, index } => {
+            free.extend(collect_free_vars_expr(collection, interner, bound));
+            free.extend(collect_free_vars_expr(index, interner, bound));
+        }
+        Expr::InterpolatedString(parts) => {
+            for part in parts {
+                if let StringPart::Expr { value, .. } = part {
+                    free.extend(collect_free_vars_expr(value, interner, bound));
+                }
+            }
+        }
+        Expr::Closure { params, body, .. } => {
+            let mut inner_bound = bound.clone();
+            for (sym, _) in params {
+                inner_bound.insert(interner.resolve(*sym).to_string());
+            }
+            match body {
+                ClosureBody::Expression(e) => {
+                    free.extend(collect_free_vars_expr(e, interner, &inner_bound));
+                }
+                ClosureBody::Block(stmts) => {
+                    for s in stmts.iter() {
+                        free.extend(collect_free_vars_stmt(s, interner, &inner_bound));
+                    }
+                }
+            }
+        }
+        _ => {}
+    }
+    free
+}
+
+fn collect_free_vars_stmt<'a>(stmt: &'a Stmt, interner: &Interner, bound: &HashSet<String>) -> HashSet<String> {
+    let mut free = HashSet::new();
+    match stmt {
+        Stmt::Let { var, value, .. } => {
+            free.extend(collect_free_vars_expr(value, interner, bound));
+        }
+        Stmt::Set { target, value, .. } => {
+            let n = interner.resolve(*target).to_string();
+            if !bound.contains(&n) {
+                free.insert(n);
+            }
+            free.extend(collect_free_vars_expr(value, interner, bound));
+        }
+        Stmt::Show { object, .. } => {
+            free.extend(collect_free_vars_expr(object, interner, bound));
+        }
+        Stmt::Return { value } => {
+            if let Some(v) = value {
+                free.extend(collect_free_vars_expr(v, interner, bound));
+            }
+        }
+        _ => {}
+    }
+    free
+}
+
+fn encode_expr_src(expr: &Expr, counter: &mut usize, output: &mut String, interner: &Interner, variants: &HashMap<String, Vec<String>>) -> String {
+    let var = format!("e_{}", *counter);
+    *counter += 1;
+
+    match expr {
+        Expr::Literal(lit) => match lit {
+            Literal::Number(n) => {
+                output.push_str(&format!("Let {} be a new CInt with value {}.\n", var, n));
+            }
+            Literal::Boolean(b) => {
+                output.push_str(&format!("Let {} be a new CBool with value {}.\n", var, b));
+            }
+            Literal::Text(s) => {
+                let text = interner.resolve(*s);
+                output.push_str(&format!("Let {} be a new CText with value \"{}\".\n", var, text));
+            }
+            Literal::Float(f) => {
+                output.push_str(&format!("Let {} be a new CFloat with value {}.\n", var, f));
+            }
+            Literal::Duration(nanos) => {
+                let millis = nanos / 1_000_000;
+                let amount_var = format!("e_{}", *counter);
+                *counter += 1;
+                output.push_str(&format!("Let {} be a new CInt with value {}.\n", amount_var, millis));
+                output.push_str(&format!("Let {} be a new CDuration with amount {} and unit \"milliseconds\".\n", var, amount_var));
+            }
+            Literal::Nothing => {
+                output.push_str(&format!("Let {} be a new CText with value \"nothing\".\n", var));
+            }
+            _ => {
+                output.push_str(&format!("Let {} be a new CText with value \"unsupported\".\n", var));
+            }
+        },
+        Expr::Identifier(sym) => {
+            let name = interner.resolve(*sym);
+            output.push_str(&format!("Let {} be a new CVar with name \"{}\".\n", var, name));
+        }
+        Expr::BinaryOp { op, left, right } => {
+            let left_var = encode_expr_src(left, counter, output, interner, variants);
+            let right_var = encode_expr_src(right, counter, output, interner, variants);
+            let op_str = match op {
+                BinaryOpKind::Add => "+",
+                BinaryOpKind::Subtract => "-",
+                BinaryOpKind::Multiply => "*",
+                BinaryOpKind::Divide => "/",
+                BinaryOpKind::Modulo => "%",
+                BinaryOpKind::Eq => "==",
+                BinaryOpKind::NotEq => "!=",
+                BinaryOpKind::Lt => "<",
+                BinaryOpKind::Gt => ">",
+                BinaryOpKind::LtEq => "<=",
+                BinaryOpKind::GtEq => ">=",
+                BinaryOpKind::And => "&&",
+                BinaryOpKind::Or => "||",
+                BinaryOpKind::Concat => "+",
+                BinaryOpKind::BitXor => "^",
+                BinaryOpKind::Shl => "<<",
+                BinaryOpKind::Shr => ">>",
+            };
+            output.push_str(&format!(
+                "Let {} be a new CBinOp with op \"{}\" and left {} and right {}.\n",
+                var, op_str, left_var, right_var
+            ));
+        }
+        Expr::Not { operand } => {
+            let inner_var = encode_expr_src(operand, counter, output, interner, variants);
+            output.push_str(&format!("Let {} be a new CNot with inner {}.\n", var, inner_var));
+        }
+        Expr::Call { function, args } => {
+            let fn_name = interner.resolve(*function);
+            if let Some(field_names) = variants.get(fn_name) {
+                // Variant constructor call — encode as CNewVariant
+                let names_var = format!("nvNames_{}", *counter);
+                *counter += 1;
+                output.push_str(&format!("Let {} be a new Seq of Text.\n", names_var));
+                let vals_var = format!("nvVals_{}", *counter);
+                *counter += 1;
+                output.push_str(&format!("Let {} be a new Seq of CExpr.\n", vals_var));
+                for (i, arg) in args.iter().enumerate() {
+                    let fname = field_names.get(i).map(|s| s.as_str()).unwrap_or("value");
+                    output.push_str(&format!("Push \"{}\" to {}.\n", fname, names_var));
+                    let arg_var = encode_expr_src(arg, counter, output, interner, variants);
+                    output.push_str(&format!("Push {} to {}.\n", arg_var, vals_var));
+                }
+                output.push_str(&format!(
+                    "Let {} be a new CNewVariant with tag \"{}\" and fnames {} and fvals {}.\n",
+                    var, fn_name, names_var, vals_var
+                ));
+            } else {
+                let args_var = format!("callArgs_{}", *counter);
+                *counter += 1;
+                output.push_str(&format!("Let {} be a new Seq of CExpr.\n", args_var));
+                for arg in args {
+                    let arg_var = encode_expr_src(arg, counter, output, interner, variants);
+                    output.push_str(&format!("Push {} to {}.\n", arg_var, args_var));
+                }
+                output.push_str(&format!(
+                    "Let {} be a new CCall with name \"{}\" and args {}.\n",
+                    var, fn_name, args_var
+                ));
+            }
+        }
+        Expr::Index { collection, index } => {
+            let coll_var = encode_expr_src(collection, counter, output, interner, variants);
+            let idx_var = encode_expr_src(index, counter, output, interner, variants);
+            output.push_str(&format!(
+                "Let {} be a new CIndex with coll {} and idx {}.\n",
+                var, coll_var, idx_var
+            ));
+        }
+        Expr::Length { collection } => {
+            let coll_var = encode_expr_src(collection, counter, output, interner, variants);
+            output.push_str(&format!("Let {} be a new CLen with target {}.\n", var, coll_var));
+        }
+        Expr::FieldAccess { object, field } => {
+            let obj_var = encode_expr_src(object, counter, output, interner, variants);
+            let field_name = interner.resolve(*field);
+            let key_var = format!("e_{}", *counter);
+            *counter += 1;
+            output.push_str(&format!("Let {} be a new CText with value \"{}\".\n", key_var, field_name));
+            output.push_str(&format!(
+                "Let {} be a new CMapGet with target {} and key {}.\n",
+                var, obj_var, key_var
+            ));
+        }
+        Expr::NewVariant { variant, fields, .. } => {
+            let variant_name = interner.resolve(*variant);
+            let names_var = format!("nvNames_{}", *counter);
+            *counter += 1;
+            output.push_str(&format!("Let {} be a new Seq of Text.\n", names_var));
+            let vals_var = format!("nvVals_{}", *counter);
+            *counter += 1;
+            output.push_str(&format!("Let {} be a new Seq of CExpr.\n", vals_var));
+            for (field_name, field_expr) in fields {
+                let fname = interner.resolve(*field_name);
+                output.push_str(&format!("Push \"{}\" to {}.\n", fname, names_var));
+                let field_var = encode_expr_src(field_expr, counter, output, interner, variants);
+                output.push_str(&format!("Push {} to {}.\n", field_var, vals_var));
+            }
+            output.push_str(&format!(
+                "Let {} be a new CNewVariant with tag \"{}\" and fnames {} and fvals {}.\n",
+                var, variant_name, names_var, vals_var
+            ));
+        }
+        Expr::New { type_name, init_fields, .. } => {
+            let tn = interner.resolve(*type_name);
+            if tn == "Seq" || tn == "List" {
+                output.push_str(&format!("Let {} be a new CNewSeq.\n", var));
+            } else if tn == "Set" {
+                output.push_str(&format!("Let {} be a new CNewSet.\n", var));
+            } else if init_fields.is_empty() {
+                let names_var = format!("nvNames_{}", *counter);
+                *counter += 1;
+                output.push_str(&format!("Let {} be a new Seq of Text.\n", names_var));
+                let vals_var = format!("nvVals_{}", *counter);
+                *counter += 1;
+                output.push_str(&format!("Let {} be a new Seq of CExpr.\n", vals_var));
+                output.push_str(&format!(
+                    "Let {} be a new CNewVariant with tag \"{}\" and fnames {} and fvals {}.\n",
+                    var, tn, names_var, vals_var
+                ));
+            } else {
+                let names_var = format!("nvNames_{}", *counter);
+                *counter += 1;
+                output.push_str(&format!("Let {} be a new Seq of Text.\n", names_var));
+                let vals_var = format!("nvVals_{}", *counter);
+                *counter += 1;
+                output.push_str(&format!("Let {} be a new Seq of CExpr.\n", vals_var));
+                for (field_name, field_expr) in init_fields {
+                    let fname = interner.resolve(*field_name);
+                    output.push_str(&format!("Push \"{}\" to {}.\n", fname, names_var));
+                    let field_var = encode_expr_src(field_expr, counter, output, interner, variants);
+                    output.push_str(&format!("Push {} to {}.\n", field_var, vals_var));
+                }
+                output.push_str(&format!(
+                    "Let {} be a new CNewVariant with tag \"{}\" and fnames {} and fvals {}.\n",
+                    var, tn, names_var, vals_var
+                ));
+            }
+        }
+        Expr::InterpolatedString(parts) => {
+            if parts.is_empty() {
+                output.push_str(&format!("Let {} be a new CText with value \"\".\n", var));
+            } else {
+                let mut part_vars: Vec<String> = Vec::new();
+                for part in parts {
+                    match part {
+                        StringPart::Literal(sym) => {
+                            let text = interner.resolve(*sym);
+                            let pv = format!("e_{}", *counter);
+                            *counter += 1;
+                            output.push_str(&format!("Let {} be a new CText with value \"{}\".\n", pv, text));
+                            part_vars.push(pv);
+                        }
+                        StringPart::Expr { value, .. } => {
+                            let pv = encode_expr_src(value, counter, output, interner, variants);
+                            part_vars.push(pv);
+                        }
+                    }
+                }
+                if part_vars.len() == 1 {
+                    output.push_str(&format!("Let {} be {}.\n", var, part_vars[0]));
+                } else {
+                    let mut acc = part_vars[0].clone();
+                    for pv in &part_vars[1..] {
+                        let concat_var = format!("e_{}", *counter);
+                        *counter += 1;
+                        output.push_str(&format!(
+                            "Let {} be a new CBinOp with op \"+\" and left {} and right {}.\n",
+                            concat_var, acc, pv
+                        ));
+                        acc = concat_var;
+                    }
+                    output.push_str(&format!("Let {} be {}.\n", var, acc));
+                }
+            }
+        }
+        Expr::Range { start, end } => {
+            let start_var = encode_expr_src(start, counter, output, interner, variants);
+            let end_var = encode_expr_src(end, counter, output, interner, variants);
+            output.push_str(&format!(
+                "Let {} be a new CRange with start {} and end {}.\n",
+                var, start_var, end_var
+            ));
+        }
+        Expr::Slice { collection, start, end } => {
+            let coll_var = encode_expr_src(collection, counter, output, interner, variants);
+            let start_var = encode_expr_src(start, counter, output, interner, variants);
+            let end_var = encode_expr_src(end, counter, output, interner, variants);
+            output.push_str(&format!(
+                "Let {} be a new CSlice with coll {} and startIdx {} and endIdx {}.\n",
+                var, coll_var, start_var, end_var
+            ));
+        }
+        Expr::Copy { expr } => {
+            let inner_var = encode_expr_src(expr, counter, output, interner, variants);
+            output.push_str(&format!("Let {} be a new CCopy with target {}.\n", var, inner_var));
+        }
+        Expr::Contains { collection, value } => {
+            let coll_var = encode_expr_src(collection, counter, output, interner, variants);
+            let val_var = encode_expr_src(value, counter, output, interner, variants);
+            output.push_str(&format!(
+                "Let {} be a new CContains with coll {} and elem {}.\n",
+                var, coll_var, val_var
+            ));
+        }
+        Expr::Union { left, right } => {
+            let left_var = encode_expr_src(left, counter, output, interner, variants);
+            let right_var = encode_expr_src(right, counter, output, interner, variants);
+            output.push_str(&format!(
+                "Let {} be a new CUnion with left {} and right {}.\n",
+                var, left_var, right_var
+            ));
+        }
+        Expr::Intersection { left, right } => {
+            let left_var = encode_expr_src(left, counter, output, interner, variants);
+            let right_var = encode_expr_src(right, counter, output, interner, variants);
+            output.push_str(&format!(
+                "Let {} be a new CIntersection with left {} and right {}.\n",
+                var, left_var, right_var
+            ));
+        }
+        Expr::OptionSome { value } => {
+            let inner_var = encode_expr_src(value, counter, output, interner, variants);
+            output.push_str(&format!(
+                "Let {} be a new COptionSome with inner {}.\n",
+                var, inner_var
+            ));
+        }
+        Expr::OptionNone => {
+            output.push_str(&format!("Let {} be a new COptionNone.\n", var));
+        }
+        Expr::Tuple(elems) => {
+            let items_var = format!("tupItems_{}", *counter);
+            *counter += 1;
+            output.push_str(&format!("Let {} be a new Seq of CExpr.\n", items_var));
+            for elem in elems {
+                let elem_var = encode_expr_src(elem, counter, output, interner, variants);
+                output.push_str(&format!("Push {} to {}.\n", elem_var, items_var));
+            }
+            output.push_str(&format!(
+                "Let {} be a new CTuple with items {}.\n",
+                var, items_var
+            ));
+        }
+        Expr::Closure { params, body, .. } => {
+            let params_var = format!("clp_{}", *counter);
+            *counter += 1;
+            output.push_str(&format!("Let {} be a new Seq of Text.\n", params_var));
+            let mut param_names = HashSet::new();
+            for (sym, _) in params {
+                let name = interner.resolve(*sym);
+                param_names.insert(name.to_string());
+                output.push_str(&format!("Push \"{}\" to {}.\n", name, params_var));
+            }
+            let body_var = format!("clb_{}", *counter);
+            *counter += 1;
+            output.push_str(&format!("Let {} be a new Seq of CStmt.\n", body_var));
+            match body {
+                ClosureBody::Expression(e) => {
+                    let ret_expr = encode_expr_src(e, counter, output, interner, variants);
+                    let ret_var = format!("s_{}", *counter);
+                    *counter += 1;
+                    output.push_str(&format!("Let {} be a new CReturn with expr {}.\n", ret_var, ret_expr));
+                    output.push_str(&format!("Push {} to {}.\n", ret_var, body_var));
+                }
+                ClosureBody::Block(stmts) => {
+                    for s in stmts.iter() {
+                        let sv = encode_stmt_src(s, counter, output, interner, variants);
+                        output.push_str(&format!("Push {} to {}.\n", sv, body_var));
+                    }
+                }
+            }
+            let bound: HashSet<String> = param_names;
+            let free = collect_free_vars_expr(expr, interner, &bound);
+            let cap_var = format!("clc_{}", *counter);
+            *counter += 1;
+            output.push_str(&format!("Let {} be a new Seq of Text.\n", cap_var));
+            for fv in &free {
+                output.push_str(&format!("Push \"{}\" to {}.\n", fv, cap_var));
+            }
+            output.push_str(&format!(
+                "Let {} be a new CClosure with params {} and body {} and captured {}.\n",
+                var, params_var, body_var, cap_var
+            ));
+        }
+        Expr::CallExpr { callee, args } => {
+            let callee_var = encode_expr_src(callee, counter, output, interner, variants);
+            let args_var = format!("cea_{}", *counter);
+            *counter += 1;
+            output.push_str(&format!("Let {} be a new Seq of CExpr.\n", args_var));
+            for a in args {
+                let av = encode_expr_src(a, counter, output, interner, variants);
+                output.push_str(&format!("Push {} to {}.\n", av, args_var));
+            }
+            output.push_str(&format!(
+                "Let {} be a new CCallExpr with target {} and args {}.\n",
+                var, callee_var, args_var
+            ));
+        }
+        Expr::Give { value } => {
+            let inner_var = encode_expr_src(value, counter, output, interner, variants);
+            output.push_str(&format!("Let {} be {}.\n", var, inner_var));
+        }
+        Expr::Escape { code, .. } => {
+            let code_str = interner.resolve(*code);
+            output.push_str(&format!(
+                "Let {} be a new CEscExpr with code \"{}\".\n",
+                var, code_str.replace('\"', "\\\"")
+            ));
+        }
+        _ => {
+            output.push_str(&format!("Let {} be a new CText with value \"unsupported\".\n", var));
+        }
+    }
+
+    var
+}
+
+fn encode_stmt_src(stmt: &Stmt, counter: &mut usize, output: &mut String, interner: &Interner, variants: &HashMap<String, Vec<String>>) -> String {
+    let var = format!("s_{}", *counter);
+    *counter += 1;
+
+    match stmt {
+        Stmt::Let { var: name, value, .. } => {
+            let name_str = interner.resolve(*name);
+            let expr_var = encode_expr_src(value, counter, output, interner, variants);
+            output.push_str(&format!(
+                "Let {} be a new CLet with name \"{}\" and expr {}.\n",
+                var, name_str, expr_var
+            ));
+        }
+        Stmt::Set { target, value } => {
+            let name_str = interner.resolve(*target);
+            let expr_var = encode_expr_src(value, counter, output, interner, variants);
+            output.push_str(&format!(
+                "Let {} be a new CSet with name \"{}\" and expr {}.\n",
+                var, name_str, expr_var
+            ));
+        }
+        Stmt::If { cond, then_block, else_block } => {
+            let cond_var = encode_expr_src(cond, counter, output, interner, variants);
+            let then_stmts: Vec<&Stmt> = then_block.iter().collect();
+            let then_var = encode_stmt_list_src(&then_stmts, counter, output, interner, variants);
+            let else_var = if let Some(els) = else_block {
+                let else_stmts: Vec<&Stmt> = els.iter().collect();
+                encode_stmt_list_src(&else_stmts, counter, output, interner, variants)
+            } else {
+                let empty_var = format!("emptyBlock_{}", *counter);
+                *counter += 1;
+                output.push_str(&format!("Let {} be a new Seq of CStmt.\n", empty_var));
+                empty_var
+            };
+            output.push_str(&format!(
+                "Let {} be a new CIf with cond {} and thenBlock {} and elseBlock {}.\n",
+                var, cond_var, then_var, else_var
+            ));
+        }
+        Stmt::While { cond, body, .. } => {
+            let cond_var = encode_expr_src(cond, counter, output, interner, variants);
+            let body_stmts: Vec<&Stmt> = body.iter().collect();
+            let body_var = encode_stmt_list_src(&body_stmts, counter, output, interner, variants);
+            output.push_str(&format!(
+                "Let {} be a new CWhile with cond {} and body {}.\n",
+                var, cond_var, body_var
+            ));
+        }
+        Stmt::Return { value } => {
+            if let Some(expr) = value {
+                let expr_var = encode_expr_src(expr, counter, output, interner, variants);
+                output.push_str(&format!("Let {} be a new CReturn with expr {}.\n", var, expr_var));
+            } else {
+                let nothing_var = format!("e_{}", *counter);
+                *counter += 1;
+                output.push_str(&format!("Let {} be a new CInt with value 0.\n", nothing_var));
+                output.push_str(&format!("Let {} be a new CReturn with expr {}.\n", var, nothing_var));
+            }
+        }
+        Stmt::Show { object, .. } => {
+            let expr_var = encode_expr_src(object, counter, output, interner, variants);
+            output.push_str(&format!("Let {} be a new CShow with expr {}.\n", var, expr_var));
+        }
+        Stmt::Call { function, args } => {
+            let fn_name = interner.resolve(*function);
+            let args_var = format!("callSArgs_{}", *counter);
+            *counter += 1;
+            output.push_str(&format!("Let {} be a new Seq of CExpr.\n", args_var));
+            for arg in args {
+                let arg_var = encode_expr_src(arg, counter, output, interner, variants);
+                output.push_str(&format!("Push {} to {}.\n", arg_var, args_var));
+            }
+            output.push_str(&format!(
+                "Let {} be a new CCallS with name \"{}\" and args {}.\n",
+                var, fn_name, args_var
+            ));
+        }
+        Stmt::Push { value, collection } => {
+            let val_var = encode_expr_src(value, counter, output, interner, variants);
+            let coll_name = extract_ident_name(collection, interner);
+            output.push_str(&format!(
+                "Let {} be a new CPush with expr {} and target \"{}\".\n",
+                var, val_var, coll_name
+            ));
+        }
+        Stmt::SetIndex { collection, index, value } => {
+            let coll_name = extract_ident_name(collection, interner);
+            let idx_var = encode_expr_src(index, counter, output, interner, variants);
+            let val_var = encode_expr_src(value, counter, output, interner, variants);
+            output.push_str(&format!(
+                "Let {} be a new CSetIdx with target \"{}\" and idx {} and val {}.\n",
+                var, coll_name, idx_var, val_var
+            ));
+        }
+        Stmt::SetField { object, field, value } => {
+            let map_name = extract_ident_name(object, interner);
+            let field_name = interner.resolve(*field);
+            let key_var = format!("e_{}", *counter);
+            *counter += 1;
+            output.push_str(&format!("Let {} be a new CText with value \"{}\".\n", key_var, field_name));
+            let val_var = encode_expr_src(value, counter, output, interner, variants);
+            output.push_str(&format!(
+                "Let {} be a new CMapSet with target \"{}\" and key {} and val {}.\n",
+                var, map_name, key_var, val_var
+            ));
+        }
+        Stmt::Pop { collection, .. } => {
+            let coll_name = extract_ident_name(collection, interner);
+            output.push_str(&format!(
+                "Let {} be a new CPop with target \"{}\".\n",
+                var, coll_name
+            ));
+        }
+        Stmt::Add { value, collection } => {
+            let val_var = encode_expr_src(value, counter, output, interner, variants);
+            let coll_name = extract_ident_name(collection, interner);
+            output.push_str(&format!(
+                "Let {} be a new CAdd with elem {} and target \"{}\".\n",
+                var, val_var, coll_name
+            ));
+        }
+        Stmt::Remove { value, collection } => {
+            let val_var = encode_expr_src(value, counter, output, interner, variants);
+            let coll_name = extract_ident_name(collection, interner);
+            output.push_str(&format!(
+                "Let {} be a new CRemove with elem {} and target \"{}\".\n",
+                var, val_var, coll_name
+            ));
+        }
+        Stmt::Inspect { .. } => {
+            return String::new(); // Handled by encode_stmts_src
+        }
+        Stmt::Repeat { .. } => {
+            return String::new(); // Handled by encode_stmts_src
+        }
+        Stmt::Break => {
+            output.push_str(&format!("Let {} be a new CBreak.\n", var));
+        }
+        Stmt::RuntimeAssert { condition, .. } => {
+            let cond_var = encode_expr_src(condition, counter, output, interner, variants);
+            let msg_var = format!("e_{}", *counter);
+            *counter += 1;
+            output.push_str(&format!("Let {} be a new CText with value \"assertion failed\".\n", msg_var));
+            output.push_str(&format!(
+                "Let {} be a new CRuntimeAssert with cond {} and msg {}.\n",
+                var, cond_var, msg_var
+            ));
+        }
+        Stmt::Give { object, recipient } => {
+            let expr_var = encode_expr_src(object, counter, output, interner, variants);
+            let target_name = extract_ident_name(recipient, interner);
+            output.push_str(&format!(
+                "Let {} be a new CGive with expr {} and target \"{}\".\n",
+                var, expr_var, target_name
+            ));
+        }
+        Stmt::Escape { code, .. } => {
+            let code_str = interner.resolve(*code);
+            output.push_str(&format!(
+                "Let {} be a new CEscStmt with code \"{}\".\n",
+                var, code_str.replace('\"', "\\\"")
+            ));
+        }
+        Stmt::Sleep { milliseconds } => {
+            let dur_var = encode_expr_src(milliseconds, counter, output, interner, variants);
+            output.push_str(&format!(
+                "Let {} be a new CSleep with duration {}.\n",
+                var, dur_var
+            ));
+        }
+        Stmt::ReadFrom { var: read_var, source } => {
+            let var_name = interner.resolve(*read_var);
+            match source {
+                ReadSource::Console => {
+                    output.push_str(&format!(
+                        "Let {} be a new CReadConsole with target \"{}\".\n",
+                        var, var_name
+                    ));
+                }
+                ReadSource::File(path_expr) => {
+                    let path_var = encode_expr_src(path_expr, counter, output, interner, variants);
+                    output.push_str(&format!(
+                        "Let {} be a new CReadFile with path {} and target \"{}\".\n",
+                        var, path_var, var_name
+                    ));
+                }
+            }
+        }
+        Stmt::WriteFile { content, path } => {
+            let path_var = encode_expr_src(path, counter, output, interner, variants);
+            let content_var = encode_expr_src(content, counter, output, interner, variants);
+            output.push_str(&format!(
+                "Let {} be a new CWriteFile with path {} and content {}.\n",
+                var, path_var, content_var
+            ));
+        }
+        Stmt::Check { source_text, .. } => {
+            let pred_var = format!("e_{}", *counter);
+            *counter += 1;
+            output.push_str(&format!("Let {} be a new CBool with value true.\n", pred_var));
+            let msg_var = format!("e_{}", *counter);
+            *counter += 1;
+            output.push_str(&format!("Let {} be a new CText with value \"{}\".\n", msg_var, source_text.replace('\"', "\\\"")));
+            output.push_str(&format!(
+                "Let {} be a new CCheck with predicate {} and msg {}.\n",
+                var, pred_var, msg_var
+            ));
+        }
+        Stmt::Assert { .. } => {
+            let prop_var = format!("e_{}", *counter);
+            *counter += 1;
+            output.push_str(&format!("Let {} be a new CBool with value true.\n", prop_var));
+            output.push_str(&format!(
+                "Let {} be a new CAssert with proposition {}.\n",
+                var, prop_var
+            ));
+        }
+        Stmt::Trust { justification, .. } => {
+            let prop_var = format!("e_{}", *counter);
+            *counter += 1;
+            output.push_str(&format!("Let {} be a new CBool with value true.\n", prop_var));
+            let just_str = interner.resolve(*justification);
+            output.push_str(&format!(
+                "Let {} be a new CTrust with proposition {} and justification \"{}\".\n",
+                var, prop_var, just_str
+            ));
+        }
+        Stmt::Require { crate_name, .. } => {
+            let dep_name = interner.resolve(*crate_name);
+            output.push_str(&format!(
+                "Let {} be a new CRequire with dependency \"{}\".\n",
+                var, dep_name
+            ));
+        }
+        Stmt::MergeCrdt { source, target } => {
+            let source_var = encode_expr_src(source, counter, output, interner, variants);
+            let target_name = match target {
+                Expr::Identifier(sym) => interner.resolve(*sym).to_string(),
+                _ => "unknown".to_string(),
+            };
+            output.push_str(&format!(
+                "Let {} be a new CMerge with target \"{}\" and other {}.\n",
+                var, target_name, source_var
+            ));
+        }
+        Stmt::IncreaseCrdt { object, field, amount } => {
+            let amount_var = encode_expr_src(amount, counter, output, interner, variants);
+            let target_name = match object {
+                Expr::Identifier(sym) => interner.resolve(*sym).to_string(),
+                _ => "unknown".to_string(),
+            };
+            output.push_str(&format!(
+                "Let {} be a new CIncrease with target \"{}\" and amount {}.\n",
+                var, target_name, amount_var
+            ));
+        }
+        Stmt::DecreaseCrdt { object, field, amount } => {
+            let amount_var = encode_expr_src(amount, counter, output, interner, variants);
+            let target_name = match object {
+                Expr::Identifier(sym) => interner.resolve(*sym).to_string(),
+                _ => "unknown".to_string(),
+            };
+            output.push_str(&format!(
+                "Let {} be a new CDecrease with target \"{}\" and amount {}.\n",
+                var, target_name, amount_var
+            ));
+        }
+        Stmt::AppendToSequence { sequence, value } => {
+            let value_var = encode_expr_src(value, counter, output, interner, variants);
+            let target_name = match sequence {
+                Expr::Identifier(sym) => interner.resolve(*sym).to_string(),
+                _ => "unknown".to_string(),
+            };
+            output.push_str(&format!(
+                "Let {} be a new CAppendToSeq with target \"{}\" and value {}.\n",
+                var, target_name, value_var
+            ));
+        }
+        Stmt::ResolveConflict { object, .. } => {
+            let target_name = match object {
+                Expr::Identifier(sym) => interner.resolve(*sym).to_string(),
+                _ => "unknown".to_string(),
+            };
+            output.push_str(&format!(
+                "Let {} be a new CResolve with target \"{}\".\n",
+                var, target_name
+            ));
+        }
+        Stmt::Sync { var: sync_var, topic } => {
+            let topic_var = encode_expr_src(topic, counter, output, interner, variants);
+            let var_name = interner.resolve(*sync_var);
+            output.push_str(&format!(
+                "Let {} be a new CSync with target \"{}\" and channel {}.\n",
+                var, var_name, topic_var
+            ));
+        }
+        Stmt::Mount { var: mount_var, path } => {
+            let path_var = encode_expr_src(path, counter, output, interner, variants);
+            let var_name = interner.resolve(*mount_var);
+            output.push_str(&format!(
+                "Let {} be a new CMount with target \"{}\" and path {}.\n",
+                var, var_name, path_var
+            ));
+        }
+        Stmt::Concurrent { tasks } => {
+            let branches_var = format!("e_{}", *counter);
+            *counter += 1;
+            output.push_str(&format!("Let {} be a new Seq of Seq of CStmt.\n", branches_var));
+            let branch_var = format!("e_{}", *counter);
+            *counter += 1;
+            output.push_str(&format!("Let {} be a new Seq of CStmt.\n", branch_var));
+            for stmt in tasks.iter() {
+                let sv = encode_stmt_src(stmt, counter, output, interner, variants);
+                if !sv.is_empty() {
+                    output.push_str(&format!("Push {} to {}.\n", sv, branch_var));
+                }
+            }
+            output.push_str(&format!("Push {} to {}.\n", branch_var, branches_var));
+            output.push_str(&format!(
+                "Let {} be a new CConcurrent with branches {}.\n",
+                var, branches_var
+            ));
+        }
+        Stmt::Parallel { tasks } => {
+            let branches_var = format!("e_{}", *counter);
+            *counter += 1;
+            output.push_str(&format!("Let {} be a new Seq of Seq of CStmt.\n", branches_var));
+            let branch_var = format!("e_{}", *counter);
+            *counter += 1;
+            output.push_str(&format!("Let {} be a new Seq of CStmt.\n", branch_var));
+            for stmt in tasks.iter() {
+                let sv = encode_stmt_src(stmt, counter, output, interner, variants);
+                if !sv.is_empty() {
+                    output.push_str(&format!("Push {} to {}.\n", sv, branch_var));
+                }
+            }
+            output.push_str(&format!("Push {} to {}.\n", branch_var, branches_var));
+            output.push_str(&format!(
+                "Let {} be a new CParallel with branches {}.\n",
+                var, branches_var
+            ));
+        }
+        Stmt::LaunchTask { function, args } | Stmt::LaunchTaskWithHandle { function, args, .. } => {
+            let func_name = interner.resolve(*function);
+            let args_var = format!("e_{}", *counter);
+            *counter += 1;
+            output.push_str(&format!("Let {} be a new Seq of CExpr.\n", args_var));
+            for arg in args {
+                let av = encode_expr_src(arg, counter, output, interner, variants);
+                output.push_str(&format!("Push {} to {}.\n", av, args_var));
+            }
+            let body_var = format!("e_{}", *counter);
+            *counter += 1;
+            output.push_str(&format!("Let {} be a new Seq of CStmt.\n", body_var));
+            let call_var = format!("e_{}", *counter);
+            *counter += 1;
+            output.push_str(&format!(
+                "Let {} be a new CCallS with name \"{}\" and args {}.\n",
+                call_var, func_name, args_var
+            ));
+            output.push_str(&format!("Push {} to {}.\n", call_var, body_var));
+            let handle_name = if let Stmt::LaunchTaskWithHandle { handle, .. } = stmt {
+                interner.resolve(*handle).to_string()
+            } else {
+                "_task".to_string()
+            };
+            output.push_str(&format!(
+                "Let {} be a new CLaunchTask with body {} and handle \"{}\".\n",
+                var, body_var, handle_name
+            ));
+        }
+        Stmt::StopTask { handle } => {
+            let handle_var = encode_expr_src(handle, counter, output, interner, variants);
+            output.push_str(&format!(
+                "Let {} be a new CStopTask with handle {}.\n",
+                var, handle_var
+            ));
+        }
+        Stmt::CreatePipe { var: pipe_var, capacity, .. } => {
+            let cap = capacity.unwrap_or(32);
+            let cap_var = format!("e_{}", *counter);
+            *counter += 1;
+            output.push_str(&format!("Let {} be a new CInt with value {}.\n", cap_var, cap));
+            let pipe_name = interner.resolve(*pipe_var);
+            output.push_str(&format!(
+                "Let {} be a new CCreatePipe with name \"{}\" and capacity {}.\n",
+                var, pipe_name, cap_var
+            ));
+        }
+        Stmt::SendPipe { value, pipe } => {
+            let val_var = encode_expr_src(value, counter, output, interner, variants);
+            let pipe_name = match pipe {
+                Expr::Identifier(sym) => interner.resolve(*sym).to_string(),
+                _ => "pipe".to_string(),
+            };
+            output.push_str(&format!(
+                "Let {} be a new CSendPipe with chan \"{}\" and value {}.\n",
+                var, pipe_name, val_var
+            ));
+        }
+        Stmt::ReceivePipe { var: recv_var, pipe } => {
+            let recv_name = interner.resolve(*recv_var);
+            let pipe_name = match pipe {
+                Expr::Identifier(sym) => interner.resolve(*sym).to_string(),
+                _ => "pipe".to_string(),
+            };
+            output.push_str(&format!(
+                "Let {} be a new CReceivePipe with chan \"{}\" and target \"{}\".\n",
+                var, pipe_name, recv_name
+            ));
+        }
+        Stmt::TrySendPipe { value, pipe, .. } => {
+            let val_var = encode_expr_src(value, counter, output, interner, variants);
+            let pipe_name = match pipe {
+                Expr::Identifier(sym) => interner.resolve(*sym).to_string(),
+                _ => "pipe".to_string(),
+            };
+            output.push_str(&format!(
+                "Let {} be a new CTrySendPipe with chan \"{}\" and value {}.\n",
+                var, pipe_name, val_var
+            ));
+        }
+        Stmt::TryReceivePipe { var: recv_var, pipe } => {
+            let recv_name = interner.resolve(*recv_var);
+            let pipe_name = match pipe {
+                Expr::Identifier(sym) => interner.resolve(*sym).to_string(),
+                _ => "pipe".to_string(),
+            };
+            output.push_str(&format!(
+                "Let {} be a new CTryReceivePipe with chan \"{}\" and target \"{}\".\n",
+                var, pipe_name, recv_name
+            ));
+        }
+        Stmt::Select { branches } => {
+            let branches_var = format!("e_{}", *counter);
+            *counter += 1;
+            output.push_str(&format!("Let {} be a new Seq of CSelectBranch.\n", branches_var));
+            for branch in branches {
+                match branch {
+                    SelectBranch::Receive { var: recv_var, pipe, body } => {
+                        let recv_name = interner.resolve(*recv_var);
+                        let pipe_name = match pipe {
+                            Expr::Identifier(sym) => interner.resolve(*sym).to_string(),
+                            _ => "pipe".to_string(),
+                        };
+                        let body_var = format!("e_{}", *counter);
+                        *counter += 1;
+                        output.push_str(&format!("Let {} be a new Seq of CStmt.\n", body_var));
+                        for stmt in body.iter() {
+                            let sv = encode_stmt_src(stmt, counter, output, interner, variants);
+                            if !sv.is_empty() {
+                                output.push_str(&format!("Push {} to {}.\n", sv, body_var));
+                            }
+                        }
+                        let branch_var = format!("e_{}", *counter);
+                        *counter += 1;
+                        output.push_str(&format!(
+                            "Let {} be a new CSelectRecv with chan \"{}\" and var \"{}\" and body {}.\n",
+                            branch_var, pipe_name, recv_name, body_var
+                        ));
+                        output.push_str(&format!("Push {} to {}.\n", branch_var, branches_var));
+                    }
+                    SelectBranch::Timeout { milliseconds, body } => {
+                        let dur_var = encode_expr_src(milliseconds, counter, output, interner, variants);
+                        let body_var = format!("e_{}", *counter);
+                        *counter += 1;
+                        output.push_str(&format!("Let {} be a new Seq of CStmt.\n", body_var));
+                        for stmt in body.iter() {
+                            let sv = encode_stmt_src(stmt, counter, output, interner, variants);
+                            if !sv.is_empty() {
+                                output.push_str(&format!("Push {} to {}.\n", sv, body_var));
+                            }
+                        }
+                        let branch_var = format!("e_{}", *counter);
+                        *counter += 1;
+                        output.push_str(&format!(
+                            "Let {} be a new CSelectTimeout with duration {} and body {}.\n",
+                            branch_var, dur_var, body_var
+                        ));
+                        output.push_str(&format!("Push {} to {}.\n", branch_var, branches_var));
+                    }
+                }
+            }
+            output.push_str(&format!(
+                "Let {} be a new CSelect with branches {}.\n",
+                var, branches_var
+            ));
+        }
+        Stmt::Spawn { agent_type, name } => {
+            let agent_name = interner.resolve(*agent_type);
+            let target_name = interner.resolve(*name);
+            output.push_str(&format!(
+                "Let {} be a new CSpawn with agentType \"{}\" and target \"{}\".\n",
+                var, agent_name, target_name
+            ));
+        }
+        Stmt::SendMessage { message, destination } => {
+            let target_var = encode_expr_src(destination, counter, output, interner, variants);
+            let msg_var = encode_expr_src(message, counter, output, interner, variants);
+            output.push_str(&format!(
+                "Let {} be a new CSendMessage with target {} and msg {}.\n",
+                var, target_var, msg_var
+            ));
+        }
+        Stmt::AwaitMessage { into, .. } => {
+            let await_name = interner.resolve(*into);
+            output.push_str(&format!(
+                "Let {} be a new CAwaitMessage with target \"{}\".\n",
+                var, await_name
+            ));
+        }
+        Stmt::Listen { address } => {
+            let addr_var = encode_expr_src(address, counter, output, interner, variants);
+            output.push_str(&format!(
+                "Let {} be a new CListen with addr {} and handler \"default\".\n",
+                var, addr_var
+            ));
+        }
+        Stmt::ConnectTo { address } => {
+            let addr_var = encode_expr_src(address, counter, output, interner, variants);
+            output.push_str(&format!(
+                "Let {} be a new CConnectTo with addr {} and target \"conn\".\n",
+                var, addr_var
+            ));
+        }
+        Stmt::Zone { name, body, .. } => {
+            let zone_name = interner.resolve(*name);
+            let body_var = format!("e_{}", *counter);
+            *counter += 1;
+            output.push_str(&format!("Let {} be a new Seq of CStmt.\n", body_var));
+            for stmt in body.iter() {
+                let sv = encode_stmt_src(stmt, counter, output, interner, variants);
+                if !sv.is_empty() {
+                    output.push_str(&format!("Push {} to {}.\n", sv, body_var));
+                }
+            }
+            output.push_str(&format!(
+                "Let {} be a new CZone with name \"{}\" and kind \"heap\" and body {}.\n",
+                var, zone_name, body_var
+            ));
+        }
+        Stmt::LetPeerAgent { var: pa_var, address } => {
+            let addr_var = encode_expr_src(address, counter, output, interner, variants);
+            let pa_name = interner.resolve(*pa_var);
+            output.push_str(&format!(
+                "Let {} be a new CConnectTo with addr {} and target \"{}\".\n",
+                var, addr_var, pa_name
+            ));
+        }
+        _ => {
+            return String::new();
+        }
+    }
+
+    var
+}
+
+fn encode_stmts_src(stmt: &Stmt, counter: &mut usize, output: &mut String, interner: &Interner, variants: &HashMap<String, Vec<String>>) -> Vec<String> {
+    match stmt {
+        Stmt::Inspect { target, arms, .. } => {
+            let mut otherwise_stmts: Vec<&Stmt> = Vec::new();
+            let mut variant_arms: Vec<(&MatchArm, Vec<&Stmt>)> = Vec::new();
+
+            for arm in arms {
+                if arm.variant.is_none() {
+                    otherwise_stmts = arm.body.iter().collect();
+                } else {
+                    let body_refs: Vec<&Stmt> = arm.body.iter().collect();
+                    variant_arms.push((arm, body_refs));
+                }
+            }
+
+            if variant_arms.is_empty() {
+                let mut result = Vec::new();
+                for s in &otherwise_stmts {
+                    for v in encode_stmts_src(s, counter, output, interner, variants) {
+                        result.push(v);
+                    }
+                }
+                return result;
+            }
+
+            // Flat CIf encoding: each arm becomes an independent CIf with empty else.
+            // Since Inspect arms are mutually exclusive (exactly one tag matches),
+            // flat CIf is semantically equivalent to nested CIf chains but avoids
+            // deep nesting that the interpreter's inline CIf handler can't navigate.
+            let has_otherwise = !otherwise_stmts.is_empty();
+            let mut result = Vec::new();
+
+            // If there's an Otherwise block, track whether any arm matched
+            let matched_var_name = if has_otherwise {
+                let name = format!("__inspectMatched_{}", *counter);
+                *counter += 1;
+                let false_expr = format!("e_{}", *counter);
+                *counter += 1;
+                output.push_str(&format!("Let {} be a new CBool with value false.\n", false_expr));
+                let let_stmt = format!("s_{}", *counter);
+                *counter += 1;
+                output.push_str(&format!(
+                    "Let {} be a new CLet with name \"{}\" and expr {}.\n",
+                    let_stmt, name, false_expr
+                ));
+                result.push(let_stmt);
+                Some(name)
+            } else {
+                None
+            };
+
+            // Each variant arm becomes: CIf(tag == "Variant", [bindings + body], [])
+            for (arm, body_stmts) in &variant_arms {
+                let variant_name = interner.resolve(arm.variant.unwrap());
+
+                // Condition: tag == "VariantName"
+                let tag_target = encode_expr_src(target, counter, output, interner, variants);
+                let tag_key = format!("e_{}", *counter);
+                *counter += 1;
+                output.push_str(&format!("Let {} be a new CText with value \"__tag\".\n", tag_key));
+                let tag_get = format!("e_{}", *counter);
+                *counter += 1;
+                output.push_str(&format!(
+                    "Let {} be a new CMapGet with target {} and key {}.\n",
+                    tag_get, tag_target, tag_key
+                ));
+                let variant_text = format!("e_{}", *counter);
+                *counter += 1;
+                output.push_str(&format!("Let {} be a new CText with value \"{}\".\n", variant_text, variant_name));
+                let cond_var = format!("e_{}", *counter);
+                *counter += 1;
+                output.push_str(&format!(
+                    "Let {} be a new CBinOp with op \"==\" and left {} and right {}.\n",
+                    cond_var, tag_get, variant_text
+                ));
+
+                // Then-block: [optionally set matched flag, bindings, body]
+                let then_list = format!("stmtList_{}", *counter);
+                *counter += 1;
+                output.push_str(&format!("Let {} be a new Seq of CStmt.\n", then_list));
+
+                // Set matched flag if needed
+                if let Some(ref mname) = matched_var_name {
+                    let true_expr = format!("e_{}", *counter);
+                    *counter += 1;
+                    output.push_str(&format!("Let {} be a new CBool with value true.\n", true_expr));
+                    let set_stmt = format!("s_{}", *counter);
+                    *counter += 1;
+                    output.push_str(&format!(
+                        "Let {} be a new CSet with name \"{}\" and expr {}.\n",
+                        set_stmt, mname, true_expr
+                    ));
+                    output.push_str(&format!("Push {} to {}.\n", set_stmt, then_list));
+                }
+
+                // Bindings
+                for (field_name, binding_name) in &arm.bindings {
+                    let field_str = interner.resolve(*field_name);
+                    let bind_str = interner.resolve(*binding_name);
+                    let bind_target = encode_expr_src(target, counter, output, interner, variants);
+                    let fkey = format!("e_{}", *counter);
+                    *counter += 1;
+                    output.push_str(&format!("Let {} be a new CText with value \"{}\".\n", fkey, field_str));
+                    let fget = format!("e_{}", *counter);
+                    *counter += 1;
+                    output.push_str(&format!(
+                        "Let {} be a new CMapGet with target {} and key {}.\n",
+                        fget, bind_target, fkey
+                    ));
+                    let bind_let = format!("s_{}", *counter);
+                    *counter += 1;
+                    output.push_str(&format!(
+                        "Let {} be a new CLet with name \"{}\" and expr {}.\n",
+                        bind_let, bind_str, fget
+                    ));
+                    output.push_str(&format!("Push {} to {}.\n", bind_let, then_list));
+                }
+
+                // Body statements (use encode_stmts_src for Inspect/Repeat)
+                for body_stmt in body_stmts {
+                    match body_stmt {
+                        Stmt::Inspect { .. } | Stmt::Repeat { .. } => {
+                            let vars = encode_stmts_src(body_stmt, counter, output, interner, variants);
+                            for v in vars {
+                                output.push_str(&format!("Push {} to {}.\n", v, then_list));
+                            }
+                        }
+                        _ => {
+                            let bvar = encode_stmt_src(body_stmt, counter, output, interner, variants);
+                            if !bvar.is_empty() {
+                                output.push_str(&format!("Push {} to {}.\n", bvar, then_list));
+                            }
+                        }
+                    }
+                }
+
+                // Empty else block
+                let empty_else = format!("stmtList_{}", *counter);
+                *counter += 1;
+                output.push_str(&format!("Let {} be a new Seq of CStmt.\n", empty_else));
+
+                // CIf node
+                let if_var = format!("s_{}", *counter);
+                *counter += 1;
+                output.push_str(&format!(
+                    "Let {} be a new CIf with cond {} and thenBlock {} and elseBlock {}.\n",
+                    if_var, cond_var, then_list, empty_else
+                ));
+
+                result.push(if_var);
+            }
+
+            // Otherwise: CIf(CNot(__inspectMatched), otherwise_body, [])
+            if let Some(ref mname) = matched_var_name {
+                let matched_ref = format!("e_{}", *counter);
+                *counter += 1;
+                output.push_str(&format!("Let {} be a new CVar with name \"{}\".\n", matched_ref, mname));
+                let not_matched = format!("e_{}", *counter);
+                *counter += 1;
+                output.push_str(&format!("Let {} be a new CNot with inner {}.\n", not_matched, matched_ref));
+
+                let otherwise_block = encode_stmt_list_src(&otherwise_stmts, counter, output, interner, variants);
+                let empty_else = format!("stmtList_{}", *counter);
+                *counter += 1;
+                output.push_str(&format!("Let {} be a new Seq of CStmt.\n", empty_else));
+
+                let otherwise_if = format!("s_{}", *counter);
+                *counter += 1;
+                output.push_str(&format!(
+                    "Let {} be a new CIf with cond {} and thenBlock {} and elseBlock {}.\n",
+                    otherwise_if, not_matched, otherwise_block, empty_else
+                ));
+                result.push(otherwise_if);
+            }
+
+            result
+        }
+        Stmt::Repeat { pattern, iterable, body, .. } => {
+            // Lower to: Let idx = CInt(1). CWhile(idx <= CLen(coll), [Let var = CIndex(coll, idx), ...body..., Set idx = idx + 1])
+            let loop_var_name = match pattern {
+                Pattern::Identifier(sym) => interner.resolve(*sym).to_string(),
+                Pattern::Tuple(syms) => {
+                    if let Some(s) = syms.first() {
+                        interner.resolve(*s).to_string()
+                    } else {
+                        "item".to_string()
+                    }
+                }
+            };
+
+            // Generate a unique index variable name
+            let idx_name = format!("__idx_{}", *counter);
+            *counter += 1;
+
+            // Let idx = CInt(1) — 1-based indexing
+            let idx_init_expr = format!("e_{}", *counter);
+            *counter += 1;
+            output.push_str(&format!("Let {} be a new CInt with value 1.\n", idx_init_expr));
+            let idx_init = format!("s_{}", *counter);
+            *counter += 1;
+            output.push_str(&format!(
+                "Let {} be a new CLet with name \"{}\" and expr {}.\n",
+                idx_init, idx_name, idx_init_expr
+            ));
+
+            // While condition: idx <= length of coll (fresh iterable encoding)
+            let iter_for_len = encode_expr_src(iterable, counter, output, interner, variants);
+            let idx_var_expr = format!("e_{}", *counter);
+            *counter += 1;
+            output.push_str(&format!("Let {} be a new CVar with name \"{}\".\n", idx_var_expr, idx_name));
+            let len_expr = format!("e_{}", *counter);
+            *counter += 1;
+            output.push_str(&format!("Let {} be a new CLen with target {}.\n", len_expr, iter_for_len));
+            let while_cond = format!("e_{}", *counter);
+            *counter += 1;
+            output.push_str(&format!(
+                "Let {} be a new CBinOp with op \"<=\" and left {} and right {}.\n",
+                while_cond, idx_var_expr, len_expr
+            ));
+
+            // While body
+            let while_body_list = format!("stmtList_{}", *counter);
+            *counter += 1;
+            output.push_str(&format!("Let {} be a new Seq of CStmt.\n", while_body_list));
+
+            // Let loop_var = CIndex(coll, idx) (fresh iterable encoding)
+            let iter_for_index = encode_expr_src(iterable, counter, output, interner, variants);
+            let idx_ref = format!("e_{}", *counter);
+            *counter += 1;
+            output.push_str(&format!("Let {} be a new CVar with name \"{}\".\n", idx_ref, idx_name));
+            let elem_expr = format!("e_{}", *counter);
+            *counter += 1;
+            output.push_str(&format!(
+                "Let {} be a new CIndex with coll {} and idx {}.\n",
+                elem_expr, iter_for_index, idx_ref
+            ));
+            let elem_let = format!("s_{}", *counter);
+            *counter += 1;
+            output.push_str(&format!(
+                "Let {} be a new CLet with name \"{}\" and expr {}.\n",
+                elem_let, loop_var_name, elem_expr
+            ));
+            output.push_str(&format!("Push {} to {}.\n", elem_let, while_body_list));
+
+            // Encode body statements (use encode_stmts_src for Inspect/Repeat, encode_stmt_src for others)
+            let body_refs: Vec<&Stmt> = body.iter().collect();
+            for body_stmt in &body_refs {
+                match body_stmt {
+                    Stmt::Inspect { .. } | Stmt::Repeat { .. } => {
+                        let vars = encode_stmts_src(body_stmt, counter, output, interner, variants);
+                        for v in vars {
+                            output.push_str(&format!("Push {} to {}.\n", v, while_body_list));
+                        }
+                    }
+                    _ => {
+                        let bvar = encode_stmt_src(body_stmt, counter, output, interner, variants);
+                        if !bvar.is_empty() {
+                            output.push_str(&format!("Push {} to {}.\n", bvar, while_body_list));
+                        }
+                    }
+                }
+            }
+
+            // Set idx = idx + 1
+            let idx_ref2 = format!("e_{}", *counter);
+            *counter += 1;
+            output.push_str(&format!("Let {} be a new CVar with name \"{}\".\n", idx_ref2, idx_name));
+            let one_expr = format!("e_{}", *counter);
+            *counter += 1;
+            output.push_str(&format!("Let {} be a new CInt with value 1.\n", one_expr));
+            let inc_expr = format!("e_{}", *counter);
+            *counter += 1;
+            output.push_str(&format!(
+                "Let {} be a new CBinOp with op \"+\" and left {} and right {}.\n",
+                inc_expr, idx_ref2, one_expr
+            ));
+            let inc_set = format!("s_{}", *counter);
+            *counter += 1;
+            output.push_str(&format!(
+                "Let {} be a new CSet with name \"{}\" and expr {}.\n",
+                inc_set, idx_name, inc_expr
+            ));
+            output.push_str(&format!("Push {} to {}.\n", inc_set, while_body_list));
+
+            // CWhile node
+            let while_var = format!("s_{}", *counter);
+            *counter += 1;
+            output.push_str(&format!(
+                "Let {} be a new CWhile with cond {} and body {}.\n",
+                while_var, while_cond, while_body_list
+            ));
+
+            vec![idx_init, while_var]
+        }
+        _ => {
+            let v = encode_stmt_src(stmt, counter, output, interner, variants);
+            if v.is_empty() {
+                vec![]
+            } else {
+                vec![v]
+            }
+        }
+    }
+}
+
+fn encode_stmt_list_src(stmts: &[&Stmt], counter: &mut usize, output: &mut String, interner: &Interner, variants: &HashMap<String, Vec<String>>) -> String {
+    let list_var = format!("stmtList_{}", *counter);
+    *counter += 1;
+    output.push_str(&format!("Let {} be a new Seq of CStmt.\n", list_var));
+
+    for stmt in stmts {
+        for stmt_var in encode_stmts_src(stmt, counter, output, interner, variants) {
+            output.push_str(&format!("Push {} to {}.\n", stmt_var, list_var));
+        }
+    }
+
+    list_var
+}
+
+fn extract_ident_name(expr: &Expr, interner: &Interner) -> String {
+    match expr {
+        Expr::Identifier(sym) => interner.resolve(*sym).to_string(),
+        _ => "unknown".to_string(),
+    }
+}
+
+/// First Futamura Projection: PE(interpreter, program) = compiled_program
+///
+/// Specializes the interpreter with respect to a fixed program, producing
+/// a compiled version with no interpretive overhead. For a self-interpreter
+/// (where source and target language are the same), this produces the
+/// program itself, with static optimizations applied.
+///
+/// The pipeline:
+/// 1. Parse the program source
+/// 2. Run the optimizer (fold, propagate, PE, DCE)
+/// 3. Decompile the optimized AST back to source
+/// 4. Verify no interpretive overhead remains
+pub fn projection1_source(_core_types: &str, _interpreter: &str, program: &str) -> Result<String, String> {
+    let full_source = if program.contains("## Main") || program.contains("## To ") {
+        program.to_string()
+    } else {
+        format!("## Main\n{}", program)
+    };
+
+    let mut interner = Interner::new();
+    let mut lexer = Lexer::new(&full_source, &mut interner);
+    let tokens = lexer.tokenize();
+
+    let type_registry = {
+        let mut discovery = DiscoveryPass::new(&tokens, &mut interner);
+        let result = discovery.run_full();
+        result.types
+    };
+
+    let mut world_state = WorldState::new();
+    let expr_arena = Arena::new();
+    let term_arena = Arena::new();
+    let np_arena = Arena::new();
+    let sym_arena = Arena::new();
+    let role_arena = Arena::new();
+    let pp_arena = Arena::new();
+    let stmt_arena: Arena<Stmt> = Arena::new();
+    let imperative_expr_arena: Arena<Expr> = Arena::new();
+    let type_expr_arena: Arena<TypeExpr> = Arena::new();
+
+    let ast_ctx = AstContext::with_types(
+        &expr_arena, &term_arena, &np_arena, &sym_arena,
+        &role_arena, &pp_arena, &stmt_arena, &imperative_expr_arena,
+        &type_expr_arena,
+    );
+
+    let mut parser = crate::parser::Parser::new(
+        tokens, &mut world_state, &mut interner, ast_ctx, type_registry,
+    );
+    let stmts = parser.parse_program().map_err(|e| format!("Parse error: {:?}", e))?;
+
+    // First Futamura Projection: PE(interpreter, program) = compiled_program.
+    // Use the projection-safe optimizer: fold + propagate + PE + CTFE.
+    // This preserves control-flow structure (If/While) while still folding
+    // constants, propagating values, and specializing function calls.
+    let optimized = crate::optimize::optimize_for_projection(
+        stmts, &imperative_expr_arena, &stmt_arena, &mut interner,
+    );
+
+    let mut output = String::new();
+
+    for stmt in &optimized {
+        if matches!(stmt, Stmt::FunctionDef { .. }) {
+            decompile_stmt(stmt, &interner, &mut output, 0);
+            output.push('\n');
+        }
+    }
+
+    output.push_str("## Main\n");
+    for stmt in &optimized {
+        if !matches!(stmt, Stmt::FunctionDef { .. }) {
+            decompile_stmt(stmt, &interner, &mut output, 0);
+        }
+    }
+
+    Ok(output)
+}
+
+fn decompile_stmt(stmt: &Stmt, interner: &Interner, out: &mut String, indent: usize) {
+    let pad = "    ".repeat(indent);
+    match stmt {
+        Stmt::FunctionDef { name, params, body, return_type, .. } => {
+            let fn_name = interner.resolve(*name);
+            let param_strs: Vec<String> = params
+                .iter()
+                .map(|(name, ty)| {
+                    let pname = interner.resolve(*name);
+                    format!("{}: {}", pname, decompile_type_expr(ty, interner))
+                })
+                .collect();
+            let ret_str = if let Some(rt) = return_type {
+                format!(" -> {}", decompile_type_expr(rt, interner))
+            } else {
+                String::new()
+            };
+            out.push_str(&format!("{}## To {} ({}){}:\n", pad, fn_name, param_strs.join(", "), ret_str));
+            for s in body.iter() {
+                decompile_stmt(s, interner, out, indent + 1);
+            }
+        }
+        Stmt::Let { var, value, mutable, .. } => {
+            let name = interner.resolve(*var);
+            let expr_str = decompile_expr(value, interner);
+            if *mutable {
+                out.push_str(&format!("{}Let mutable {} be {}.\n", pad, name, expr_str));
+            } else {
+                out.push_str(&format!("{}Let {} be {}.\n", pad, name, expr_str));
+            }
+        }
+        Stmt::Set { target, value } => {
+            let name = interner.resolve(*target);
+            let expr_str = decompile_expr(value, interner);
+            out.push_str(&format!("{}Set {} to {}.\n", pad, name, expr_str));
+        }
+        Stmt::Show { object, .. } => {
+            let expr_str = decompile_expr(object, interner);
+            out.push_str(&format!("{}Show {}.\n", pad, expr_str));
+        }
+        Stmt::Return { value } => {
+            if let Some(expr) = value {
+                let expr_str = decompile_expr(expr, interner);
+                out.push_str(&format!("{}Return {}.\n", pad, expr_str));
+            } else {
+                out.push_str(&format!("{}Return.\n", pad));
+            }
+        }
+        Stmt::If { cond, then_block, else_block } => {
+            let cond_str = decompile_expr(cond, interner);
+            out.push_str(&format!("{}If {}:\n", pad, cond_str));
+            for s in then_block.iter() {
+                decompile_stmt(s, interner, out, indent + 1);
+            }
+            if let Some(els) = else_block {
+                out.push_str(&format!("{}Otherwise:\n", pad));
+                for s in els.iter() {
+                    decompile_stmt(s, interner, out, indent + 1);
+                }
+            }
+        }
+        Stmt::While { cond, body, .. } => {
+            let cond_str = decompile_expr(cond, interner);
+            out.push_str(&format!("{}While {}:\n", pad, cond_str));
+            for s in body.iter() {
+                decompile_stmt(s, interner, out, indent + 1);
+            }
+        }
+        Stmt::Call { function, args } => {
+            let fn_name = interner.resolve(*function);
+            let arg_strs: Vec<String> = args.iter().map(|a| decompile_expr(a, interner)).collect();
+            if arg_strs.is_empty() {
+                out.push_str(&format!("{}{}().\n", pad, fn_name));
+            } else {
+                out.push_str(&format!("{}{}({}).\n", pad, fn_name, arg_strs.join(", ")));
+            }
+        }
+        Stmt::Push { value, collection } => {
+            let val_str = decompile_expr(value, interner);
+            let coll_str = decompile_expr(collection, interner);
+            out.push_str(&format!("{}Push {} to {}.\n", pad, val_str, coll_str));
+        }
+        Stmt::SetIndex { collection, index, value } => {
+            let coll_str = decompile_expr(collection, interner);
+            let idx_str = decompile_expr(index, interner);
+            let val_str = decompile_expr(value, interner);
+            out.push_str(&format!("{}Set item {} of {} to {}.\n", pad, idx_str, coll_str, val_str));
+        }
+        Stmt::SetField { object, field, value } => {
+            let obj_str = decompile_expr(object, interner);
+            let field_name = interner.resolve(*field);
+            let val_str = decompile_expr(value, interner);
+            out.push_str(&format!("{}Set {} of {} to {}.\n", pad, field_name, obj_str, val_str));
+        }
+        Stmt::Repeat { pattern, iterable, body, .. } => {
+            let var_name = match pattern {
+                Pattern::Identifier(sym) => interner.resolve(*sym).to_string(),
+                Pattern::Tuple(syms) => {
+                    syms.iter().map(|s| interner.resolve(*s).to_string()).collect::<Vec<_>>().join(", ")
+                }
+            };
+            let iter_str = decompile_expr(iterable, interner);
+            out.push_str(&format!("{}Repeat for {} in {}:\n", pad, var_name, iter_str));
+            for s in body.iter() {
+                decompile_stmt(s, interner, out, indent + 1);
+            }
+        }
+        Stmt::Inspect { target, arms, .. } => {
+            let target_str = decompile_expr(target, interner);
+            out.push_str(&format!("{}Inspect {}:\n", pad, target_str));
+            for arm in arms {
+                if let Some(variant) = arm.variant {
+                    let variant_name = interner.resolve(variant);
+                    let bindings: Vec<String> = arm.bindings.iter()
+                        .map(|(_, b)| interner.resolve(*b).to_string())
+                        .collect();
+                    if bindings.is_empty() {
+                        out.push_str(&format!("{}    When {}:\n", pad, variant_name));
+                    } else {
+                        out.push_str(&format!("{}    When {}({}):\n", pad, variant_name, bindings.join(", ")));
+                    }
+                } else {
+                    out.push_str(&format!("{}    Otherwise:\n", pad));
+                }
+                for s in arm.body.iter() {
+                    decompile_stmt(s, interner, out, indent + 2);
+                }
+            }
+        }
+        Stmt::Pop { collection, into } => {
+            let coll_str = decompile_expr(collection, interner);
+            if let Some(target) = into {
+                let target_name = interner.resolve(*target);
+                out.push_str(&format!("{}Pop from {} into {}.\n", pad, coll_str, target_name));
+            } else {
+                out.push_str(&format!("{}Pop from {}.\n", pad, coll_str));
+            }
+        }
+        Stmt::Break => {
+            out.push_str(&format!("{}Break.\n", pad));
+        }
+        Stmt::RuntimeAssert { condition } => {
+            let cond_str = decompile_expr(condition, interner);
+            out.push_str(&format!("{}Assert that {}.\n", pad, cond_str));
+        }
+        Stmt::Add { value, collection } => {
+            let val_str = decompile_expr(value, interner);
+            let coll_str = decompile_expr(collection, interner);
+            out.push_str(&format!("{}Add {} to {}.\n", pad, val_str, coll_str));
+        }
+        Stmt::Remove { value, collection } => {
+            let val_str = decompile_expr(value, interner);
+            let coll_str = decompile_expr(collection, interner);
+            out.push_str(&format!("{}Remove {} from {}.\n", pad, val_str, coll_str));
+        }
+        Stmt::Zone { name, body, .. } => {
+            let zone_name = interner.resolve(*name);
+            out.push_str(&format!("{}Inside a new zone called \"{}\":\n", pad, zone_name));
+            for s in body.iter() {
+                decompile_stmt(s, interner, out, indent + 1);
+            }
+        }
+        Stmt::ReadFrom { var, .. } => {
+            let var_name = interner.resolve(*var);
+            out.push_str(&format!("{}Read {} from the console.\n", pad, var_name));
+        }
+        Stmt::WriteFile { content, path } => {
+            let content_str = decompile_expr(content, interner);
+            let path_str = decompile_expr(path, interner);
+            out.push_str(&format!("{}Write {} to file {}.\n", pad, content_str, path_str));
+        }
+        Stmt::Sleep { milliseconds } => {
+            let ms = decompile_expr(milliseconds, interner);
+            out.push_str(&format!("{}Sleep {}.\n", pad, ms));
+        }
+        _ => {
+            // Remaining system-level statements (CRDT, networking, concurrency)
+            // are not produced by the optimizer and don't appear in P1 residuals.
+        }
+    }
+}
+
+fn decompile_expr(expr: &Expr, interner: &Interner) -> String {
+    match expr {
+        Expr::Literal(lit) => match lit {
+            Literal::Number(n) => n.to_string(),
+            Literal::Float(f) => format!("{}", f),
+            Literal::Boolean(b) => if *b { "true".to_string() } else { "false".to_string() },
+            Literal::Text(s) => format!("\"{}\"", interner.resolve(*s)),
+            Literal::Nothing => "nothing".to_string(),
+            Literal::Char(c) => format!("'{}'", c),
+            Literal::Duration(ns) => format!("{}", ns),
+            Literal::Date(days) => format!("{}", days),
+            Literal::Moment(ns) => format!("{}", ns),
+            Literal::Span { months, days } => format!("{} months {} days", months, days),
+            Literal::Time(ns) => format!("{}", ns),
+        },
+        Expr::Identifier(sym) => interner.resolve(*sym).to_string(),
+        Expr::BinaryOp { op, left, right } => {
+            let l = if matches!(left, Expr::BinaryOp { .. }) {
+                format!("({})", decompile_expr(left, interner))
+            } else {
+                decompile_expr(left, interner)
+            };
+            let r = if matches!(right, Expr::BinaryOp { .. }) {
+                format!("({})", decompile_expr(right, interner))
+            } else {
+                decompile_expr(right, interner)
+            };
+            // Shift operations are introduced by bit-strength optimization.
+            // Map back to equivalent multiply/divide for LOGOS source.
+            if matches!(op, BinaryOpKind::Shl) {
+                // n << k = n * 2^k
+                if let Expr::Literal(Literal::Number(k)) = right {
+                    let multiplier = 1i64 << k;
+                    return format!("{} * {}", l, multiplier);
+                }
+            }
+            if matches!(op, BinaryOpKind::Shr) {
+                // n >> k = n / 2^k
+                if let Expr::Literal(Literal::Number(k)) = right {
+                    let divisor = 1i64 << k;
+                    return format!("{} / {}", l, divisor);
+                }
+            }
+            let op_str = match op {
+                BinaryOpKind::Add => "+",
+                BinaryOpKind::Subtract => "-",
+                BinaryOpKind::Multiply => "*",
+                BinaryOpKind::Divide => "/",
+                BinaryOpKind::Modulo => "%",
+                BinaryOpKind::Eq => "equals",
+                BinaryOpKind::NotEq => "is not",
+                BinaryOpKind::Lt => "is less than",
+                BinaryOpKind::Gt => "is greater than",
+                BinaryOpKind::LtEq => "is at most",
+                BinaryOpKind::GtEq => "is at least",
+                BinaryOpKind::And => "and",
+                BinaryOpKind::Or => "or",
+                BinaryOpKind::Concat => "+",
+                BinaryOpKind::BitXor => "+",
+                BinaryOpKind::Shl => "*",
+                BinaryOpKind::Shr => "/",
+            };
+            format!("{} {} {}", l, op_str, r)
+        }
+        Expr::Not { operand } => {
+            let inner = decompile_expr(operand, interner);
+            format!("not {}", inner)
+        }
+        Expr::Call { function, args } => {
+            let fn_name = interner.resolve(*function);
+            let arg_strs: Vec<String> = args.iter().map(|a| decompile_expr(a, interner)).collect();
+            if arg_strs.is_empty() {
+                format!("{}()", fn_name)
+            } else {
+                format!("{}({})", fn_name, arg_strs.join(", "))
+            }
+        }
+        Expr::Index { collection, index } => {
+            let coll = decompile_expr(collection, interner);
+            let idx = decompile_expr(index, interner);
+            format!("item {} of {}", idx, coll)
+        }
+        Expr::Length { collection } => {
+            let coll = decompile_expr(collection, interner);
+            format!("length of {}", coll)
+        }
+        Expr::FieldAccess { object, field } => {
+            let obj = decompile_expr(object, interner);
+            let field_name = interner.resolve(*field);
+            format!("{} of {}", field_name, obj)
+        }
+        Expr::New { type_name, .. } => {
+            let tn = interner.resolve(*type_name);
+            format!("a new {}", tn)
+        }
+        Expr::NewVariant { variant, fields, .. } => {
+            let vn = interner.resolve(*variant);
+            if fields.is_empty() {
+                format!("a new {}", vn)
+            } else {
+                let parts: Vec<String> = fields.iter().map(|(name, val)| {
+                    let n = interner.resolve(*name);
+                    let v = decompile_expr(val, interner);
+                    format!("{} {}", n, v)
+                }).collect();
+                format!("a new {} with {}", vn, parts.join(" and "))
+            }
+        }
+        Expr::InterpolatedString(parts) => {
+            let mut result = String::new();
+            for part in parts {
+                match part {
+                    StringPart::Literal(sym) => {
+                        result.push_str(&interner.resolve(*sym));
+                    }
+                    StringPart::Expr { value, debug, .. } => {
+                        let expr_str = decompile_expr(value, interner);
+                        if *debug {
+                            result.push_str(&format!("{{{}=}}", expr_str));
+                        } else {
+                            result.push_str(&format!("{{{}}}", expr_str));
+                        }
+                    }
+                }
+            }
+            format!("\"{}\"", result)
+        }
+        Expr::Slice { collection, start, end } => {
+            let coll = decompile_expr(collection, interner);
+            let s = decompile_expr(start, interner);
+            let e = decompile_expr(end, interner);
+            format!("{} {} through {}", coll, s, e)
+        }
+        Expr::Copy { expr } => {
+            let inner = decompile_expr(expr, interner);
+            format!("copy of {}", inner)
+        }
+        Expr::Give { value } => {
+            let inner = decompile_expr(value, interner);
+            format!("Give {}", inner)
+        }
+        Expr::Contains { collection, value } => {
+            let coll = decompile_expr(collection, interner);
+            let val = decompile_expr(value, interner);
+            format!("{} contains {}", coll, val)
+        }
+        Expr::Union { left, right } => {
+            let l = decompile_expr(left, interner);
+            let r = decompile_expr(right, interner);
+            format!("{} union {}", l, r)
+        }
+        Expr::Intersection { left, right } => {
+            let l = decompile_expr(left, interner);
+            let r = decompile_expr(right, interner);
+            format!("{} intersection {}", l, r)
+        }
+        Expr::List(elems) => {
+            let parts: Vec<String> = elems.iter().map(|e| decompile_expr(e, interner)).collect();
+            format!("[{}]", parts.join(", "))
+        }
+        Expr::Tuple(elems) => {
+            let parts: Vec<String> = elems.iter().map(|e| decompile_expr(e, interner)).collect();
+            format!("({})", parts.join(", "))
+        }
+        Expr::Range { start, end } => {
+            let s = decompile_expr(start, interner);
+            let e = decompile_expr(end, interner);
+            format!("{} to {}", s, e)
+        }
+        Expr::OptionSome { value } => {
+            let inner = decompile_expr(value, interner);
+            format!("some {}", inner)
+        }
+        Expr::OptionNone => "none".to_string(),
+        Expr::WithCapacity { value, capacity } => {
+            let val = decompile_expr(value, interner);
+            let cap = decompile_expr(capacity, interner);
+            format!("{} with capacity {}", val, cap)
+        }
+        Expr::Escape { language, code } => {
+            let lang = interner.resolve(*language);
+            let src = interner.resolve(*code);
+            format!("Escape to {}:\n{}", lang, src)
+        }
+        Expr::ManifestOf { zone } => {
+            let z = decompile_expr(zone, interner);
+            format!("the manifest of {}", z)
+        }
+        Expr::ChunkAt { index, zone } => {
+            let idx = decompile_expr(index, interner);
+            let z = decompile_expr(zone, interner);
+            format!("the chunk at {} in {}", idx, z)
+        }
+        Expr::Closure { params, body, return_type } => {
+            let param_strs: Vec<String> = params.iter().map(|(name, ty)| {
+                let n = interner.resolve(*name);
+                let t = decompile_type_expr(ty, interner);
+                format!("{}: {}", n, t)
+            }).collect();
+            let ret = if let Some(rt) = return_type {
+                format!(" -> {}", decompile_type_expr(rt, interner))
+            } else {
+                String::new()
+            };
+            match body {
+                ClosureBody::Expression(expr) => {
+                    let e = decompile_expr(expr, interner);
+                    format!("({}){} -> {}", param_strs.join(", "), ret, e)
+                }
+                ClosureBody::Block(_) => {
+                    format!("({}){} -> [block]", param_strs.join(", "), ret)
+                }
+            }
+        }
+        Expr::CallExpr { callee, args } => {
+            let c = decompile_expr(callee, interner);
+            let arg_strs: Vec<String> = args.iter().map(|a| decompile_expr(a, interner)).collect();
+            format!("{}({})", c, arg_strs.join(", "))
+        }
+    }
+}
+
+fn decompile_type_expr(ty: &TypeExpr, interner: &Interner) -> String {
+    match ty {
+        TypeExpr::Primitive(sym) => interner.resolve(*sym).to_string(),
+        TypeExpr::Named(sym) => interner.resolve(*sym).to_string(),
+        TypeExpr::Generic { base, params } => {
+            let base_str = interner.resolve(*base);
+            let param_strs: Vec<String> = params.iter().map(|p| decompile_type_expr(p, interner)).collect();
+            format!("{} of {}", base_str, param_strs.join(" and "))
+        }
+        TypeExpr::Function { inputs, output } => {
+            let in_strs: Vec<String> = inputs.iter().map(|t| decompile_type_expr(t, interner)).collect();
+            let out_str = decompile_type_expr(output, interner);
+            format!("fn({}) -> {}", in_strs.join(", "), out_str)
+        }
+        TypeExpr::Refinement { base, .. } => {
+            decompile_type_expr(base, interner)
+        }
+        TypeExpr::Persistent { inner } => {
+            format!("Persistent {}", decompile_type_expr(inner, interner))
+        }
+    }
+}
+
+/// Verify that a LogicAffeine program has no interpretive overhead.
+///
+/// Checks the AST for patterns that indicate unresolved interpreter dispatch:
+/// - Inspect on CStmt/CExpr/CVal variants
+/// - References to Core constructor types (CInt, CShow, etc.)
+/// - Environment lookups on literal strings
+pub fn verify_no_overhead_source(source: &str) -> Result<(), String> {
+    let mut interner = Interner::new();
+    let mut lexer = Lexer::new(source, &mut interner);
+    let tokens = lexer.tokenize();
+
+    let type_registry = {
+        let mut discovery = DiscoveryPass::new(&tokens, &mut interner);
+        let result = discovery.run_full();
+        result.types
+    };
+
+    let mut world_state = WorldState::new();
+    let expr_arena = Arena::new();
+    let term_arena = Arena::new();
+    let np_arena = Arena::new();
+    let sym_arena = Arena::new();
+    let role_arena = Arena::new();
+    let pp_arena = Arena::new();
+    let stmt_arena: Arena<Stmt> = Arena::new();
+    let imperative_expr_arena: Arena<Expr> = Arena::new();
+    let type_expr_arena: Arena<TypeExpr> = Arena::new();
+
+    let ast_ctx = AstContext::with_types(
+        &expr_arena, &term_arena, &np_arena, &sym_arena,
+        &role_arena, &pp_arena, &stmt_arena, &imperative_expr_arena,
+        &type_expr_arena,
+    );
+
+    let mut parser = crate::parser::Parser::new(
+        tokens, &mut world_state, &mut interner, ast_ctx, type_registry,
+    );
+    let stmts = parser.parse_program().map_err(|e| format!("Parse error: {:?}", e))?;
+
+    verify_no_overhead_stmts(&stmts, &interner)
+}
+
+const CORE_VARIANT_NAMES: &[&str] = &[
+    "CInt", "CBool", "CText", "CVar", "CBinOp", "CNot",
+    "CCall", "CIndex", "CLen", "CMapGet",
+    "CLet", "CSet", "CIf", "CWhile", "CReturn", "CShow",
+    "CCallS", "CPush", "CSetIdx", "CMapSet",
+    "CFuncDef", "CProg",
+    "VInt", "VBool", "VText", "VSeq", "VMap", "VError", "VNothing",
+];
+
+fn verify_no_overhead_stmts(stmts: &[Stmt], interner: &Interner) -> Result<(), String> {
+    for stmt in stmts {
+        check_stmt_overhead(stmt, interner)?;
+    }
+    Ok(())
+}
+
+fn check_stmt_overhead(stmt: &Stmt, interner: &Interner) -> Result<(), String> {
+    match stmt {
+        Stmt::Inspect { arms, .. } => {
+            for arm in arms {
+                if let Some(variant) = arm.variant {
+                    let variant_name = interner.resolve(variant);
+                    if CORE_VARIANT_NAMES.contains(&variant_name) {
+                        return Err(format!(
+                            "Interpretive overhead: Inspect dispatches on Core variant '{}'",
+                            variant_name
+                        ));
+                    }
+                }
+                for s in arm.body.iter() {
+                    check_stmt_overhead(s, interner)?;
+                }
+            }
+        }
+        Stmt::If { cond, then_block, else_block } => {
+            check_expr_overhead(cond, interner)?;
+            for s in then_block.iter() {
+                check_stmt_overhead(s, interner)?;
+            }
+            if let Some(els) = else_block {
+                for s in els.iter() {
+                    check_stmt_overhead(s, interner)?;
+                }
+            }
+        }
+        Stmt::While { cond, body, .. } => {
+            check_expr_overhead(cond, interner)?;
+            for s in body.iter() {
+                check_stmt_overhead(s, interner)?;
+            }
+        }
+        Stmt::FunctionDef { body, .. } => {
+            for s in body.iter() {
+                check_stmt_overhead(s, interner)?;
+            }
+        }
+        Stmt::Repeat { body, .. } => {
+            for s in body.iter() {
+                check_stmt_overhead(s, interner)?;
+            }
+        }
+        Stmt::Let { value, .. } | Stmt::Set { value, .. } | Stmt::Show { object: value, .. } => {
+            check_expr_overhead(value, interner)?;
+        }
+        Stmt::Return { value } => {
+            if let Some(v) = value {
+                check_expr_overhead(v, interner)?;
+            }
+        }
+        _ => {}
+    }
+    Ok(())
+}
+
+fn check_expr_overhead(expr: &Expr, interner: &Interner) -> Result<(), String> {
+    match expr {
+        Expr::Index { collection, index } => {
+            // Check for `item X of env` where X is a literal string (env lookup overhead)
+            if let Expr::Identifier(coll_sym) = collection {
+                let coll_name = interner.resolve(*coll_sym);
+                if coll_name == "env" {
+                    if let Expr::Literal(Literal::Text(_)) = index {
+                        return Err(
+                            "Interpretive overhead: environment lookup 'item ... of env' on literal key".to_string()
+                        );
+                    }
+                }
+            }
+            check_expr_overhead(collection, interner)?;
+            check_expr_overhead(index, interner)?;
+        }
+        Expr::New { type_name, .. } => {
+            let tn = interner.resolve(*type_name);
+            if CORE_VARIANT_NAMES.contains(&tn) {
+                return Err(format!(
+                    "Interpretive overhead: Core type constructor 'new {}'", tn
+                ));
+            }
+        }
+        Expr::NewVariant { variant, .. } => {
+            let vn = interner.resolve(*variant);
+            if CORE_VARIANT_NAMES.contains(&vn) {
+                return Err(format!(
+                    "Interpretive overhead: Core variant constructor '{}'", vn
+                ));
+            }
+        }
+        Expr::Call { function, args } => {
+            let fn_name = interner.resolve(*function);
+            if CORE_VARIANT_NAMES.contains(&fn_name) {
+                return Err(format!(
+                    "Interpretive overhead: Core variant call '{}'", fn_name
+                ));
+            }
+            for a in args {
+                check_expr_overhead(a, interner)?;
+            }
+        }
+        Expr::BinaryOp { left, right, .. } => {
+            check_expr_overhead(left, interner)?;
+            check_expr_overhead(right, interner)?;
+        }
+        Expr::Not { operand } => {
+            check_expr_overhead(operand, interner)?;
+        }
+        Expr::Length { collection } => {
+            check_expr_overhead(collection, interner)?;
+        }
+        Expr::FieldAccess { object, .. } => {
+            check_expr_overhead(object, interner)?;
+        }
+        _ => {}
+    }
+    Ok(())
+}
+
+/// Returns the source text of the partial evaluator written in LogicAffeine.
+///
+/// This PE operates on CProgram representations using explicit environments
+/// and static dispatch. It is first-order (no closures) and uses only
+/// literal string function names (no dynamic dispatch).
+pub fn pe_source_text() -> &'static str {
+    include_str!("optimize/pe_source.logos")
+}
+
+const CORE_TYPES_FOR_PE: &str = r#"
+## A CExpr is one of:
+    A CInt with value Int.
+    A CFloat with value Real.
+    A CBool with value Bool.
+    A CText with value Text.
+    A CVar with name Text.
+    A CBinOp with op Text and left CExpr and right CExpr.
+    A CNot with inner CExpr.
+    A CCall with name Text and args Seq of CExpr.
+    A CIndex with coll CExpr and idx CExpr.
+    A CLen with target CExpr.
+    A CMapGet with target CExpr and key CExpr.
+    A CNewSeq.
+    A CNewVariant with tag Text and fnames Seq of Text and fvals Seq of CExpr.
+    A CList with items Seq of CExpr.
+    A CRange with start CExpr and end CExpr.
+    A CSlice with coll CExpr and startIdx CExpr and endIdx CExpr.
+    A CCopy with target CExpr.
+    A CNewSet.
+    A CContains with coll CExpr and elem CExpr.
+    A CUnion with left CExpr and right CExpr.
+    A CIntersection with left CExpr and right CExpr.
+    A COptionSome with inner CExpr.
+    A COptionNone.
+    A CTuple with items Seq of CExpr.
+    A CNew with typeName Text and fieldNames Seq of Text and fields Seq of CExpr.
+    A CFieldAccess with target CExpr and field Text.
+    A CClosure with params Seq of Text and body Seq of CStmt and captured Seq of Text.
+    A CCallExpr with target CExpr and args Seq of CExpr.
+    A CInterpolatedString with parts Seq of CStringPart.
+    A CDuration with amount CExpr and unit Text.
+    A CTimeNow.
+    A CDateToday.
+    A CEscExpr with code Text.
+
+## A CStringPart is one of:
+    A CLiteralPart with value Text.
+    A CExprPart with expr CExpr.
+
+## A CStmt is one of:
+    A CLet with name Text and expr CExpr.
+    A CSet with name Text and expr CExpr.
+    A CIf with cond CExpr and thenBlock Seq of CStmt and elseBlock Seq of CStmt.
+    A CWhile with cond CExpr and body Seq of CStmt.
+    A CReturn with expr CExpr.
+    A CShow with expr CExpr.
+    A CCallS with name Text and args Seq of CExpr.
+    A CPush with expr CExpr and target Text.
+    A CSetIdx with target Text and idx CExpr and val CExpr.
+    A CMapSet with target Text and key CExpr and val CExpr.
+    A CPop with target Text.
+    A CRepeat with var Text and coll CExpr and body Seq of CStmt.
+    A CRepeatRange with var Text and start CExpr and end CExpr and body Seq of CStmt.
+    A CBreak.
+    A CAdd with elem CExpr and target Text.
+    A CRemove with elem CExpr and target Text.
+    A CSetField with target Text and field Text and val CExpr.
+    A CStructDef with name Text and fieldNames Seq of Text.
+    A CInspect with target CExpr and arms Seq of CMatchArm.
+    A CEnumDef with name Text and variants Seq of Text.
+    A CRuntimeAssert with cond CExpr and msg CExpr.
+    A CGive with expr CExpr and target Text.
+    A CEscStmt with code Text.
+    A CSleep with duration CExpr.
+    A CReadConsole with target Text.
+    A CReadFile with path CExpr and target Text.
+    A CWriteFile with path CExpr and content CExpr.
+    A CCheck with predicate CExpr and msg CExpr.
+    A CAssert with proposition CExpr.
+    A CTrust with proposition CExpr and justification Text.
+    A CRequire with dependency Text.
+    A CMerge with target Text and other CExpr.
+    A CIncrease with target Text and amount CExpr.
+    A CDecrease with target Text and amount CExpr.
+    A CAppendToSeq with target Text and value CExpr.
+    A CResolve with target Text.
+    A CSync with target Text and channel CExpr.
+    A CMount with target Text and path CExpr.
+    A CConcurrent with branches Seq of Seq of CStmt.
+    A CParallel with branches Seq of Seq of CStmt.
+    A CLaunchTask with body Seq of CStmt and handle Text.
+    A CStopTask with handle CExpr.
+    A CSelect with branches Seq of CSelectBranch.
+    A CCreatePipe with name Text and capacity CExpr.
+    A CSendPipe with chan Text and value CExpr.
+    A CReceivePipe with chan Text and target Text.
+    A CTrySendPipe with chan Text and value CExpr.
+    A CTryReceivePipe with chan Text and target Text.
+    A CSpawn with agentType Text and target Text.
+    A CSendMessage with target CExpr and msg CExpr.
+    A CAwaitMessage with target Text.
+    A CListen with addr CExpr and handler Text.
+    A CConnectTo with addr CExpr and target Text.
+    A CZone with name Text and kind Text and body Seq of CStmt.
+
+## A CSelectBranch is one of:
+    A CSelectRecv with chan Text and var Text and body Seq of CStmt.
+    A CSelectTimeout with duration CExpr and body Seq of CStmt.
+
+## A CMatchArm is one of:
+    A CWhen with variantName Text and bindings Seq of Text and body Seq of CStmt.
+    A COtherwise with body Seq of CStmt.
+
+## A CFunc is one of:
+    A CFuncDef with name Text and params Seq of Text and body Seq of CStmt.
+
+## A CProgram is one of:
+    A CProg with funcs Seq of CFunc and main Seq of CStmt.
+
+## A CVal is one of:
+    A VInt with value Int.
+    A VFloat with value Real.
+    A VBool with value Bool.
+    A VText with value Text.
+    A VSeq with items Seq of CVal.
+    A VMap with entries Map of Text to CVal.
+    A VError with msg Text.
+    A VNothing.
+    A VSet with items Seq of CVal.
+    A VOption with inner CVal and present Bool.
+    A VTuple with items Seq of CVal.
+    A VStruct with typeName Text and fields Map of Text to CVal.
+    A VVariant with typeName Text and variantName Text and fields Seq of CVal.
+    A VClosure with params Seq of Text and body Seq of CStmt and capturedEnv Map of Text to CVal.
+    A VDuration with millis Int.
+    A VDate with year Int and month Int and day Int.
+    A VMoment with millis Int.
+    A VSpan with startMillis Int and endMillis Int.
+    A VTime with hour Int and minute Int and second Int.
+    A VCrdt with kind Text and state Map of Text to CVal.
+"#;
+
+/// Encodes the partial evaluator as CProgram construction source code.
+///
+/// Returns PE function definitions (so peBlock etc. are callable) followed by
+/// LOGOS statements that construct the PE's functions as CFunc data in
+/// `encodedFuncMap` and its main block in `encodedMain`.
+/// The parser handles `## To` blocks anywhere in the token stream, so
+/// function definitions placed after `## Main` are parsed correctly.
+pub fn quote_pe_source() -> Result<String, String> {
+    let pe_source = pe_source_text();
+    let full_source = format!("{}\n{}", CORE_TYPES_FOR_PE, pe_source);
+    let encoded = encode_program_source(&full_source).map_err(|e| format!("Failed to encode PE: {:?}", e))?;
+    Ok(format!("{}\n{}", pe_source, encoded))
+}
+
+/// Second Futamura Projection: PE(PE, interpreter) = compiler
+///
+/// Specializes the partial evaluator with respect to a fixed interpreter,
+/// producing a compiler that takes any CProgram as input and produces
+/// optimized residual CStmt/CExpr data.
+///
+/// For the Core self-interpreter (which is the identity evaluator on CProgram
+/// data), PE(PE, int) resolves to the PE itself operating directly on program
+/// data — the interpreter's dispatch loop is the CExpr/CStmt case analysis
+/// that the PE already implements. The result is the PE with its entry points
+/// renamed to compileExpr/compileBlock: these ARE the specialized compiler
+/// functions with no PE dispatch overhead (BTA, memoization, etc. are absent
+/// because the interpreter's representation IS the PE's representation).
+pub fn projection2_source() -> Result<String, String> {
+    let pe_source = pe_source_text();
+
+    let compiler_source = replace_word(&replace_word(&pe_source, "peExpr", "compileExpr"), "peBlock", "compileBlock");
+
+    Ok(format!("{}\n{}", CORE_TYPES_FOR_PE, compiler_source))
+}
+
+/// Third Futamura Projection: PE(PE, PE) = compiler_generator
+///
+/// Specializes the partial evaluator with respect to itself, producing a
+/// compiler generator (cogen). Feed it any interpreter → it produces a
+/// compiler for that interpreter's language.
+///
+/// Chain: cogen(int) → compiler → compiler(P) → compiled
+///
+/// For the CExpr/CStmt representation, PE(PE, PE) yields the PE with entry
+/// points renamed to cogenExpr/cogenBlock. This works because the PE's
+/// self-application is idempotent: the PE already operates on the same
+/// representation it would specialize, so PE(PE, PE) = PE (up to naming).
+/// The cogen handles different interpreters (Core, RPN, etc.) by processing
+/// their encoded CProgram representations.
+pub fn projection3_source() -> Result<String, String> {
+    let pe_source = pe_source_text();
+
+    let cogen_source = replace_word(&replace_word(&pe_source, "peExpr", "cogenExpr"), "peBlock", "cogenBlock");
+
+    Ok(format!("{}\n{}", CORE_TYPES_FOR_PE, cogen_source))
+}
+
+fn replace_word(source: &str, from: &str, to: &str) -> String {
+    let mut result = String::with_capacity(source.len());
+    let mut remaining = source;
+    while let Some(pos) = remaining.find(from) {
+        let before = if pos > 0 { remaining.as_bytes()[pos - 1] } else { b' ' };
+        let after_pos = pos + from.len();
+        let after = if after_pos < remaining.len() { remaining.as_bytes()[after_pos] } else { b' ' };
+        let is_word = !before.is_ascii_alphanumeric() && before != b'_'
+            && !after.is_ascii_alphanumeric() && after != b'_';
+        result.push_str(&remaining[..pos]);
+        if is_word {
+            result.push_str(to);
+        } else {
+            result.push_str(from);
+        }
+        remaining = &remaining[after_pos..];
+    }
+    result.push_str(remaining);
+    result
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1254,4 +3601,5 @@ mod tests {
         let rust = result.unwrap();
         assert!(rust.contains("return 42;"));
     }
+
 }

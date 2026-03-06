@@ -49,7 +49,9 @@ Let y be 42.
 Assert that y is equal to 42.
 "#;
     let rust = compile_to_rust(source).expect("Should compile");
-    assert!(rust.contains("debug_assert!((y == 42));"), "Should have assertion: {}", rust);
+    // After propagation: y=42 substituted into assertion, 42==42 folds to true
+    assert!(rust.contains("debug_assert!(true)") || rust.contains("debug_assert!((y == 42));"),
+            "Should have assertion (possibly folded): {}", rust);
     assert!(!rust.contains("// TRUST:"), "Should NOT have trust comment for Assert: {}", rust);
 }
 

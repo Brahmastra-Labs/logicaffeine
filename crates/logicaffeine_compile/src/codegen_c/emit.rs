@@ -67,8 +67,12 @@ pub(super) fn codegen_expr(expr: &Expr, ctx: &CContext) -> String {
                 BinaryOpKind::LtEq => "<=",
                 BinaryOpKind::Gt => ">",
                 BinaryOpKind::GtEq => ">=",
-                BinaryOpKind::And => "&&",
-                BinaryOpKind::Or => "||",
+                BinaryOpKind::And => {
+                    if lt == CType::Bool && rt == CType::Bool { "&&" } else { "&" }
+                },
+                BinaryOpKind::Or => {
+                    if lt == CType::Bool && rt == CType::Bool { "||" } else { "|" }
+                },
                 BinaryOpKind::Concat => "+",
                 BinaryOpKind::BitXor => "^",
                 BinaryOpKind::Shl => "<<",
@@ -217,7 +221,15 @@ pub(super) fn codegen_expr(expr: &Expr, ctx: &CContext) -> String {
                 }
             } else {
                 let coll = codegen_expr(collection, ctx);
-                format!("seq_i64_len(&{})", coll)
+                match infer_expr_type(collection, ctx) {
+                    CType::String => format!("str_len({})", coll),
+                    CType::SeqBool => format!("seq_bool_len(&{})", coll),
+                    CType::SeqStr => format!("seq_str_len(&{})", coll),
+                    CType::SeqF64 => format!("seq_f64_len(&{})", coll),
+                    CType::SetI64 => format!("set_i64_len(&{})", coll),
+                    CType::SetStr => format!("set_str_len(&{})", coll),
+                    _ => format!("seq_i64_len(&{})", coll),
+                }
             }
         }
         Expr::Contains { collection, value } => {

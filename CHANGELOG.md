@@ -4,6 +4,43 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.9.3] - 2026-03-06
+
+### Added
+- **Futamura projections** — all three projections implemented and verified with 276 tests (`phase_futamura.rs`):
+  - **Projection 1**: `pe(interpreter, program) = compiled` — partial evaluation specializes the self-interpreter on a source program to produce a compiled executable.
+  - **Projection 2**: `pe(pe, interpreter) = compiler` — partial evaluation applied to itself with the interpreter produces a standalone compiler.
+  - **Projection 3**: `pe(pe, pe) = compiler_generator` — partial evaluation applied to itself twice produces a compiler generator.
+- **Self-interpreter** — complete LOGOS interpreter written in LOGOS itself (`compile.rs`), supporting all core value types (int, float, text, bool, nothing, seq, map, set, error, crdt), arithmetic, comparisons, control flow, functions, recursion, and data structures.
+- **Binding-time analysis** (`optimize/bta.rs`, 758 LOC) — classifies expressions as static or dynamic for partial evaluation, with 33 tests (`phase_bta.rs`).
+- **Partial evaluator** (`optimize/partial_eval.rs`, 960 LOC) — online partial evaluation with environment-based specialization, function unfolding, and residual code generation, with 35 tests (`phase_partial_eval.rs`).
+- **Supercompiler** (`optimize/supercompile.rs`, 878 LOC) — driving, generalization, and homeomorphic embedding for aggressive program specialization, with 50 tests (`phase_supercompile.rs`).
+- **PE source language** (`optimize/pe_source.logos`, 556 LOC) — the partial evaluator's own source in LOGOS, enabling self-application.
+- **Abstract interpretation** (`optimize/abstract_interp.rs`, 668 LOC) — forward abstract interpretation framework with interval and sign domains, with 13 tests (`phase_abstract_interp.rs`).
+- **Deforestation** (`optimize/deforest.rs`, 539 LOC) — eliminates intermediate data structures in compositions, with 9 tests (`phase_deforestation.rs`).
+- **Effect analysis** (`optimize/effects.rs`, 698 LOC) — tracks computational effects (pure, IO, mutation, divergence) for optimization safety, with 9 tests (`phase_effects.rs`).
+- **Global value numbering** (`optimize/gvn.rs`, 483 LOC) — hash-consing based redundant computation elimination.
+- **Loop-invariant code motion** (`optimize/licm.rs`, 391 LOC) — hoists loop-invariant expressions out of loops.
+- **Compile-time function evaluation** (`optimize/ctfe.rs`, 443 LOC) — evaluates pure functions at compile time.
+- **Closed-form optimization** (`optimize/closed_form.rs`, 354 LOC) — replaces simple loops with closed-form expressions.
+- **Polyhedral optimization** tests (`phase_polyhedral.rs`) — 8 tests for polyhedral loop transformations.
+- **Auto-parallelization** tests (`phase_autoparallel.rs`) — 5 tests for automatic parallelization detection.
+- **Mountain climb** tests (`phase_mountain_climb.rs`) — 10 tests for optimization composition.
+- **~600 new tests** across 10 new test files and expanded existing test files.
+
+### Changed
+- **Optimizer pipeline** — extended with constant propagation, enhanced DCE, and new optimization passes. Pipeline: fold → propagate → dce with expanded pattern coverage.
+- **Codegen peephole optimizations** — extended with new patterns including `(j+1)-1 → j` index simplification.
+- **DCE** — expanded from basic dead-code elimination to include unused variable removal and dead-store elimination (282 lines added).
+- **Constant folding** — extended with additional algebraic simplifications (90 lines added).
+- **Constant propagation** — enhanced with safety guards for index/slice contexts (49 lines added).
+
+### Fixed
+- **Self-interpreter error casing** — `valToText` returned `"error: {msg}"` (lowercase) instead of `"Error: {msg}"` (capital E).
+- **PE substring false positives** — renamed `CEscapeExpr`/`CEscapeStmt` to `CEscExpr`/`CEscStmt` to eliminate false substring matches with `peExpr`/`peStmt` in Futamura projection tests.
+- **Codegen boilerplate false positives** — pre-computed stack size literal (`67_108_864`) and used function pointer (`_logos_main`) to avoid `* 1` and `||` matches in optimizer test assertions.
+- **FFI snapshot refresh** — regenerated 5 FFI codegen snapshots to match current output.
+
 ## [0.9.2] - 2026-02-28
 
 ### Fixed

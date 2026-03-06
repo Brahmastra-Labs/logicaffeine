@@ -19,8 +19,9 @@ mod tests {
         assert!(result.is_ok(), "Should compile: {:?}", result);
         let rust_code = result.unwrap();
         assert!(rust_code.contains("fn main()"));
-        assert!(rust_code.contains("let x = 42;"));
-        assert!(rust_code.contains("return x;"));
+        // After constant propagation: Let x=42. Return x. → Return 42.
+        assert!(rust_code.contains("return 42;") || rust_code.contains("return x;"),
+                "Should return 42 (propagated) or x: {}", rust_code);
     }
 
     #[test]

@@ -8,5 +8,11 @@ fn cube(n: i64) -> i64 {
 }
 
 fn main() {
+    std::thread::Builder::new()
+        .stack_size(67_108_864)
+        .spawn(_logos_main)
+        .unwrap().join().unwrap();
+}
+fn _logos_main() {
     show(&42);
 }

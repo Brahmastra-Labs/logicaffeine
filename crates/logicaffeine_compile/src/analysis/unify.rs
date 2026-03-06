@@ -355,6 +355,9 @@ impl UnificationTable {
             // Nat embeds into Int for numeric contexts
             (InferType::Nat, InferType::Int) | (InferType::Int, InferType::Nat) => Ok(()),
 
+            // Byte ↔ Int promotion (numeric literals infer as Int, adapt to Byte in context)
+            (InferType::Byte, InferType::Int) | (InferType::Int, InferType::Byte) => Ok(()),
+
             // User-defined types unify if same name
             (InferType::UserDefined(a), InferType::UserDefined(b)) if a == b => Ok(()),
 
@@ -709,7 +712,8 @@ impl InferType {
 // Helpers
 // ============================================================================
 
-/// Numeric promotion: Float wins; Int + Int = Int; Nat + Nat = Nat; Byte + Byte = Byte; otherwise error.
+/// Numeric promotion: Float wins; Int + Int = Int; Nat + Nat = Nat; Byte + Byte = Byte;
+/// Byte + Int (literal context) = Byte; otherwise error.
 pub fn unify_numeric(a: &InferType, b: &InferType) -> Result<InferType, TypeError> {
     match (a, b) {
         (InferType::Float, _) | (_, InferType::Float) => Ok(InferType::Float),
@@ -717,6 +721,7 @@ pub fn unify_numeric(a: &InferType, b: &InferType) -> Result<InferType, TypeErro
         (InferType::Nat, InferType::Int) | (InferType::Int, InferType::Nat) => Ok(InferType::Int),
         (InferType::Nat, InferType::Nat) => Ok(InferType::Nat),
         (InferType::Byte, InferType::Byte) => Ok(InferType::Byte),
+        (InferType::Byte, InferType::Int) | (InferType::Int, InferType::Byte) => Ok(InferType::Byte),
         _ => Err(TypeError::Mismatch {
             expected: InferType::Int,
             found: a.clone(),

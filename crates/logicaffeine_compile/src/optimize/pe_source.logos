@@ -1,0 +1,556 @@
+## To isVNothing (v: CVal) -> Bool:
+    Inspect v:
+        When VNothing:
+            Return true.
+        Otherwise:
+            Return false.
+
+## To isLiteral (e: CExpr) -> Bool:
+    Inspect e:
+        When CInt (v):
+            Return true.
+        When CBool (v):
+            Return true.
+        When CText (v):
+            Return true.
+        Otherwise:
+            Return false.
+
+## To exprToVal (e: CExpr) -> CVal:
+    Inspect e:
+        When CInt (v):
+            Return a new VInt with value v.
+        When CBool (v):
+            Return a new VBool with value v.
+        When CText (v):
+            Return a new VText with value v.
+        Otherwise:
+            Return a new VNothing.
+
+## To valToExpr (v: CVal) -> CExpr:
+    Inspect v:
+        When VInt (n):
+            Return a new CInt with value n.
+        When VBool (b):
+            Return a new CBool with value b.
+        When VText (s):
+            Return a new CText with value s.
+        Otherwise:
+            Return a new CInt with value 0.
+
+## To evalBinOp (binOp: Text) and (lv: CVal) and (rv: CVal) -> CVal:
+    Inspect lv:
+        When VInt (a):
+            Inspect rv:
+                When VInt (b):
+                    If binOp equals "+":
+                        Return a new VInt with value (a + b).
+                    If binOp equals "-":
+                        Return a new VInt with value (a - b).
+                    If binOp equals "*":
+                        Return a new VInt with value (a * b).
+                    If binOp equals "/":
+                        If b equals 0:
+                            Return a new VNothing.
+                        Return a new VInt with value (a / b).
+                    If binOp equals "%":
+                        If b equals 0:
+                            Return a new VNothing.
+                        Return a new VInt with value (a % b).
+                    If binOp equals "<":
+                        Return a new VBool with value (a is less than b).
+                    If binOp equals ">":
+                        Return a new VBool with value (a is greater than b).
+                    If binOp equals "<=":
+                        Return a new VBool with value (a is at most b).
+                    If binOp equals ">=":
+                        Return a new VBool with value (a is at least b).
+                    If binOp equals "==":
+                        Return a new VBool with value (a equals b).
+                    If binOp equals "!=":
+                        Return a new VBool with value (a is not b).
+                    Return a new VNothing.
+                Otherwise:
+                    Return a new VNothing.
+        When VBool (a):
+            Inspect rv:
+                When VBool (b):
+                    If binOp equals "&&":
+                        Return a new VBool with value (a and b).
+                    If binOp equals "||":
+                        Return a new VBool with value (a or b).
+                    If binOp equals "==":
+                        Return a new VBool with value (a equals b).
+                    If binOp equals "!=":
+                        Return a new VBool with value (a is not b).
+                    Return a new VNothing.
+                Otherwise:
+                    Return a new VNothing.
+        When VText (a):
+            Inspect rv:
+                When VText (b):
+                    If binOp equals "+":
+                        Let joined be "{a}{b}".
+                        Return a new VText with value joined.
+                    If binOp equals "==":
+                        Return a new VBool with value (a equals b).
+                    If binOp equals "!=":
+                        Return a new VBool with value (a is not b).
+                    Return a new VNothing.
+                Otherwise:
+                    Return a new VNothing.
+        Otherwise:
+            Return a new VNothing.
+
+## To allLiteral (args: Seq of CExpr) -> Bool:
+    Repeat for a in args:
+        Let lit be isLiteral(a).
+        If not lit:
+            Return false.
+    Return true.
+
+## To dynamicOnly (args: Seq of CExpr) -> Bool:
+    Repeat for a in args:
+        Let lit be isLiteral(a).
+        If lit:
+            Return false.
+    Return true.
+
+## To dynamicArgs (args: Seq of CExpr) -> Seq of CExpr:
+    Let filtered be a new Seq of CExpr.
+    Repeat for a in args:
+        Let lit be isLiteral(a).
+        If not lit:
+            Push a to filtered.
+    Return filtered.
+
+## To hasReturn (stmts: Seq of CStmt) -> Bool:
+    Repeat for s in stmts:
+        Inspect s:
+            When CReturn (retExpr):
+                Return true.
+            Otherwise:
+                Let skip be true.
+    Return false.
+
+## To makeKey (fnName: Text) and (args: Seq of CExpr) -> Text:
+    Let key be fnName.
+    Repeat for a in args:
+        Let lit be isLiteral(a).
+        If lit:
+            Inspect a:
+                When CInt (v):
+                    Set key to "{key}_i{v}".
+                When CBool (v):
+                    If v:
+                        Set key to "{key}_btrue".
+                    Otherwise:
+                        Set key to "{key}_bfalse".
+                When CText (v):
+                    Set key to "{key}_t{v}".
+                Otherwise:
+                    Set key to "{key}_x".
+        Otherwise:
+            Set key to "{key}_d".
+    Return key.
+
+## To peExpr (e: CExpr) and (env: Map of Text to CVal) and (funcs: Map of Text to CFunc) and (depth: Int) -> CExpr:
+    Inspect e:
+        When CInt (v):
+            Return a new CInt with value v.
+        When CBool (v):
+            Return a new CBool with value v.
+        When CText (v):
+            Return a new CText with value v.
+        When CVar (varName):
+            Let val be item varName of env.
+            Let dyn be isVNothing(val).
+            If dyn:
+                Return a new CVar with name varName.
+            Return valToExpr(val).
+        When CBinOp (binOp, left, right):
+            Let peLeft be peExpr(left, env, funcs, depth).
+            Let peRight be peExpr(right, env, funcs, depth).
+            Let leftLit be isLiteral(peLeft).
+            Let rightLit be isLiteral(peRight).
+            If leftLit and rightLit:
+                Let lv be exprToVal(peLeft).
+                Let rv be exprToVal(peRight).
+                Let computed be evalBinOp(binOp, lv, rv).
+                Return valToExpr(computed).
+            Return a new CBinOp with op binOp and left peLeft and right peRight.
+        When CNot (inner):
+            Let peInner be peExpr(inner, env, funcs, depth).
+            Let innerLit be isLiteral(peInner).
+            If innerLit:
+                Inspect peInner:
+                    When CBool (b):
+                        Return a new CBool with value (not b).
+                    Otherwise:
+                        Return a new CNot with inner peInner.
+            Return a new CNot with inner peInner.
+        When CCall (fnName, argExprs):
+            If depth is at most 0:
+                Let residArgs be a new Seq of CExpr.
+                Repeat for a in argExprs:
+                    Push peExpr(a, env, funcs, 0) to residArgs.
+                Return a new CCall with name fnName and args residArgs.
+            Let peArgs be a new Seq of CExpr.
+            Repeat for a in argExprs:
+                Push peExpr(a, env, funcs, depth) to peArgs.
+            Let allLit be allLiteral(peArgs).
+            If allLit:
+                Let func be item fnName of funcs.
+                Inspect func:
+                    When CFuncDef (fname, params, body):
+                        Let callEnv be a new Map of Text to CVal.
+                        Let mutable pidx be 1.
+                        Repeat for p in params:
+                            Let argExpr be item pidx of peArgs.
+                            Let argVal be exprToVal(argExpr).
+                            Set item p of callEnv to argVal.
+                            Set pidx to pidx + 1.
+                        Let peBody be peBlock(body, callEnv, funcs, depth - 1).
+                        Let bodyResult be extractReturn(peBody).
+                        Return bodyResult.
+                    Otherwise:
+                        Return a new CCall with name fnName and args peArgs.
+            Return a new CCall with name fnName and args peArgs.
+        When CIndex (collExpr, idxExpr):
+            Let peColl be peExpr(collExpr, env, funcs, depth).
+            Let peIdx be peExpr(idxExpr, env, funcs, depth).
+            Return a new CIndex with coll peColl and idx peIdx.
+        When CLen (lenTarget):
+            Let peTarget be peExpr(lenTarget, env, funcs, depth).
+            Return a new CLen with target peTarget.
+        When CMapGet (mapTarget, mapKey):
+            Let peTarget be peExpr(mapTarget, env, funcs, depth).
+            Let peKey be peExpr(mapKey, env, funcs, depth).
+            Return a new CMapGet with target peTarget and key peKey.
+        When CNewSeq:
+            Return a new CNewSeq.
+        When CNewVariant (nvTag, nvNames, nvVals):
+            Let peVals be a new Seq of CExpr.
+            Repeat for v in nvVals:
+                Push peExpr(v, env, funcs, depth) to peVals.
+            Return a new CNewVariant with tag nvTag and fnames nvNames and fvals peVals.
+        When CFloat (fv):
+            Return a new CFloat with value fv.
+        When CList (listItems):
+            Let peItems be a new Seq of CExpr.
+            Repeat for li in listItems:
+                Push peExpr(li, env, funcs, depth) to peItems.
+            Return a new CList with items peItems.
+        When CRange (rangeStart, rangeEnd):
+            Let peStart be peExpr(rangeStart, env, funcs, depth).
+            Let peEnd be peExpr(rangeEnd, env, funcs, depth).
+            Return a new CRange with start peStart and end peEnd.
+        When CSlice (sliceColl, sliceStart, sliceEnd):
+            Let peColl be peExpr(sliceColl, env, funcs, depth).
+            Let peStart be peExpr(sliceStart, env, funcs, depth).
+            Let peEnd be peExpr(sliceEnd, env, funcs, depth).
+            Return a new CSlice with coll peColl and startIdx peStart and endIdx peEnd.
+        When CCopy (copyTarget):
+            Let peTarget be peExpr(copyTarget, env, funcs, depth).
+            Return a new CCopy with target peTarget.
+        When CNewSet:
+            Return a new CNewSet.
+        When CContains (containsColl, containsElem):
+            Let peColl be peExpr(containsColl, env, funcs, depth).
+            Let peElem be peExpr(containsElem, env, funcs, depth).
+            Return a new CContains with coll peColl and elem peElem.
+        When CUnion (unionLeft, unionRight):
+            Let peLeft be peExpr(unionLeft, env, funcs, depth).
+            Let peRight be peExpr(unionRight, env, funcs, depth).
+            Return a new CUnion with left peLeft and right peRight.
+        When CIntersection (interLeft, interRight):
+            Let peLeft be peExpr(interLeft, env, funcs, depth).
+            Let peRight be peExpr(interRight, env, funcs, depth).
+            Return a new CIntersection with left peLeft and right peRight.
+        When COptionSome (optInner):
+            Let peInner be peExpr(optInner, env, funcs, depth).
+            Return a new COptionSome with inner peInner.
+        When COptionNone:
+            Return a new COptionNone.
+        When CTuple (tupleItems):
+            Let peItems be a new Seq of CExpr.
+            Repeat for ti in tupleItems:
+                Push peExpr(ti, env, funcs, depth) to peItems.
+            Return a new CTuple with items peItems.
+        When CNew (newTypeName, newFieldNames, newFieldExprs):
+            Let peNewFields be a new Seq of CExpr.
+            Repeat for nfe in newFieldExprs:
+                Push peExpr(nfe, env, funcs, depth) to peNewFields.
+            Return a new CNew with typeName newTypeName and fieldNames newFieldNames and fields peNewFields.
+        When CFieldAccess (faTarget, faField):
+            Let peFaTarget be peExpr(faTarget, env, funcs, depth).
+            Return a new CFieldAccess with target peFaTarget and field faField.
+        When CClosure (clParams, clBody, clCaptured):
+            Let peClBody be peBlock(clBody, env, funcs, depth).
+            Return a new CClosure with params clParams and body peClBody and captured clCaptured.
+        When CCallExpr (ceTarget, ceArgs):
+            Let peCeTarget be peExpr(ceTarget, env, funcs, depth).
+            Let peCeArgs be a new Seq of CExpr.
+            Repeat for ceArg in ceArgs:
+                Push peExpr(ceArg, env, funcs, depth) to peCeArgs.
+            Return a new CCallExpr with target peCeTarget and args peCeArgs.
+        When CInterpolatedString (isParts):
+            Let peIsParts be a new Seq of CStringPart.
+            Repeat for isPart in isParts:
+                Inspect isPart:
+                    When CLiteralPart (litVal):
+                        Push a new CLiteralPart with value litVal to peIsParts.
+                    When CExprPart (epExpr):
+                        Let peEpExpr be peExpr(epExpr, env, funcs, depth).
+                        Push a new CExprPart with expr peEpExpr to peIsParts.
+            Return a new CInterpolatedString with parts peIsParts.
+        When CDuration (durAmount, durUnit):
+            Let peDurAmount be peExpr(durAmount, env, funcs, depth).
+            Return a new CDuration with amount peDurAmount and unit durUnit.
+        When CTimeNow:
+            Return a new CTimeNow.
+        When CDateToday:
+            Return a new CDateToday.
+        When CEscExpr (escCode):
+            Return a new CEscExpr with code escCode.
+
+## To peBlock (stmts: Seq of CStmt) and (env: Map of Text to CVal) and (funcs: Map of Text to CFunc) and (depth: Int) -> Seq of CStmt:
+    Let blockResult be a new Seq of CStmt.
+    Repeat for s in stmts:
+        Let alreadyReturned be hasReturn(blockResult).
+        If alreadyReturned:
+            Return blockResult.
+        Inspect s:
+            When CLet (letName, letExpr):
+                Let peVal be peExpr(letExpr, env, funcs, depth).
+                Let lit be isLiteral(peVal).
+                If lit:
+                    Set item letName of env to exprToVal(peVal).
+                Otherwise:
+                    Let letKey be "{letName}".
+                    Set item letKey of env to a new VNothing.
+                    Push (a new CLet with name letName and expr peVal) to blockResult.
+            When CSet (setName, setExpr):
+                Let peVal be peExpr(setExpr, env, funcs, depth).
+                Let lit be isLiteral(peVal).
+                If lit:
+                    Set item setName of env to exprToVal(peVal).
+                Otherwise:
+                    Let setKey be "{setName}".
+                    Set item setKey of env to a new VNothing.
+                    Push (a new CSet with name setName and expr peVal) to blockResult.
+            When CIf (ifCond, thenBlock, elseBlock):
+                Let peCond be peExpr(ifCond, env, funcs, depth).
+                Let condLit be isLiteral(peCond).
+                If condLit:
+                    Inspect peCond:
+                        When CBool (b):
+                            If b:
+                                Let thenRes be peBlock(thenBlock, env, funcs, depth).
+                                Repeat for ts in thenRes:
+                                    Push ts to blockResult.
+                            Otherwise:
+                                Let elseRes be peBlock(elseBlock, env, funcs, depth).
+                                Repeat for es in elseRes:
+                                    Push es to blockResult.
+                        Otherwise:
+                            Let thenRes2 be peBlock(thenBlock, env, funcs, depth).
+                            Let elseRes2 be peBlock(elseBlock, env, funcs, depth).
+                            Push (a new CIf with cond peCond and thenBlock thenRes2 and elseBlock elseRes2) to blockResult.
+                Otherwise:
+                    Let thenRes3 be peBlock(thenBlock, env, funcs, depth).
+                    Let elseRes3 be peBlock(elseBlock, env, funcs, depth).
+                    Push (a new CIf with cond peCond and thenBlock thenRes3 and elseBlock elseRes3) to blockResult.
+            When CWhile (whileCond, whileBody):
+                Let peCond be peExpr(whileCond, env, funcs, depth).
+                Let condLit be isLiteral(peCond).
+                If condLit:
+                    Inspect peCond:
+                        When CBool (b):
+                            If not b:
+                                Let skip be true.
+                            Otherwise:
+                                Let peBody be peBlock(whileBody, env, funcs, depth).
+                                Let reCond be peExpr(whileCond, env, funcs, depth).
+                                Push (a new CWhile with cond reCond and body peBody) to blockResult.
+                        Otherwise:
+                            Let peBody2 be peBlock(whileBody, env, funcs, depth).
+                            Push (a new CWhile with cond peCond and body peBody2) to blockResult.
+                Otherwise:
+                    Let peBody3 be peBlock(whileBody, env, funcs, depth).
+                    Push (a new CWhile with cond peCond and body peBody3) to blockResult.
+            When CReturn (retExpr):
+                Let peVal be peExpr(retExpr, env, funcs, depth).
+                Push (a new CReturn with expr peVal) to blockResult.
+            When CShow (showExpr):
+                Let peVal be peExpr(showExpr, env, funcs, depth).
+                Push (a new CShow with expr peVal) to blockResult.
+            When CCallS (callName, callArgs):
+                Let peArgs be a new Seq of CExpr.
+                Repeat for a in callArgs:
+                    Push peExpr(a, env, funcs, depth) to peArgs.
+                Push (a new CCallS with name callName and args peArgs) to blockResult.
+            When CPush (pushExpr, pushTarget):
+                Let peVal be peExpr(pushExpr, env, funcs, depth).
+                Push (a new CPush with expr peVal and target pushTarget) to blockResult.
+            When CSetIdx (siTarget, siIdx, siVal):
+                Let peIdx be peExpr(siIdx, env, funcs, depth).
+                Let peVal be peExpr(siVal, env, funcs, depth).
+                Push (a new CSetIdx with target siTarget and idx peIdx and val peVal) to blockResult.
+            When CMapSet (msTarget, msKey, msVal):
+                Let peKey be peExpr(msKey, env, funcs, depth).
+                Let peVal be peExpr(msVal, env, funcs, depth).
+                Push (a new CMapSet with target msTarget and key peKey and val peVal) to blockResult.
+            When CPop (popTarget):
+                Push (a new CPop with target popTarget) to blockResult.
+            When CRepeat (repVar, repColl, repBody):
+                Let peColl be peExpr(repColl, env, funcs, depth).
+                Let peBody be peBlock(repBody, env, funcs, depth).
+                Push (a new CRepeat with var repVar and coll peColl and body peBody) to blockResult.
+            When CRepeatRange (rrVar, rrStart, rrEnd, rrBody):
+                Let peStart be peExpr(rrStart, env, funcs, depth).
+                Let peEnd be peExpr(rrEnd, env, funcs, depth).
+                Let peBody be peBlock(rrBody, env, funcs, depth).
+                Push (a new CRepeatRange with var rrVar and start peStart and end peEnd and body peBody) to blockResult.
+            When CBreak:
+                Push a new CBreak to blockResult.
+            When CAdd (addElem, addTarget):
+                Let peVal be peExpr(addElem, env, funcs, depth).
+                Push (a new CAdd with elem peVal and target addTarget) to blockResult.
+            When CRemove (remElem, remTarget):
+                Let peVal be peExpr(remElem, env, funcs, depth).
+                Push (a new CRemove with elem peVal and target remTarget) to blockResult.
+            When CSetField (sfTarget, sfField, sfValExpr):
+                Let peVal be peExpr(sfValExpr, env, funcs, depth).
+                Push (a new CSetField with target sfTarget and field sfField and val peVal) to blockResult.
+            When CStructDef (sdName, sdFieldNames):
+                Push (a new CStructDef with name sdName and fieldNames sdFieldNames) to blockResult.
+            When CEnumDef (edName, edVariants):
+                Push (a new CEnumDef with name edName and variants edVariants) to blockResult.
+            When CInspect (inspTarget, inspArms):
+                Let peTarget be peExpr(inspTarget, env, funcs, depth).
+                Let peArms be a new Seq of CMatchArm.
+                Repeat for arm in inspArms:
+                    Inspect arm:
+                        When CWhen (wName, wBindings, wBody):
+                            Let peBody be peBlock(wBody, env, funcs, depth).
+                            Push (a new CWhen with variantName wName and bindings wBindings and body peBody) to peArms.
+                        When COtherwise (oBody):
+                            Let peBody be peBlock(oBody, env, funcs, depth).
+                            Push (a new COtherwise with body peBody) to peArms.
+                Push (a new CInspect with target peTarget and arms peArms) to blockResult.
+            When CRuntimeAssert (raCond, raMsg):
+                Let peRaCond be peExpr(raCond, env, funcs, depth).
+                Let peRaMsg be peExpr(raMsg, env, funcs, depth).
+                Push (a new CRuntimeAssert with cond peRaCond and msg peRaMsg) to blockResult.
+            When CGive (giveExpr, giveTarget):
+                Let peGiveExpr be peExpr(giveExpr, env, funcs, depth).
+                Push (a new CGive with expr peGiveExpr and target giveTarget) to blockResult.
+            When CEscStmt (escCode):
+                Push (a new CEscStmt with code escCode) to blockResult.
+            When CSleep (sleepDur):
+                Let peSleepDur be peExpr(sleepDur, env, funcs, depth).
+                Push (a new CSleep with duration peSleepDur) to blockResult.
+            When CReadConsole (rcTarget):
+                Push (a new CReadConsole with target rcTarget) to blockResult.
+            When CReadFile (rfPath, rfTarget):
+                Let peRfPath be peExpr(rfPath, env, funcs, depth).
+                Push (a new CReadFile with path peRfPath and target rfTarget) to blockResult.
+            When CWriteFile (wfPath, wfContent):
+                Let peWfPath be peExpr(wfPath, env, funcs, depth).
+                Let peWfContent be peExpr(wfContent, env, funcs, depth).
+                Push (a new CWriteFile with path peWfPath and content peWfContent) to blockResult.
+            When CCheck (chkPred, chkMsg):
+                Let peChkPred be peExpr(chkPred, env, funcs, depth).
+                Let peChkMsg be peExpr(chkMsg, env, funcs, depth).
+                Push (a new CCheck with predicate peChkPred and msg peChkMsg) to blockResult.
+            When CAssert (assertProp):
+                Let peAssertProp be peExpr(assertProp, env, funcs, depth).
+                Push (a new CAssert with proposition peAssertProp) to blockResult.
+            When CTrust (trustProp, trustJust):
+                Let peTrustProp be peExpr(trustProp, env, funcs, depth).
+                Push (a new CTrust with proposition peTrustProp and justification trustJust) to blockResult.
+            When CRequire (reqDep):
+                Push (a new CRequire with dependency reqDep) to blockResult.
+            When CMerge (mergeTarget, mergeOther):
+                Let peMergeOther be peExpr(mergeOther, env, funcs, depth).
+                Push (a new CMerge with target mergeTarget and other peMergeOther) to blockResult.
+            When CIncrease (incTarget, incAmount):
+                Let peIncAmount be peExpr(incAmount, env, funcs, depth).
+                Push (a new CIncrease with target incTarget and amount peIncAmount) to blockResult.
+            When CDecrease (decTarget, decAmount):
+                Let peDecAmount be peExpr(decAmount, env, funcs, depth).
+                Push (a new CDecrease with target decTarget and amount peDecAmount) to blockResult.
+            When CAppendToSeq (asTarget, asValue):
+                Let peAsValue be peExpr(asValue, env, funcs, depth).
+                Push (a new CAppendToSeq with target asTarget and value peAsValue) to blockResult.
+            When CResolve (resTarget):
+                Push (a new CResolve with target resTarget) to blockResult.
+            When CSync (syncTarget, syncChannel):
+                Let peSyncChannel be peExpr(syncChannel, env, funcs, depth).
+                Push (a new CSync with target syncTarget and channel peSyncChannel) to blockResult.
+            When CMount (mountTarget, mountPath):
+                Let peMountPath be peExpr(mountPath, env, funcs, depth).
+                Push (a new CMount with target mountTarget and path peMountPath) to blockResult.
+            When CConcurrent (concBranches):
+                Let peConcBranches be a new Seq of Seq of CStmt.
+                Repeat for concBranch in concBranches:
+                    Push peBlock(concBranch, env, funcs, depth) to peConcBranches.
+                Push (a new CConcurrent with branches peConcBranches) to blockResult.
+            When CParallel (parBranches):
+                Let peParBranches be a new Seq of Seq of CStmt.
+                Repeat for parBranch in parBranches:
+                    Push peBlock(parBranch, env, funcs, depth) to peParBranches.
+                Push (a new CParallel with branches peParBranches) to blockResult.
+            When CLaunchTask (ltBody, ltHandle):
+                Let peLtBody be peBlock(ltBody, env, funcs, depth).
+                Push (a new CLaunchTask with body peLtBody and handle ltHandle) to blockResult.
+            When CStopTask (stHandle):
+                Let peStHandle be peExpr(stHandle, env, funcs, depth).
+                Push (a new CStopTask with handle peStHandle) to blockResult.
+            When CSelect (selBranches):
+                Push (a new CSelect with branches selBranches) to blockResult.
+            When CCreatePipe (cpName, cpCapacity):
+                Let peCpCapacity be peExpr(cpCapacity, env, funcs, depth).
+                Push (a new CCreatePipe with name cpName and capacity peCpCapacity) to blockResult.
+            When CSendPipe (spPipe, spValue):
+                Let peSpValue be peExpr(spValue, env, funcs, depth).
+                Push (a new CSendPipe with chan spPipe and value peSpValue) to blockResult.
+            When CReceivePipe (rpPipe, rpTarget):
+                Push (a new CReceivePipe with chan rpPipe and target rpTarget) to blockResult.
+            When CTrySendPipe (tspPipe, tspValue):
+                Let peTspValue be peExpr(tspValue, env, funcs, depth).
+                Push (a new CTrySendPipe with chan tspPipe and value peTspValue) to blockResult.
+            When CTryReceivePipe (trpPipe, trpTarget):
+                Push (a new CTryReceivePipe with chan trpPipe and target trpTarget) to blockResult.
+            When CSpawn (spawnType, spawnTarget):
+                Push (a new CSpawn with agentType spawnType and target spawnTarget) to blockResult.
+            When CSendMessage (smTarget, smMsg):
+                Let peSmTarget be peExpr(smTarget, env, funcs, depth).
+                Let peSmMsg be peExpr(smMsg, env, funcs, depth).
+                Push (a new CSendMessage with target peSmTarget and msg peSmMsg) to blockResult.
+            When CAwaitMessage (amTarget):
+                Push (a new CAwaitMessage with target amTarget) to blockResult.
+            When CListen (listenAddr, listenHandler):
+                Let peListenAddr be peExpr(listenAddr, env, funcs, depth).
+                Push (a new CListen with addr peListenAddr and handler listenHandler) to blockResult.
+            When CConnectTo (connAddr, connTarget):
+                Let peConnAddr be peExpr(connAddr, env, funcs, depth).
+                Push (a new CConnectTo with addr peConnAddr and target connTarget) to blockResult.
+            When CZone (zoneName, zoneKind, zoneBody):
+                Let peZoneBody be peBlock(zoneBody, env, funcs, depth).
+                Push (a new CZone with name zoneName and kind zoneKind and body peZoneBody) to blockResult.
+            Otherwise:
+                Let skip be true.
+    Return blockResult.
+
+## To extractReturn (stmts: Seq of CStmt) -> CExpr:
+    Let mutable idx be length of stmts.
+    While idx is at least 1:
+        Let s be item idx of stmts.
+        Inspect s:
+            When CReturn (retExpr):
+                Return retExpr.
+            Otherwise:
+                Set idx to idx - 1.
+    Return a new CInt with value 0.
