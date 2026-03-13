@@ -9,7 +9,7 @@ use tempfile::TempDir;
 fn test_list_literal_codegen() {
     let source = "## Main\nLet numbers be [1, 2, 3].";
     let rust = compile_to_rust(source).expect("Compiles");
-    assert!(rust.contains("let numbers = vec![1, 2, 3];"), "Generated: {}", rust);
+    assert!(rust.contains("LogosSeq::from_vec(vec![1, 2, 3])"), "Generated: {}", rust);
 }
 
 #[test]
@@ -17,7 +17,7 @@ fn test_empty_list_codegen() {
     // "empty" is TokenType::Nothing, but valid identifier here
     let source = "## Main\nLet empty be [].";
     let rust = compile_to_rust(source).expect("Compiles");
-    assert!(rust.contains("let empty = vec![];"), "Generated: {}", rust);
+    assert!(rust.contains("LogosSeq::from_vec(vec![])"), "Generated: {}", rust);
 }
 
 #[test]
@@ -66,14 +66,14 @@ fn test_runtime_seq_type() {
     compile_to_dir(source, temp_dir.path()).expect("Full compilation");
 
     let types_rs = std::fs::read_to_string(temp_dir.path().join("crates/logicaffeine_data/src/types.rs")).unwrap();
-    assert!(types_rs.contains("pub type Seq<T> = Vec<T>;"), "types.rs: {}", types_rs);
+    assert!(types_rs.contains("LogosSeq"), "types.rs should contain LogosSeq: {}", types_rs);
 }
 
 #[test]
 fn test_seq_type_annotation_codegen() {
     let source = "## Main\nLet nums: Seq of Int be [1, 2].";
     let rust = compile_to_rust(source).expect("Compiles");
-    assert!(rust.contains("Vec<i64>"), "Generated: {}", rust);
+    assert!(rust.contains("LogosSeq<i64>"), "Generated: {}", rust);
 }
 
 #[test]

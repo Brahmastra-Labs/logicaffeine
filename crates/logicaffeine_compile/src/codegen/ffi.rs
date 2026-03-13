@@ -399,7 +399,7 @@ pub(crate) fn codegen_c_accessors(ty: &TypeExpr, interner: &Interner, registry: 
                     let inner_rust_type = codegen_type_expr(&params[0], interner);
                     let _inner_mangled = mangle_type_for_c(&params[0], interner);
                     let is_inner_text = is_text_type(&params[0], interner);
-                    let vec_type = format!("Vec<{}>", inner_rust_type);
+                    let vec_type = format!("LogosSeq<{}>", inner_rust_type);
 
                     // len
                     writeln!(out, "#[no_mangle]").unwrap();
@@ -424,7 +424,7 @@ pub(crate) fn codegen_c_accessors(ty: &TypeExpr, interner: &Interner, registry: 
                         writeln!(out, "            logos_set_last_error(format!(\"Index {{}} out of bounds (len {{}})\", index, seq.len()));").unwrap();
                         writeln!(out, "            return std::ptr::null_mut();").unwrap();
                         writeln!(out, "        }}").unwrap();
-                        writeln!(out, "        match std::ffi::CString::new(seq[index].clone()) {{").unwrap();
+                        writeln!(out, "        match std::ffi::CString::new(seq.borrow()[index].clone()) {{").unwrap();
                         writeln!(out, "            Ok(cstr) => cstr.into_raw(),").unwrap();
                         writeln!(out, "            Err(_) => {{ logos_set_last_error(\"String contains null byte\".to_string()); std::ptr::null_mut() }}").unwrap();
                         writeln!(out, "        }}").unwrap();
@@ -442,7 +442,7 @@ pub(crate) fn codegen_c_accessors(ty: &TypeExpr, interner: &Interner, registry: 
                         writeln!(out, "            logos_set_last_error(format!(\"Index {{}} out of bounds (len {{}})\", index, seq.len()));").unwrap();
                         writeln!(out, "            return LogosStatus::OutOfBounds;").unwrap();
                         writeln!(out, "        }}").unwrap();
-                        writeln!(out, "        unsafe {{ *out = seq[index].clone(); }}").unwrap();
+                        writeln!(out, "        unsafe {{ *out = seq.borrow()[index].clone(); }}").unwrap();
                         writeln!(out, "        LogosStatus::Ok").unwrap();
                         emit_catch_unwind_close(&mut out, "LogosStatus::ThreadPanic");
                         writeln!(out, "}}\n").unwrap();
@@ -452,7 +452,7 @@ pub(crate) fn codegen_c_accessors(ty: &TypeExpr, interner: &Interner, registry: 
                     writeln!(out, "#[no_mangle]").unwrap();
                     writeln!(out, "pub extern \"C\" fn logos_{}_create() -> LogosHandle {{", mangled).unwrap();
                     emit_catch_unwind_open(&mut out);
-                    emit_registry_create(&mut out, &format!("Vec::<{}>::new()", inner_rust_type), &vec_type);
+                    emit_registry_create(&mut out, &format!("LogosSeq::<{}>::new()", inner_rust_type), &vec_type);
                     emit_catch_unwind_close(&mut out, "std::ptr::null_mut() as LogosHandle");
                     writeln!(out, "}}\n").unwrap();
 
@@ -564,7 +564,7 @@ pub(crate) fn codegen_c_accessors(ty: &TypeExpr, interner: &Interner, registry: 
                     let val_rust = codegen_type_expr(&params[1], interner);
                     let is_key_text = is_text_type(&params[0], interner);
                     let is_val_text = is_text_type(&params[1], interner);
-                    let map_type = format!("FxHashMap<{}, {}>", key_rust, val_rust);
+                    let map_type = format!("LogosMap<{}, {}>", key_rust, val_rust);
 
                     // len
                     writeln!(out, "#[no_mangle]").unwrap();
@@ -653,7 +653,7 @@ pub(crate) fn codegen_c_accessors(ty: &TypeExpr, interner: &Interner, registry: 
                     emit_null_handle_check(&mut out, "std::ptr::null_mut() as LogosHandle");
                     emit_registry_deref(&mut out, "std::ptr::null_mut() as LogosHandle");
                     writeln!(out, "        let map = unsafe {{ &*(__ptr as *const {}) }};", map_type).unwrap();
-                    writeln!(out, "        let keys: Vec<{}> = map.keys().cloned().collect();", key_rust).unwrap();
+                    writeln!(out, "        let keys: Vec<{}> = map.borrow().keys().cloned().collect();", key_rust).unwrap();
                     writeln!(out, "        let __kptr = Box::into_raw(Box::new(keys)) as usize;").unwrap();
                     writeln!(out, "        let mut __reg = logos_handle_registry().lock().unwrap_or_else(|e| e.into_inner());").unwrap();
                     writeln!(out, "        let (__id, _) = __reg.register(__kptr);").unwrap();
@@ -668,7 +668,7 @@ pub(crate) fn codegen_c_accessors(ty: &TypeExpr, interner: &Interner, registry: 
                     emit_null_handle_check(&mut out, "std::ptr::null_mut() as LogosHandle");
                     emit_registry_deref(&mut out, "std::ptr::null_mut() as LogosHandle");
                     writeln!(out, "        let map = unsafe {{ &*(__ptr as *const {}) }};", map_type).unwrap();
-                    writeln!(out, "        let values: Vec<{}> = map.values().cloned().collect();", val_rust).unwrap();
+                    writeln!(out, "        let values: Vec<{}> = map.borrow().values().cloned().collect();", val_rust).unwrap();
                     writeln!(out, "        let __vptr = Box::into_raw(Box::new(values)) as usize;").unwrap();
                     writeln!(out, "        let mut __reg = logos_handle_registry().lock().unwrap_or_else(|e| e.into_inner());").unwrap();
                     writeln!(out, "        let (__id, _) = __reg.register(__vptr);").unwrap();
@@ -680,7 +680,7 @@ pub(crate) fn codegen_c_accessors(ty: &TypeExpr, interner: &Interner, registry: 
                     writeln!(out, "#[no_mangle]").unwrap();
                     writeln!(out, "pub extern \"C\" fn logos_{}_create() -> LogosHandle {{", mangled).unwrap();
                     emit_catch_unwind_open(&mut out);
-                    emit_registry_create(&mut out, &format!("FxHashMap::<{}, {}>::default()", key_rust, val_rust), &map_type);
+                    emit_registry_create(&mut out, &format!("LogosMap::<{}, {}>::new()", key_rust, val_rust), &map_type);
                     emit_catch_unwind_close(&mut out, "std::ptr::null_mut() as LogosHandle");
                     writeln!(out, "}}\n").unwrap();
 

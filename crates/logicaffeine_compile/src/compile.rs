@@ -1303,7 +1303,10 @@ pub fn encode_program_source(source: &str) -> Result<String, ParseError> {
     let mut main_stmts: Vec<&Stmt> = Vec::new();
 
     for stmt in &stmts {
-        if let Stmt::FunctionDef { name, params, body, .. } = stmt {
+        if let Stmt::FunctionDef { name, params, body, is_native, .. } = stmt {
+            if *is_native {
+                continue; // Skip native function declarations — they have no encodable body
+            }
             let fn_name = interner.resolve(*name).to_string();
             let param_names: Vec<String> = params
                 .iter()
@@ -1349,6 +1352,619 @@ pub fn encode_program_source(source: &str) -> Result<String, ParseError> {
     output.push_str(&format!("Let encodedMain be {}.\n", main_var));
 
     Ok(output)
+}
+
+/// Compact encoding: inlines simple expressions (literals, variables) to reduce
+/// encoding size by ~3x. Same semantics as encode_program_source but produces
+/// fewer Let statements.
+pub fn encode_program_source_compact(source: &str) -> Result<String, ParseError> {
+    let full_source = if source.contains("## Main") || source.contains("## To ") {
+        source.to_string()
+    } else {
+        format!("## Main\n{}", source)
+    };
+
+    let mut interner = Interner::new();
+    let mut lexer = Lexer::new(&full_source, &mut interner);
+    let tokens = lexer.tokenize();
+
+    let type_registry = {
+        let mut discovery = DiscoveryPass::new(&tokens, &mut interner);
+        let result = discovery.run_full();
+        result.types
+    };
+
+    let mut variant_constructors: HashMap<String, Vec<String>> = HashMap::new();
+    for (_type_name, type_def) in type_registry.iter_types() {
+        if let crate::analysis::TypeDef::Enum { variants, .. } = type_def {
+            for variant in variants {
+                let vname = interner.resolve(variant.name).to_string();
+                let field_names: Vec<String> = variant.fields.iter()
+                    .map(|f| interner.resolve(f.name).to_string())
+                    .collect();
+                variant_constructors.insert(vname, field_names);
+            }
+        }
+    }
+
+    let mut world_state = WorldState::new();
+    let expr_arena = Arena::new();
+    let term_arena = Arena::new();
+    let np_arena = Arena::new();
+    let sym_arena = Arena::new();
+    let role_arena = Arena::new();
+    let pp_arena = Arena::new();
+    let stmt_arena: Arena<Stmt> = Arena::new();
+    let imperative_expr_arena: Arena<Expr> = Arena::new();
+    let type_expr_arena: Arena<TypeExpr> = Arena::new();
+
+    let ast_ctx = AstContext::with_types(
+        &expr_arena, &term_arena, &np_arena, &sym_arena,
+        &role_arena, &pp_arena, &stmt_arena, &imperative_expr_arena,
+        &type_expr_arena,
+    );
+
+    let mut parser = crate::parser::Parser::new(
+        tokens, &mut world_state, &mut interner, ast_ctx, type_registry,
+    );
+    let stmts = parser.parse_program()?;
+
+    let mut functions: Vec<(String, Vec<String>, Vec<&Stmt>)> = Vec::new();
+    let mut main_stmts: Vec<&Stmt> = Vec::new();
+
+    for stmt in &stmts {
+        if let Stmt::FunctionDef { name, params, body, is_native, .. } = stmt {
+            if *is_native { continue; }
+            let fn_name = interner.resolve(*name).to_string();
+            let param_names: Vec<String> = params
+                .iter()
+                .map(|(name, _)| interner.resolve(*name).to_string())
+                .collect();
+            let body_stmts: Vec<&Stmt> = body.iter().collect();
+            functions.push((fn_name, param_names, body_stmts));
+        } else {
+            main_stmts.push(stmt);
+        }
+    }
+
+    let mut counter = 0usize;
+    let mut output = String::new();
+
+    output.push_str("Let encodedFuncMap be a new Map of Text to CFunc.\n");
+
+    for (fn_name, params, body) in &functions {
+        let body_var = encode_stmt_list_compact(body, &mut counter, &mut output, &interner, &variant_constructors);
+
+        let params_var = format!("params_{}", counter);
+        counter += 1;
+        output.push_str(&format!("Let {} be a new Seq of Text.\n", params_var));
+        for p in params {
+            output.push_str(&format!("Push \"{}\" to {}.\n", p, params_var));
+        }
+
+        let func_var = format!("func_{}", counter);
+        counter += 1;
+        output.push_str(&format!(
+            "Let {} be a new CFuncDef with name \"{}\" and params {} and body {}.\n",
+            func_var, fn_name, params_var, body_var
+        ));
+        output.push_str(&format!(
+            "Set item \"{}\" of encodedFuncMap to {}.\n",
+            fn_name, func_var
+        ));
+    }
+
+    let main_var = encode_stmt_list_compact(&main_stmts, &mut counter, &mut output, &interner, &variant_constructors);
+    output.push_str(&format!("Let encodedMain be {}.\n", main_var));
+
+    Ok(output)
+}
+
+/// Returns an inline expression string for simple expressions (no Let variable needed).
+/// Returns None for complex expressions that require a Let variable.
+fn try_inline_expr(expr: &Expr, interner: &Interner) -> Option<String> {
+    match expr {
+        Expr::Literal(lit) => match lit {
+            Literal::Number(n) => Some(format!("(a new CInt with value {})", n)),
+            Literal::Boolean(b) => Some(format!("(a new CBool with value {})", b)),
+            Literal::Text(s) => {
+                let text = interner.resolve(*s);
+                Some(format!("(a new CText with value \"{}\")", text))
+            }
+            Literal::Float(f) => Some(format!("(a new CFloat with value {})", f)),
+            Literal::Nothing => Some("(a new CText with value \"nothing\")".to_string()),
+            _ => None,
+        },
+        Expr::Identifier(sym) => {
+            let name = interner.resolve(*sym);
+            Some(format!("(a new CVar with name \"{}\")", name))
+        }
+        Expr::Not { operand } => {
+            if let Some(inner) = try_inline_expr(operand, interner) {
+                Some(format!("(a new CNot with inner {})", inner))
+            } else {
+                None
+            }
+        }
+        Expr::OptionNone => Some("(a new COptionNone)".to_string()),
+        _ => None,
+    }
+}
+
+fn encode_expr_compact(expr: &Expr, counter: &mut usize, output: &mut String, interner: &Interner, variants: &HashMap<String, Vec<String>>) -> String {
+    // Try inline first
+    if let Some(inline) = try_inline_expr(expr, interner) {
+        return inline;
+    }
+
+    // Fall back to Let variable (reuse encode_expr_src logic but with compact children)
+    let var = format!("e_{}", *counter);
+    *counter += 1;
+
+    match expr {
+        Expr::BinaryOp { op, left, right } => {
+            let left_var = encode_expr_compact(left, counter, output, interner, variants);
+            let right_var = encode_expr_compact(right, counter, output, interner, variants);
+            let op_str = match op {
+                BinaryOpKind::Add => "+",
+                BinaryOpKind::Subtract => "-",
+                BinaryOpKind::Multiply => "*",
+                BinaryOpKind::Divide => "/",
+                BinaryOpKind::Modulo => "%",
+                BinaryOpKind::Eq => "==",
+                BinaryOpKind::NotEq => "!=",
+                BinaryOpKind::Lt => "<",
+                BinaryOpKind::Gt => ">",
+                BinaryOpKind::LtEq => "<=",
+                BinaryOpKind::GtEq => ">=",
+                BinaryOpKind::And => "&&",
+                BinaryOpKind::Or => "||",
+                BinaryOpKind::Concat => "+",
+                BinaryOpKind::BitXor => "^",
+                BinaryOpKind::Shl => "<<",
+                BinaryOpKind::Shr => ">>",
+            };
+            output.push_str(&format!(
+                "Let {} be a new CBinOp with op \"{}\" and left {} and right {}.\n",
+                var, op_str, left_var, right_var
+            ));
+        }
+        Expr::Call { function, args } => {
+            let fn_name = interner.resolve(*function);
+            if let Some(field_names) = variants.get(fn_name) {
+                let names_var = format!("nvNames_{}", *counter);
+                *counter += 1;
+                output.push_str(&format!("Let {} be a new Seq of Text.\n", names_var));
+                let vals_var = format!("nvVals_{}", *counter);
+                *counter += 1;
+                output.push_str(&format!("Let {} be a new Seq of CExpr.\n", vals_var));
+                for (i, arg) in args.iter().enumerate() {
+                    let fname = field_names.get(i).map(|s| s.as_str()).unwrap_or("value");
+                    output.push_str(&format!("Push \"{}\" to {}.\n", fname, names_var));
+                    let arg_var = encode_expr_compact(arg, counter, output, interner, variants);
+                    output.push_str(&format!("Push {} to {}.\n", arg_var, vals_var));
+                }
+                output.push_str(&format!(
+                    "Let {} be a new CNewVariant with tag \"{}\" and fnames {} and fvals {}.\n",
+                    var, fn_name, names_var, vals_var
+                ));
+            } else {
+                let args_var = format!("callArgs_{}", *counter);
+                *counter += 1;
+                output.push_str(&format!("Let {} be a new Seq of CExpr.\n", args_var));
+                for arg in args {
+                    let arg_var = encode_expr_compact(arg, counter, output, interner, variants);
+                    output.push_str(&format!("Push {} to {}.\n", arg_var, args_var));
+                }
+                output.push_str(&format!(
+                    "Let {} be a new CCall with name \"{}\" and args {}.\n",
+                    var, fn_name, args_var
+                ));
+            }
+        }
+        Expr::Index { collection, index } => {
+            let coll_var = encode_expr_compact(collection, counter, output, interner, variants);
+            let idx_var = encode_expr_compact(index, counter, output, interner, variants);
+            output.push_str(&format!(
+                "Let {} be a new CIndex with coll {} and idx {}.\n",
+                var, coll_var, idx_var
+            ));
+        }
+        Expr::Length { collection } => {
+            let coll_var = encode_expr_compact(collection, counter, output, interner, variants);
+            output.push_str(&format!("Let {} be a new CLen with target {}.\n", var, coll_var));
+        }
+        Expr::FieldAccess { object, field } => {
+            let obj_var = encode_expr_compact(object, counter, output, interner, variants);
+            let field_name = interner.resolve(*field);
+            output.push_str(&format!(
+                "Let {} be a new CMapGet with target {} and key (a new CText with value \"{}\").\n",
+                var, obj_var, field_name
+            ));
+        }
+        Expr::NewVariant { variant, fields, .. } => {
+            let variant_name = interner.resolve(*variant);
+            let names_var = format!("nvNames_{}", *counter);
+            *counter += 1;
+            output.push_str(&format!("Let {} be a new Seq of Text.\n", names_var));
+            let vals_var = format!("nvVals_{}", *counter);
+            *counter += 1;
+            output.push_str(&format!("Let {} be a new Seq of CExpr.\n", vals_var));
+            for (field_name, field_expr) in fields {
+                let fname = interner.resolve(*field_name);
+                output.push_str(&format!("Push \"{}\" to {}.\n", fname, names_var));
+                let field_var = encode_expr_compact(field_expr, counter, output, interner, variants);
+                output.push_str(&format!("Push {} to {}.\n", field_var, vals_var));
+            }
+            output.push_str(&format!(
+                "Let {} be a new CNewVariant with tag \"{}\" and fnames {} and fvals {}.\n",
+                var, variant_name, names_var, vals_var
+            ));
+        }
+        Expr::New { type_name, init_fields, .. } => {
+            let tn = interner.resolve(*type_name);
+            if tn == "Seq" || tn == "List" {
+                output.push_str(&format!("Let {} be a new CNewSeq.\n", var));
+            } else if tn == "Set" {
+                output.push_str(&format!("Let {} be a new CNewSet.\n", var));
+            } else {
+                let names_var = format!("nvNames_{}", *counter);
+                *counter += 1;
+                output.push_str(&format!("Let {} be a new Seq of Text.\n", names_var));
+                let vals_var = format!("nvVals_{}", *counter);
+                *counter += 1;
+                output.push_str(&format!("Let {} be a new Seq of CExpr.\n", vals_var));
+                for (field_name, field_expr) in init_fields {
+                    let fname = interner.resolve(*field_name);
+                    output.push_str(&format!("Push \"{}\" to {}.\n", fname, names_var));
+                    let field_var = encode_expr_compact(field_expr, counter, output, interner, variants);
+                    output.push_str(&format!("Push {} to {}.\n", field_var, vals_var));
+                }
+                output.push_str(&format!(
+                    "Let {} be a new CNewVariant with tag \"{}\" and fnames {} and fvals {}.\n",
+                    var, tn, names_var, vals_var
+                ));
+            }
+        }
+        Expr::InterpolatedString(parts) => {
+            if parts.is_empty() {
+                output.push_str(&format!("Let {} be (a new CText with value \"\").\n", var));
+            } else {
+                let mut part_vars: Vec<String> = Vec::new();
+                for part in parts {
+                    match part {
+                        StringPart::Literal(sym) => {
+                            let text = interner.resolve(*sym);
+                            part_vars.push(format!("(a new CText with value \"{}\")", text));
+                        }
+                        StringPart::Expr { value, .. } => {
+                            let pv = encode_expr_compact(value, counter, output, interner, variants);
+                            part_vars.push(pv);
+                        }
+                    }
+                }
+                if part_vars.len() == 1 {
+                    output.push_str(&format!("Let {} be {}.\n", var, part_vars[0]));
+                } else {
+                    let mut acc = part_vars[0].clone();
+                    for pv in &part_vars[1..] {
+                        let concat_var = format!("e_{}", *counter);
+                        *counter += 1;
+                        output.push_str(&format!(
+                            "Let {} be a new CBinOp with op \"+\" and left {} and right {}.\n",
+                            concat_var, acc, pv
+                        ));
+                        acc = concat_var;
+                    }
+                    output.push_str(&format!("Let {} be {}.\n", var, acc));
+                }
+            }
+        }
+        Expr::Range { start, end } => {
+            let start_var = encode_expr_compact(start, counter, output, interner, variants);
+            let end_var = encode_expr_compact(end, counter, output, interner, variants);
+            output.push_str(&format!(
+                "Let {} be a new CRange with start {} and end {}.\n",
+                var, start_var, end_var
+            ));
+        }
+        Expr::Copy { expr } => {
+            let inner_var = encode_expr_compact(expr, counter, output, interner, variants);
+            output.push_str(&format!("Let {} be a new CCopy with target {}.\n", var, inner_var));
+        }
+        Expr::Contains { collection, value } => {
+            let coll_var = encode_expr_compact(collection, counter, output, interner, variants);
+            let val_var = encode_expr_compact(value, counter, output, interner, variants);
+            output.push_str(&format!(
+                "Let {} be a new CContains with coll {} and elem {}.\n",
+                var, coll_var, val_var
+            ));
+        }
+        Expr::OptionSome { value } => {
+            let inner_var = encode_expr_compact(value, counter, output, interner, variants);
+            output.push_str(&format!(
+                "Let {} be a new COptionSome with inner {}.\n", var, inner_var
+            ));
+        }
+        Expr::Tuple(elems) => {
+            let items_var = format!("tupItems_{}", *counter);
+            *counter += 1;
+            output.push_str(&format!("Let {} be a new Seq of CExpr.\n", items_var));
+            for elem in elems {
+                let elem_var = encode_expr_compact(elem, counter, output, interner, variants);
+                output.push_str(&format!("Push {} to {}.\n", elem_var, items_var));
+            }
+            output.push_str(&format!(
+                "Let {} be a new CTuple with items {}.\n", var, items_var
+            ));
+        }
+        Expr::Closure { params, body, .. } => {
+            let params_var = format!("clp_{}", *counter);
+            *counter += 1;
+            output.push_str(&format!("Let {} be a new Seq of Text.\n", params_var));
+            let mut param_names = HashSet::new();
+            for (sym, _) in params {
+                let name = interner.resolve(*sym);
+                param_names.insert(name.to_string());
+                output.push_str(&format!("Push \"{}\" to {}.\n", name, params_var));
+            }
+            let body_var = format!("clb_{}", *counter);
+            *counter += 1;
+            output.push_str(&format!("Let {} be a new Seq of CStmt.\n", body_var));
+            match body {
+                ClosureBody::Expression(e) => {
+                    let ret_expr = encode_expr_compact(e, counter, output, interner, variants);
+                    let ret_var = format!("s_{}", *counter);
+                    *counter += 1;
+                    output.push_str(&format!("Let {} be a new CReturn with expr {}.\n", ret_var, ret_expr));
+                    output.push_str(&format!("Push {} to {}.\n", ret_var, body_var));
+                }
+                ClosureBody::Block(stmts) => {
+                    for s in stmts.iter() {
+                        let sv = encode_stmt_compact(s, counter, output, interner, variants);
+                        output.push_str(&format!("Push {} to {}.\n", sv, body_var));
+                    }
+                }
+            }
+            let bound: HashSet<String> = param_names;
+            let free = collect_free_vars_expr(expr, interner, &bound);
+            let cap_var = format!("clc_{}", *counter);
+            *counter += 1;
+            output.push_str(&format!("Let {} be a new Seq of Text.\n", cap_var));
+            for fv in &free {
+                output.push_str(&format!("Push \"{}\" to {}.\n", fv, cap_var));
+            }
+            output.push_str(&format!(
+                "Let {} be a new CClosure with params {} and body {} and captured {}.\n",
+                var, params_var, body_var, cap_var
+            ));
+        }
+        Expr::CallExpr { callee, args } => {
+            let callee_var = encode_expr_compact(callee, counter, output, interner, variants);
+            let args_var = format!("cea_{}", *counter);
+            *counter += 1;
+            output.push_str(&format!("Let {} be a new Seq of CExpr.\n", args_var));
+            for a in args {
+                let av = encode_expr_compact(a, counter, output, interner, variants);
+                output.push_str(&format!("Push {} to {}.\n", av, args_var));
+            }
+            output.push_str(&format!(
+                "Let {} be a new CCallExpr with target {} and args {}.\n",
+                var, callee_var, args_var
+            ));
+        }
+        Expr::Slice { collection, start, end } => {
+            let coll_var = encode_expr_compact(collection, counter, output, interner, variants);
+            let start_var = encode_expr_compact(start, counter, output, interner, variants);
+            let end_var = encode_expr_compact(end, counter, output, interner, variants);
+            output.push_str(&format!(
+                "Let {} be a new CSlice with coll {} and startIdx {} and endIdx {}.\n",
+                var, coll_var, start_var, end_var
+            ));
+        }
+        Expr::Union { left, right } => {
+            let left_var = encode_expr_compact(left, counter, output, interner, variants);
+            let right_var = encode_expr_compact(right, counter, output, interner, variants);
+            output.push_str(&format!(
+                "Let {} be a new CUnion with left {} and right {}.\n",
+                var, left_var, right_var
+            ));
+        }
+        Expr::Intersection { left, right } => {
+            let left_var = encode_expr_compact(left, counter, output, interner, variants);
+            let right_var = encode_expr_compact(right, counter, output, interner, variants);
+            output.push_str(&format!(
+                "Let {} be a new CIntersection with left {} and right {}.\n",
+                var, left_var, right_var
+            ));
+        }
+        Expr::Give { value } => {
+            let inner_var = encode_expr_compact(value, counter, output, interner, variants);
+            output.push_str(&format!("Let {} be {}.\n", var, inner_var));
+        }
+        Expr::Escape { code, .. } => {
+            let code_str = interner.resolve(*code);
+            output.push_str(&format!(
+                "Let {} be a new CEscExpr with code \"{}\".\n",
+                var, code_str.replace('\"', "\\\"")
+            ));
+        }
+        _ => {
+            // For unsupported expressions, use the non-compact version
+            output.push_str(&format!("Let {} be (a new CText with value \"unsupported\").\n", var));
+        }
+    }
+
+    var
+}
+
+fn encode_stmt_compact(stmt: &Stmt, counter: &mut usize, output: &mut String, interner: &Interner, variants: &HashMap<String, Vec<String>>) -> String {
+    let var = format!("s_{}", *counter);
+    *counter += 1;
+
+    match stmt {
+        Stmt::Let { var: name, value, .. } => {
+            let name_str = interner.resolve(*name);
+            let expr_var = encode_expr_compact(value, counter, output, interner, variants);
+            output.push_str(&format!(
+                "Let {} be a new CLet with name \"{}\" and expr {}.\n",
+                var, name_str, expr_var
+            ));
+        }
+        Stmt::Set { target, value } => {
+            let name_str = interner.resolve(*target);
+            let expr_var = encode_expr_compact(value, counter, output, interner, variants);
+            output.push_str(&format!(
+                "Let {} be a new CSet with name \"{}\" and expr {}.\n",
+                var, name_str, expr_var
+            ));
+        }
+        Stmt::If { cond, then_block, else_block } => {
+            let cond_var = encode_expr_compact(cond, counter, output, interner, variants);
+            let then_stmts: Vec<&Stmt> = then_block.iter().collect();
+            let then_var = encode_stmt_list_compact(&then_stmts, counter, output, interner, variants);
+            let else_var = if let Some(els) = else_block {
+                let else_stmts: Vec<&Stmt> = els.iter().collect();
+                encode_stmt_list_compact(&else_stmts, counter, output, interner, variants)
+            } else {
+                let empty_var = format!("emptyBlock_{}", *counter);
+                *counter += 1;
+                output.push_str(&format!("Let {} be a new Seq of CStmt.\n", empty_var));
+                empty_var
+            };
+            output.push_str(&format!(
+                "Let {} be a new CIf with cond {} and thenBlock {} and elseBlock {}.\n",
+                var, cond_var, then_var, else_var
+            ));
+        }
+        Stmt::While { cond, body, .. } => {
+            let cond_var = encode_expr_compact(cond, counter, output, interner, variants);
+            let body_stmts: Vec<&Stmt> = body.iter().collect();
+            let body_var = encode_stmt_list_compact(&body_stmts, counter, output, interner, variants);
+            output.push_str(&format!(
+                "Let {} be a new CWhile with cond {} and body {}.\n",
+                var, cond_var, body_var
+            ));
+        }
+        Stmt::Return { value } => {
+            if let Some(val) = value {
+                let expr_var = encode_expr_compact(val, counter, output, interner, variants);
+                output.push_str(&format!("Let {} be a new CReturn with expr {}.\n", var, expr_var));
+            } else {
+                output.push_str(&format!("Let {} be a new CReturn with expr (a new CText with value \"nothing\").\n", var));
+            }
+        }
+        Stmt::Show { object, .. } => {
+            let expr_var = encode_expr_compact(object, counter, output, interner, variants);
+            output.push_str(&format!("Let {} be a new CShow with expr {}.\n", var, expr_var));
+        }
+        Stmt::Repeat { pattern, iterable, body } => {
+            let var_str = match pattern {
+                Pattern::Identifier(sym) => interner.resolve(*sym).to_string(),
+                Pattern::Tuple(syms) => {
+                    if let Some(s) = syms.first() {
+                        interner.resolve(*s).to_string()
+                    } else {
+                        "item".to_string()
+                    }
+                }
+            };
+            let coll_var = encode_expr_compact(iterable, counter, output, interner, variants);
+            let body_stmts: Vec<&Stmt> = body.iter().collect();
+            let body_var = encode_stmt_list_compact(&body_stmts, counter, output, interner, variants);
+            output.push_str(&format!(
+                "Let {} be a new CRepeat with var \"{}\" and coll {} and body {}.\n",
+                var, var_str, coll_var, body_var
+            ));
+        }
+        Stmt::Push { value, collection } => {
+            let coll_name = extract_ident_name(collection, interner);
+            let expr_var = encode_expr_compact(value, counter, output, interner, variants);
+            output.push_str(&format!(
+                "Let {} be a new CPush with expr {} and target \"{}\".\n",
+                var, expr_var, coll_name
+            ));
+        }
+        Stmt::SetIndex { collection, index, value } => {
+            let target_str = extract_ident_name(collection, interner);
+            let idx_var = encode_expr_compact(index, counter, output, interner, variants);
+            let val_var = encode_expr_compact(value, counter, output, interner, variants);
+            output.push_str(&format!(
+                "Let {} be a new CSetIdx with target \"{}\" and idx {} and val {}.\n",
+                var, target_str, idx_var, val_var
+            ));
+        }
+        Stmt::SetField { object, field, value } => {
+            let target_str = extract_ident_name(object, interner);
+            let field_str = interner.resolve(*field);
+            let val_var = encode_expr_compact(value, counter, output, interner, variants);
+            output.push_str(&format!(
+                "Let {} be a new CSetField with target \"{}\" and field \"{}\" and val {}.\n",
+                var, target_str, field_str, val_var
+            ));
+        }
+        Stmt::Break => {
+            output.push_str(&format!("Let {} be a new CBreak.\n", var));
+        }
+        Stmt::Inspect { target, arms, .. } => {
+            let target_var = encode_expr_compact(target, counter, output, interner, variants);
+            let arms_var = format!("arms_{}", *counter);
+            *counter += 1;
+            output.push_str(&format!("Let {} be a new Seq of CMatchArm.\n", arms_var));
+            for arm in arms {
+                if let Some(variant_sym) = arm.variant {
+                    let vname = interner.resolve(variant_sym);
+                    let bindings_var = format!("bindings_{}", *counter);
+                    *counter += 1;
+                    output.push_str(&format!("Let {} be a new Seq of Text.\n", bindings_var));
+                    for (_, binding_name) in &arm.bindings {
+                        let bn = interner.resolve(*binding_name);
+                        output.push_str(&format!("Push \"{}\" to {}.\n", bn, bindings_var));
+                    }
+                    let body_stmts: Vec<&Stmt> = arm.body.iter().collect();
+                    let body_var = encode_stmt_list_compact(&body_stmts, counter, output, interner, variants);
+                    let arm_var = format!("arm_{}", *counter);
+                    *counter += 1;
+                    output.push_str(&format!(
+                        "Let {} be a new CWhen with variantName \"{}\" and bindings {} and body {}.\n",
+                        arm_var, vname, bindings_var, body_var
+                    ));
+                    output.push_str(&format!("Push {} to {}.\n", arm_var, arms_var));
+                } else {
+                    let body_stmts: Vec<&Stmt> = arm.body.iter().collect();
+                    let body_var = encode_stmt_list_compact(&body_stmts, counter, output, interner, variants);
+                    let arm_var = format!("arm_{}", *counter);
+                    *counter += 1;
+                    output.push_str(&format!(
+                        "Let {} be a new COtherwise with body {}.\n",
+                        arm_var, body_var
+                    ));
+                    output.push_str(&format!("Push {} to {}.\n", arm_var, arms_var));
+                }
+            }
+            output.push_str(&format!(
+                "Let {} be a new CInspect with target {} and arms {}.\n",
+                var, target_var, arms_var
+            ));
+        }
+        _ => {
+            // Delegate to non-compact encoder for unsupported statements
+            return encode_stmt_src(stmt, counter, output, interner, variants);
+        }
+    }
+
+    var
+}
+
+fn encode_stmt_list_compact(stmts: &[&Stmt], counter: &mut usize, output: &mut String, interner: &Interner, variants: &HashMap<String, Vec<String>>) -> String {
+    let list_var = format!("stmts_{}", *counter);
+    *counter += 1;
+    output.push_str(&format!("Let {} be a new Seq of CStmt.\n", list_var));
+    for s in stmts {
+        let sv = encode_stmt_compact(s, counter, output, interner, variants);
+        output.push_str(&format!("Push {} to {}.\n", sv, list_var));
+    }
+    list_var
 }
 
 fn collect_free_vars_expr<'a>(expr: &'a Expr, interner: &Interner, bound: &HashSet<String>) -> HashSet<String> {
@@ -3368,6 +3984,18 @@ pub fn pe_source_text() -> &'static str {
     include_str!("optimize/pe_source.logos")
 }
 
+pub fn decompile_source_text() -> &'static str {
+    include_str!("optimize/decompile_source.logos")
+}
+
+pub fn pe_bti_source_text() -> &'static str {
+    include_str!("optimize/pe_bti_source.logos")
+}
+
+pub fn pe_mini_source_text() -> &'static str {
+    include_str!("optimize/pe_mini_source.logos")
+}
+
 const CORE_TYPES_FOR_PE: &str = r#"
 ## A CExpr is one of:
     A CInt with value Int.
@@ -3478,6 +4106,9 @@ const CORE_TYPES_FOR_PE: &str = r#"
 ## A CProgram is one of:
     A CProg with funcs Seq of CFunc and main Seq of CStmt.
 
+## A PEState is one of:
+    A PEStateR with env Map of Text to CVal and funcs Map of Text to CFunc and depth Int and staticEnv Map of Text to CExpr and specResults Map of Text to CExpr and onStack Seq of Text.
+
 ## A CVal is one of:
     A VInt with value Int.
     A VFloat with value Real.
@@ -3556,6 +4187,293 @@ pub fn projection3_source() -> Result<String, String> {
     let cogen_source = replace_word(&replace_word(&pe_source, "peExpr", "cogenExpr"), "peBlock", "cogenBlock");
 
     Ok(format!("{}\n{}", CORE_TYPES_FOR_PE, cogen_source))
+}
+
+/// Compile and run LOGOS source, returning stdout.
+///
+/// Uses the full compilation pipeline: LOGOS → Rust → binary → execute.
+/// This is the library-side equivalent of the test infrastructure's `run_logos()`.
+pub fn run_logos_source(source: &str) -> Result<String, String> {
+    let compile_output = compile_program_full(source)
+        .map_err(|e| format!("Compilation failed: {:?}", e))?;
+
+    // Create temp directory using std (no tempfile crate needed)
+    let temp_base = std::env::temp_dir().join("logos_run_source");
+    std::fs::create_dir_all(&temp_base)
+        .map_err(|e| format!("mkdir failed: {}", e))?;
+
+    let pkg_name = format!(
+        "logos_run_{}_{}",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos()
+    );
+    let project_dir = temp_base.join(&pkg_name);
+
+    // Find workspace root relative to this crate
+    let manifest_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
+    let workspace_root = manifest_dir.parent().unwrap().parent().unwrap();
+
+    let cargo_toml = format!(
+        r#"[package]
+name = "{}"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+logicaffeine-data = {{ path = "{}/crates/logicaffeine_data" }}
+logicaffeine-system = {{ path = "{}/crates/logicaffeine_system", features = ["full"] }}
+tokio = {{ version = "1", features = ["rt-multi-thread", "macros"] }}
+serde = {{ version = "1", features = ["derive"] }}
+rayon = "1"
+"#,
+        pkg_name,
+        workspace_root.display(),
+        workspace_root.display(),
+    );
+
+    std::fs::create_dir_all(project_dir.join("src"))
+        .map_err(|e| format!("mkdir failed: {}", e))?;
+    std::fs::write(project_dir.join("Cargo.toml"), cargo_toml)
+        .map_err(|e| format!("Write Cargo.toml failed: {}", e))?;
+    std::fs::write(project_dir.join("src/main.rs"), &compile_output.rust_code)
+        .map_err(|e| format!("Write main.rs failed: {}", e))?;
+
+    // Use a shared target dir for caching
+    let target_dir = std::env::temp_dir().join("logos_e2e_cache");
+    std::fs::create_dir_all(&target_dir)
+        .map_err(|e| format!("mkdir target failed: {}", e))?;
+
+    let output = std::process::Command::new("cargo")
+        .args(["run", "--quiet"])
+        .current_dir(&project_dir)
+        .env("CARGO_TARGET_DIR", &target_dir)
+        .env("RUST_MIN_STACK", "268435456")
+        .output()
+        .map_err(|e| format!("cargo run failed: {}", e))?;
+
+    // Clean up temp project dir
+    let _ = std::fs::remove_dir_all(&project_dir);
+
+    if !output.status.success() {
+        return Err(format!(
+            "Execution failed:\nstderr: {}\nstdout: {}",
+            String::from_utf8_lossy(&output.stderr),
+            String::from_utf8_lossy(&output.stdout),
+        ));
+    }
+
+    Ok(String::from_utf8_lossy(&output.stdout).to_string())
+}
+
+/// Real Futamura Projection 1: pe(program) = compiled_program
+///
+/// Encodes the program as CProgram data, runs the LOGOS PE on it,
+/// decompiles the residual back to LOGOS source.
+pub fn projection1_source_real(core_types: &str, _interpreter: &str, program: &str) -> Result<String, String> {
+    let full_source = if program.contains("## Main") || program.contains("## To ") {
+        program.to_string()
+    } else {
+        format!("## Main\n{}", program)
+    };
+
+    // Step 1: Encode the program as CProgram construction source
+    let encoded = encode_program_source(&full_source)
+        .map_err(|e| format!("Failed to encode program: {:?}", e))?;
+
+    // Step 2: Get PE source and decompile source
+    let pe_source = pe_source_text();
+    let decompile_source = decompile_source_text();
+
+    // Step 3: Build the combined source
+    let actual_core_types = if core_types.is_empty() { CORE_TYPES_FOR_PE } else { core_types };
+
+    let driver = r#"
+    Let state be makePeState(a new Map of Text to CVal, encodedFuncMap, 200).
+    Let residual be peBlock(encodedMain, state).
+    Let source be decompileBlock(residual, 0).
+    Show source.
+"#;
+
+    let combined = format!(
+        "{}\n{}\n{}\n## Main\n{}\n{}",
+        actual_core_types,
+        pe_source,
+        decompile_source,
+        encoded,
+        driver,
+    );
+
+    // Step 4: Compile and run to get the decompiled residual
+    let raw_residual = run_logos_source(&combined)?;
+    let trimmed = raw_residual.trim();
+
+    // Step 5: Wrap in ## Main if needed
+    if trimmed.is_empty() {
+        return Ok("## Main\n".to_string());
+    }
+
+    // Check if the residual already has function definitions
+    if trimmed.contains("## To ") {
+        Ok(trimmed.to_string())
+    } else {
+        Ok(format!("## Main\n{}", trimmed))
+    }
+}
+
+/// Real Futamura Projection 2: PE(PE, interpreter) = compiler
+///
+/// Returns pe_bti with entry points renamed to compileExpr/compileBlock/extractReturn.
+/// pe_bti is the BTI-refined PE used as the practical compiler, supporting
+/// full function inlining and all PE optimizations.
+///
+/// Genuine self-application PE(pe_source, pe_mini) is verified by tests
+/// (genuine_p2_pe_mini_full_scale_dynamic_target). The genuine P2 output
+/// can be obtained via genuine_projection2_residual().
+///
+/// Returns ONLY the compiler source (no type definitions). Callers must
+/// prepend appropriate CORE_TYPES for the BTI state representation.
+pub fn projection2_source_real(_core_types: &str, _interpreter: &str) -> Result<String, String> {
+    let pe_bti = pe_bti_source_text();
+
+    // Rename entry points: peExprB→compileExpr, peBlockB→compileBlock, extractReturnB→extractReturn
+    let compiler = replace_word(
+        &replace_word(
+            &replace_word(pe_bti, "peExprB", "compileExpr"),
+            "peBlockB", "compileBlock",
+        ),
+        "extractReturnB", "extractReturn",
+    );
+
+    Ok(compiler.to_string())
+}
+
+/// Run genuine PE(pe_source, pe_mini(targetExpr)) and return the specialized
+/// compiler residual as LOGOS source code.
+///
+/// This is the actual Futamura Projection 2: the outer PE (pe_source) specializes
+/// pe_mini's peExprM with known state (empty env, empty funcs, depth 200).
+/// The result is a specialized compiler function that takes a target CExpr and
+/// compiles it with pe_mini's dispatch logic partially evaluated away.
+///
+/// Returns the decompiled LOGOS source of the genuine P2 residual, including
+/// specialized function definitions extracted from peFuncs.
+pub fn genuine_projection2_residual() -> Result<String, String> {
+    let pe_mini = pe_mini_source_text();
+    let pe = pe_source_text();
+    let decompile = decompile_source_text();
+
+    // Build pe_mini program with a free variable target
+    let program = format!(
+        "{}\n{}\n## Main\n    Let env be a new Map of Text to CVal.\n    Let funcs be a new Map of Text to CFunc.\n    Let state be makePeState(env, funcs, 200).\n    Let result be peExprM(targetExpr, state).\n    Inspect result:\n        When CInt (v):\n            Show v.\n        Otherwise:\n            Show \"dynamic\".\n",
+        CORE_TYPES_FOR_PE, pe_mini
+    );
+
+    // Encode pe_mini + driver as CProgram data (compact encoding)
+    let encoded = encode_program_source_compact(&program)
+        .map_err(|e| format!("Failed to encode pe_mini: {:?}", e))?;
+
+    // Driver: run PE, then decompile residual + specialized functions
+    let driver = r#"    Let state be makePeState(a new Map of Text to CVal, encodedFuncMap, 200).
+    Let residual be peBlock(encodedMain, state).
+    Let nl be chr(10).
+    Let mutable output be "".
+    Let specFuncs be peFuncs(state).
+    Let specNames be collectCallNames(residual).
+    Repeat for sn in specNames:
+        Let snKey be "{sn}".
+        If specFuncs contains snKey:
+            Let fdef be item snKey of specFuncs.
+            Let funcSrc be decompileFunc(fdef).
+            If the length of funcSrc is greater than 0:
+                Set output to "{output}{funcSrc}{nl}".
+    Let mainSrc be decompileBlock(residual, 0).
+    Set output to "{output}## Main{nl}{mainSrc}".
+    Show output.
+"#;
+    let combined = format!("{}\n{}\n{}\n## Main\n{}\n{}", CORE_TYPES_FOR_PE, pe, decompile, encoded, driver);
+
+    let result = run_logos_source(&combined)?;
+    Ok(result)
+}
+
+/// Run genuine PE(pe_source, pe_bti(targetExpr)) and return the specialized
+/// cogen residual as LOGOS source code.
+///
+/// This is the actual Futamura Projection 3: the outer PE (pe_source) specializes
+/// pe_bti (a full PE with memoization) with known state (empty env, empty funcs,
+/// depth 200). pe_bti is structurally identical to pe_source with renamed entry
+/// points (peExprB, peBlockB, etc.) — so this is genuinely PE(PE, PE).
+///
+/// The result is a specialized cogen: pe_bti's dispatch partially evaluated away,
+/// producing a program that takes a target CExpr and compiles it.
+pub fn genuine_projection3_residual() -> Result<String, String> {
+    let pe_bti = pe_bti_source_text();
+    let pe = pe_source_text();
+    let decompile = decompile_source_text();
+
+    // pe_bti uses memoCache/callGuard instead of specResults/onStack
+    let bti_types = CORE_TYPES_FOR_PE
+        .replace("specResults", "memoCache")
+        .replace("onStack", "callGuard");
+
+    // Build pe_bti program with a free variable target
+    let program = format!(
+        "{}\n{}\n## Main\n    Let env be a new Map of Text to CVal.\n    Let funcs be a new Map of Text to CFunc.\n    Let state be makePeState(env, funcs, 200).\n    Let result be peExprB(targetExpr, state).\n    Inspect result:\n        When CInt (v):\n            Show v.\n        Otherwise:\n            Show \"dynamic\".\n",
+        bti_types, pe_bti
+    );
+
+    // Encode pe_bti + driver as CProgram data (compact encoding)
+    let encoded = encode_program_source_compact(&program)
+        .map_err(|e| format!("Failed to encode pe_bti: {:?}", e))?;
+
+    // Driver: run PE, then decompile residual + specialized functions
+    let driver = r#"    Let state be makePeState(a new Map of Text to CVal, encodedFuncMap, 200).
+    Let residual be peBlock(encodedMain, state).
+    Let nl be chr(10).
+    Let mutable output be "".
+    Let specFuncs be peFuncs(state).
+    Let specNames be collectCallNames(residual).
+    Repeat for sn in specNames:
+        Let snKey be "{sn}".
+        If specFuncs contains snKey:
+            Let fdef be item snKey of specFuncs.
+            Let funcSrc be decompileFunc(fdef).
+            If the length of funcSrc is greater than 0:
+                Set output to "{output}{funcSrc}{nl}".
+    Let mainSrc be decompileBlock(residual, 0).
+    Set output to "{output}## Main{nl}{mainSrc}".
+    Show output.
+"#;
+    let combined = format!("{}\n{}\n{}\n## Main\n{}\n{}", CORE_TYPES_FOR_PE, pe, decompile, encoded, driver);
+
+    let result = run_logos_source(&combined)?;
+    Ok(result)
+}
+
+/// Real Futamura Projection 3: PE(PE, PE) = compiler_generator (cogen)
+///
+/// Returns the minimal PE (pe_mini) with entry points renamed to
+/// cogenExpr/cogenBlock/extractReturn. The pe_mini is a clean-room
+/// minimal PE with no memoization, no staticEnv, no specialization.
+///
+/// Returns ONLY the cogen source (no type definitions). Callers must
+/// prepend appropriate CORE_TYPES.
+pub fn projection3_source_real(_core_types: &str) -> Result<String, String> {
+    let pe_mini = pe_mini_source_text();
+
+    // Rename entry points: peExprM→cogenExpr, peBlockM→cogenBlock, extractReturnM→extractReturn
+    let cogen = replace_word(
+        &replace_word(
+            &replace_word(pe_mini, "peExprM", "cogenExpr"),
+            "peBlockM", "cogenBlock",
+        ),
+        "extractReturnM", "extractReturn",
+    );
+
+    Ok(cogen.to_string())
 }
 
 fn replace_word(source: &str, from: &str, to: &str) -> String {

@@ -20,7 +20,7 @@ use super::detection::{
     should_memoize, body_contains_self_call, should_inline,
     collect_pipe_sender_params, collect_pipe_vars,
     collect_mutable_vars_stmt, is_result_type,
-    vec_to_slice_type, vec_to_mut_slice_type, collect_give_arg_indices,
+    vec_to_slice_type, vec_to_mut_slice_type, collect_give_arg_indices, is_vec_type_expr,
     collect_single_char_text_vars,
     detect_double_recursion_closed_form,
 };
@@ -217,7 +217,10 @@ pub fn codegen_program(stmts: &[Stmt], registry: &TypeRegistry, policies: &Polic
                 continue;
             }
             let indices: HashSet<usize> = params.iter().enumerate()
-                .filter(|(_, (sym, _))| readonly_params.is_readonly(*name, *sym))
+                .filter(|(_, (sym, param_type))| {
+                    readonly_params.is_readonly(*name, *sym)
+                        && is_vec_type_expr(param_type, interner)
+                })
                 .map(|(i, _)| i)
                 .collect();
             if !indices.is_empty() {
@@ -250,9 +253,10 @@ pub fn codegen_program(stmts: &[Stmt], registry: &TypeRegistry, policies: &Polic
             // Skip if already has readonly borrow params (readonly takes precedence)
             let readonly_indices = borrow_params_map.get(name).cloned().unwrap_or_default();
             let indices: HashSet<usize> = params.iter().enumerate()
-                .filter(|(i, (sym, _))| {
+                .filter(|(i, (sym, param_type))| {
                     mutable_borrow_params.is_mutable_borrow(*name, *sym)
                         && !readonly_indices.contains(i)
+                        && is_vec_type_expr(param_type, interner)
                 })
                 .map(|(i, _)| i)
                 .collect();
@@ -1049,6 +1053,7 @@ fn map_native_function(name: &str) -> Option<(&'static str, &'static str)> {
         "args" => Some(("env", "args")),
         "parseInt" => Some(("text", "parseInt")),
         "parseFloat" => Some(("text", "parseFloat")),
+        "chr" => Some(("text", "chr")),
         "format" => Some(("fmt", "format")),
         _ => None,
     }

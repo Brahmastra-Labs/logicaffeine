@@ -30,13 +30,15 @@ pub fn optimize_for_projection<'a>(
     stmt_arena: &'a Arena<Stmt<'a>>,
     interner: &mut Interner,
 ) -> Vec<Stmt<'a>> {
+    let bta_cache = bta::analyze_with_sccs(&stmts, interner);
     let mut current = stmts;
     let mut variant_count: HashMap<Symbol, usize> = HashMap::new();
-    for _ in 0..8 {
+    for _ in 0..16 {
         let folded = fold::fold_stmts(current, expr_arena, stmt_arena, interner);
         let propagated = propagate::propagate_stmts(folded, expr_arena, stmt_arena, interner);
         let (specialized, changes) = partial_eval::specialize_stmts_with_state(
             propagated, expr_arena, stmt_arena, interner, &mut variant_count,
+            Some(&bta_cache),
         );
         current = specialized;
         if changes == 0 {
@@ -53,14 +55,17 @@ pub fn optimize_program<'a>(
     stmt_arena: &'a Arena<Stmt<'a>>,
     interner: &mut Interner,
 ) -> Vec<Stmt<'a>> {
+    // Compute BTA once — structural, stable across PE iterations
+    let bta_cache = bta::analyze_with_sccs(&stmts, interner);
     // Fixpoint loop: fold → propagate → PE, iterated until stable (max 8 cycles)
     let mut current = stmts;
     let mut variant_count: HashMap<Symbol, usize> = HashMap::new();
-    for _ in 0..8 {
+    for _ in 0..16 {
         let folded = fold::fold_stmts(current, expr_arena, stmt_arena, interner);
         let propagated = propagate::propagate_stmts(folded, expr_arena, stmt_arena, interner);
         let (specialized, changes) = partial_eval::specialize_stmts_with_state(
             propagated, expr_arena, stmt_arena, interner, &mut variant_count,
+            Some(&bta_cache),
         );
         current = specialized;
         if changes == 0 {

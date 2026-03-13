@@ -209,6 +209,64 @@ impl LogosGetChar for String {
     }
 }
 
+// === LogosSeq<T> with i64 (1-based indexing, reference semantics) ===
+
+impl<T: Clone> LogosIndex<i64> for crate::types::LogosSeq<T> {
+    type Output = T;
+
+    #[inline(always)]
+    fn logos_get(&self, index: i64) -> T {
+        let inner = self.borrow();
+        <Vec<T> as LogosIndex<i64>>::logos_get(&*inner, index)
+    }
+}
+
+impl<T: Clone> LogosIndexMut<i64> for crate::types::LogosSeq<T> {
+    #[inline(always)]
+    fn logos_set(&mut self, index: i64, value: T) {
+        let mut inner = self.borrow_mut();
+        <Vec<T> as LogosIndexMut<i64>>::logos_set(&mut *inner, index, value)
+    }
+}
+
+// === LogosMap<K, V> with K (key-based indexing, reference semantics) ===
+
+impl<K: Eq + Hash, V: Clone> LogosIndex<K> for crate::types::LogosMap<K, V> {
+    type Output = V;
+
+    #[inline(always)]
+    fn logos_get(&self, key: K) -> V {
+        let inner = self.borrow();
+        inner.get(&key).cloned().expect("Key not found in map")
+    }
+}
+
+impl<K: Eq + Hash, V: Clone> LogosIndexMut<K> for crate::types::LogosMap<K, V> {
+    #[inline(always)]
+    fn logos_set(&mut self, key: K, value: V) {
+        self.insert(key, value);
+    }
+}
+
+// === &str convenience for LogosMap<String, V> ===
+
+impl<V: Clone> LogosIndex<&str> for crate::types::LogosMap<String, V> {
+    type Output = V;
+
+    #[inline(always)]
+    fn logos_get(&self, key: &str) -> V {
+        let inner = self.borrow();
+        inner.get(key).cloned().expect("Key not found in map")
+    }
+}
+
+impl<V: Clone> LogosIndexMut<&str> for crate::types::LogosMap<String, V> {
+    #[inline(always)]
+    fn logos_set(&mut self, key: &str, value: V) {
+        self.insert(key.to_string(), value);
+    }
+}
+
 // === HashMap<K, V> with K (key-based indexing) ===
 
 impl<K: Eq + Hash, V: Clone> LogosIndex<K> for FxHashMap<K, V> {

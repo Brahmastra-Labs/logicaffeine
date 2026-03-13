@@ -249,7 +249,7 @@ pub(crate) fn try_emit_for_range_pattern<'a>(
     // Hoist inner buffer if buffer reuse detected.
     if let Some(ref reuse) = buffer_reuse {
         let reuse_inner = names.ident(reuse.inner_sym);
-        writeln!(output, "{}let mut {}: Vec<{}> = Vec::new();", indent_str, reuse_inner, reuse.inner_elem_type).unwrap();
+        writeln!(output, "{}let {}: LogosSeq<{}> = LogosSeq::new();", indent_str, reuse_inner, reuse.inner_elem_type).unwrap();
     }
 
     writeln!(output, "{}for {} in {} {{", indent_str, counter_name, range_str).unwrap();
@@ -269,8 +269,8 @@ pub(crate) fn try_emit_for_range_pattern<'a>(
         if let Some(ref reuse) = buffer_reuse {
             if bi == reuse.inner_let_idx {
                 let reuse_inner = names.ident(reuse.inner_sym);
-                writeln!(output, "{}{}.clear();", "    ".repeat(indent + 1), reuse_inner).unwrap();
-                ctx.register_variable_type(reuse.inner_sym, format!("Vec<{}>", reuse.inner_elem_type));
+                writeln!(output, "{}{}.borrow_mut().clear();", "    ".repeat(indent + 1), reuse_inner).unwrap();
+                ctx.register_variable_type(reuse.inner_sym, format!("LogosSeq<{}>", reuse.inner_elem_type));
                 bi += 1;
                 continue;
             }
@@ -647,7 +647,7 @@ fn stmt_counter_indexes_vec_types(stmt: &Stmt, counter_sym: Symbol, ctx: &Refine
             if idx_uses_counter {
                 if let Expr::Identifier(coll_sym) = collection {
                     let is_vec = ctx.get_variable_types().get(coll_sym)
-                        .map_or(false, |t| t.starts_with("Vec") || t.starts_with("&[") || t.starts_with("&mut ["));
+                        .map_or(false, |t| t.starts_with("LogosSeq") || t.starts_with("Vec") || t.starts_with("&[") || t.starts_with("&mut ["));
                     if !is_vec { return false; }
                 } else {
                     return false;
@@ -675,7 +675,7 @@ fn expr_counter_indexes_vec_types(expr: &Expr, counter_sym: Symbol, ctx: &Refine
             if idx_uses_counter {
                 if let Expr::Identifier(coll_sym) = collection {
                     let is_vec = ctx.get_variable_types().get(coll_sym)
-                        .map_or(false, |t| t.starts_with("Vec") || t.starts_with("&[") || t.starts_with("&mut ["));
+                        .map_or(false, |t| t.starts_with("LogosSeq") || t.starts_with("Vec") || t.starts_with("&[") || t.starts_with("&mut ["));
                     if !is_vec { return false; }
                 } else {
                     return false;
@@ -1337,15 +1337,15 @@ pub(crate) fn try_emit_vec_fill_pattern<'a>(
             };
 
             let mut output = String::new();
-            writeln!(output, "{}let mut {}: Vec<{}> = vec![{}; {}];",
+            writeln!(output, "{}let {}: LogosSeq<{}> = LogosSeq::from_vec(vec![{}; {}]);",
                 indent_str, vec_name, elem_type, fill_val_str, count_expr).unwrap();
 
-            ctx.register_variable_type(vec_sym, format!("Vec<{}>", elem_type));
+            ctx.register_variable_type(vec_sym, format!("LogosSeq<{}>", elem_type));
 
             // Emit prefix element overrides (only for values different from fill)
             for (i, prefix_val) in prefix_values.iter().enumerate() {
                 if *prefix_val != fill_val_str {
-                    writeln!(output, "{}{}[{}] = {};",
+                    writeln!(output, "{}{}.borrow_mut()[{}] = {};",
                         indent_str, vec_name, i, prefix_val).unwrap();
                 }
             }
@@ -1816,7 +1816,7 @@ pub(crate) fn try_emit_swap_pattern<'a>(
 
     // Only optimize for known Vec or &mut [T] types (direct indexing)
     if let Some(t) = variable_types.get(&arr_sym_1) {
-        if !t.starts_with("Vec") && !t.starts_with("&mut [") {
+        if !t.starts_with("LogosSeq") && !t.starts_with("Vec") && !t.starts_with("&mut [") {
             return None;
         }
     } else {
@@ -1920,17 +1920,31 @@ pub(crate) fn try_emit_swap_pattern<'a>(
                 _ => unreachable!(),
             };
 
+            let is_logos_seq = variable_types.get(&arr_sym_1)
+                .map_or(false, |t| t.starts_with("LogosSeq"));
+
             let mut output = String::new();
-            writeln!(output, "{}if {}[{}] {} {}[{}] {{",
-                indent_str, arr_name, idx1_simplified, op_str, arr_name, idx2_simplified,
-            ).unwrap();
-            writeln!(output, "{}    let __swap_tmp = {}[{}];",
-                indent_str, arr_name, idx1_simplified).unwrap();
-            writeln!(output, "{}    {}[{}] = {}[{}];",
-                indent_str, arr_name, idx1_simplified, arr_name, idx2_simplified).unwrap();
-            writeln!(output, "{}    {}[{}] = __swap_tmp;",
-                indent_str, arr_name, idx2_simplified).unwrap();
-            writeln!(output, "{}}}", indent_str).unwrap();
+            if is_logos_seq {
+                writeln!(output, "{}{{ let mut __bm = {}.borrow_mut();", indent_str, arr_name).unwrap();
+                writeln!(output, "{}if __bm[{}] {} __bm[{}] {{",
+                    indent_str, idx1_simplified, op_str, idx2_simplified,
+                ).unwrap();
+                writeln!(output, "{}    __bm.swap({}, {});",
+                    indent_str, idx1_simplified, idx2_simplified).unwrap();
+                writeln!(output, "{}}}", indent_str).unwrap();
+                writeln!(output, "{}}}", indent_str).unwrap();
+            } else {
+                writeln!(output, "{}if {}[{}] {} {}[{}] {{",
+                    indent_str, arr_name, idx1_simplified, op_str, arr_name, idx2_simplified,
+                ).unwrap();
+                writeln!(output, "{}    let __swap_tmp = {}[{}];",
+                    indent_str, arr_name, idx1_simplified).unwrap();
+                writeln!(output, "{}    {}[{}] = {}[{}];",
+                    indent_str, arr_name, idx1_simplified, arr_name, idx2_simplified).unwrap();
+                writeln!(output, "{}    {}[{}] = __swap_tmp;",
+                    indent_str, arr_name, idx2_simplified).unwrap();
+                writeln!(output, "{}}}", indent_str).unwrap();
+            }
 
             Some((output, 2)) // consumed 2 extra statements
         }
@@ -2069,9 +2083,9 @@ pub(crate) fn try_emit_seq_copy_pattern<'a>(
             let counter_name = names.ident(counter_sym);
 
             let mut output = String::new();
-            writeln!(output, "{}let mut {}: Vec<{}> = {}.to_vec();",
+            writeln!(output, "{}let {}: LogosSeq<{}> = {}.deep_clone();",
                 indent_str, dst_name, elem_type, src_name).unwrap();
-            ctx.register_variable_type(dst_sym, format!("Vec<{}>", elem_type));
+            ctx.register_variable_type(dst_sym, format!("LogosSeq<{}>", elem_type));
 
             // If the counter appears after the loop, emit its post-loop value.
             let remaining = &stmts[idx + 3..];
@@ -2242,14 +2256,14 @@ pub(crate) fn try_emit_seq_from_slice_pattern<'a>(
                                 let mut cont_output = String::new();
 
                                 if c_is_exclusive {
-                                    writeln!(cont_output, "{}let mut {}: Vec<{}> = {}[({} - 1) as usize..({} - 1) as usize].to_vec();",
+                                    writeln!(cont_output, "{}let {}: LogosSeq<{}> = LogosSeq::from_vec({}.borrow()[({} - 1) as usize..({} - 1) as usize].to_vec());",
                                         indent_str, dst_name, elem_type, src_name, counter_name, end_str).unwrap();
                                 } else {
-                                    writeln!(cont_output, "{}let mut {}: Vec<{}> = {}[({} - 1) as usize..{} as usize].to_vec();",
+                                    writeln!(cont_output, "{}let {}: LogosSeq<{}> = LogosSeq::from_vec({}.borrow()[({} - 1) as usize..{} as usize].to_vec());",
                                         indent_str, dst_name, elem_type, src_name, counter_name, end_str).unwrap();
                                 }
 
-                                ctx.register_variable_type(dst_sym, format!("Vec<{}>", elem_type));
+                                ctx.register_variable_type(dst_sym, format!("LogosSeq<{}>", elem_type));
 
                                 // Emit intervening statements between Seq creation and the While
                                 for si in (idx + 1)..scan {
@@ -2389,7 +2403,7 @@ pub(crate) fn try_emit_seq_from_slice_pattern<'a>(
             let mut output = String::new();
 
             if is_start_one && is_end_length_of_src {
-                writeln!(output, "{}let mut {}: Vec<{}> = {}.to_vec();",
+                writeln!(output, "{}let mut {}: LogosSeq<{}> = {}.deep_clone();",
                     indent_str, dst_name, elem_type, src_name).unwrap();
             } else {
                 let start_str = codegen_expr_simple(start_expr, interner);
@@ -2397,24 +2411,24 @@ pub(crate) fn try_emit_seq_from_slice_pattern<'a>(
 
                 if is_exclusive {
                     if matches!(start_expr, Expr::Literal(Literal::Number(1))) {
-                        writeln!(output, "{}let mut {}: Vec<{}> = {}[..({} - 1) as usize].to_vec();",
+                        writeln!(output, "{}let mut {}: LogosSeq<{}> = LogosSeq::from_vec({}.borrow()[..({} - 1) as usize].to_vec());",
                             indent_str, dst_name, elem_type, src_name, end_str).unwrap();
                     } else {
-                        writeln!(output, "{}let mut {}: Vec<{}> = {}[({} - 1) as usize..({} - 1) as usize].to_vec();",
+                        writeln!(output, "{}let mut {}: LogosSeq<{}> = LogosSeq::from_vec({}.borrow()[({} - 1) as usize..({} - 1) as usize].to_vec());",
                             indent_str, dst_name, elem_type, src_name, start_str, end_str).unwrap();
                     }
                 } else {
                     if matches!(start_expr, Expr::Literal(Literal::Number(1))) {
-                        writeln!(output, "{}let mut {}: Vec<{}> = {}[..{} as usize].to_vec();",
+                        writeln!(output, "{}let mut {}: LogosSeq<{}> = LogosSeq::from_vec({}.borrow()[..{} as usize].to_vec());",
                             indent_str, dst_name, elem_type, src_name, end_str).unwrap();
                     } else {
-                        writeln!(output, "{}let mut {}: Vec<{}> = {}[({} - 1) as usize..{} as usize].to_vec();",
+                        writeln!(output, "{}let mut {}: LogosSeq<{}> = LogosSeq::from_vec({}.borrow()[({} - 1) as usize..{} as usize].to_vec());",
                             indent_str, dst_name, elem_type, src_name, start_str, end_str).unwrap();
                     }
                 }
             }
 
-            ctx.register_variable_type(dst_sym, format!("Vec<{}>", elem_type));
+            ctx.register_variable_type(dst_sym, format!("LogosSeq<{}>", elem_type));
 
             // Emit intervening statements between Seq creation and counter init
             for si in (idx + 1)..counter_idx {
@@ -2707,18 +2721,18 @@ pub(crate) fn try_emit_vec_with_capacity_pattern<'a>(
     match &collection_info {
         CollInfo::Vec(elem_type) => {
             if let Some(fill_value) = &vec_fill_literal {
-                writeln!(output, "{}let mut {}: Vec<{}> = vec![{}; {}];",
+                writeln!(output, "{}let {}: LogosSeq<{}> = LogosSeq::from_vec(vec![{}; {}]);",
                     indent_str, vec_name, elem_type, fill_value, capacity_expr).unwrap();
             } else {
-                writeln!(output, "{}let mut {}: Vec<{}> = Vec::with_capacity({});",
+                writeln!(output, "{}let {}: LogosSeq<{}> = LogosSeq::with_capacity({});",
                     indent_str, vec_name, elem_type, capacity_expr).unwrap();
             }
-            ctx.register_variable_type(vec_sym, format!("Vec<{}>", elem_type));
+            ctx.register_variable_type(vec_sym, format!("LogosSeq<{}>", elem_type));
         }
         CollInfo::Map(key_type, val_type) => {
-            writeln!(output, "{}let mut {}: FxHashMap<{}, {}> = FxHashMap::with_capacity_and_hasher({}, Default::default());",
+            writeln!(output, "{}let {}: LogosMap<{}, {}> = LogosMap::with_capacity({});",
                 indent_str, vec_name, key_type, val_type, capacity_expr).unwrap();
-            ctx.register_variable_type(vec_sym, format!("FxHashMap<{}, {}>", key_type, val_type));
+            ctx.register_variable_type(vec_sym, format!("LogosMap<{}, {}>", key_type, val_type));
         }
     }
 
@@ -2736,14 +2750,14 @@ pub(crate) fn try_emit_vec_with_capacity_pattern<'a>(
             // would double the elements — the fill creates N items AND the loop pushes N more.
             match &sib_info {
                 CollInfo::Vec(elem_type) => {
-                    writeln!(output, "{}let mut {}: Vec<{}> = Vec::with_capacity({});",
+                    writeln!(output, "{}let {}: LogosSeq<{}> = LogosSeq::with_capacity({});",
                         indent_str, sib_name, elem_type, capacity_expr).unwrap();
-                    ctx.register_variable_type(sib_sym, format!("Vec<{}>", elem_type));
+                    ctx.register_variable_type(sib_sym, format!("LogosSeq<{}>", elem_type));
                 }
                 CollInfo::Map(key_type, val_type) => {
-                    writeln!(output, "{}let mut {}: FxHashMap<{}, {}> = FxHashMap::with_capacity_and_hasher({}, Default::default());",
+                    writeln!(output, "{}let {}: LogosMap<{}, {}> = LogosMap::with_capacity({});",
                         indent_str, sib_name, key_type, val_type, capacity_expr).unwrap();
-                    ctx.register_variable_type(sib_sym, format!("FxHashMap<{}, {}>", key_type, val_type));
+                    ctx.register_variable_type(sib_sym, format!("LogosMap<{}, {}>", key_type, val_type));
                 }
             }
         } else {
@@ -2968,9 +2982,9 @@ pub(crate) fn try_emit_merge_capacity_pattern<'a>(
     let capacity_expr = capacity_parts.join(" + ");
 
     let mut output = String::new();
-    writeln!(output, "{}let mut {}: Vec<{}> = Vec::with_capacity(({}) as usize);",
+    writeln!(output, "{}let mut {}: LogosSeq<{}> = LogosSeq::with_capacity(({}) as usize);",
         indent_str, vec_name, elem_type, capacity_expr).unwrap();
-    ctx.register_variable_type(vec_sym, format!("Vec<{}>", elem_type));
+    ctx.register_variable_type(vec_sym, format!("LogosSeq<{}>", elem_type));
 
     // Emit intervening statements between the declaration and the first While,
     // then the While loops themselves (all handled by regular codegen).
@@ -3081,7 +3095,7 @@ pub(crate) fn try_emit_rotate_left_pattern<'a>(
 
     // arr must be a Vec type (rotate_left requires &mut [T])
     match variable_types.get(&arr_sym) {
-        Some(t) if t.starts_with("Vec") => {}
+        Some(t) if t.starts_with("LogosSeq") || t.starts_with("Vec") => {}
         _ => return None,
     }
 
@@ -3204,15 +3218,26 @@ pub(crate) fn try_emit_rotate_left_pattern<'a>(
     let tmp_name = interner.resolve(tmp_sym);
     let limit_str = codegen_expr_simple(limit_expr, interner);
 
+    let is_logos_seq = variable_types.get(&arr_sym)
+        .map_or(false, |t| t.starts_with("LogosSeq"));
+
     let mut output = String::new();
 
     // Only emit the tmp binding if it's used after the rotation.
     let remaining = &stmts[idx + 4..];
-    if symbol_appears_in_stmts(tmp_sym, remaining) {
-        writeln!(output, "{}let {} = {}[0];", indent_str, tmp_name, arr_name).unwrap();
+    if is_logos_seq {
+        if symbol_appears_in_stmts(tmp_sym, remaining) {
+            writeln!(output, "{}let {} = {}.borrow()[0].clone();", indent_str, tmp_name, arr_name).unwrap();
+        }
+        writeln!(output, "{}{}.borrow_mut()[0..=({} as usize)].rotate_left(1);",
+            indent_str, arr_name, limit_str).unwrap();
+    } else {
+        if symbol_appears_in_stmts(tmp_sym, remaining) {
+            writeln!(output, "{}let {} = {}[0];", indent_str, tmp_name, arr_name).unwrap();
+        }
+        writeln!(output, "{}{}[0..=({} as usize)].rotate_left(1);",
+            indent_str, arr_name, limit_str).unwrap();
     }
-    writeln!(output, "{}{}[0..=({} as usize)].rotate_left(1);",
-        indent_str, arr_name, limit_str).unwrap();
 
     Some((output, 3)) // consumed: Set counter + While + SetIndex = 3 extra
 }
@@ -3289,13 +3314,13 @@ fn try_emit_unconditional_swap<'a>(
     let idx1_simplified = simplify_1based_index(idx_expr_1, interner, true);
     let idx2_simplified = simplify_1based_index(idx_expr_2, interner, true);
 
+    // Check which function to pass variable_types through — we need it from the caller
+    // For now, detect LogosSeq from the matched type check earlier
     let mut output = String::new();
-    writeln!(output, "{}let __swap_tmp = {}[{}];",
-        indent_str, arr_name, idx1_simplified).unwrap();
-    writeln!(output, "{}{}[{}] = {}[{}];",
-        indent_str, arr_name, idx1_simplified, arr_name, idx2_simplified).unwrap();
-    writeln!(output, "{}{}[{}] = __swap_tmp;",
-        indent_str, arr_name, idx2_simplified).unwrap();
+    writeln!(output, "{}{{ let mut __bm = {}.borrow_mut();", indent_str, arr_name).unwrap();
+    writeln!(output, "{}__bm.swap({}, {});",
+        indent_str, idx1_simplified, idx2_simplified).unwrap();
+    writeln!(output, "{}}}", indent_str).unwrap();
 
     Some((output, 2)) // consumed 2 extra statements (SetIndex + SetIndex)
 }
@@ -3512,10 +3537,10 @@ fn validate_slice_push_types(
     if src_sym == dst_sym { return None; }
 
     let dst_type = variable_types.get(&dst_sym)?;
-    if !dst_type.starts_with("Vec<") { return None; }
+    if !dst_type.starts_with("LogosSeq<") && !dst_type.starts_with("Vec<") { return None; }
 
     let src_type = variable_types.get(&src_sym)?;
-    if !src_type.starts_with("Vec<") && !src_type.starts_with("&[") && !src_type.starts_with("&mut [") {
+    if !src_type.starts_with("LogosSeq<") && !src_type.starts_with("Vec<") && !src_type.starts_with("&[") && !src_type.starts_with("&mut [") {
         return None;
     }
 
@@ -3546,12 +3571,12 @@ fn emit_extend_from_slice(
 
     if is_exclusive {
         writeln!(output, "{}if {} < {} {{", indent_str, start_str, end_str).unwrap();
-        writeln!(output, "{}    {}.extend_from_slice(&{}[({} - 1) as usize..({} - 1) as usize]);",
+        writeln!(output, "{}    {}.extend_from_slice(&{}.borrow()[({} - 1) as usize..({} - 1) as usize]);",
             indent_str, dst_name, src_name, start_str, end_str).unwrap();
         writeln!(output, "{}}}", indent_str).unwrap();
     } else {
         writeln!(output, "{}if {} <= {} {{", indent_str, start_str, end_str).unwrap();
-        writeln!(output, "{}    {}.extend_from_slice(&{}[({} - 1) as usize..{} as usize]);",
+        writeln!(output, "{}    {}.extend_from_slice(&{}.borrow()[({} - 1) as usize..{} as usize]);",
             indent_str, dst_name, src_name, start_str, end_str).unwrap();
         writeln!(output, "{}}}", indent_str).unwrap();
     }
@@ -3680,7 +3705,7 @@ pub(crate) fn try_emit_drain_tail_in_while<'a>(
 
     // Emit the If with extend_from_slice + break for the then-branch.
     writeln!(output, "{}if {} {{", indent_str, cond_str).unwrap();
-    writeln!(output, "{}    {}.extend_from_slice(&{}[({} - 1) as usize..]);",
+    writeln!(output, "{}    {}.extend_from_slice(&{}.borrow()[({} - 1) as usize..]);",
         indent_str, target_name, array_name, counter_name).unwrap();
     writeln!(output, "{}    break;", indent_str).unwrap();
     writeln!(output, "{}}} else {{", indent_str).unwrap();
@@ -3734,7 +3759,7 @@ pub(crate) fn detect_double_buffer_swap<'a>(
     // Both must be same-type Vec<T>.
     let x_type = ctx.get_variable_types().get(&x_sym)?;
     let y_type = ctx.get_variable_types().get(&y_sym)?;
-    if !x_type.starts_with("Vec<") || x_type != y_type {
+    if (!x_type.starts_with("LogosSeq<") && !x_type.starts_with("Vec<")) || x_type != y_type {
         return None;
     }
 
@@ -3880,8 +3905,9 @@ pub(crate) fn detect_buffer_reuse_in_body<'a>(
 
     // Verify OUTER is a Vec of the same element type as INNER.
     let outer_type = ctx.get_variable_types().get(&outer_sym)?;
-    let expected_prefix = format!("Vec<{}>", inner_elem_type);
-    if !outer_type.starts_with(&expected_prefix) {
+    let expected_logos = format!("LogosSeq<{}>", inner_elem_type);
+    let expected_vec = format!("Vec<{}>", inner_elem_type);
+    if !outer_type.starts_with(&expected_logos) && !outer_type.starts_with(&expected_vec) {
         return None;
     }
 
@@ -3960,7 +3986,7 @@ pub(crate) fn try_emit_buffer_reuse_while<'a>(
     let mut output = String::new();
 
     // Hoist inner buffer declaration before the while loop.
-    writeln!(output, "{}let mut {}: Vec<{}> = Vec::new();", indent_str, inner_name, reuse.inner_elem_type).unwrap();
+    writeln!(output, "{}let mut {}: LogosSeq<{}> = LogosSeq::new();", indent_str, inner_name, reuse.inner_elem_type).unwrap();
 
     // Loop bounds hoisting (replicate from stmt.rs While handler).
     use super::stmt::{extract_length_expr_syms, collect_length_syms_from_stmts};
@@ -4000,8 +4026,8 @@ pub(crate) fn try_emit_buffer_reuse_while<'a>(
     while bi < body_refs.len() {
         if bi == reuse.inner_let_idx {
             // Replace Let inner = new Seq with .clear()
-            writeln!(output, "{}    {}.clear();", indent_str, inner_name).unwrap();
-            ctx.register_variable_type(reuse.inner_sym, format!("Vec<{}>", reuse.inner_elem_type));
+            writeln!(output, "{}    {}.borrow_mut().clear();", indent_str, inner_name).unwrap();
+            ctx.register_variable_type(reuse.inner_sym, format!("LogosSeq<{}>", reuse.inner_elem_type));
             bi += 1;
             continue;
         }

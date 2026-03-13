@@ -1,0 +1,645 @@
+## To native chr (code: Int) -> Text
+
+## To opToStr (op: Text) -> Text:
+    If op equals "+":
+        Return " + ".
+    If op equals "-":
+        Return " - ".
+    If op equals "*":
+        Return " * ".
+    If op equals "/":
+        Return " / ".
+    If op equals "%":
+        Return " mod ".
+    If op equals "==":
+        Return " equals ".
+    If op equals "!=":
+        Return " is not equal to ".
+    If op equals "<":
+        Return " is less than ".
+    If op equals ">":
+        Return " is greater than ".
+    If op equals "<=":
+        Return " is at most ".
+    If op equals ">=":
+        Return " is at least ".
+    If op equals "&&":
+        Return " and ".
+    If op equals "||":
+        Return " or ".
+    Return " {op} ".
+
+## To joinExprs (parts: Seq of Text, sep: Text) -> Text:
+    Let mutable result be "".
+    Let mutable first be true.
+    Repeat for p in parts:
+        If first:
+            Set result to p.
+            Set first to false.
+        Otherwise:
+            Set result to "{result}{sep}{p}".
+    Return result.
+
+## To decompileExpr (e: CExpr) -> Text:
+    Inspect e:
+        When CInt (v):
+            Return "{v}".
+        When CBool (v):
+            If v:
+                Return "true".
+            Return "false".
+        When CText (v):
+            Let q be "\"".
+            Return "{q}{v}{q}".
+        When CFloat (v):
+            Return "{v}".
+        When CVar (v):
+            Return v.
+        When CBinOp (op, left, right):
+            Let ls be decompileExpr(left).
+            Let rs be decompileExpr(right).
+            Let opS be opToStr(op).
+            Return "{ls}{opS}{rs}".
+        When CNot (inner):
+            Let innerStr be decompileExpr(inner).
+            Return "not {innerStr}".
+        When CCall (fname, args):
+            Let argParts be a new Seq of Text.
+            Repeat for a in args:
+                Let argS be decompileExpr(a).
+                Push argS to argParts.
+            Let argStr be joinExprs(argParts, ", ").
+            Return "{fname}({argStr})".
+        When CList (items):
+            Let itemParts be a new Seq of Text.
+            Repeat for it in items:
+                Let its be decompileExpr(it).
+                Push its to itemParts.
+            Let itemStr be joinExprs(itemParts, ", ").
+            Return "[{itemStr}]".
+        When CIndex (coll, idx):
+            Let cs be decompileExpr(coll).
+            Let idxS be decompileExpr(idx).
+            Return "item {idxS} of {cs}".
+        When CLen (target):
+            Let ts be decompileExpr(target).
+            Return "length of {ts}".
+        When CFieldAccess (target, field):
+            Let ts be decompileExpr(target).
+            Return "{field} of {ts}".
+        When CNewVariant (tag, names, vals):
+            Let vParts be a new Seq of Text.
+            Let mutable vi be 1.
+            Repeat for nm in names:
+                Let vl be item vi of vals.
+                Let vs be decompileExpr(vl).
+                Push "{nm} {vs}" to vParts.
+                Set vi to vi + 1.
+            Let vStr be joinExprs(vParts, " and ").
+            Return "a new {tag} with {vStr}".
+        When COptionSome (inner):
+            Let innerS be decompileExpr(inner).
+            Return "some({innerS})".
+        When COptionNone:
+            Return "nothing".
+        When CTuple (items):
+            Let tParts be a new Seq of Text.
+            Repeat for ti in items:
+                Let tis be decompileExpr(ti).
+                Push tis to tParts.
+            Let tStr be joinExprs(tParts, ", ").
+            Return "({tStr})".
+        When CMapGet (target, key):
+            Let ts be decompileExpr(target).
+            Let ks be decompileExpr(key).
+            Return "item {ks} of {ts}".
+        When CNewSeq:
+            Return "a new Seq of Any".
+        When CNewSet:
+            Return "a new Set of Any".
+        When CRange (start, end):
+            Let ss be decompileExpr(start).
+            Let es be decompileExpr(end).
+            Return "{ss} to {es}".
+        When CSlice (coll, startIdx, endIdx):
+            Let cs be decompileExpr(coll).
+            Let ss be decompileExpr(startIdx).
+            Let es be decompileExpr(endIdx).
+            Return "slice of {cs} from {ss} to {es}".
+        When CCopy (target):
+            Let ts be decompileExpr(target).
+            Return "copy of {ts}".
+        When CContains (coll, elem):
+            Let cs be decompileExpr(coll).
+            Let es be decompileExpr(elem).
+            Return "{cs} contains {es}".
+        When CUnion (left, right):
+            Let ls be decompileExpr(left).
+            Let rs be decompileExpr(right).
+            Return "union of {ls} and {rs}".
+        When CIntersection (left, right):
+            Let ls be decompileExpr(left).
+            Let rs be decompileExpr(right).
+            Return "intersection of {ls} and {rs}".
+        When CNew (typeName, fieldNames, fields):
+            Let fParts be a new Seq of Text.
+            Let mutable fi be 1.
+            Repeat for fname in fieldNames:
+                Let fv be item fi of fields.
+                Let fvs be decompileExpr(fv).
+                Push "{fname} {fvs}" to fParts.
+                Set fi to fi + 1.
+            Let fStr be joinExprs(fParts, " and ").
+            Return "a new {typeName} with {fStr}".
+        When CClosure (params, body, captured):
+            Let pStr be joinExprs(params, ", ").
+            Return "closure({pStr})".
+        When CCallExpr (target, args):
+            Let ts be decompileExpr(target).
+            Let argParts be a new Seq of Text.
+            Repeat for a in args:
+                Let aStr be decompileExpr(a).
+                Push aStr to argParts.
+            Let argStr be joinExprs(argParts, ", ").
+            Return "{ts}({argStr})".
+        When CInterpolatedString (parts):
+            Let lb be chr(123).
+            Let rb be chr(125).
+            Let mutable result be "".
+            Repeat for p in parts:
+                Inspect p:
+                    When CLiteralPart (v):
+                        Set result to "{result}{v}".
+                    When CExprPart (expr):
+                        Let es be decompileExpr(expr).
+                        Set result to "{result}{lb}{es}{rb}".
+            Let q be chr(34).
+            Return "{q}{result}{q}".
+        When CDuration (amount, unit):
+            Let amtS be decompileExpr(amount).
+            Return "{amtS} {unit}".
+        When CTimeNow:
+            Return "now".
+        When CDateToday:
+            Return "today".
+        When CEscExpr (code):
+            Return code.
+        Otherwise:
+            Return "<?expr?>".
+
+## To makePad (indent: Int) -> Text:
+    Let mutable pad be "".
+    Let mutable pi be 0.
+    While pi is less than indent:
+        Set pad to "{pad}    ".
+        Set pi to pi + 1.
+    Return pad.
+
+## To decompileStmt (s: CStmt, indent: Int) -> Text:
+    Let pad be makePad(indent).
+    Let nl be chr(10).
+    Inspect s:
+        When CLet (name, expr):
+            Let es be decompileExpr(expr).
+            Return "{pad}Let {name} be {es}.{nl}".
+        When CSet (name, expr):
+            Let es be decompileExpr(expr).
+            Return "{pad}Set {name} to {es}.{nl}".
+        When CShow (expr):
+            Let es be decompileExpr(expr).
+            Return "{pad}Show {es}.{nl}".
+        When CReturn (expr):
+            Let es be decompileExpr(expr).
+            Return "{pad}Return {es}.{nl}".
+        When CIf (cond, thenB, elseB):
+            Let cs be decompileExpr(cond).
+            Let thenS be decompileBlock(thenB, indent + 1).
+            Let mutable ifResult be "{pad}If {cs}:{nl}{thenS}".
+            If length of elseB is greater than 0:
+                Let elseS be decompileBlock(elseB, indent + 1).
+                Set ifResult to "{ifResult}{pad}Otherwise:{nl}{elseS}".
+            Return ifResult.
+        When CRepeat (var, coll, body):
+            Let cs be decompileExpr(coll).
+            Let bs be decompileBlock(body, indent + 1).
+            Return "{pad}Repeat for {var} in {cs}:{nl}{bs}".
+        When CWhile (cond, body):
+            Let cs be decompileExpr(cond).
+            Let bs be decompileBlock(body, indent + 1).
+            Return "{pad}While {cs}:{nl}{bs}".
+        When CBreak:
+            Return "{pad}Break.{nl}".
+        When CPush (expr, target):
+            Let es be decompileExpr(expr).
+            Return "{pad}Push {es} to {target}.{nl}".
+        When CSetIdx (tgt, idx, val):
+            Let idxS be decompileExpr(idx).
+            Let vs be decompileExpr(val).
+            Return "{pad}Set item {idxS} of {tgt} to {vs}.{nl}".
+        When CSetField (tgt, field, val):
+            Let vs be decompileExpr(val).
+            Return "{pad}Set {field} of {tgt} to {vs}.{nl}".
+        When CInspect (target, arms):
+            Let ts be decompileExpr(target).
+            Let mutable result be "{pad}Inspect {ts}:{nl}".
+            Repeat for arm in arms:
+                Inspect arm:
+                    When CWhen (varName, bindings, armBody):
+                        Let innerPad be "{pad}    ".
+                        Let bs be decompileBlock(armBody, indent + 2).
+                        If length of bindings is greater than 0:
+                            Let bindStr be joinExprs(bindings, ", ").
+                            Set result to "{result}{innerPad}When {varName} ({bindStr}):{nl}{bs}".
+                        Otherwise:
+                            Set result to "{result}{innerPad}When {varName}:{nl}{bs}".
+                    When COtherwise (otherwiseBody):
+                        Let innerPad2 be "{pad}    ".
+                        Let obStr be decompileBlock(otherwiseBody, indent + 2).
+                        Set result to "{result}{innerPad2}Otherwise:{nl}{obStr}".
+            Return result.
+        When CCallS (name, args):
+            Let argParts be a new Seq of Text.
+            Repeat for a in args:
+                Let aStr be decompileExpr(a).
+                Push aStr to argParts.
+            Let argStr be joinExprs(argParts, ", ").
+            Return "{pad}Call {name}({argStr}).{nl}".
+        When CMapSet (tgt, key, val):
+            Let ks be decompileExpr(key).
+            Let vs be decompileExpr(val).
+            Return "{pad}Set item {ks} of {tgt} to {vs}.{nl}".
+        When CPop (target):
+            Return "{pad}Pop from {target}.{nl}".
+        When CRepeatRange (var, start, end, body):
+            Let ss be decompileExpr(start).
+            Let es be decompileExpr(end).
+            Let bs be decompileBlock(body, indent + 1).
+            Return "{pad}Repeat for {var} from {ss} to {es}:{nl}{bs}".
+        When CAdd (elem, target):
+            Let es be decompileExpr(elem).
+            Return "{pad}Add {es} to {target}.{nl}".
+        When CRemove (elem, target):
+            Let es be decompileExpr(elem).
+            Return "{pad}Remove {es} from {target}.{nl}".
+        When CStructDef (name, fieldNames):
+            Let fStr be joinExprs(fieldNames, ", ").
+            Return "{pad}Define struct {name} with fields {fStr}.{nl}".
+        When CEnumDef (name, variants):
+            Let vStr be joinExprs(variants, ", ").
+            Return "{pad}Define enum {name} with variants {vStr}.{nl}".
+        When CRuntimeAssert (cond, msg):
+            Let cs be decompileExpr(cond).
+            Let ms be decompileExpr(msg).
+            Return "{pad}Assert {cs}, {ms}.{nl}".
+        When CGive (expr, target):
+            Let es be decompileExpr(expr).
+            Return "{pad}Give {es} to {target}.{nl}".
+        When CEscStmt (code):
+            Return "{pad}{code}{nl}".
+        When CSleep (duration):
+            Let ds be decompileExpr(duration).
+            Return "{pad}Sleep {ds}.{nl}".
+        When CReadConsole (target):
+            Return "{pad}Read console into {target}.{nl}".
+        When CReadFile (path, target):
+            Let ps be decompileExpr(path).
+            Return "{pad}Read file {ps} into {target}.{nl}".
+        When CWriteFile (path, content):
+            Let ps be decompileExpr(path).
+            Let cs be decompileExpr(content).
+            Return "{pad}Write {cs} to file {ps}.{nl}".
+        When CCheck (predicate, msg):
+            Let ps be decompileExpr(predicate).
+            Let ms be decompileExpr(msg).
+            Return "{pad}Check {ps}, {ms}.{nl}".
+        When CAssert (proposition):
+            Let ps be decompileExpr(proposition).
+            Return "{pad}Assert {ps}.{nl}".
+        When CTrust (proposition, justification):
+            Let ps be decompileExpr(proposition).
+            Let q be chr(34).
+            Return "{pad}Trust {ps}, {q}{justification}{q}.{nl}".
+        When CRequire (dependency):
+            Let q be chr(34).
+            Return "{pad}Require {q}{dependency}{q}.{nl}".
+        When CMerge (target, other):
+            Let os be decompileExpr(other).
+            Return "{pad}Merge {target} with {os}.{nl}".
+        When CIncrease (target, amount):
+            Let amtS be decompileExpr(amount).
+            Return "{pad}Increase {target} by {amtS}.{nl}".
+        When CDecrease (target, amount):
+            Let amtS be decompileExpr(amount).
+            Return "{pad}Decrease {target} by {amtS}.{nl}".
+        When CAppendToSeq (target, value):
+            Let vs be decompileExpr(value).
+            Return "{pad}Append {vs} to {target}.{nl}".
+        When CResolve (target):
+            Return "{pad}Resolve {target}.{nl}".
+        When CSync (target, channel):
+            Let cs be decompileExpr(channel).
+            Return "{pad}Sync {target} with {cs}.{nl}".
+        When CMount (target, path):
+            Let ps be decompileExpr(path).
+            Return "{pad}Mount {target} at {ps}.{nl}".
+        When CConcurrent (branches):
+            Let mutable result be "{pad}Concurrent:{nl}".
+            Repeat for branch in branches:
+                Let bs be decompileBlock(branch, indent + 1).
+                Set result to "{result}{bs}".
+            Return result.
+        When CParallel (branches):
+            Let mutable result be "{pad}Parallel:{nl}".
+            Repeat for branch in branches:
+                Let bs be decompileBlock(branch, indent + 1).
+                Set result to "{result}{bs}".
+            Return result.
+        When CLaunchTask (body, handle):
+            Let bs be decompileBlock(body, indent + 1).
+            Return "{pad}Launch task {handle}:{nl}{bs}".
+        When CStopTask (handle):
+            Let hs be decompileExpr(handle).
+            Return "{pad}Stop task {hs}.{nl}".
+        When CSelect (branches):
+            Return "{pad}Select ...{nl}".
+        When CCreatePipe (name, capacity):
+            Let cs be decompileExpr(capacity).
+            Return "{pad}Create pipe {name} with capacity {cs}.{nl}".
+        When CSendPipe (chan, value):
+            Let vs be decompileExpr(value).
+            Return "{pad}Send {vs} to pipe {chan}.{nl}".
+        When CReceivePipe (chan, target):
+            Return "{pad}Receive from pipe {chan} into {target}.{nl}".
+        When CTrySendPipe (chan, value):
+            Let vs be decompileExpr(value).
+            Return "{pad}Try send {vs} to pipe {chan}.{nl}".
+        When CTryReceivePipe (chan, target):
+            Return "{pad}Try receive from pipe {chan} into {target}.{nl}".
+        When CSpawn (agentType, target):
+            Return "{pad}Spawn {agentType} as {target}.{nl}".
+        When CSendMessage (target, msg):
+            Let ts be decompileExpr(target).
+            Let ms be decompileExpr(msg).
+            Return "{pad}Send message {ms} to {ts}.{nl}".
+        When CAwaitMessage (target):
+            Return "{pad}Await message from {target}.{nl}".
+        When CListen (addr, handler):
+            Let addrS be decompileExpr(addr).
+            Return "{pad}Listen on {addrS} with handler {handler}.{nl}".
+        When CConnectTo (addr, target):
+            Let addrS be decompileExpr(addr).
+            Return "{pad}Connect to {addrS} as {target}.{nl}".
+        When CZone (name, kind, body):
+            Let bs be decompileBlock(body, indent + 1).
+            Let q be chr(34).
+            Return "{pad}Zone {q}{name}{q} as {q}{kind}{q}:{nl}{bs}".
+        Otherwise:
+            Return "{pad}<?stmt?>{nl}".
+
+## To decompileBlock (stmts: Seq of CStmt, indent: Int) -> Text:
+    Let mutable result be "".
+    Repeat for s in stmts:
+        Let ss be decompileStmt(s, indent).
+        Set result to "{result}{ss}".
+    Return result.
+
+## To collectExprCallNames (e: CExpr) -> Seq of Text:
+    Let result be a new Seq of Text.
+    Inspect e:
+        When CCall (fname, args):
+            Push fname to result.
+            Repeat for a in args:
+                Let sub be collectExprCallNames(a).
+                Repeat for sn in sub:
+                    Push sn to result.
+        When CBinOp (op, left, right):
+            Let ls be collectExprCallNames(left).
+            Repeat for ln in ls:
+                Push ln to result.
+            Let rs be collectExprCallNames(right).
+            Repeat for rn in rs:
+                Push rn to result.
+        When CNot (inner):
+            Let ns be collectExprCallNames(inner).
+            Repeat for nn in ns:
+                Push nn to result.
+        When CList (items):
+            Repeat for it in items:
+                Let itns be collectExprCallNames(it).
+                Repeat for itn in itns:
+                    Push itn to result.
+        When CIndex (coll, idx):
+            Let cs be collectExprCallNames(coll).
+            Repeat for cn in cs:
+                Push cn to result.
+            Let xs be collectExprCallNames(idx).
+            Repeat for xn in xs:
+                Push xn to result.
+        When CLen (target):
+            Let ts be collectExprCallNames(target).
+            Repeat for tn in ts:
+                Push tn to result.
+        When CFieldAccess (target, field):
+            Let ts be collectExprCallNames(target).
+            Repeat for tn in ts:
+                Push tn to result.
+        When CNewVariant (tag, nms, vals):
+            Repeat for v in vals:
+                Let vs be collectExprCallNames(v).
+                Repeat for vn in vs:
+                    Push vn to result.
+        When COptionSome (inner):
+            Let ns be collectExprCallNames(inner).
+            Repeat for nn in ns:
+                Push nn to result.
+        When CTuple (items):
+            Repeat for it in items:
+                Let ts be collectExprCallNames(it).
+                Repeat for tn in ts:
+                    Push tn to result.
+        When CMapGet (target, key):
+            Let ts be collectExprCallNames(target).
+            Repeat for tn in ts:
+                Push tn to result.
+            Let ks be collectExprCallNames(key).
+            Repeat for kn in ks:
+                Push kn to result.
+        When CRange (start, end):
+            Let ss be collectExprCallNames(start).
+            Repeat for sn in ss:
+                Push sn to result.
+            Let es be collectExprCallNames(end).
+            Repeat for en in es:
+                Push en to result.
+        When CCopy (target):
+            Let ts be collectExprCallNames(target).
+            Repeat for tn in ts:
+                Push tn to result.
+        When CContains (coll, elem):
+            Let cs be collectExprCallNames(coll).
+            Repeat for cn in cs:
+                Push cn to result.
+            Let es be collectExprCallNames(elem).
+            Repeat for en in es:
+                Push en to result.
+        When CNew (typeName, fieldNames, fields):
+            Repeat for fv in fields:
+                Let fs be collectExprCallNames(fv).
+                Repeat for fn1 in fs:
+                    Push fn1 to result.
+        When CCallExpr (target, args):
+            Let ts be collectExprCallNames(target).
+            Repeat for tn in ts:
+                Push tn to result.
+            Repeat for a in args:
+                Let argNames be collectExprCallNames(a).
+                Repeat for an in argNames:
+                    Push an to result.
+        When CInterpolatedString (parts):
+            Repeat for p in parts:
+                Inspect p:
+                    When CExprPart (expr):
+                        Let ps be collectExprCallNames(expr).
+                        Repeat for pn in ps:
+                            Push pn to result.
+                    Otherwise:
+                        Let skip be true.
+        When CDuration (amount, unit):
+            Let amtNames be collectExprCallNames(amount).
+            Repeat for an in amtNames:
+                Push an to result.
+        When CSlice (coll, startIdx, endIdx):
+            Let cs be collectExprCallNames(coll).
+            Repeat for cn in cs:
+                Push cn to result.
+            Let ss be collectExprCallNames(startIdx).
+            Repeat for sn in ss:
+                Push sn to result.
+            Let es be collectExprCallNames(endIdx).
+            Repeat for en in es:
+                Push en to result.
+        When CUnion (left, right):
+            Let ls be collectExprCallNames(left).
+            Repeat for ln in ls:
+                Push ln to result.
+            Let rs be collectExprCallNames(right).
+            Repeat for rn in rs:
+                Push rn to result.
+        When CIntersection (left, right):
+            Let ls be collectExprCallNames(left).
+            Repeat for ln in ls:
+                Push ln to result.
+            Let rs be collectExprCallNames(right).
+            Repeat for rn in rs:
+                Push rn to result.
+        Otherwise:
+            Let skip be true.
+    Return result.
+
+## To collectCallNames (stmts: Seq of CStmt) -> Seq of Text:
+    Let result be a new Seq of Text.
+    Repeat for s in stmts:
+        Inspect s:
+            When CLet (name, expr):
+                Let ns be collectExprCallNames(expr).
+                Repeat for n in ns:
+                    Push n to result.
+            When CSet (name, expr):
+                Let ns be collectExprCallNames(expr).
+                Repeat for n in ns:
+                    Push n to result.
+            When CShow (expr):
+                Let ns be collectExprCallNames(expr).
+                Repeat for n in ns:
+                    Push n to result.
+            When CReturn (expr):
+                Let ns be collectExprCallNames(expr).
+                Repeat for n in ns:
+                    Push n to result.
+            When CIf (cond, thenB, elseB):
+                Let cs be collectExprCallNames(cond).
+                Repeat for cn in cs:
+                    Push cn to result.
+                Let ts be collectCallNames(thenB).
+                Repeat for tn in ts:
+                    Push tn to result.
+                Let es be collectCallNames(elseB).
+                Repeat for en in es:
+                    Push en to result.
+            When CRepeat (var, coll, body):
+                Let cs be collectExprCallNames(coll).
+                Repeat for cn in cs:
+                    Push cn to result.
+                Let bs be collectCallNames(body).
+                Repeat for bn in bs:
+                    Push bn to result.
+            When CWhile (cond, body):
+                Let cs be collectExprCallNames(cond).
+                Repeat for cn in cs:
+                    Push cn to result.
+                Let bs be collectCallNames(body).
+                Repeat for bn in bs:
+                    Push bn to result.
+            When CPush (expr, target):
+                Let ns be collectExprCallNames(expr).
+                Repeat for n in ns:
+                    Push n to result.
+            When CSetIdx (tgt, idx, val):
+                Let idns be collectExprCallNames(idx).
+                Repeat for idn in idns:
+                    Push idn to result.
+                Let vs be collectExprCallNames(val).
+                Repeat for vn in vs:
+                    Push vn to result.
+            When CSetField (tgt, field, val):
+                Let vs be collectExprCallNames(val).
+                Repeat for vn in vs:
+                    Push vn to result.
+            When CInspect (target, arms):
+                Let ts be collectExprCallNames(target).
+                Repeat for tn in ts:
+                    Push tn to result.
+                Repeat for arm in arms:
+                    Inspect arm:
+                        When CWhen (varName, bindings, armBody):
+                            Let abs be collectCallNames(armBody).
+                            Repeat for abn in abs:
+                                Push abn to result.
+                        When COtherwise (armBody):
+                            Let obs be collectCallNames(armBody).
+                            Repeat for obn in obs:
+                                Push obn to result.
+            When CCallS (cname, args):
+                Push cname to result.
+                Repeat for a in args:
+                    Let as1 be collectExprCallNames(a).
+                    Repeat for an in as1:
+                        Push an to result.
+            When CMapSet (tgt, key, val):
+                Let ks be collectExprCallNames(key).
+                Repeat for kn in ks:
+                    Push kn to result.
+                Let vs be collectExprCallNames(val).
+                Repeat for vn in vs:
+                    Push vn to result.
+            Otherwise:
+                Let skip be true.
+    Return result.
+
+## To decompileFunc (f: CFunc) -> Text:
+    Let nl be chr(10).
+    Inspect f:
+        When CFuncDef (fname, fparams, fbody):
+            Let mutable header be "## To {fname}".
+            Let mutable first be true.
+            Repeat for p in fparams:
+                If first:
+                    Set header to "{header} ({p}: Any)".
+                    Set first to false.
+                Otherwise:
+                    Set header to "{header} and ({p}: Any)".
+            Set header to "{header} -> Any:".
+            Let bodyStr be decompileBlock(fbody, 1).
+            Return "{header}{nl}{bodyStr}{nl}".
+        Otherwise:
+            Return "".

@@ -973,8 +973,8 @@ Show 42.
     let result = compile_to_rust(source);
     match result {
         Ok(rust) => {
-            assert!(rust.contains("compile_error!") || rust.contains("Vec<i64>"),
-                "C export with Seq param should either error or pass through Vec. Generated:\n{}", rust);
+            assert!(rust.contains("compile_error!") || rust.contains("LogosSeq<i64>"),
+                "C export with Seq param should either error or pass through. Generated:\n{}", rust);
         }
         Err(_) => {} // Error is acceptable too
     }

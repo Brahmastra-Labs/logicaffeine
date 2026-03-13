@@ -311,8 +311,8 @@ While i is at most length of src:
 Show length of dst.
 "#;
     let rust = compile_to_rust(source).unwrap();
-    assert!(rust.contains(".to_vec()") || rust.contains(".clone()"),
-        "Full copy loop should emit slice operation, got:\n{}", rust);
+    assert!(rust.contains(".deep_clone()") || rust.contains(".to_vec()") || rust.contains(".clone()"),
+        "Full copy loop should emit slice/clone operation, got:\n{}", rust);
     common::assert_exact_output(source, "5");
 }
 

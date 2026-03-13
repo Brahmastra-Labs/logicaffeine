@@ -1,0 +1,3400 @@
+warning: failed to auto-clean cache data
+
+failed to clean entries from the global cache
+
+Caused by:
+  failed to remove file `/Users/tristen/.cargo/registry/src/index.crates.io-6f17d22bba15001f/darling-0.20.10/Cargo.toml`
+
+Caused by:
+  Permission denied (os error 13)
+warning: unused variable: `ctor_name`
+    --> crates/logicaffeine_kernel/src/interface/literate_parser.rs:1061:17
+     |
+1061 |             let ctor_name = self.parse_ident()?;
+     |                 ^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_ctor_name`
+     |
+     = note: `#[warn(unused_variables)]` on by default
+
+warning: unused variable: `hint_marker`
+    --> crates/logicaffeine_kernel/src/reduction.rs:1791:9
+     |
+1791 |     let hint_marker = make_sapp(make_sname("Hint"), make_sname(hint_name));
+     |         ^^^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_hint_marker`
+
+warning: unused variable: `p`
+    --> crates/logicaffeine_kernel/src/reduction.rs:1821:35
+     |
+1821 |         if let Term::App(pi_ctor, p) = outer.as_ref() {
+     |                                   ^ help: if this is intentional, prefix it with an underscore: `_p`
+
+warning: unused variable: `param`
+    --> crates/logicaffeine_kernel/src/reduction.rs:3894:20
+     |
+3894 |         Term::Pi { param, param_type, body_type } => {
+     |                    ^^^^^ help: try ignoring the field: `param: _`
+
+warning: unused variable: `ty`
+    --> crates/logicaffeine_kernel/src/reduction.rs:4369:10
+     |
+4369 |     let (ty, lhs, rhs) = match extract_eq_components_from_syntax(&eq_conclusion) {
+     |          ^^ help: if this is intentional, prefix it with an underscore: `_ty`
+
+warning: unused variable: `ctx`
+    --> crates/logicaffeine_kernel/src/reduction.rs:4438:5
+     |
+4438 |     ctx: &Context,
+     |     ^^^ help: if this is intentional, prefix it with an underscore: `_ctx`
+
+warning: unused variable: `forall_body`
+    --> crates/logicaffeine_kernel/src/reduction.rs:4532:17
+     |
+4532 |     if let Some(forall_body) = extract_forall_body(&hyp_conclusion) {
+     |                 ^^^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_forall_body`
+
+warning: unused variable: `hyp_name`
+    --> crates/logicaffeine_kernel/src/reduction.rs:4577:5
+     |
+4577 |     hyp_name: &Term,
+     |     ^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_hyp_name`
+
+warning: unused variable: `bound`
+   --> crates/logicaffeine_kernel/src/lia.rs:529:21
+    |
+529 |                 let bound = bound.scale(
+    |                     ^^^^^ help: if this is intentional, prefix it with an underscore: `_bound`
+
+warning: unused variable: `ctor_name`
+   --> crates/logicaffeine_kernel/src/termination.rs:219:17
+    |
+219 |     for (case, (ctor_name, ctor_type)) in cases.iter().zip(constructors.iter()) {
+    |                 ^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_ctor_name`
+
+warning: function `make_svar` is never used
+    --> crates/logicaffeine_kernel/src/reduction.rs:1711:4
+     |
+1711 | fn make_svar(n: i64) -> Term {
+     |    ^^^^^^^^^
+     |
+     = note: `#[warn(dead_code)]` on by default
+
+warning: function `sterm_to_term` is never used
+   --> crates/logicaffeine_kernel/src/simp.rs:100:4
+    |
+100 | fn sterm_to_term(st: &STerm) -> Term {
+    |    ^^^^^^^^^^^^^
+
+warning: `logicaffeine-kernel` (lib) generated 12 warnings
+warning: field `regular` is never read
+  --> crates/logicaffeine_language/build.rs:62:5
+   |
+56 | struct VerbDefinition {
+   |        -------------- field in this struct
+...
+62 |     regular: bool,
+   |     ^^^^^^^
+   |
+   = note: `#[warn(dead_code)]` on by default
+
+warning: field `regular` is never read
+   --> crates/logicaffeine_language/build.rs:120:5
+    |
+117 | struct AdjectiveDefinition {
+    |        ------------------- field in this struct
+...
+120 |     regular: bool,
+    |     ^^^^^^^
+
+warning: field `features` is never read
+   --> crates/logicaffeine_language/build.rs:140:5
+    |
+133 | struct MweEntry {
+    |        -------- field in this struct
+...
+140 |     features: Vec<String>,
+    |     ^^^^^^^^
+
+warning: `logicaffeine-language` (build script) generated 3 warnings
+warning: unexpected `cfg` condition value: `verification`
+  --> crates/logicaffeine_proof/src/lib.rs:31:7
+   |
+31 | #[cfg(feature = "verification")]
+   |       ^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = note: expected values for `feature` are: `default`
+   = help: consider adding `verification` as a feature in `Cargo.toml`
+   = note: see <https://doc.rust-lang.org/nightly/rustc/check-cfg/cargo-specifics.html> for more information about checking conditional configuration
+   = note: `#[warn(unexpected_cfgs)]` on by default
+
+warning: unused import: `compose_substitutions`
+  --> crates/logicaffeine_proof/src/engine.rs:33:39
+   |
+33 |     apply_subst_to_expr, beta_reduce, compose_substitutions, unify_exprs, unify_pattern,
+   |                                       ^^^^^^^^^^^^^^^^^^^^^
+   |
+   = note: `#[warn(unused_imports)]` on by default
+
+warning: unexpected `cfg` condition value: `verification`
+    --> crates/logicaffeine_proof/src/engine.rs:4054:11
+     |
+4054 |     #[cfg(feature = "verification")]
+     |           ^^^^^^^^^^^^^^^^^^^^^^^^
+     |
+     = note: expected values for `feature` are: `default`
+     = help: consider adding `verification` as a feature in `Cargo.toml`
+     = note: see <https://doc.rust-lang.org/nightly/rustc/check-cfg/cargo-specifics.html> for more information about checking conditional configuration
+
+warning: unexpected `cfg` condition value: `verification`
+   --> crates/logicaffeine_proof/src/engine.rs:527:15
+    |
+527 |         #[cfg(feature = "verification")]
+    |               ^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = note: expected values for `feature` are: `default`
+    = help: consider adding `verification` as a feature in `Cargo.toml`
+    = note: see <https://doc.rust-lang.org/nightly/rustc/check-cfg/cargo-specifics.html> for more information about checking conditional configuration
+
+warning: unused variable: `idx`
+   --> crates/logicaffeine_proof/src/engine.rs:679:14
+    |
+679 |         for (idx, impl_expr) in implications {
+    |              ^^^ help: if this is intentional, prefix it with an underscore: `_idx`
+    |
+    = note: `#[warn(unused_variables)]` on by default
+
+warning: unused variable: `antecedent`
+   --> crates/logicaffeine_proof/src/engine.rs:680:39
+    |
+680 |             if let ProofExpr::Implies(antecedent, consequent) = &impl_expr {
+    |                                       ^^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_antecedent`
+
+warning: unused variable: `consequent`
+   --> crates/logicaffeine_proof/src/engine.rs:680:51
+    |
+680 |             if let ProofExpr::Implies(antecedent, consequent) = &impl_expr {
+    |                                                   ^^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_consequent`
+
+warning: unused variable: `idx`
+   --> crates/logicaffeine_proof/src/engine.rs:858:14
+    |
+858 |         for (idx, forall_expr) in universals {
+    |              ^^^ help: if this is intentional, prefix it with an underscore: `_idx`
+
+warning: unused variable: `variable`
+   --> crates/logicaffeine_proof/src/engine.rs:859:40
+    |
+859 |             if let ProofExpr::ForAll { variable, body } = &forall_expr {
+    |                                        ^^^^^^^^ help: try ignoring the field: `variable: _`
+
+warning: unused variable: `body`
+   --> crates/logicaffeine_proof/src/engine.rs:859:50
+    |
+859 |             if let ProofExpr::ForAll { variable, body } = &forall_expr {
+    |                                                  ^^^^ help: try ignoring the field: `body: _`
+
+warning: unused variable: `from`
+    --> crates/logicaffeine_proof/src/engine.rs:1537:26
+     |
+1537 |                     for (from, to) in &substitutions {
+     |                          ^^^^ help: if this is intentional, prefix it with an underscore: `_from`
+
+warning: unused variable: `name`
+    --> crates/logicaffeine_proof/src/engine.rs:1775:43
+     |
+1775 |             if let ProofExpr::Predicate { name, args, world } = expr {
+     |                                           ^^^^ help: try ignoring the field: `name: _`
+
+warning: unused variable: `world`
+    --> crates/logicaffeine_proof/src/engine.rs:1775:55
+     |
+1775 |             if let ProofExpr::Predicate { name, args, world } = expr {
+     |                                                       ^^^^^ help: try ignoring the field: `world: _`
+
+warning: unused variable: `ante`
+    --> crates/logicaffeine_proof/src/engine.rs:1823:43
+     |
+1823 |                 if let ProofExpr::Implies(ante, cons) = expr {
+     |                                           ^^^^ help: if this is intentional, prefix it with an underscore: `_ante`
+
+warning: unused variable: `neg_cons2`
+    --> crates/logicaffeine_proof/src/engine.rs:2648:55
+     |
+2648 | ...                   if let ProofExpr::Not(neg_cons2) = cons2.as_ref() {
+     |                                             ^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_neg_cons2`
+
+warning: unused variable: `body`
+   --> crates/logicaffeine_proof/src/hints.rs:119:39
+    |
+119 |         ProofExpr::ForAll { variable, body } => {
+    |                                       ^^^^ help: try ignoring the field: `body: _`
+
+warning: unused variable: `body`
+   --> crates/logicaffeine_proof/src/hints.rs:129:39
+    |
+129 |         ProofExpr::Exists { variable, body } => {
+    |                                       ^^^^ help: try ignoring the field: `body: _`
+
+warning: unused variable: `bound_vars`
+    --> crates/logicaffeine_proof/src/unify.rs:1385:43
+     |
+1385 | fn rename_vars_to_bound(expr: &ProofExpr, bound_vars: &[String]) -> ProofExpr {
+     |                                           ^^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_bound_vars`
+
+warning: method `rename_term_vars` is never used
+    --> crates/logicaffeine_proof/src/engine.rs:3069:8
+     |
+177  | impl BackwardChainer {
+     | -------------------- method in this implementation
+...
+3069 |     fn rename_term_vars(&mut self, term: &ProofTerm) -> ProofTerm {
+     |        ^^^^^^^^^^^^^^^^
+     |
+     = note: `#[warn(dead_code)]` on by default
+
+warning: `logicaffeine-proof` (lib) generated 19 warnings (run `cargo fix --lib -p logicaffeine-proof` to apply 1 suggestion)
+warning: unused import: `Gender`
+  --> crates/logicaffeine_language/src/parser/clause.rs:25:27
+   |
+25 | use crate::drs::{BoxType, Gender, Number};
+   |                           ^^^^^^
+   |
+   = note: `#[warn(unused_imports)]` on by default
+
+warning: unused import: `Span`
+  --> crates/logicaffeine_language/src/parser/verb.rs:38:31
+   |
+38 | use crate::token::{FocusKind, Span, TokenType};
+   |                               ^^^^
+
+warning: unused import: `BoxType`
+  --> crates/logicaffeine_language/src/parser/mod.rs:80:23
+   |
+80 | use crate::drs::{Drs, BoxType, WorldState};
+   |                       ^^^^^^^
+
+warning: unused import: `crate::ast::stmt::SelectBranch`
+    --> crates/logicaffeine_language/src/parser/mod.rs:3371:13
+     |
+3371 |         use crate::ast::stmt::SelectBranch;
+     |             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: unused import: `crate::ast::Expr`
+    --> crates/logicaffeine_language/src/parser/mod.rs:4422:13
+     |
+4422 |         use crate::ast::Expr;
+     |             ^^^^^^^^^^^^^^^^
+
+warning: unused import: `self`
+   --> crates/logicaffeine_language/src/compile.rs:907:18
+    |
+907 | use crate::ast::{self, Stmt};
+    |                  ^^^^
+
+warning: unused import: `super::dependencies::scan_dependencies`
+  --> crates/logicaffeine_language/src/analysis/discovery.rs:23:5
+   |
+23 | use super::dependencies::scan_dependencies;
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: unreachable pattern
+     --> /Users/tristen/logicaffeine/logicaffeine/target/debug/build/logicaffeine-language-581ebeaef46b2c1f/out/lexicon_data.rs:10319:9
+      |
+10175 |         "speaker" => Some(crate::lexicon::Sort::Physical),
+      |         --------- matches all the relevant values
+...
+10319 |         "speaker" => Some(crate::lexicon::Sort::Human),
+      |         ^^^^^^^^^ no value can reach this
+      |
+      = note: `#[warn(unreachable_patterns)]` on by default
+
+warning: unused variable: `symbol`
+   --> crates/logicaffeine_language/src/parser/noun.rs:285:17
+    |
+285 |             let symbol = capitalize_first(noun_str);
+    |                 ^^^^^^ help: if this is intentional, prefix it with an underscore: `_symbol`
+    |
+    = note: `#[warn(unused_variables)]` on by default
+
+warning: unused variable: `number`
+   --> crates/logicaffeine_language/src/parser/noun.rs:286:17
+    |
+286 |             let number = if noun_str.ends_with('s') && !noun_str.ends_with("ss") {
+    |                 ^^^^^^ help: if this is intentional, prefix it with an underscore: `_number`
+
+warning: unused variable: `unknown`
+    --> crates/logicaffeine_language/src/parser/verb.rs:1117:17
+     |
+1117 |             let unknown = self.interner.intern("?");
+     |                 ^^^^^^^ help: if this is intentional, prefix it with an underscore: `_unknown`
+
+warning: unused variable: `unit`
+    --> crates/logicaffeine_language/src/parser/mod.rs:5336:48
+     |
+5336 |                 if let TokenType::CalendarUnit(unit) = self.peek().kind {
+     |                                                ^^^^ help: if this is intentional, prefix it with an underscore: `_unit`
+
+warning: unused variable: `was_definite_article`
+    --> crates/logicaffeine_language/src/parser/mod.rs:8028:42
+     |
+8028 | ...    let (obj_quantifier, was_definite_article) = if self.check_npi_quantifier() {
+     |                             ^^^^^^^^^^^^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_was_definite_article`
+
+warning: unused variable: `unknown`
+    --> crates/logicaffeine_language/src/parser/mod.rs:8419:17
+     |
+8419 |             let unknown = self.interner.intern("?");
+     |                 ^^^^^^^ help: if this is intentional, prefix it with an underscore: `_unknown`
+
+warning: unused variable: `is_person`
+    --> crates/logicaffeine_language/src/parser/mod.rs:9530:32
+     |
+9530 |         let (restriction_name, is_person) = match npi_token {
+     |                                ^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_is_person`
+
+warning: unused variable: `term_arena`
+   --> crates/logicaffeine_language/src/semantics/axioms.rs:221:5
+    |
+221 |     term_arena: &'a Arena<Term<'a>>,
+    |     ^^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_term_arena`
+
+warning: unused variable: `term_arena`
+   --> crates/logicaffeine_language/src/semantics/axioms.rs:250:5
+    |
+250 |     term_arena: &'a Arena<Term<'a>>,
+    |     ^^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_term_arena`
+
+warning: unused variable: `expr`
+   --> crates/logicaffeine_language/src/transpile.rs:178:31
+    |
+178 |             Term::Proposition(expr) => write!(w, "[proposition]"),
+    |                               ^^^^ help: if this is intentional, prefix it with an underscore: `_expr`
+
+warning: unused variable: `subject_type`
+   --> crates/logicaffeine_language/src/analysis/discovery.rs:304:42
+    |
+304 | ...tomic_condition(&mut self, subject_type: Symbol, object_type: Option<Symbol>) -> P...
+    |                               ^^^^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_subject_type`
+
+warning: unused variable: `object_type`
+   --> crates/logicaffeine_language/src/analysis/discovery.rs:304:64
+    |
+304 | ... self, subject_type: Symbol, object_type: Option<Symbol>) -> PolicyCondition {
+    |                                 ^^^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_object_type`
+
+warning: field `escape_body_ranges` is never read
+  --> crates/logicaffeine_language/src/lexer.rs:78:5
+   |
+62 | pub struct LineLexer<'a> {
+   |            --------- field in this struct
+...
+78 |     escape_body_ranges: Vec<(usize, usize)>,
+   |     ^^^^^^^^^^^^^^^^^^
+   |
+   = note: `#[warn(dead_code)]` on by default
+
+warning: method `is_in_escape_body` is never used
+   --> crates/logicaffeine_language/src/lexer.rs:117:8
+    |
+81  | impl<'a> LineLexer<'a> {
+    | ---------------------- method in this implementation
+...
+117 |     fn is_in_escape_body(&self, pos: usize) -> bool {
+    |        ^^^^^^^^^^^^^^^^^
+
+warning: method `measure_next_line_indent` is never used
+    --> crates/logicaffeine_language/src/lexer.rs:1470:8
+     |
+355  | impl<'a> Lexer<'a> {
+     | ------------------ method in this implementation
+...
+1470 |     fn measure_next_line_indent(&self, from_pos: usize) -> Option<usize> {
+     |        ^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: field `pending_cardinal` is never read
+   --> crates/logicaffeine_language/src/parser/mod.rs:284:16
+    |
+252 | pub struct Parser<'a, 'ctx, 'int> {
+    |            ------ field in this struct
+...
+284 |     pub(super) pending_cardinal: Option<u32>,
+    |                ^^^^^^^^^^^^^^^^
+
+warning: methods `try_parse_binary_op` and `check_any` are never used
+    --> crates/logicaffeine_language/src/parser/mod.rs:6124:8
+     |
+303  | impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
+     | ------------------------------------------- methods in this implementation
+...
+6124 |     fn try_parse_binary_op(&mut self) -> Option<BinaryOpKind> {
+     |        ^^^^^^^^^^^^^^^^^^^
+...
+9666 |     fn check_any(&self, kinds: &[TokenType]) -> bool {
+     |        ^^^^^^^^^
+
+warning: constant `COPULAS` is never used
+ --> crates/logicaffeine_language/src/parser/common.rs:9:11
+  |
+9 | pub const COPULAS: &[TokenType] = &[
+  |           ^^^^^^^
+
+warning: function `group_by_island` is never used
+   --> crates/logicaffeine_language/src/lambda.rs:469:4
+    |
+469 | fn group_by_island<'a>(quantifiers: Vec<QuantifierInfo<'a>>) -> Vec<Vec<QuantifierInf...
+    |    ^^^^^^^^^^^^^^^
+
+warning: function `extract_quantifiers` is never used
+   --> crates/logicaffeine_language/src/lambda.rs:582:4
+    |
+582 | fn extract_quantifiers<'a>(
+    |    ^^^^^^^^^^^^^^^^^^^
+
+warning: function `rebuild_with_scope_order` is never used
+   --> crates/logicaffeine_language/src/lambda.rs:613:4
+    |
+613 | fn rebuild_with_scope_order<'a>(
+    |    ^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: field `verb` is never read
+   --> crates/logicaffeine_language/src/lambda.rs:828:5
+    |
+827 | struct IntensionalContext {
+    |        ------------------ field in this struct
+828 |     verb: Symbol,
+    |     ^^^^
+    |
+    = note: `IntensionalContext` has a derived impl for the trait `Debug`, but this is intentionally ignored during dead code analysis
+
+warning: methods `parse_enum_variants`, `parse_variant_fields_natural`, `parse_variant_fields_concise`, `parse_struct_fields`, and `consume_field_type` are never used
+   --> crates/logicaffeine_language/src/analysis/discovery.rs:636:8
+    |
+45  | impl<'a> DiscoveryPass<'a> {
+    | -------------------------- methods in this implementation
+...
+636 |     fn parse_enum_variants(&mut self) -> Vec<VariantDef> {
+    |        ^^^^^^^^^^^^^^^^^^^
+...
+703 |     fn parse_variant_fields_natural(&mut self) -> Vec<FieldDef> {
+    |        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+...
+749 |     fn parse_variant_fields_concise(&mut self) -> Vec<FieldDef> {
+    |        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+...
+842 |     fn parse_struct_fields(&mut self) -> Vec<FieldDef> {
+    |        ^^^^^^^^^^^^^^^^^^^
+...
+847 |     fn consume_field_type(&mut self) -> FieldType {
+    |        ^^^^^^^^^^^^^^^^^^
+
+warning: function `parseInt` should have a snake case name
+ --> crates/logicaffeine_system/src/text.rs:2:8
+  |
+2 | pub fn parseInt(s: String) -> i64 {
+  |        ^^^^^^^^ help: convert the identifier to snake case: `parse_int`
+  |
+  = note: `#[warn(non_snake_case)]` on by default
+
+warning: function `parseFloat` should have a snake case name
+ --> crates/logicaffeine_system/src/text.rs:9:8
+  |
+9 | pub fn parseFloat(s: String) -> f64 {
+  |        ^^^^^^^^^^ help: convert the identifier to snake case: `parse_float`
+
+warning: `logicaffeine-language` (lib) generated 31 warnings (run `cargo fix --lib -p logicaffeine-language` to apply 7 suggestions)
+warning: `logicaffeine-system` (lib) generated 2 warnings
+warning: unexpected `cfg` condition value: `verification`
+   --> crates/logicaffeine_compile/src/lib.rs:146:7
+    |
+146 | #[cfg(feature = "verification")]
+    |       ^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = note: expected values for `feature` are: `codegen`, `default`, and `interpreter-only`
+    = help: consider adding `verification` as a feature in `Cargo.toml`
+    = note: see <https://doc.rust-lang.org/nightly/rustc/check-cfg/cargo-specifics.html> for more information about checking conditional configuration
+    = note: `#[warn(unexpected_cfgs)]` on by default
+
+warning: unexpected `cfg` condition value: `verification`
+   --> crates/logicaffeine_compile/src/lib.rs:148:7
+    |
+148 | #[cfg(feature = "verification")]
+    |       ^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = note: expected values for `feature` are: `codegen`, `default`, and `interpreter-only`
+    = help: consider adding `verification` as a feature in `Cargo.toml`
+    = note: see <https://doc.rust-lang.org/nightly/rustc/check-cfg/cargo-specifics.html> for more information about checking conditional configuration
+
+warning: unused import: `HashSet`
+  --> crates/logicaffeine_compile/src/analysis/check.rs:21:33
+   |
+21 | use std::collections::{HashMap, HashSet};
+   |                                 ^^^^^^^
+   |
+   = note: `#[warn(unused_imports)]` on by default
+
+warning: unused import: `infer_to_logos`
+  --> crates/logicaffeine_compile/src/analysis/check.rs:23:89
+   |
+23 | use crate::analysis::unify::{InferType, TyVar, TypeScheme, TypeError, UnificationTable, infer_to_logos, unify_numeric};
+   |                                                                                         ^^^^^^^^^^^^^^
+
+warning: unused import: `OptFlag`
+  --> crates/logicaffeine_compile/src/analysis/check.rs:25:44
+   |
+25 | use crate::ast::stmt::{BinaryOpKind, Expr, OptFlag, Pattern, Stmt};
+   |                                            ^^^^^^^
+
+warning: unused import: `Block`
+  --> crates/logicaffeine_compile/src/analysis/escape.rs:28:36
+   |
+28 | use crate::ast::stmt::{Stmt, Expr, Block};
+   |                                    ^^^^^
+
+warning: unused import: `HashMap`
+ --> crates/logicaffeine_compile/src/codegen/ffi.rs:1:24
+  |
+1 | use std::collections::{HashMap, HashSet};
+  |                        ^^^^^^^
+
+warning: unused imports: `FieldDef` and `VariantDef`
+ --> crates/logicaffeine_compile/src/codegen/ffi.rs:4:33
+  |
+4 | use crate::analysis::registry::{FieldDef, FieldType, TypeDef, TypeRegistry, VariantDef};
+  |                                 ^^^^^^^^                                    ^^^^^^^^^^
+
+warning: unused import: `Expr`
+ --> crates/logicaffeine_compile/src/codegen/ffi.rs:5:24
+  |
+5 | use crate::ast::stmt::{Expr, Stmt, TypeExpr};
+  |                        ^^^^
+
+warning: unused import: `crate::analysis::registry::TypeRegistry`
+ --> crates/logicaffeine_compile/src/codegen/marshal.rs:4:5
+  |
+4 | use crate::analysis::registry::TypeRegistry;
+  |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: unused imports: `FieldType` and `TypeDef`
+ --> crates/logicaffeine_compile/src/codegen/stmt.rs:4:33
+  |
+4 | use crate::analysis::registry::{FieldType, TypeDef, TypeRegistry};
+  |                                 ^^^^^^^^^  ^^^^^^^
+
+warning: unused import: `analyze_variable_capabilities`
+ --> crates/logicaffeine_compile/src/codegen/stmt.rs:9:86
+  |
+9 | use super::context::{RefinementContext, VariableCapabilities, emit_refinement_check, analyze_variable_capabilities};
+  |                                                                                      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: unused imports: `collect_boxed_fields`, `collect_crdt_register_fields`, `collect_mutable_vars_stmt`, `collect_mutable_vars`, `get_root_identifier_for_mutability`, `is_copy_type_expr`, and `is_hashable_type`
+  --> crates/logicaffeine_compile/src/codegen/stmt.rs:11:48
+   |
+11 |     requires_async_stmt, calls_async_function, collect_mutable_vars, collect_mutable_vars_stmt,
+   |                                                ^^^^^^^^^^^^^^^^^^^^  ^^^^^^^^^^^^^^^^^^^^^^^^^
+12 |     collect_crdt_register_fields, collect_boxed_fields, collect_expr_identifiers,
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^  ^^^^^^^^^^^^^^^^^^^^
+13 |     collect_stmt_identifiers, expr_debug_prefix, expr_indexes_collection,
+14 |     get_root_identifier_for_mutability, is_copy_type_expr, is_hashable_type,
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^  ^^^^^^^^^^^^^^^^^  ^^^^^^^^^^^^^^^^
+
+warning: unused imports: `codegen_expr_boxed_with_strings`, `codegen_expr_boxed`, `codegen_expr`, `codegen_interpolated_string`, `codegen_literal`, `is_definitely_numeric_expr`, and `is_definitely_string_expr`
+  --> crates/logicaffeine_compile/src/codegen/stmt.rs:17:5
+   |
+17 |     codegen_expr, codegen_expr_with_async, codegen_expr_boxed,
+   |     ^^^^^^^^^^^^                           ^^^^^^^^^^^^^^^^^^
+18 |     codegen_expr_boxed_with_strings, codegen_expr_boxed_with_types,
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+19 |     codegen_interpolated_string, codegen_literal, codegen_assertion,
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^  ^^^^^^^^^^^^^^^
+20 |     codegen_expr_with_async_and_strings, is_definitely_string_expr_with_vars,
+21 |     is_definitely_string_expr, is_definitely_numeric_expr,
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^  ^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: unused import: `super::escape_rust_ident`
+  --> crates/logicaffeine_compile/src/codegen/stmt.rs:37:5
+   |
+37 | use super::escape_rust_ident;
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: unused imports: `Stmt` and `TypeExpr`
+ --> crates/logicaffeine_compile/src/codegen/expr.rs:6:53
+  |
+6 | use crate::ast::stmt::{BinaryOpKind, Expr, Literal, Stmt, TypeExpr};
+  |                                                     ^^^^  ^^^^^^^^
+
+warning: unused import: `FieldDef`
+ --> crates/logicaffeine_compile/src/codegen/program.rs:4:33
+  |
+4 | use crate::analysis::registry::{FieldDef, TypeDef, TypeRegistry};
+  |                                 ^^^^^^^^
+
+warning: unused import: `Expr`
+ --> crates/logicaffeine_compile/src/codegen/program.rs:7:24
+  |
+7 | use crate::ast::stmt::{Expr, OptFlag, Stmt, TypeExpr};
+  |                        ^^^^
+
+warning: unused import: `crate::registry::SymbolRegistry`
+ --> crates/logicaffeine_compile/src/codegen/program.rs:9:5
+  |
+9 | use crate::registry::SymbolRegistry;
+  |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: unused import: `VariableCapabilities`
+  --> crates/logicaffeine_compile/src/codegen/program.rs:11:41
+   |
+11 | use super::context::{RefinementContext, VariableCapabilities, analyze_variable_capabilities};
+   |                                         ^^^^^^^^^^^^^^^^^^^^
+
+warning: unused imports: `body_contains_self_call`, `count_self_calls`, and `is_hashable_type`
+  --> crates/logicaffeine_compile/src/codegen/program.rs:19:29
+   |
+19 |     collect_pure_functions, count_self_calls, is_hashable_type, is_copy_type_expr,
+   |                             ^^^^^^^^^^^^^^^^  ^^^^^^^^^^^^^^^^
+20 |     should_memoize, body_contains_self_call, should_inline,
+   |                     ^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: unused imports: `codegen_expr_with_async` and `codegen_expr`
+  --> crates/logicaffeine_compile/src/codegen/program.rs:27:19
+   |
+27 | use super::expr::{codegen_expr, codegen_expr_with_async};
+   |                   ^^^^^^^^^^^^  ^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: unused imports: `escape_rust_ident` and `is_rust_keyword`
+  --> crates/logicaffeine_compile/src/codegen/program.rs:44:13
+   |
+44 | use super::{escape_rust_ident, is_rust_keyword};
+   |             ^^^^^^^^^^^^^^^^^  ^^^^^^^^^^^^^^^
+
+warning: unused imports: `codegen_logos_runtime_preamble`, `collect_c_export_reference_types`, `collect_c_export_value_type_structs`, `has_c_exports_with_text`, `has_c_exports`, `has_wasm_exports`, `mangle_type_for_c`, `map_field_type_to_c`, and `map_type_to_c_header`
+  --> crates/logicaffeine_compile/src/codegen/mod.rs:94:41
+   |
+94 |     CAbiClass, classify_type_for_c_abi, has_wasm_exports, has_c_exports, has_c_exports_with_text,
+   |                                         ^^^^^^^^^^^^^^^^  ^^^^^^^^^^^^^  ^^^^^^^^^^^^^^^^^^^^^^^
+95 |     codegen_c_accessors, collect_c_export_ref_structs, collect_c_export_reference_types,
+   |                                                        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+96 |     collect_c_export_value_type_structs, codegen_logos_runtime_preamble, mangle_type_for_c,
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^  ^^^^^^^^^^^^^^^^^
+97 |     map_type_to_c_header, map_field_type_to_c,
+   |     ^^^^^^^^^^^^^^^^^^^^  ^^^^^^^^^^^^^^^^^^^
+
+warning: unused imports: `codegen_expr_boxed_with_strings`, `codegen_expr_boxed_with_types`, `codegen_expr_boxed`, `codegen_expr_with_async_and_strings`, `codegen_interpolated_string`, `codegen_literal`, `collect_string_concat_operands`, `is_definitely_numeric_expr`, `is_definitely_string_expr_with_vars`, and `is_definitely_string_expr`
+   --> crates/logicaffeine_compile/src/codegen/mod.rs:100:30
+    |
+100 |     codegen_expr_with_async, codegen_expr_boxed, codegen_expr_boxed_with_strings,
+    |                              ^^^^^^^^^^^^^^^^^^  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+101 |     codegen_expr_boxed_with_types, codegen_interpolated_string, codegen_literal,
+    |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^  ^^^^^^^^^^^^^^^^^^^^^^^^^^^  ^^^^^^^^^^^^^^^
+102 |     codegen_expr_with_async_and_strings, is_definitely_string_expr_with_vars,
+    |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+103 |     is_definitely_string_expr, is_definitely_numeric_expr, collect_string_concat_operands,
+    |     ^^^^^^^^^^^^^^^^^^^^^^^^^  ^^^^^^^^^^^^^^^^^^^^^^^^^^  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: unused imports: `body_modifies_var`, `body_mutates_collection`, and `exprs_equal`
+   --> crates/logicaffeine_compile/src/codegen/mod.rs:114:5
+    |
+114 |     body_mutates_collection, body_modifies_var, exprs_equal,
+    |     ^^^^^^^^^^^^^^^^^^^^^^^  ^^^^^^^^^^^^^^^^^  ^^^^^^^^^^^
+
+warning: unused import: `std::collections::HashMap`
+ --> crates/logicaffeine_compile/src/codegen_c/mod.rs:1:5
+  |
+1 | use std::collections::HashMap;
+  |     ^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: unused import: `crate::intern::Symbol`
+ --> crates/logicaffeine_compile/src/codegen_c/emit.rs:4:5
+  |
+4 | use crate::intern::Symbol;
+  |     ^^^^^^^^^^^^^^^^^^^^^
+
+warning: unused imports: `c_type_str`, `infer_expr_type`, and `resolve_type_expr`
+  --> crates/logicaffeine_compile/src/codegen_c/mod.rs:13:30
+   |
+13 | use types::{CType, CContext, c_type_str, c_type_str_resolved, resolve_type_expr,
+   |                              ^^^^^^^^^^                       ^^^^^^^^^^^^^^^^^
+14 |             resolve_type_expr_with_registry, field_type_to_ctype, escape_c_ident, infer_expr_type};
+   |                                                                                   ^^^^^^^^^^^^^^^
+
+warning: unused imports: `codegen_expr` and `codegen_literal`
+  --> crates/logicaffeine_compile/src/codegen_c/mod.rs:15:12
+   |
+15 | use emit::{codegen_expr, codegen_stmt, codegen_literal};
+   |            ^^^^^^^^^^^^                ^^^^^^^^^^^^^^^
+
+warning: unexpected `cfg` condition value: `verification`
+   --> crates/logicaffeine_compile/src/compile.rs:558:7
+    |
+558 | #[cfg(feature = "verification")]
+    |       ^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = note: expected values for `feature` are: `codegen`, `default`, and `interpreter-only`
+    = help: consider adding `verification` as a feature in `Cargo.toml`
+    = note: see <https://doc.rust-lang.org/nightly/rustc/check-cfg/cargo-specifics.html> for more information about checking conditional configuration
+
+warning: unused import: `PolicyRegistry`
+  --> crates/logicaffeine_compile/src/compile.rs:85:71
+   |
+85 | use crate::analysis::{DiscoveryPass, EscapeChecker, OwnershipChecker, PolicyRegistry};
+   |                                                                       ^^^^^^^^^^^^^^
+
+warning: unused import: `ClosureBody`
+ --> crates/logicaffeine_compile/src/optimize/dce.rs:4:67
+  |
+4 | use crate::ast::stmt::{Expr, Literal, MatchArm, Stmt, StringPart, ClosureBody};
+  |                                                                   ^^^^^^^^^^^
+
+warning: unused imports: `ClosureBody`, `Literal`, and `Pattern`
+ --> crates/logicaffeine_compile/src/optimize/effects.rs:6:24
+  |
+6 | use crate::ast::stmt::{ClosureBody, Expr, Literal, Pattern, Stmt};
+  |                        ^^^^^^^^^^^        ^^^^^^^  ^^^^^^^
+
+warning: unused variable: `callgraph`
+  --> crates/logicaffeine_compile/src/analysis/readonly.rs:33:40
+   |
+33 |     pub fn analyze(stmts: &[Stmt<'_>], callgraph: &CallGraph, type_env: &TypeEnv) -> Self {
+   |                                        ^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_callgraph`
+   |
+   = note: `#[warn(unused_variables)]` on by default
+
+warning: unused variable: `callgraph`
+   --> crates/logicaffeine_compile/src/analysis/readonly.rs:414:40
+    |
+414 |     pub fn analyze(stmts: &[Stmt<'_>], callgraph: &CallGraph, type_env: &TypeEnv) -> Self {
+    |                                        ^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_callgraph`
+
+warning: unused variable: `tasks`
+  --> crates/logicaffeine_compile/src/codegen/detection.rs:26:28
+   |
+26 |         Stmt::Concurrent { tasks } => true,
+   |                            ^^^^^ help: try ignoring the field: `tasks: _`
+
+warning: unused variable: `object`
+   --> crates/logicaffeine_compile/src/codegen/detection.rs:329:26
+    |
+329 |             Stmt::Show { object, .. } => {
+    |                          ^^^^^^-
+    |                          |
+    |                          help: try removing the field
+
+warning: unused variable: `cond`
+   --> crates/logicaffeine_compile/src/codegen/detection.rs:350:24
+    |
+350 |             Stmt::If { cond, then_block, else_block } => {
+    |                        ^^^^ help: try ignoring the field: `cond: _`
+
+warning: unused variable: `interner`
+    --> crates/logicaffeine_compile/src/codegen/detection.rs:1471:5
+     |
+1471 |     interner: &Interner,
+     |     ^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_interner`
+
+warning: unused variable: `is_portable`
+    --> crates/logicaffeine_compile/src/codegen/ffi.rs:1028:48
+     |
+1028 |                 Some(TypeDef::Struct { fields, is_portable, .. }) => {
+     |                                                ^^^^^^^^^^^ help: try ignoring the field: `is_portable: _`
+
+warning: unused variable: `is_portable`
+    --> crates/logicaffeine_compile/src/codegen/ffi.rs:1612:56
+     |
+1612 |                         Some(TypeDef::Struct { fields, is_portable, .. }) => {
+     |                                                        ^^^^^^^^^^^ help: try ignoring the field: `is_portable: _`
+
+warning: unused variable: `lww_fields`
+    --> crates/logicaffeine_compile/src/codegen/peephole.rs:1443:5
+     |
+1443 |     lww_fields: &HashSet<(String, String)>,
+     |     ^^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_lww_fields`
+
+warning: unused variable: `mv_fields`
+    --> crates/logicaffeine_compile/src/codegen/peephole.rs:1444:5
+     |
+1444 |     mv_fields: &HashSet<(String, String)>,
+     |     ^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_mv_fields`
+
+warning: unused variable: `synced_vars`
+    --> crates/logicaffeine_compile/src/codegen/peephole.rs:1445:5
+     |
+1445 |     synced_vars: &mut HashSet<Symbol>,
+     |     ^^^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_synced_vars`
+
+warning: unused variable: `var_caps`
+    --> crates/logicaffeine_compile/src/codegen/peephole.rs:1446:5
+     |
+1446 |     var_caps: &HashMap<Symbol, VariableCapabilities>,
+     |     ^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_var_caps`
+
+warning: unused variable: `async_functions`
+    --> crates/logicaffeine_compile/src/codegen/peephole.rs:1447:5
+     |
+1447 |     async_functions: &HashSet<Symbol>,
+     |     ^^^^^^^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_async_functions`
+
+warning: unused variable: `pipe_vars`
+    --> crates/logicaffeine_compile/src/codegen/peephole.rs:1448:5
+     |
+1448 |     pipe_vars: &HashSet<Symbol>,
+     |     ^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_pipe_vars`
+
+warning: unused variable: `boxed_fields`
+    --> crates/logicaffeine_compile/src/codegen/peephole.rs:1449:5
+     |
+1449 |     boxed_fields: &HashSet<(String, String, String)>,
+     |     ^^^^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_boxed_fields`
+
+warning: unused variable: `registry`
+    --> crates/logicaffeine_compile/src/codegen/peephole.rs:1450:5
+     |
+1450 |     registry: &TypeRegistry,
+     |     ^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_registry`
+
+warning: unused variable: `type_env`
+    --> crates/logicaffeine_compile/src/codegen/peephole.rs:1451:5
+     |
+1451 |     type_env: &crate::analysis::types::TypeEnv,
+     |     ^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_type_env`
+
+warning: variable `last_while_idx` is assigned to, but never used
+    --> crates/logicaffeine_compile/src/codegen/peephole.rs:2915:13
+     |
+2915 |     let mut last_while_idx = idx;
+     |             ^^^^^^^^^^^^^^
+     |
+     = note: consider using `_last_while_idx` instead
+
+warning: value assigned to `last_while_idx` is never read
+    --> crates/logicaffeine_compile/src/codegen/peephole.rs:2928:25
+     |
+2928 |                         last_while_idx = scan;
+     |                         ^^^^^^^^^^^^^^
+     |
+     = help: maybe it is overwritten before being read?
+     = note: `#[warn(unused_assignments)]` on by default
+
+warning: unused variable: `interner`
+    --> crates/logicaffeine_compile/src/codegen/peephole.rs:3708:5
+     |
+3708 |     interner: &Interner,
+     |     ^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_interner`
+
+warning: unused variable: `var`
+    --> crates/logicaffeine_compile/src/compile.rs:1414:21
+     |
+1414 |         Stmt::Let { var, value, .. } => {
+     |                     ^^^-
+     |                     |
+     |                     help: try removing the field
+
+warning: unused variable: `field`
+    --> crates/logicaffeine_compile/src/compile.rs:2041:38
+     |
+2041 |         Stmt::IncreaseCrdt { object, field, amount } => {
+     |                                      ^^^^^ help: try ignoring the field: `field: _`
+
+warning: unused variable: `field`
+    --> crates/logicaffeine_compile/src/compile.rs:2052:38
+     |
+2052 |         Stmt::DecreaseCrdt { object, field, amount } => {
+     |                                      ^^^^^ help: try ignoring the field: `field: _`
+
+warning: unused variable: `expr_arena`
+   --> crates/logicaffeine_compile/src/optimize/dce.rs:188:5
+    |
+188 |     expr_arena: &'a Arena<Expr<'a>>,
+    |     ^^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_expr_arena`
+
+warning: unused variable: `interner`
+   --> crates/logicaffeine_compile/src/optimize/supercompile.rs:770:5
+    |
+770 |     interner: &mut Interner,
+    |     ^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_interner`
+
+warning: unused variable: `function`
+   --> crates/logicaffeine_compile/src/optimize/bta.rs:243:22
+    |
+243 |         Stmt::Call { function, args } => {
+    |                      ^^^^^^^^ help: try ignoring the field: `function: _`
+
+warning: unused variable: `funcs`
+   --> crates/logicaffeine_compile/src/optimize/bta.rs:221:5
+    |
+221 |     funcs: &HashMap<Symbol, FuncDef<'a>>,
+    |     ^^^^^ help: if this is intentional, prefix it with an underscore: `_funcs`
+
+warning: unused variable: `cache`
+   --> crates/logicaffeine_compile/src/optimize/bta.rs:222:5
+    |
+222 |     cache: &mut BtaCache,
+    |     ^^^^^ help: if this is intentional, prefix it with an underscore: `_cache`
+
+warning: type `bta::FuncDef<'a>` is more private than the item `analyze_function_bt`
+   --> crates/logicaffeine_compile/src/optimize/bta.rs:262:1
+    |
+262 | / pub fn analyze_function_bt<'a>(
+263 | |     func_name: Symbol,
+264 | |     params: &[(Symbol, &'a TypeExpr<'a>)],
+265 | |     body: &[Stmt<'a>],
+...   |
+268 | |     cache: &mut BtaCache,
+269 | | ) -> BtaResult {
+    | |______________^ function `analyze_function_bt` is reachable at visibility `pub`
+    |
+note: but type `bta::FuncDef<'a>` is only usable at visibility `pub(self)`
+   --> crates/logicaffeine_compile/src/optimize/bta.rs:257:1
+    |
+257 | struct FuncDef<'a> {
+    | ^^^^^^^^^^^^^^^^^^
+    = note: `#[warn(private_interfaces)]` on by default
+
+warning: methods `register_boxed_binding` and `is_boxed_binding` are never used
+   --> crates/logicaffeine_compile/src/codegen/context.rs:117:19
+    |
+67  | impl<'a> RefinementContext<'a> {
+    | ------------------------------ methods in this implementation
+...
+117 |     pub(super) fn register_boxed_binding(&mut self, var: Symbol) {
+    |                   ^^^^^^^^^^^^^^^^^^^^^^
+...
+124 |     pub(super) fn is_boxed_binding(&self, var: Symbol) -> bool {
+    |                   ^^^^^^^^^^^^^^^^
+    |
+    = note: `#[warn(dead_code)]` on by default
+
+warning: function `is_vec_type_expr` is never used
+    --> crates/logicaffeine_compile/src/codegen/detection.rs:1277:15
+     |
+1277 | pub(super) fn is_vec_type_expr(ty: &TypeExpr, interner: &Interner) -> bool {
+     |               ^^^^^^^^^^^^^^^^
+
+warning: function `collect_readonly_vec_param_indices` is never used
+    --> crates/logicaffeine_compile/src/codegen/detection.rs:1290:15
+     |
+1290 | pub(super) fn collect_readonly_vec_param_indices(
+     |               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: function `map_type_to_c_abi` is never used
+  --> crates/logicaffeine_compile/src/codegen/marshal.rs:30:15
+   |
+30 | pub(super) fn map_type_to_c_abi(ty: &TypeExpr, interner: &Interner, is_return: bool) -> String {
+   |               ^^^^^^^^^^^^^^^^^
+
+warning: function `is_definitely_numeric_expr` is never used
+  --> crates/logicaffeine_compile/src/codegen/expr.rs:55:15
+   |
+55 | pub(crate) fn is_definitely_numeric_expr(expr: &Expr) -> bool {
+   |               ^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: function `is_definitely_string_expr` is never used
+   --> crates/logicaffeine_compile/src/codegen/expr.rs:107:15
+    |
+107 | pub(crate) fn is_definitely_string_expr(expr: &Expr) -> bool {
+    |               ^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: function `codegen_expr_boxed_with_strings` is never used
+   --> crates/logicaffeine_compile/src/codegen/expr.rs:163:15
+    |
+163 | pub(crate) fn codegen_expr_boxed_with_strings(
+    |               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: function `analyze_block_effects` is never used
+   --> crates/logicaffeine_compile/src/optimize/effects.rs:344:4
+    |
+344 | fn analyze_block_effects(stmts: &[Stmt<'_>]) -> EffectSet {
+    |    ^^^^^^^^^^^^^^^^^^^^^
+
+warning: fields `params` and `body` are never read
+   --> crates/logicaffeine_compile/src/optimize/bta.rs:258:5
+    |
+257 | struct FuncDef<'a> {
+    |        ------- fields in this struct
+258 |     params: Vec<(Symbol, &'a TypeExpr<'a>)>,
+    |     ^^^^^^
+259 |     body: Block<'a>,
+    |     ^^^^
+
+warning: fields `function` and `args` are never read
+   --> crates/logicaffeine_compile/src/optimize/bta.rs:315:12
+    |
+315 |     Call { function: Symbol, args: Vec<BtaExpr> },
+    |     ----   ^^^^^^^^          ^^^^
+    |     |
+    |     fields in this variant
+    |
+    = note: `BtaStmtKind` has a derived impl for the trait `Clone`, but this is intentionally ignored during dead code analysis
+
+warning: field `collection` is never read
+   --> crates/logicaffeine_compile/src/optimize/bta.rs:327:14
+    |
+327 |     Length { collection: Box<BtaExpr> },
+    |     ------   ^^^^^^^^^^
+    |     |
+    |     field in this variant
+    |
+    = note: `BtaExpr` has a derived impl for the trait `Clone`, but this is intentionally ignored during dead code analysis
+
+warning: fields `collection` and `index` are never read
+   --> crates/logicaffeine_compile/src/optimize/bta.rs:328:13
+    |
+328 |     Index { collection: Box<BtaExpr>, index: Box<BtaExpr> },
+    |     -----   ^^^^^^^^^^                ^^^^^
+    |     |
+    |     fields in this variant
+    |
+    = note: `BtaExpr` has a derived impl for the trait `Clone`, but this is intentionally ignored during dead code analysis
+
+warning: `logicaffeine-compile` (lib) generated 75 warnings (run `cargo fix --lib -p logicaffeine-compile` to apply 33 suggestions)
+warning: unused import: `crate::ui::theme`
+  --> apps/logicaffeine_web/src/ui/app.rs:24:5
+   |
+24 | use crate::ui::theme;
+   |     ^^^^^^^^^^^^^^^^
+   |
+   = note: `#[warn(unused_imports)]` on by default
+
+warning: unused import: `std::collections::HashSet`
+  --> apps/logicaffeine_web/src/ui/pages/learn.rs:39:5
+   |
+39 | use std::collections::HashSet;
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: unused import: `GitHubUser`
+  --> apps/logicaffeine_web/src/ui/pages/registry/browse.rs:21:60
+   |
+21 | use crate::ui::state::{RegistryAuthState, RegistryPackage, GitHubUser};
+   |                                                            ^^^^^^^^^^
+
+warning: unused import: `crate::ui::router::Route`
+  --> apps/logicaffeine_web/src/ui/pages/registry/package_detail.rs:17:5
+   |
+17 | use crate::ui::router::Route;
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: unused imports: `ProofCompileResult`, `TheoremCompileResult`, and `interpret_for_ui`
+  --> apps/logicaffeine_web/src/ui/pages/studio.rs:26:5
+   |
+26 |     interpret_for_ui, interpret_streaming, CompileResult, ProofCompileResult, TheoremCompileResult,
+   |     ^^^^^^^^^^^^^^^^                                      ^^^^^^^^^^^^^^^^^^  ^^^^^^^^^^^^^^^^^^^^
+
+warning: unused import: `SuggestedTactic`
+  --> apps/logicaffeine_web/src/ui/pages/studio.rs:31:27
+   |
+31 |     hints::{suggest_hint, SuggestedTactic},
+   |                           ^^^^^^^^^^^^^^^
+
+warning: unused import: `crate::ui::examples::seed_examples`
+  --> apps/logicaffeine_web/src/ui/pages/studio.rs:49:5
+   |
+49 | use crate::ui::examples::seed_examples;
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: unused imports: `DirEntry` and `get_platform_vfs`
+  --> apps/logicaffeine_web/src/ui/pages/studio.rs:52:31
+   |
+52 | use logicaffeine_system::fs::{get_platform_vfs, Vfs, DirEntry, VfsResult};
+   |                               ^^^^^^^^^^^^^^^^       ^^^^^^^^
+
+warning: unused import: `crate::ui::router::Route`
+  --> apps/logicaffeine_web/src/ui/pages/guide/mod.rs:12:5
+   |
+12 | use crate::ui::router::Route;
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: unused variable: `search`
+   --> apps/logicaffeine_web/src/ui/pages/registry/browse.rs:541:25
+    |
+541 | async fn fetch_packages(search: Option<&str>) -> Result<Vec<RegistryPackage>, String> {
+    |                         ^^^^^^ help: if this is intentional, prefix it with an underscore: `_search`
+    |
+    = note: `#[warn(unused_variables)]` on by default
+
+warning: unused variable: `name`
+   --> apps/logicaffeine_web/src/ui/pages/registry/package_detail.rs:458:32
+    |
+458 | async fn fetch_package_details(name: &str) -> Result<PackageDetails, String> {
+    |                                ^^^^ help: if this is intentional, prefix it with an underscore: `_name`
+
+warning: unused variable: `token`
+   --> apps/logicaffeine_web/src/ui/state.rs:398:34
+    |
+398 | fn save_registry_auth_to_storage(token: &str, user: &GitHubUser) {
+    |                                  ^^^^^ help: if this is intentional, prefix it with an underscore: `_token`
+
+warning: unused variable: `user`
+   --> apps/logicaffeine_web/src/ui/state.rs:398:47
+    |
+398 | fn save_registry_auth_to_storage(token: &str, user: &GitHubUser) {
+    |                                               ^^^^ help: if this is intentional, prefix it with an underscore: `_user`
+
+warning: unused variable: `content_engine`
+    --> apps/logicaffeine_web/src/ui/pages/learn.rs:1207:9
+     |
+1207 |     let content_engine = ContentEngine::new();
+     |         ^^^^^^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_content_engine`
+
+warning: unused variable: `user_progress`
+    --> apps/logicaffeine_web/src/ui/pages/learn.rs:1208:9
+     |
+1208 |     let user_progress = UserProgress::new(); // TODO: Load from storage
+     |         ^^^^^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_user_progress`
+
+warning: unused variable: `module_id_for_scroll`
+    --> apps/logicaffeine_web/src/ui/pages/learn.rs:1455:69
+     |
+1455 | ...                   let module_id_for_scroll = module_id.clone();
+     |                           ^^^^^^^^^^^^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_module_id_for_scroll`
+
+warning: unused variable: `exercises_since_retry`
+    --> apps/logicaffeine_web/src/ui/pages/learn.rs:1641:13
+     |
+1641 |     let mut exercises_since_retry = use_signal(|| 0usize);
+     |             ^^^^^^^^^^^^^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_exercises_since_retry`
+
+warning: variable does not need to be mutable
+    --> apps/logicaffeine_web/src/ui/pages/learn.rs:1641:9
+     |
+1641 |     let mut exercises_since_retry = use_signal(|| 0usize);
+     |         ----^^^^^^^^^^^^^^^^^^^^^
+     |         |
+     |         help: remove this `mut`
+     |
+     = note: `#[warn(unused_mut)]` on by default
+
+warning: variable does not need to be mutable
+   --> apps/logicaffeine_web/src/ui/pages/registry/browse.rs:301:9
+    |
+301 |     let mut auth_state = use_context::<RegistryAuthState>();
+    |         ----^^^^^^^^^^
+    |         |
+    |         help: remove this `mut`
+
+warning: variable does not need to be mutable
+   --> apps/logicaffeine_web/src/ui/pages/studio.rs:952:9
+    |
+952 |     let mut vfs_is_fallback = use_signal(|| false); // Track if using IndexedDB fallback
+    |         ----^^^^^^^^^^^^^^^
+    |         |
+    |         help: remove this `mut`
+
+warning: unused variable: `canonical_url`
+   --> apps/logicaffeine_web/src/ui/seo.rs:468:9
+    |
+468 |     let canonical_url = format!("{}{}", BASE_URL, canonical_path);
+    |         ^^^^^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_canonical_url`
+
+warning: unused variable: `image_url`
+   --> apps/logicaffeine_web/src/ui/seo.rs:469:9
+    |
+469 |     let image_url = format!("{}{}", BASE_URL, og_image);
+    |         ^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_image_url`
+
+warning: constant `REGISTRY_API_URL` is never used
+  --> apps/logicaffeine_web/src/ui/pages/registry/browse.rs:26:7
+   |
+26 | const REGISTRY_API_URL: &str = "https://registry.logicaffeine.com";
+   |       ^^^^^^^^^^^^^^^^
+   |
+   = note: `#[warn(dead_code)]` on by default
+
+warning: constant `REGISTRY_API_URL` is never used
+  --> apps/logicaffeine_web/src/ui/pages/registry/package_detail.rs:22:7
+   |
+22 | const REGISTRY_API_URL: &str = "https://registry.logicaffeine.com";
+   |       ^^^^^^^^^^^^^^^^
+
+warning: function `load_dir_recursive` is never used
+   --> apps/logicaffeine_web/src/ui/pages/studio.rs:267:10
+    |
+267 | async fn load_dir_recursive<V: Vfs>(vfs: &V, path: &str, parent: &mut FileNode) -> VfsResult<()> {
+    |          ^^^^^^^^^^^^^^^^^^
+
+warning: function `count_files` is never used
+   --> apps/logicaffeine_web/src/ui/pages/studio.rs:300:4
+    |
+300 | fn count_files(node: &FileNode) -> usize {
+    |    ^^^^^^^^^^^
+
+warning: field `logos` is never read
+  --> apps/logicaffeine_web/src/ui/pages/benchmarks.rs:95:5
+   |
+84 | struct BenchSources {
+   |        ------------ field in this struct
+...
+95 |     logos: &'static str,
+   |     ^^^^^
+
+warning: function `App` should have a snake case name
+   --> apps/logicaffeine_web/src/ui/app.rs:396:8
+    |
+396 | pub fn App() -> Element {
+    |        ^^^ help: convert the identifier to snake case: `app`
+    |
+    = note: `#[warn(non_snake_case)]` on by default
+
+warning: unexpected `cfg` condition value: `verification`
+   --> apps/logicaffeine_cli/src/cli.rs:482:7
+    |
+482 | #[cfg(feature = "verification")]
+    |       ^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = note: expected values for `feature` are: `default`
+    = help: consider adding `verification` as a feature in `Cargo.toml`
+    = note: see <https://doc.rust-lang.org/nightly/rustc/check-cfg/cargo-specifics.html> for more information about checking conditional configuration
+    = note: `#[warn(unexpected_cfgs)]` on by default
+
+warning: unexpected `cfg` condition value: `verification`
+   --> apps/logicaffeine_cli/src/cli.rs:522:11
+    |
+522 | #[cfg(not(feature = "verification"))]
+    |           ^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = note: expected values for `feature` are: `default`
+    = help: consider adding `verification` as a feature in `Cargo.toml`
+    = note: see <https://doc.rust-lang.org/nightly/rustc/check-cfg/cargo-specifics.html> for more information about checking conditional configuration
+
+warning: unused import: `std::io::Read`
+   --> apps/logicaffeine_cli/src/project/registry.rs:157:13
+    |
+157 |         use std::io::Read;
+    |             ^^^^^^^^^^^^^
+    |
+    = note: `#[warn(unused_imports)]` on by default
+
+warning: unused import: `std::fs::File`
+   --> apps/logicaffeine_cli/src/project/registry.rs:234:9
+    |
+234 |     use std::fs::File;
+    |         ^^^^^^^^^^^^^
+
+warning: unused import: `std::io::Write`
+   --> apps/logicaffeine_cli/src/project/registry.rs:235:9
+    |
+235 |     use std::io::Write;
+    |         ^^^^^^^^^^^^^^
+
+warning: unused import: `compile_to_rust`
+  --> crates/logicaffeine_tests/tests/common/mod.rs:10:41
+   |
+10 | pub use logicaffeine_compile::compile::{compile_to_rust, compile_program_full};
+   |                                         ^^^^^^^^^^^^^^^
+   |
+   = note: `#[warn(unused_imports)]` on by default
+
+warning: function `parse_to_view` is never used
+  --> crates/logicaffeine_tests/tests/common/mod.rs:26:8
+   |
+26 | pub fn parse_to_view(input: &str) -> ExprView<'static> {
+   |        ^^^^^^^^^^^^^
+   |
+   = note: `#[warn(dead_code)]` on by default
+
+warning: struct `CompileResult` is never constructed
+   --> crates/logicaffeine_tests/tests/common/mod.rs:133:12
+    |
+133 | pub struct CompileResult {
+    |            ^^^^^^^^^^^^^
+
+warning: function `compile_logos` is never used
+   --> crates/logicaffeine_tests/tests/common/mod.rs:163:8
+    |
+163 | pub fn compile_logos(source: &str) -> CompileResult {
+    |        ^^^^^^^^^^^^^
+
+warning: function `assert_output` is never used
+   --> crates/logicaffeine_tests/tests/common/mod.rs:306:8
+    |
+306 | pub fn assert_output(source: &str, expected: &str) {
+    |        ^^^^^^^^^^^^^
+
+warning: fields `stdout`, `stderr`, `success`, `rust_code`, and `c_code` are never read
+   --> crates/logicaffeine_tests/tests/common/mod.rs:502:9
+    |
+501 | pub struct CLinkResult {
+    |            ----------- fields in this struct
+502 |     pub stdout: String,
+    |         ^^^^^^
+503 |     pub stderr: String,
+    |         ^^^^^^
+504 |     pub success: bool,
+    |         ^^^^^^^
+505 |     pub rust_code: String,
+    |         ^^^^^^^^^
+506 |     pub c_code: String,
+    |         ^^^^^^
+
+warning: `logicaffeine-web` (lib) generated 28 warnings (run `cargo fix --lib -p logicaffeine-web` to apply 12 suggestions)
+warning: `logicaffeine-cli` (lib) generated 5 warnings (run `cargo fix --lib -p logicaffeine-cli` to apply 3 suggestions)
+warning: `logicaffeine-web` (lib test) generated 28 warnings (28 duplicates)
+warning: `logicaffeine-cli` (lib test) generated 5 warnings (5 duplicates)
+warning: `logicaffeine-tests` (test "phase_interpreter_crdt") generated 6 warnings (run `cargo fix --test "phase_interpreter_crdt"` to apply 1 suggestion)
+warning: unused import: `std::thread`
+   --> crates/logicaffeine_tests/tests/e2e_gossip_edge_cases.rs:119:9
+    |
+119 |     use std::thread;
+    |         ^^^^^^^^^^^
+
+warning: unused import: `std::time::Duration`
+   --> crates/logicaffeine_tests/tests/e2e_gossip_edge_cases.rs:120:9
+    |
+120 |     use std::time::Duration;
+    |         ^^^^^^^^^^^^^^^^^^^
+
+warning: fields `stderr` and `rust_code` are never read
+   --> crates/logicaffeine_tests/tests/common/mod.rs:135:9
+    |
+133 | pub struct CompileResult {
+    |            ------------- fields in this struct
+134 |     pub binary_path: std::path::PathBuf,
+135 |     pub stderr: String,
+    |         ^^^^^^
+136 |     pub success: bool,
+137 |     pub rust_code: String,
+    |         ^^^^^^^^^
+
+warning: `logicaffeine-tests` (test "e2e_interpreter_gaps") generated 6 warnings (6 duplicates)
+warning: `logicaffeine-tests` (test "e2e_gossip_edge_cases") generated 7 warnings (4 duplicates) (run `cargo fix --test "e2e_gossip_edge_cases"` to apply 2 suggestions)
+warning: `logicaffeine-tests` (test "e2e_sets") generated 6 warnings (6 duplicates)
+warning: `logicaffeine-tests` (test "phase_polyhedral") generated 5 warnings (5 duplicates)
+warning: `logicaffeine-tests` (test "e2e_types") generated 6 warnings (6 duplicates)
+warning: unused variable: `add_count`
+    --> crates/logicaffeine_tests/tests/phase_optimize.rs:1946:9
+     |
+1946 |     let add_count = rust.matches("(a + b)").count() + rust.matches("a + b").count() / 2;
+     |         ^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_add_count`
+     |
+     = note: `#[warn(unused_variables)]` on by default
+
+warning: unused variable: `rust`
+    --> crates/logicaffeine_tests/tests/phase_optimize.rs:2192:9
+     |
+2192 |     let rust = compile_to_rust(source).unwrap();
+     |         ^^^^ help: if this is intentional, prefix it with an underscore: `_rust`
+
+warning: unused variable: `rust`
+    --> crates/logicaffeine_tests/tests/phase_optimize.rs:2880:9
+     |
+2880 |     let rust = compile_to_rust(source).unwrap();
+     |         ^^^^ help: if this is intentional, prefix it with an underscore: `_rust`
+
+warning: `logicaffeine-tests` (test "user_concurrency") generated 6 warnings (6 duplicates)
+warning: `logicaffeine-tests` (test "phase_partial_eval") generated 5 warnings (5 duplicates)
+warning: `logicaffeine-tests` (test "phase10_io") generated 5 warnings (5 duplicates)
+warning: `logicaffeine-tests` (test "phase_optimize") generated 8 warnings (5 duplicates)
+warning: `logicaffeine-tests` (test "e2e_integration") generated 6 warnings (6 duplicates)
+warning: unused imports: `assert_output_contains_all`, `assert_output_lines`, and `assert_runs`
+ --> crates/logicaffeine_tests/tests/e2e_concurrency.rs:6:25
+  |
+6 | use common::{run_logos, assert_runs, assert_exact_output, assert_output_contains_all, assert_output_lines};
+  |                         ^^^^^^^^^^^                       ^^^^^^^^^^^^^^^^^^^^^^^^^^  ^^^^^^^^^^^^^^^^^^^
+
+warning: `logicaffeine-tests` (test "e2e_codegen_edge_cases") generated 6 warnings (6 duplicates)
+warning: `logicaffeine-tests` (test "e2e_closures") generated 6 warnings (6 duplicates)
+warning: `logicaffeine-tests` (test "e2e_concurrency") generated 7 warnings (6 duplicates) (run `cargo fix --test "e2e_concurrency"` to apply 1 suggestion)
+warning: unused variable: `rust`
+   --> crates/logicaffeine_tests/tests/phase_mountain_climb.rs:166:9
+    |
+166 |     let rust = compile_to_rust(source).unwrap();
+    |         ^^^^ help: if this is intentional, prefix it with an underscore: `_rust`
+    |
+    = note: `#[warn(unused_variables)]` on by default
+
+warning: `logicaffeine-tests` (test "phase_mountain_climb") generated 6 warnings (5 duplicates)
+warning: `logicaffeine-tests` (test "phase50_security") generated 5 warnings (5 duplicates)
+warning: unused import: `Token`
+ --> crates/logicaffeine_tests/tests/phase22_equals.rs:2:36
+  |
+2 | use logicaffeine_language::{Lexer, Token, TokenType};
+  |                                    ^^^^^
+  |
+  = note: `#[warn(unused_imports)]` on by default
+
+warning: `logicaffeine-tests` (test "e2e_mesh") generated 6 warnings (6 duplicates)
+warning: `logicaffeine-tests` (test "phase102_bridge") generated 5 warnings (5 duplicates)
+warning: `logicaffeine-tests` (test "phase22_equals") generated 1 warning (run `cargo fix --test "phase22_equals"` to apply 1 suggestion)
+warning: unused import: `DerivationTree`
+  --> crates/logicaffeine_tests/tests/phase68_auto_induction.rs:15:22
+   |
+15 |     BackwardChainer, DerivationTree, InferenceRule, ProofExpr, ProofTerm,
+   |                      ^^^^^^^^^^^^^^
+   |
+   = note: `#[warn(unused_imports)]` on by default
+
+warning: unused import: `logicaffeine_proof::unify::beta_reduce`
+   --> crates/logicaffeine_tests/tests/phase68_auto_induction.rs:252:9
+    |
+252 |     use logicaffeine_proof::unify::beta_reduce;
+    |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: unused import: `common::compile_to_rust`
+ --> crates/logicaffeine_tests/tests/phase_effects.rs:3:5
+  |
+3 | use common::compile_to_rust;
+  |     ^^^^^^^^^^^^^^^^^^^^^^^
+  |
+  = note: `#[warn(unused_imports)]` on by default
+
+warning: unused import: `EffectSet`
+   --> crates/logicaffeine_tests/tests/phase_effects.rs:164:58
+    |
+164 | use logicaffeine_compile::optimize::effects::{EffectEnv, EffectSet};
+    |                                                          ^^^^^^^^^
+
+warning: `logicaffeine-tests` (test "phase68_auto_induction") generated 2 warnings (run `cargo fix --test "phase68_auto_induction"` to apply 2 suggestions)
+warning: `logicaffeine-tests` (test "phase_effects") generated 7 warnings (5 duplicates) (run `cargo fix --test "phase_effects"` to apply 2 suggestions)
+warning: `logicaffeine-tests` (test "e2e_variables") generated 6 warnings (6 duplicates)
+warning: variable does not need to be mutable
+  --> crates/logicaffeine_tests/tests/e2e_gossip.rs:72:9
+   |
+72 |     let mut child_a = Command::new(&result_a.binary_path)
+   |         ----^^^^^^^
+   |         |
+   |         help: remove this `mut`
+   |
+   = note: `#[warn(unused_mut)]` on by default
+
+warning: variable does not need to be mutable
+  --> crates/logicaffeine_tests/tests/e2e_gossip.rs:81:9
+   |
+81 |     let mut child_b = Command::new(&result_b.binary_path)
+   |         ----^^^^^^^
+   |         |
+   |         help: remove this `mut`
+
+warning: field `rust_code` is never read
+   --> crates/logicaffeine_tests/tests/common/mod.rs:137:9
+    |
+133 | pub struct CompileResult {
+    |            ------------- field in this struct
+...
+137 |     pub rust_code: String,
+    |         ^^^^^^^^^
+
+warning: `logicaffeine-tests` (test "phase51_mesh") generated 5 warnings (5 duplicates)
+warning: `logicaffeine-tests` (test "phase_interpreter_policy") generated 6 warnings (6 duplicates)
+warning: `logicaffeine-tests` (test "e2e_codegen_structs") generated 6 warnings (6 duplicates)
+warning: `logicaffeine-tests` (test "e2e_gossip") generated 7 warnings (4 duplicates) (run `cargo fix --test "e2e_gossip"` to apply 2 suggestions)
+warning: function `test_parseInt_codegen` should have a snake case name
+   --> crates/logicaffeine_tests/tests/phase38_stdlib.rs:208:4
+    |
+208 | fn test_parseInt_codegen() {
+    |    ^^^^^^^^^^^^^^^^^^^^^ help: convert the identifier to snake case: `test_parse_int_codegen`
+    |
+    = note: `#[warn(non_snake_case)]` on by default
+
+warning: function `test_parseFloat_codegen` should have a snake case name
+   --> crates/logicaffeine_tests/tests/phase38_stdlib.rs:225:4
+    |
+225 | fn test_parseFloat_codegen() {
+    |    ^^^^^^^^^^^^^^^^^^^^^^^ help: convert the identifier to snake case: `test_parse_float_codegen`
+
+warning: function `test_parseInt_interpreter` should have a snake case name
+   --> crates/logicaffeine_tests/tests/phase38_stdlib.rs:259:4
+    |
+259 | fn test_parseInt_interpreter() {
+    |    ^^^^^^^^^^^^^^^^^^^^^^^^^ help: convert the identifier to snake case: `test_parse_int_interpreter`
+
+warning: function `test_parseFloat_interpreter` should have a snake case name
+   --> crates/logicaffeine_tests/tests/phase38_stdlib.rs:275:4
+    |
+275 | fn test_parseFloat_interpreter() {
+    |    ^^^^^^^^^^^^^^^^^^^^^^^^^^^ help: convert the identifier to snake case: `test_parse_float_interpreter`
+
+warning: unused import: `std::io::Write`
+   --> crates/logicaffeine_tests/tests/grand_challenge_mergesort.rs:304:9
+    |
+304 |     use std::io::Write;
+    |         ^^^^^^^^^^^^^^
+    |
+    = note: `#[warn(unused_imports)]` on by default
+
+warning: `logicaffeine-tests` (test "phase_abstract_interp") generated 5 warnings (5 duplicates)
+warning: `logicaffeine-tests` (test "e2e_codegen_variables") generated 6 warnings (6 duplicates)
+warning: `logicaffeine-tests` (test "e2e_functions") generated 6 warnings (6 duplicates)
+warning: `logicaffeine-tests` (test "phase38_stdlib") generated 10 warnings (6 duplicates)
+warning: `logicaffeine-tests` (test "grand_challenge_mergesort") generated 1 warning (run `cargo fix --test "grand_challenge_mergesort"` to apply 1 suggestion)
+warning: field `binary_path` is never read
+   --> crates/logicaffeine_tests/tests/common/mod.rs:134:9
+    |
+133 | pub struct CompileResult {
+    |            ------------- field in this struct
+134 |     pub binary_path: std::path::PathBuf,
+    |         ^^^^^^^^^^^
+
+warning: `logicaffeine-tests` (test "phase54_concurrency") generated 5 warnings (5 duplicates)
+warning: `logicaffeine-tests` (test "phase_codegen_c") generated 6 warnings (6 duplicates)
+warning: `logicaffeine-tests` (test "e2e_feature_matrix") generated 5 warnings (4 duplicates)
+warning: `logicaffeine-tests` (test "e2e_crdt") generated 6 warnings (6 duplicates)
+warning: `logicaffeine-tests` (test "e2e_codegen_enums") generated 6 warnings (6 duplicates)
+warning: `logicaffeine-tests` (test "e2e_codegen_gaps") generated 6 warnings (6 duplicates)
+warning: `logicaffeine-tests` (test "e2e_codegen_maps") generated 6 warnings (6 duplicates)
+warning: `logicaffeine-tests` (test "e2e_string_interpolation") generated 6 warnings (6 duplicates)
+warning: `logicaffeine-tests` (test "phase_crdt_variants") generated 5 warnings (5 duplicates)
+warning: unexpected `cfg` condition value: `cli`
+ --> crates/logicaffeine_tests/tests/phase37_cli.rs:7:8
+  |
+7 | #![cfg(feature = "cli")]
+  |        ^^^^^^^^^^^^^^^
+  |
+  = note: expected values for `feature` are: `default`, `ffi-link-tests`, `verification`, and `web-tests`
+  = help: consider adding `cli` as a feature in `Cargo.toml`
+  = note: see <https://doc.rust-lang.org/nightly/rustc/check-cfg/cargo-specifics.html> for more information about checking conditional configuration
+  = note: `#[warn(unexpected_cfgs)]` on by default
+
+warning: unused import: `Substitution`
+  --> crates/logicaffeine_tests/tests/phase60_proof_engine.rs:17:46
+   |
+17 | use logicaffeine_proof::unify::{unify_terms, Substitution};
+   |                                              ^^^^^^^^^^^^
+   |
+   = note: `#[warn(unused_imports)]` on by default
+
+warning: struct `CompileResult` is never constructed
+   --> crates/logicaffeine_tests/tests/common/mod.rs:133:12
+    |
+133 | pub struct CompileResult {
+    |            ^^^^^^^^^^^^^
+    |
+    = note: `#[warn(dead_code)]` on by default
+
+warning: `logicaffeine-tests` (test "phase_interpret_mode") generated 6 warnings (6 duplicates)
+warning: `logicaffeine-tests` (test "e2e_control_flow") generated 6 warnings (6 duplicates)
+warning: `logicaffeine-tests` (test "phase37_cli") generated 1 warning
+warning: `logicaffeine-tests` (test "phase60_proof_engine") generated 1 warning (run `cargo fix --test "phase60_proof_engine"` to apply 1 suggestion)
+warning: `logicaffeine-tests` (test "e2e_async_cross_cutting") generated 6 warnings (6 duplicates)
+warning: `logicaffeine-tests` (test "e2e_logical") generated 6 warnings (6 duplicates)
+warning: `logicaffeine-tests` (test "e2e_studio_examples") generated 5 warnings (4 duplicates)
+warning: unused import: `Merge`
+   --> crates/logicaffeine_tests/tests/phase_crdt_ormap.rs:176:47
+    |
+176 |     use logicaffeine_data::crdt::{MVRegister, Merge, ORMap};
+    |                                               ^^^^^
+    |
+    = note: `#[warn(unused_imports)]` on by default
+
+warning: `logicaffeine-tests` (test "e2e_expressions") generated 6 warnings (6 duplicates)
+warning: `logicaffeine-tests` (test "e2e_collections") generated 6 warnings (6 duplicates)
+warning: `logicaffeine-tests` (test "e2e_maps") generated 6 warnings (6 duplicates)
+warning: `logicaffeine-tests` (test "phase_crdt_ormap") generated 1 warning (run `cargo fix --test "phase_crdt_ormap"` to apply 1 suggestion)
+warning: unused import: `Merge`
+   --> crates/logicaffeine_tests/tests/phase_crdt_orset.rs:244:35
+    |
+244 |     use logicaffeine_data::crdt::{Merge, ORSet};
+    |                                   ^^^^^
+    |
+    = note: `#[warn(unused_imports)]` on by default
+
+warning: fields `binary_path` and `rust_code` are never read
+   --> crates/logicaffeine_tests/tests/common/mod.rs:134:9
+    |
+133 | pub struct CompileResult {
+    |            ------------- fields in this struct
+134 |     pub binary_path: std::path::PathBuf,
+    |         ^^^^^^^^^^^
+...
+137 |     pub rust_code: String,
+    |         ^^^^^^^^^
+
+warning: unused import: `assert_runs`
+  --> crates/logicaffeine_tests/tests/e2e_language_gaps.rs:27:35
+   |
+27 | use common::{assert_exact_output, assert_runs, run_logos, assert_panics};
+   |                                   ^^^^^^^^^^^
+
+warning: `logicaffeine-tests` (test "e2e_tuples") generated 6 warnings (6 duplicates)
+warning: `logicaffeine-tests` (test "e2e_zones") generated 6 warnings (6 duplicates)
+warning: `logicaffeine-tests` (test "phase_crdt_orset") generated 1 warning (run `cargo fix --test "phase_crdt_orset"` to apply 1 suggestion)
+warning: `logicaffeine-tests` (test "phase_escape_hatch") generated 3 warnings (2 duplicates)
+warning: `logicaffeine-tests` (test "e2e_language_gaps") generated 7 warnings (6 duplicates) (run `cargo fix --test "e2e_language_gaps"` to apply 1 suggestion)
+warning: field `pause_receive` is never read
+   --> crates/logicaffeine_system/src/network/mesh.rs:760:13
+    |
+758 |     pub struct MeshTestControl {
+    |                --------------- field in this struct
+759 |         pub pause_publish: AtomicBool,
+760 |         pub pause_receive: AtomicBool,
+    |             ^^^^^^^^^^^^^
+    |
+    = note: `#[warn(dead_code)]` on by default
+
+warning: function `pause_network` is never used
+   --> crates/logicaffeine_system/src/network/mesh.rs:774:12
+    |
+774 |     pub fn pause_network() {
+    |            ^^^^^^^^^^^^^
+
+warning: function `resume_network` is never used
+   --> crates/logicaffeine_system/src/network/mesh.rs:778:12
+    |
+778 |     pub fn resume_network() {
+    |            ^^^^^^^^^^^^^^
+
+warning: function `get_retry_count` is never used
+   --> crates/logicaffeine_system/src/network/mesh.rs:790:12
+    |
+790 |     pub fn get_retry_count() -> u32 {
+    |            ^^^^^^^^^^^^^^^
+
+warning: function `reset_retry_count` is never used
+   --> crates/logicaffeine_system/src/network/mesh.rs:794:12
+    |
+794 |     pub fn reset_retry_count() {
+    |            ^^^^^^^^^^^^^^^^^
+
+warning: unused import: `SymbolEntry`
+ --> crates/logicaffeine_tests/tests/symbol_dict_tests.rs:6:59
+  |
+6 | use logicaffeine_language::symbol_dict::{extract_symbols, SymbolEntry, SymbolKind};
+  |                                                           ^^^^^^^^^^^
+  |
+  = note: `#[warn(unused_imports)]` on by default
+
+warning: `logicaffeine-tests` (test "e2e_iteration") generated 6 warnings (6 duplicates)
+warning: `logicaffeine-system` (lib test) generated 7 warnings (2 duplicates)
+warning: `logicaffeine-tests` (test "phase_crdt_language") generated 6 warnings (6 duplicates)
+warning: `logicaffeine-tests` (test "symbol_dict_tests") generated 1 warning (run `cargo fix --test "symbol_dict_tests"` to apply 1 suggestion)
+warning: `logicaffeine-tests` (test "e2e_codegen_functions") generated 6 warnings (6 duplicates)
+warning: unused variable: `body_type`
+  --> crates/logicaffeine_tests/tests/phase70b_elimination.rs:83:13
+   |
+83 |             body_type,
+   |             ^^^^^^^^^-
+   |             |
+   |             help: try removing the field
+   |
+   = note: `#[warn(unused_variables)]` on by default
+
+warning: `logicaffeine-tests` (test "e2e_edge_cases") generated 6 warnings (6 duplicates)
+warning: `logicaffeine-tests` (test "phase70b_elimination") generated 1 warning (run `cargo fix --test "phase70b_elimination"` to apply 1 suggestion)
+warning: `logicaffeine-tests` (test "e2e_refinement") generated 6 warnings (6 duplicates)
+warning: unused variable: `has_passive`
+   --> crates/logicaffeine_tests/tests/torture_tests.rs:514:17
+    |
+514 |             let has_passive = output.contains("Pass") || output.contains("Agent");
+    |                 ^^^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_has_passive`
+    |
+    = note: `#[warn(unused_variables)]` on by default
+
+warning: unused import: `compile_all_scopes`
+ --> crates/logicaffeine_tests/tests/modal_scope_tests.rs:1:54
+  |
+1 | use logicaffeine_language::{compile, compile_simple, compile_all_scopes, compile_forest};
+  |                                                      ^^^^^^^^^^^^^^^^^^
+  |
+  = note: `#[warn(unused_imports)]` on by default
+
+warning: `logicaffeine-tests` (test "e2e_codegen_types") generated 6 warnings (6 duplicates)
+warning: `logicaffeine-tests` (test "torture_tests") generated 1 warning
+warning: `logicaffeine-tests` (test "e2e_interpreter_optimization") generated 6 warnings (6 duplicates)
+warning: `logicaffeine-tests` (test "e2e_codegen_optimization") generated 5 warnings (5 duplicates)
+warning: `logicaffeine-tests` (test "e2e_codegen_primitives") generated 6 warnings (6 duplicates)
+warning: `logicaffeine-tests` (test "modal_scope_tests") generated 1 warning (run `cargo fix --test "modal_scope_tests"` to apply 1 suggestion)
+warning: unused variable: `type_env`
+   --> crates/logicaffeine_tests/tests/phase24_codegen.rs:324:9
+    |
+324 |     let type_env = logicaffeine_compile::analysis::types::TypeEnv::new();
+    |         ^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_type_env`
+    |
+    = note: `#[warn(unused_variables)]` on by default
+
+warning: unused variable: `arena`
+   --> crates/logicaffeine_tests/tests/phase24_codegen.rs:669:9
+    |
+669 |     let arena: Arena<Stmt> = Arena::new();
+    |         ^^^^^ help: if this is intentional, prefix it with an underscore: `_arena`
+
+warning: function `empty_registry` is never used
+  --> crates/logicaffeine_tests/tests/phase24_codegen.rs:33:4
+   |
+33 | fn empty_registry(interner: &mut Interner) -> TypeRegistry {
+   |    ^^^^^^^^^^^^^^
+   |
+   = note: `#[warn(dead_code)]` on by default
+
+warning: function `empty_registry` is never used
+  --> crates/logicaffeine_tests/tests/phase57_maps.rs:20:4
+   |
+20 | fn empty_registry(interner: &mut Interner) -> TypeRegistry {
+   |    ^^^^^^^^^^^^^^
+   |
+   = note: `#[warn(dead_code)]` on by default
+
+warning: unused import: `infer_to_logos`
+  --> crates/logicaffeine_compile/src/analysis/check.rs:23:89
+   |
+23 | use crate::analysis::unify::{InferType, TyVar, TypeScheme, TypeError, UnificationTable, infer_to_logos, unify_numeric};
+   |                                                                                         ^^^^^^^^^^^^^^
+   |
+   = note: `#[warn(unused_imports)]` on by default
+
+warning: unused imports: `FieldDef` and `TypeDef`
+   --> crates/logicaffeine_compile/src/analysis/unify.rs:770:27
+    |
+770 |     use crate::analysis::{FieldDef, TypeDef};
+    |                           ^^^^^^^^  ^^^^^^^
+
+warning: variable does not need to be mutable
+   --> crates/logicaffeine_compile/src/analysis/escape.rs:370:13
+    |
+370 |         let mut interner = Interner::new();
+    |             ----^^^^^^^^
+    |             |
+    |             help: remove this `mut`
+    |
+    = note: `#[warn(unused_mut)]` on by default
+
+warning: `logicaffeine-tests` (test "phase24_codegen") generated 3 warnings
+warning: `logicaffeine-tests` (test "phase_benchmark_interp") generated 6 warnings (6 duplicates)
+warning: `logicaffeine-tests` (test "phase57_maps") generated 1 warning
+warning: `logicaffeine-tests` (test "phase_interpreter_map_keys") generated 6 warnings (6 duplicates)
+warning: `logicaffeine-compile` (lib test) generated 76 warnings (73 duplicates) (run `cargo fix --lib -p logicaffeine-compile --tests` to apply 3 suggestions)
+warning: `logicaffeine-tests` (test "phase85_zones") generated 5 warnings (5 duplicates)
+warning: unused import: `DerivationTree`
+  --> crates/logicaffeine_tests/tests/phase61_induction.rs:14:22
+   |
+14 |     BackwardChainer, DerivationTree, InferenceRule, MatchArm, ProofExpr, ProofTerm,
+   |                      ^^^^^^^^^^^^^^
+   |
+   = note: `#[warn(unused_imports)]` on by default
+
+warning: unused import: `logicaffeine_proof::error::ProofError`
+  --> crates/logicaffeine_tests/tests/phase61_induction.rs:16:5
+   |
+16 | use logicaffeine_proof::error::ProofError;
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: unused variable: `has_say_with_one_arg`
+  --> crates/logicaffeine_tests/tests/phase5_wh_movement.rs:56:9
+   |
+56 |     let has_say_with_one_arg = output.contains("S(J)") || output.contains("Say(J)");
+   |         ^^^^^^^^^^^^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_has_say_with_one_arg`
+   |
+   = note: `#[warn(unused_variables)]` on by default
+
+warning: `logicaffeine-tests` (test "phase61_induction") generated 2 warnings (run `cargo fix --test "phase61_induction"` to apply 2 suggestions)
+warning: `logicaffeine-tests` (test "phase103_generics") generated 5 warnings (5 duplicates)
+warning: `logicaffeine-tests` (test "audit_codegen") generated 5 warnings (5 duplicates)
+warning: `logicaffeine-tests` (test "phase5_wh_movement") generated 1 warning
+warning: `logicaffeine-tests` (test "e2e_codegen_iteration") generated 6 warnings (6 duplicates)
+warning: `logicaffeine-tests` (test "phase_supercompile") generated 5 warnings (5 duplicates)
+warning: `logicaffeine-tests` (test "e2e_codegen_sets") generated 6 warnings (6 duplicates)
+warning: `logicaffeine-tests` (test "e2e_temporal") generated 6 warnings (6 duplicates)
+warning: `logicaffeine-tests` (test "phase_deforestation") generated 5 warnings (5 duplicates)
+warning: `logicaffeine-tests` (test "e2e_temporal_show") generated 6 warnings (6 duplicates)
+warning: `logicaffeine-tests` (test "phase49_crdt") generated 5 warnings (5 duplicates)
+warning: unused import: `Term`
+  --> crates/logicaffeine_tests/tests/phase80_equality_rewriting.rs:18:39
+   |
+18 | use logicaffeine_kernel::{infer_type, Term};
+   |                                       ^^^^
+   |
+   = note: `#[warn(unused_imports)]` on by default
+
+warning: unused import: `std::thread`
+   --> crates/logicaffeine_tests/tests/e2e_causal_consistency.rs:114:9
+    |
+114 |     use std::thread;
+    |         ^^^^^^^^^^^
+
+warning: unused import: `std::time::Duration`
+   --> crates/logicaffeine_tests/tests/e2e_causal_consistency.rs:115:9
+    |
+115 |     use std::time::Duration;
+    |         ^^^^^^^^^^^^^^^^^^^
+
+warning: variable does not need to be mutable
+  --> crates/logicaffeine_tests/tests/e2e_causal_consistency.rs:79:9
+   |
+79 |     let mut child_a = Command::new(&result_a.binary_path)
+   |         ----^^^^^^^
+   |         |
+   |         help: remove this `mut`
+   |
+   = note: `#[warn(unused_mut)]` on by default
+
+warning: variable does not need to be mutable
+  --> crates/logicaffeine_tests/tests/e2e_causal_consistency.rs:87:9
+   |
+87 |     let mut child_b = Command::new(&result_b.binary_path)
+   |         ----^^^^^^^
+   |         |
+   |         help: remove this `mut`
+
+warning: variable does not need to be mutable
+   --> crates/logicaffeine_tests/tests/e2e_causal_consistency.rs:161:9
+    |
+161 |     let mut child_a = Command::new(&result_a.binary_path)
+    |         ----^^^^^^^
+    |         |
+    |         help: remove this `mut`
+
+warning: variable does not need to be mutable
+   --> crates/logicaffeine_tests/tests/e2e_causal_consistency.rs:167:9
+    |
+167 |     let mut child_b = Command::new(&result_b.binary_path)
+    |         ----^^^^^^^
+    |         |
+    |         help: remove this `mut`
+
+warning: variable does not need to be mutable
+   --> crates/logicaffeine_tests/tests/e2e_causal_consistency.rs:256:9
+    |
+256 |     let mut child_a = Command::new(&result_a.binary_path)
+    |         ----^^^^^^^
+    |         |
+    |         help: remove this `mut`
+
+warning: variable does not need to be mutable
+   --> crates/logicaffeine_tests/tests/e2e_causal_consistency.rs:264:9
+    |
+264 |     let mut child_b = Command::new(&result_b.binary_path)
+    |         ----^^^^^^^
+    |         |
+    |         help: remove this `mut`
+
+warning: variable does not need to be mutable
+   --> crates/logicaffeine_tests/tests/e2e_causal_consistency.rs:272:9
+    |
+272 |     let mut child_c = Command::new(&result_c.binary_path)
+    |         ----^^^^^^^
+    |         |
+    |         help: remove this `mut`
+
+warning: `logicaffeine-tests` (test "phase80_equality_rewriting") generated 1 warning (run `cargo fix --test "phase80_equality_rewriting"` to apply 1 suggestion)
+warning: `logicaffeine-tests` (test "e2e_structs") generated 6 warnings (6 duplicates)
+warning: `logicaffeine-tests` (test "phase48_network") generated 5 warnings (5 duplicates)
+warning: `logicaffeine-tests` (test "test_concurrency") generated 6 warnings (6 duplicates)
+warning: `logicaffeine-tests` (test "e2e_causal_consistency") generated 14 warnings (5 duplicates) (run `cargo fix --test "e2e_causal_consistency"` to apply 9 suggestions)
+warning: `logicaffeine-tests` (test "aktionsart_tests") generated 5 warnings (5 duplicates)
+warning: `logicaffeine-tests` (test "e2e_primitives") generated 6 warnings (6 duplicates)
+warning: `logicaffeine-tests` (test "phase_futamura") generated 6 warnings (6 duplicates)
+warning: `logicaffeine-tests` (test "phase25_type_expr") generated 6 warnings (6 duplicates)
+warning: `logicaffeine-tests` (test "e2e_comparisons") generated 6 warnings (6 duplicates)
+warning: unused import: `CompileError`
+  --> crates/logicaffeine_tests/tests/diagnostic_bridge.rs:10:54
+   |
+10 | use logicaffeine_compile::compile::{compile_and_run, CompileError};
+   |                                                      ^^^^^^^^^^^^
+
+warning: function `assert_friendly_error` is never used
+  --> crates/logicaffeine_tests/tests/diagnostic_bridge.rs:23:4
+   |
+23 | fn assert_friendly_error(error: &str, expected_contains: &[&str], forbidden_patterns: &[&str]) {
+   |    ^^^^^^^^^^^^^^^^^^^^^
+   |
+   = note: `#[warn(dead_code)]` on by default
+
+warning: function `parse_to_view` is never used
+  --> crates/logicaffeine_tests/tests/common/mod.rs:26:8
+   |
+26 | pub fn parse_to_view(input: &str) -> ExprView<'static> {
+   |        ^^^^^^^^^^^^^
+
+warning: unused import: `logicaffeine_language::mwe`
+ --> crates/logicaffeine_tests/tests/phase32_functions.rs:9:5
+  |
+9 | use logicaffeine_language::mwe;
+  |     ^^^^^^^^^^^^^^^^^^^^^^^^^^
+  |
+  = note: `#[warn(unused_imports)]` on by default
+
+warning: `logicaffeine-tests` (test "e2e_codegen_tuples") generated 6 warnings (6 duplicates)
+warning: `logicaffeine-tests` (test "diagnostic_bridge") generated 8 warnings (5 duplicates) (run `cargo fix --test "diagnostic_bridge"` to apply 1 suggestion)
+warning: `logicaffeine-tests` (test "e2e_math_builtins") generated 6 warnings (6 duplicates)
+warning: `logicaffeine-tests` (test "phase32_functions") generated 1 warning (run `cargo fix --test "phase32_functions"` to apply 1 suggestion)
+warning: `logicaffeine-tests` (test "phase_bta") generated 5 warnings (5 duplicates)
+warning: unused import: `std::thread`
+   --> crates/logicaffeine_tests/tests/e2e_multi_node.rs:238:9
+    |
+238 |     use std::thread;
+    |         ^^^^^^^^^^^
+
+warning: unused import: `std::time::Duration`
+   --> crates/logicaffeine_tests/tests/e2e_multi_node.rs:239:9
+    |
+239 |     use std::time::Duration;
+    |         ^^^^^^^^^^^^^^^^^^^
+
+warning: variable does not need to be mutable
+   --> crates/logicaffeine_tests/tests/e2e_multi_node.rs:105:9
+    |
+105 |     let mut child_a = Command::new(&result_a.binary_path)
+    |         ----^^^^^^^
+    |         |
+    |         help: remove this `mut`
+    |
+    = note: `#[warn(unused_mut)]` on by default
+
+warning: variable does not need to be mutable
+   --> crates/logicaffeine_tests/tests/e2e_multi_node.rs:113:9
+    |
+113 |     let mut child_b = Command::new(&result_b.binary_path)
+    |         ----^^^^^^^
+    |         |
+    |         help: remove this `mut`
+
+warning: variable does not need to be mutable
+   --> crates/logicaffeine_tests/tests/e2e_multi_node.rs:121:9
+    |
+121 |     let mut child_c = Command::new(&result_c.binary_path)
+    |         ----^^^^^^^
+    |         |
+    |         help: remove this `mut`
+
+warning: variable does not need to be mutable
+   --> crates/logicaffeine_tests/tests/e2e_multi_node.rs:203:9
+    |
+203 |     let mut child_a = Command::new(&result_a.binary_path)
+    |         ----^^^^^^^
+    |         |
+    |         help: remove this `mut`
+
+warning: variable does not need to be mutable
+   --> crates/logicaffeine_tests/tests/e2e_multi_node.rs:212:9
+    |
+212 |     let mut child_b = Command::new(&result_b.binary_path)
+    |         ----^^^^^^^
+    |         |
+    |         help: remove this `mut`
+
+warning: variable does not need to be mutable
+   --> crates/logicaffeine_tests/tests/e2e_multi_node.rs:299:9
+    |
+299 |     let mut child_a = Command::new(&result_a.binary_path)
+    |         ----^^^^^^^
+    |         |
+    |         help: remove this `mut`
+
+warning: variable does not need to be mutable
+   --> crates/logicaffeine_tests/tests/e2e_multi_node.rs:305:9
+    |
+305 |     let mut child_b = Command::new(&result_b.binary_path)
+    |         ----^^^^^^^
+    |         |
+    |         help: remove this `mut`
+
+warning: variable does not need to be mutable
+   --> crates/logicaffeine_tests/tests/e2e_multi_node.rs:311:9
+    |
+311 |     let mut child_c = Command::new(&result_c.binary_path)
+    |         ----^^^^^^^
+    |         |
+    |         help: remove this `mut`
+
+warning: unused import: `compile_with_world_state`
+ --> crates/logicaffeine_tests/tests/integration_tests.rs:6:58
+  |
+6 | use logicaffeine_language::{compile, compile_all_scopes, compile_with_world_state, compile_with_discourse, compile_discourse, compile_amb...
+  |                                                          ^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: unused import: `OptFlag`
+ --> crates/logicaffeine_tests/tests/phase_analysis.rs:2:63
+  |
+2 | use logicaffeine_language::ast::{BinaryOpKind, Expr, Literal, OptFlag, Stmt};
+  |                                                               ^^^^^^^
+  |
+  = note: `#[warn(unused_imports)]` on by default
+
+warning: unused import: `LogosType`
+ --> crates/logicaffeine_tests/tests/phase_analysis.rs:8:54
+  |
+8 | use logicaffeine_compile::analysis::types::{TypeEnv, LogosType};
+  |                                                      ^^^^^^^^^
+
+warning: `logicaffeine-tests` (test "phase_interpreter_string_concat") generated 6 warnings (6 duplicates)
+warning: `logicaffeine-tests` (test "e2e_multi_node") generated 15 warnings (5 duplicates) (run `cargo fix --test "e2e_multi_node"` to apply 10 suggestions)
+warning: `logicaffeine-tests` (test "e2e_codegen_logical") generated 6 warnings (6 duplicates)
+warning: `logicaffeine-tests` (test "integration_tests") generated 6 warnings (5 duplicates) (run `cargo fix --test "integration_tests"` to apply 1 suggestion)
+warning: `logicaffeine-tests` (test "phase_analysis") generated 2 warnings (run `cargo fix --test "phase_analysis"` to apply 2 suggestions)
+warning: `logicaffeine-tests` (test "phase_interpreter_features") generated 6 warnings (6 duplicates)
+warning: unused import: `std::thread`
+   --> crates/logicaffeine_tests/tests/e2e_network_partition.rs:126:9
+    |
+126 |     use std::thread;
+    |         ^^^^^^^^^^^
+
+warning: unused import: `std::time::Duration`
+   --> crates/logicaffeine_tests/tests/e2e_network_partition.rs:127:9
+    |
+127 |     use std::time::Duration;
+    |         ^^^^^^^^^^^^^^^^^^^
+
+warning: variable does not need to be mutable
+  --> crates/logicaffeine_tests/tests/e2e_network_partition.rs:85:9
+   |
+85 |     let mut child_a = Command::new(&result_a.binary_path)
+   |         ----^^^^^^^
+   |         |
+   |         help: remove this `mut`
+   |
+   = note: `#[warn(unused_mut)]` on by default
+
+warning: variable does not need to be mutable
+  --> crates/logicaffeine_tests/tests/e2e_network_partition.rs:93:9
+   |
+93 |     let mut child_b = Command::new(&result_b.binary_path)
+   |         ----^^^^^^^
+   |         |
+   |         help: remove this `mut`
+
+warning: variable does not need to be mutable
+   --> crates/logicaffeine_tests/tests/e2e_network_partition.rs:181:9
+    |
+181 |     let mut child_a = Command::new(&result_a.binary_path)
+    |         ----^^^^^^^
+    |         |
+    |         help: remove this `mut`
+
+warning: variable does not need to be mutable
+   --> crates/logicaffeine_tests/tests/e2e_network_partition.rs:187:9
+    |
+187 |     let mut child_b = Command::new(&result_b.binary_path)
+    |         ----^^^^^^^
+    |         |
+    |         help: remove this `mut`
+
+warning: variable does not need to be mutable
+   --> crates/logicaffeine_tests/tests/e2e_network_partition.rs:259:9
+    |
+259 |     let mut child_a = Command::new(&result_a.binary_path)
+    |         ----^^^^^^^
+    |         |
+    |         help: remove this `mut`
+
+warning: variable does not need to be mutable
+   --> crates/logicaffeine_tests/tests/e2e_network_partition.rs:268:9
+    |
+268 |     let mut child_b = Command::new(&result_b.binary_path)
+    |         ----^^^^^^^
+    |         |
+    |         help: remove this `mut`
+
+warning: variable does not need to be mutable
+   --> crates/logicaffeine_tests/tests/e2e_network_partition.rs:348:9
+    |
+348 |     let mut child_a = Command::new(&result_a.binary_path)
+    |         ----^^^^^^^
+    |         |
+    |         help: remove this `mut`
+
+warning: variable does not need to be mutable
+   --> crates/logicaffeine_tests/tests/e2e_network_partition.rs:356:9
+    |
+356 |     let mut child_b = Command::new(&result_b.binary_path)
+    |         ----^^^^^^^
+    |         |
+    |         help: remove this `mut`
+
+warning: `logicaffeine-tests` (test "e2e_codegen_comparisons") generated 6 warnings (6 duplicates)
+warning: `logicaffeine-tests` (test "phase53_persistence") generated 5 warnings (5 duplicates)
+warning: `logicaffeine-tests` (test "e2e_codegen_collections") generated 6 warnings (6 duplicates)
+warning: `logicaffeine-tests` (test "e2e_codegen_control_flow") generated 6 warnings (6 duplicates)
+warning: `logicaffeine-tests` (test "e2e_network_partition") generated 15 warnings (5 duplicates) (run `cargo fix --test "e2e_network_partition"` to apply 10 suggestions)
+warning: function `assert_delta_crdt` is never used
+   --> crates/logicaffeine_tests/tests/phase_crdt_causal.rs:368:8
+    |
+368 |     fn assert_delta_crdt<T: DeltaCrdt>() {}
+    |        ^^^^^^^^^^^^^^^^^
+    |
+    = note: `#[warn(dead_code)]` on by default
+
+warning: `logicaffeine-tests` (test "phase_crdt_causal") generated 1 warning
+warning: `logicaffeine-tests` (test "phase_break") generated 6 warnings (6 duplicates)
+warning: `logicaffeine-tests` (test "e2e_codegen_expressions") generated 6 warnings (6 duplicates)
+warning: `logicaffeine-tests` (test "e2e_policy") generated 6 warnings (6 duplicates)
+warning: `logicaffeine-tests` (test "e2e_enums") generated 6 warnings (6 duplicates)
+warning: `logicaffeine-tests` (test "phase_optimize_v2") generated 5 warnings (5 duplicates)
+warning: method `try_parse_binary_op` is never used
+    --> crates/logicaffeine_language/src/parser/mod.rs:6124:8
+     |
+303  | impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
+     | ------------------------------------------- method in this implementation
+...
+6124 |     fn try_parse_binary_op(&mut self) -> Option<BinaryOpKind> {
+     |        ^^^^^^^^^^^^^^^^^^^
+
+warning: `logicaffeine-tests` (test "phase_ffi_requires") generated 5 warnings (5 duplicates)
+warning: `logicaffeine-tests` (test "phase46_agents") generated 5 warnings (5 duplicates)
+warning: `logicaffeine-tests` (test "phase_autoparallel") generated 5 warnings (5 duplicates)
+warning: `logicaffeine-tests` (test "phase52_sync") generated 5 warnings (5 duplicates)
+warning: `logicaffeine-tests` (test "phase9_structured_concurrency") generated 5 warnings (5 duplicates)
+warning: `logicaffeine-language` (lib test) generated 31 warnings (30 duplicates)
+warning: unused variable: `mid`
+    --> crates/logicaffeine_kernel/src/interface/literate_parser.rs:2527:30
+     |
+2527 |             if let Term::App(mid, lhs) = *outer {
+     |                              ^^^ help: if this is intentional, prefix it with an underscore: `_mid`
+
+warning: unused variable: `xp1`
+   --> crates/logicaffeine_kernel/src/lia.rs:732:13
+    |
+732 |         let xp1 = x.add(&one);
+    |             ^^^ help: if this is intentional, prefix it with an underscore: `_xp1`
+
+warning: `logicaffeine-proof` (lib test) generated 19 warnings (19 duplicates)
+warning: `logicaffeine-kernel` (lib test) generated 14 warnings (12 duplicates)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 5.41s
+     Running unittests src/lib.rs (target/debug/deps/logicaffeine_base-3fa4793e949e0d2d)
+
+running 26 tests
+test arena::tests::alloc_slice_works ... ok
+test arena::tests::alloc_returns_stable_reference ... ok
+test arena::tests::works_with_structs ... ok
+test arena::tests::alloc_empty_slice ... ok
+test arena::tests::alloc_slice_from_vec ... ok
+test intern::tests::empty_symbol_resolves_to_empty_string ... ok
+test intern::tests::intern_returns_different_symbols_for_different_strings ... ok
+test error::tests::spanned_error_display ... ok
+test intern::tests::intern_returns_same_symbol_for_same_string ... ok
+test intern::tests::is_empty_after_new ... ok
+test intern::tests::len_tracks_interned_count ... ok
+test intern::tests::not_empty_after_intern ... ok
+test intern::tests::resolve_returns_original_string ... ok
+test intern::tests::symbol_empty_is_empty_string ... ok
+test intern::tests::symbol_equality_is_fast ... ok
+test intern::tests::symbol_index_matches_position ... ok
+test intern::tests::symbol_is_case_sensitive ... ok
+test intern::tests::symbol_is_matches_interned_string ... ok
+test intern::tests::symbol_is_rejects_different_string ... ok
+test intern::tests::symbols_are_copy ... ok
+test span::tests::span_default_is_zero ... ok
+test span::tests::span_is_empty_for_zero_length ... ok
+test span::tests::span_len_returns_size ... ok
+test span::tests::span_merge_combines_ranges ... ok
+test span::tests::span_new_stores_positions ... ok
+test arena::tests::references_remain_valid_after_many_allocations ... ok
+
+test result: ok. 26 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src/lib.rs (target/debug/deps/logicaffeine_cli-36f29c3bf9d9d8fe)
+
+running 10 tests
+test project::build::tests::strip_main_wrapper_no_main_returns_unchanged ... ok
+test project::build::tests::strip_main_wrapper_extracts_body ... ok
+test project::build::tests::strip_main_wrapper_dedents_body ... ok
+test project::build::tests::strip_main_wrapper_preserves_imports ... ok
+test project::manifest::tests::create_new_manifest ... ok
+test project::manifest::tests::parse_minimal_manifest ... ok
+test project::manifest::tests::parse_path_dependency ... ok
+test project::manifest::tests::parse_full_manifest ... ok
+test project::build::tests::find_project_root_returns_none_if_not_found ... ok
+test project::build::tests::find_project_root_finds_largo_toml ... ok
+
+test result: ok. 10 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+     Running unittests src/main.rs (target/debug/deps/largo-e8594aeb281f518b)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src/lib.rs (target/debug/deps/logicaffeine_compile-c31caad4e924dfb5)
+
+running 166 tests
+test analysis::check::tests::function_call_returns_registered_type ... ok
+test analysis::check::tests::field_access_resolves_with_registry ... ok
+test analysis::check::tests::empty_list_is_seq_unknown ... ok
+test analysis::check::tests::function_def_registers_signature ... ok
+test analysis::check::tests::forward_reference_function_call ... ok
+test analysis::check::tests::let_literal_float ... ok
+test analysis::check::tests::let_literal_int ... ok
+test analysis::check::tests::generic_identity_infers_int_return ... ok
+test analysis::check::tests::generic_identity_infers_bool_return ... ok
+test analysis::check::tests::generic_calls_are_independent ... ok
+test analysis::check::tests::generic_two_type_params_first ... ok
+test analysis::check::tests::generic_forward_reference_resolves ... ok
+test analysis::check::tests::let_literal_string ... ok
+test analysis::check::tests::let_type_mismatch_fails ... ok
+test analysis::check::tests::let_with_annotation_uses_annotation ... ok
+test analysis::check::tests::monomorphic_functions_unaffected_by_generics ... ok
+test analysis::check::tests::new_user_defined_is_user_defined_type ... ok
+test analysis::check::tests::non_empty_list_infers_element_type ... ok
+test analysis::check::tests::option_none_is_option_unknown ... ok
+test analysis::check::tests::option_some_infers_inner_type ... ok
+test analysis::check::tests::readfrom_is_string ... ok
+test analysis::check::tests::repeat_loop_var_gets_element_type ... ok
+test analysis::check::tests::return_type_mismatch_fails ... ok
+test analysis::escape::tests::test_escape_checker_basic ... ok
+test analysis::ownership::tests::test_ownership_checker_basic ... ok
+test analysis::check::tests::string_vars_in_legacy_api ... ok
+test analysis::check::tests::unknown_vars_filtered_in_legacy_api ... ok
+test analysis::types::tests::copy_types_are_copy ... ok
+test analysis::types::tests::env_register_and_lookup ... ok
+test analysis::types::tests::env_lookup_unknown_returns_unknown ... ok
+test analysis::types::tests::env_register_fn_and_lookup ... ok
+test analysis::types::tests::float_type ... ok
+test analysis::types::tests::from_literal_bool ... ok
+test analysis::types::tests::from_literal_float ... ok
+test analysis::types::tests::from_literal_nothing ... ok
+test analysis::types::tests::from_literal_number ... ok
+test analysis::types::tests::from_literal_text ... ok
+test analysis::types::tests::from_type_expr_function_two_params ... ok
+test analysis::types::tests::from_type_expr_function_nested ... ok
+test analysis::types::tests::from_type_expr_function_one_param ... ok
+test analysis::types::tests::from_type_expr_function_zero_params ... ok
+test analysis::types::tests::from_type_expr_named_text ... ok
+test analysis::types::tests::from_type_expr_primitive_int ... ok
+test analysis::types::tests::function_type_element_type_is_none ... ok
+test analysis::types::tests::function_type_equality_different_params ... ok
+test analysis::types::tests::function_type_equality_different_return ... ok
+test analysis::types::tests::function_type_equality_same ... ok
+test analysis::types::tests::function_type_is_not_copy ... ok
+test analysis::types::tests::function_type_not_numeric_not_string_not_float ... ok
+test analysis::types::tests::function_type_zero_params_is_not_copy ... ok
+test analysis::types::tests::infer_expr_add_int_float_promotes ... ok
+test analysis::types::tests::infer_expr_add_int_int ... ok
+test analysis::types::tests::infer_expr_add_string_int_is_string ... ok
+test analysis::types::tests::infer_expr_call_parseint_is_int ... ok
+test analysis::types::tests::infer_expr_call_sqrt_is_float ... ok
+test analysis::types::tests::infer_expr_call_user_function ... ok
+test analysis::types::tests::infer_expr_comparison_is_bool ... ok
+test analysis::types::tests::infer_expr_contains_is_bool ... ok
+test analysis::types::tests::infer_expr_identifier_registered ... ok
+test analysis::types::tests::infer_expr_identifier_unknown ... ok
+test analysis::types::tests::infer_expr_index_map ... ok
+test analysis::types::tests::infer_expr_index_vec ... ok
+test analysis::types::tests::infer_expr_length_is_int ... ok
+test analysis::types::tests::infer_expr_list_literal ... ok
+test analysis::types::tests::infer_expr_literal_float ... ok
+test analysis::types::tests::infer_expr_literal_number ... ok
+test analysis::types::tests::infer_expr_literal_text ... ok
+test analysis::types::tests::infer_expr_option_some ... ok
+test analysis::types::tests::infer_program_let_literal ... ok
+test analysis::types::tests::infer_program_let_string_tracked ... ok
+test analysis::types::tests::infer_program_let_with_type_annotation ... ok
+test analysis::types::tests::infer_program_readfrom_is_string ... ok
+test analysis::types::tests::legacy_string_vars_conversion ... ok
+test analysis::types::tests::legacy_variable_types_conversion ... ok
+test analysis::types::tests::map_key_value_types ... ok
+test analysis::types::tests::non_collection_element_type ... ok
+test analysis::types::tests::non_copy_types_are_not_copy ... ok
+test analysis::types::tests::numeric_promotion_float_float ... ok
+test analysis::types::tests::numeric_promotion_float_int ... ok
+test analysis::types::tests::numeric_promotion_int_float ... ok
+test analysis::types::tests::numeric_promotion_int_int ... ok
+test analysis::types::tests::numeric_promotion_non_numeric ... ok
+test analysis::types::tests::numeric_types ... ok
+test analysis::types::tests::rust_names_escapes_keywords ... ok
+test analysis::types::tests::rust_names_raw_returns_original ... ok
+test analysis::types::tests::seq_element_type ... ok
+test analysis::types::tests::set_element_type ... ok
+test analysis::types::tests::string_type ... ok
+test analysis::types::tests::rust_names_preserves_non_keywords ... ok
+test analysis::types::tests::to_rust_type_collections ... ok
+test analysis::types::tests::to_rust_type_function_nested_param ... ok
+test analysis::types::tests::to_rust_type_function_single_param ... ok
+test analysis::types::tests::to_rust_type_function_two_params ... ok
+test analysis::types::tests::to_rust_type_function_zero_params ... ok
+test analysis::types::tests::to_rust_type_nested ... ok
+test analysis::types::tests::to_rust_type_primitives ... ok
+test analysis::types::tests::to_rust_type_temporal ... ok
+test analysis::unify::tests::fresh_produces_distinct_vars ... ok
+test analysis::unify::tests::from_field_type_generic_seq_of_type_param ... ok
+test analysis::unify::tests::from_field_type_missing_type_param_becomes_unknown ... ok
+test analysis::unify::tests::from_field_type_primitive ... ok
+test analysis::unify::tests::from_field_type_type_param_resolves_to_var ... ok
+test analysis::unify::tests::from_type_expr_function_produces_function_type ... ok
+test analysis::unify::tests::from_type_expr_seq_of_int ... ok
+test analysis::unify::tests::infer_to_logos_function_nested ... ok
+test analysis::unify::tests::infer_to_logos_function_single_param ... ok
+test analysis::unify::tests::infer_to_logos_function_two_params ... ok
+test analysis::unify::tests::infer_to_logos_function_zero_params ... ok
+test analysis::unify::tests::int_unifies_with_var ... ok
+test analysis::unify::tests::logos_name_function ... ok
+test analysis::unify::tests::logos_name_primitives ... ok
+test analysis::unify::tests::logos_name_seq ... ok
+test analysis::unify::tests::numeric_float_wins ... ok
+test analysis::unify::tests::numeric_int_plus_int_is_int ... ok
+test analysis::unify::tests::numeric_nat_plus_int_is_int ... ok
+test analysis::unify::tests::numeric_nat_plus_nat_is_nat ... ok
+test analysis::unify::tests::numeric_string_fails ... ok
+test analysis::unify::tests::occurs_check_detects_infinite_type ... ok
+test analysis::unify::tests::to_logos_type_bound_var_resolves ... ok
+test analysis::unify::tests::to_logos_type_function_converts_to_logos_function ... ok
+test analysis::unify::tests::to_logos_type_function_nested_converts ... ok
+test analysis::unify::tests::to_logos_type_function_two_params_converts ... ok
+test analysis::unify::tests::to_logos_type_function_zero_params_converts ... ok
+test analysis::unify::tests::to_logos_type_ground_primitives ... ok
+test analysis::unify::tests::to_logos_type_seq_resolves_inner ... ok
+test analysis::unify::tests::to_logos_type_unbound_var_becomes_unknown ... ok
+test analysis::unify::tests::two_vars_unify_chain ... ok
+test analysis::unify::tests::type_error_arity_mismatch_strings ... ok
+test analysis::unify::tests::type_error_mismatch_strings ... ok
+test analysis::unify::tests::unbound_var_finds_itself ... ok
+test analysis::unify::tests::unify_different_ground_types_fails ... ok
+test analysis::unify::tests::unify_function_arity_mismatch_fails ... ok
+test analysis::unify::tests::unify_function_types_same_arity ... ok
+test analysis::unify::tests::unify_identical_ground_types ... ok
+test analysis::unify::tests::unify_int_float_fails ... ok
+test analysis::unify::tests::unify_map_types ... ok
+test analysis::unify::tests::unify_nat_int_succeeds ... ok
+test analysis::unify::tests::unify_seq_of_different_types_fails ... ok
+test analysis::unify::tests::unify_seq_of_same_type ... ok
+test analysis::unify::tests::unify_seq_with_var_element ... ok
+test analysis::unify::tests::unify_unknown_with_any_succeeds ... ok
+test analysis::unify::tests::var_conflicting_types_fails ... ok
+test analysis::unify::tests::var_unifies_with_int ... ok
+test analysis::unify::tests::zonk_chain_of_vars ... ok
+test analysis::unify::tests::zonk_nested_resolves_inner_var ... ok
+test analysis::unify::tests::zonk_resolves_bound_var ... ok
+test analysis::unify::tests::zonk_unbound_var_becomes_unknown ... ok
+test codegen::expr::tests::test_literal_boolean ... ok
+test codegen::expr::tests::test_literal_number ... ok
+test codegen::expr::tests::test_literal_nothing ... ok
+test diagnostic::tests::extract_var_from_message_works ... ok
+test diagnostic::tests::translate_e0382_creates_friendly_error ... ok
+test diagnostic::tests::translate_e0597_creates_hotel_california_error ... ok
+test diagnostic::tests::parse_rustc_json_extracts_errors ... ok
+test loader::tests::test_logos_core_scheme ... ok
+test loader::tests::test_logos_std_scheme ... ok
+test loader::tests::test_unknown_intrinsic ... ok
+test sourcemap::tests::find_nearest_span_searches_nearby ... ok
+test sourcemap::tests::source_map_builder_tracks_lines ... ok
+test sourcemap::tests::source_map_builder_records_spans ... ok
+test sourcemap::tests::source_map_stores_line_mappings ... ok
+test loader::tests::test_missing_file ... ok
+test loader::tests::test_caching ... ok
+test loader::tests::test_file_scheme_resolution ... ok
+test compile::tests::test_compile_let_statement ... ok
+test compile::tests::test_compile_return_statement ... ok
+
+test result: ok. 166 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.02s
+
+     Running unittests src/lib.rs (target/debug/deps/logicaffeine_data-8c3112b938435356)
+
+running 70 tests
+test crdt::causal::dot::tests::test_dot_creation ... ok
+test crdt::causal::dot::tests::test_dot_equality ... ok
+test crdt::causal::dot::tests::test_dot_hash ... ok
+test crdt::causal::context::tests::test_context_new ... ok
+test crdt::causal::vclock::tests::test_vclock_dominates ... ok
+test crdt::causal::context::tests::test_context_merge ... ok
+test crdt::causal::context::tests::test_context_next ... ok
+test crdt::causal::vclock::tests::test_vclock_concurrent ... ok
+test crdt::causal::context::tests::test_context_add_out_of_order ... ok
+test crdt::causal::context::tests::test_context_add_contiguous ... ok
+test crdt::causal::vclock::tests::test_vclock_increment ... ok
+test crdt::causal::vclock::tests::test_vclock_merge ... ok
+test crdt::causal::vclock::tests::test_vclock_new ... ok
+test crdt::delta_buffer::tests::test_buffer_new ... ok
+test crdt::delta_buffer::tests::test_buffer_overflow ... ok
+test crdt::delta_buffer::tests::test_buffer_overflow_partial ... ok
+test crdt::delta_buffer::tests::test_buffer_multiple_deltas ... ok
+test crdt::delta_buffer::tests::test_buffer_push_and_retrieve ... ok
+test crdt::delta_buffer::tests::test_buffer_since_version ... ok
+test crdt::gcounter::tests::test_gcounter_increment ... ok
+test crdt::gcounter::tests::test_gcounter_merge_commutative ... ok
+test crdt::gcounter::tests::test_gcounter_merge_disjoint ... ok
+test crdt::gcounter::tests::test_gcounter_merge_idempotent ... ok
+test crdt::gcounter::tests::test_gcounter_merge_same_replica ... ok
+test crdt::gcounter::tests::test_gcounter_new ... ok
+test crdt::lww::tests::test_lww_merge_idempotent ... ok
+test crdt::lww::tests::test_lww_merge_newer_wins ... ok
+test crdt::lww::tests::test_lww_merge_older_loses ... ok
+test crdt::lww::tests::test_lww_new ... ok
+test crdt::lww::tests::test_lww_set ... ok
+test crdt::lww::tests::test_lww_with_bool ... ok
+test crdt::lww::tests::test_lww_with_int ... ok
+test crdt::mvregister::tests::test_mvregister_concurrent ... ok
+test crdt::mvregister::tests::test_mvregister_new ... ok
+test crdt::mvregister::tests::test_mvregister_resolve ... ok
+test crdt::mvregister::tests::test_mvregister_set_get ... ok
+test crdt::ormap::tests::test_ormap_concurrent_update ... ok
+test crdt::ormap::tests::test_ormap_get_or_insert ... ok
+test crdt::ormap::tests::test_ormap_remove ... ok
+test crdt::orset::tests::test_orset_add_contains ... ok
+test crdt::orset::tests::test_orset_add_wins ... ok
+test crdt::orset::tests::test_orset_merge_commutative ... ok
+test crdt::orset::tests::test_orset_remove ... ok
+test crdt::pncounter::tests::test_pncounter_increment_decrement ... ok
+test crdt::pncounter::tests::test_pncounter_merge ... ok
+test crdt::pncounter::tests::test_pncounter_merge_commutative ... ok
+test crdt::pncounter::tests::test_pncounter_negative ... ok
+test crdt::pncounter::tests::test_pncounter_new ... ok
+test crdt::replica::tests::test_generate_replica_id_nonzero ... ok
+test crdt::replica::tests::test_generate_replica_id_unique ... ok
+test crdt::sequence::rga::tests::test_rga_append ... ok
+test crdt::sequence::rga::tests::test_rga_concurrent_append ... ok
+test crdt::sequence::rga::tests::test_rga_insert_before ... ok
+test crdt::sequence::rga::tests::test_rga_remove ... ok
+test crdt::sequence::yata::tests::test_yata_append ... ok
+test crdt::sequence::yata::tests::test_yata_concurrent ... ok
+test indexing::tests::hashmap_set_key ... ok
+test indexing::tests::hashmap_str_key ... ok
+test indexing::tests::hashmap_string_key ... ok
+test indexing::tests::vec_1_based_indexing ... ok
+test indexing::tests::vec_set_1_based ... ok
+test types::tests::value_cross_type_promotion ... ok
+test types::tests::value_display ... ok
+test types::tests::value_float_arithmetic ... ok
+test types::tests::value_from_conversions ... ok
+test types::tests::value_int_arithmetic ... ok
+test types::tests::value_text_concat ... ok
+test types::tests::value_incompatible_types_panic - should panic ... ok
+test types::tests::value_div_by_zero_panics - should panic ... ok
+test indexing::tests::vec_zero_index_panics - should panic ... ok
+
+test result: ok. 70 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+     Running unittests src/lib.rs (target/debug/deps/logicaffeine_kernel-dccb4677dd391aab)
+
+running 98 tests
+test cc::tests::test_extract_equality ... ok
+test cc::tests::test_extract_binary_app ... ok
+test cc::tests::test_extract_sapp ... ok
+test cc::tests::test_extract_implication ... ok
+test cc::tests::test_decompose_goal_with_hypothesis ... ok
+test cc::tests::test_egraph_reflexive ... ok
+test cc::tests::test_extract_sname ... ok
+test cc::tests::test_extract_svar ... ok
+test cc::tests::test_union_find_basic ... ok
+test cc::tests::test_egraph_congruence ... ok
+test cc::tests::test_egraph_nested_congruence ... ok
+test cc::tests::test_check_goal_with_hypothesis ... ok
+test cc::tests::test_egraph_binary_congruence ... ok
+test cc::tests::test_union_find_transitivity ... ok
+test interface::command_parser::tests::test_parse_check ... ok
+test interface::command_parser::tests::test_parse_definition_with_type ... ok
+test interface::command_parser::tests::test_parse_definition_without_type ... ok
+test interface::command_parser::tests::test_parse_eval ... ok
+test interface::command_parser::tests::test_parse_inductive ... ok
+test interface::literate_parser::tests::test_parse_comparison_with_arithmetic ... ok
+test interface::literate_parser::tests::test_implicit_fixpoint_detection ... ok
+test interface::literate_parser::tests::test_parse_apply_syntax ... ok
+test interface::literate_parser::tests::test_parse_complex_let_with_apply ... ok
+test interface::literate_parser::tests::test_parse_diagonalization ... ok
+test interface::literate_parser::tests::test_parse_equals_infix ... ok
+test interface::literate_parser::tests::test_parse_equals_with_application ... ok
+test interface::literate_parser::tests::test_parse_existential ... ok
+test interface::literate_parser::tests::test_parse_given_lambda ... ok
+test interface::literate_parser::tests::test_parse_implies ... ok
+test interface::literate_parser::tests::test_parse_inductive_with_article ... ok
+test interface::literate_parser::tests::test_parse_infix_add ... ok
+test interface::literate_parser::tests::test_parse_infix_ge ... ok
+test interface::literate_parser::tests::test_parse_infix_gt ... ok
+test interface::literate_parser::tests::test_parse_infix_le ... ok
+test interface::literate_parser::tests::test_parse_infix_lt ... ok
+test interface::literate_parser::tests::test_parse_infix_mul ... ok
+test interface::literate_parser::tests::test_parse_infix_sub ... ok
+test interface::literate_parser::tests::test_parse_infix_with_sexp_mix ... ok
+test interface::literate_parser::tests::test_parse_left_associative_add ... ok
+test interface::literate_parser::tests::test_parse_let_definition ... ok
+test interface::literate_parser::tests::test_parse_name_syntax ... ok
+test interface::literate_parser::tests::test_parse_negative_number_preserved ... ok
+test interface::literate_parser::tests::test_parse_nullary_predicate ... ok
+test interface::literate_parser::tests::test_parse_pipe_lambda ... ok
+test interface::literate_parser::tests::test_parse_precedence_mul_over_add ... ok
+test interface::literate_parser::tests::test_parse_predicate_definition ... ok
+test interface::literate_parser::tests::test_parse_recursive_inductive ... ok
+test interface::literate_parser::tests::test_parse_simple_definition ... ok
+test interface::literate_parser::tests::test_parse_simple_inductive ... ok
+test interface::literate_parser::tests::test_parse_subtraction_not_negative ... ok
+test interface::literate_parser::tests::test_parse_the_name_syntax ... ok
+test interface::literate_parser::tests::test_parse_theorem ... ok
+test interface::literate_parser::tests::test_parse_theorem_with_complex_statement ... ok
+test interface::literate_parser::tests::test_parse_unicode_ge ... ok
+test interface::literate_parser::tests::test_parse_unicode_le ... ok
+test interface::literate_parser::tests::test_parse_variable_syntax ... ok
+test interface::term_parser::tests::test_parse_app ... ok
+test interface::term_parser::tests::test_parse_arrow ... ok
+test interface::term_parser::tests::test_parse_global ... ok
+test interface::term_parser::tests::test_parse_lambda ... ok
+test interface::term_parser::tests::test_parse_lambda_bound_var ... ok
+test interface::term_parser::tests::test_parse_parens ... ok
+test interface::term_parser::tests::test_parse_sort ... ok
+test lia::tests::test_constraint_satisfied ... ok
+test lia::tests::test_fourier_motzkin_constant ... ok
+test lia::tests::test_rational_arithmetic ... ok
+test lia::tests::test_x_lt_x_plus_1 ... ok
+test lia::tests::test_linear_expr_add ... ok
+test omega::tests::test_constraint_satisfied ... ok
+test lia::tests::test_linear_expr_cancel ... ok
+test omega::tests::test_int_expr_add ... ok
+test omega::tests::test_int_expr_cancel ... ok
+test omega::tests::test_omega_constant ... ok
+test omega::tests::test_x_lt_x_plus_1 ... ok
+test positivity::tests::test_list_cons_valid ... ok
+test positivity::tests::test_negative_inside_arrow ... ok
+test positivity::tests::test_nested_negative ... ok
+test positivity::tests::test_simple_recursive_arg ... ok
+test ring::tests::test_polynomial_constant ... ok
+test ring::tests::test_polynomial_add ... ok
+test ring::tests::test_collatz_algebra ... ok
+test ring::tests::test_polynomial_distributivity ... ok
+test ring::tests::test_polynomial_mul ... ok
+test ring::tests::test_polynomial_subtraction ... ok
+test simp::tests::test_arithmetic_add ... ok
+test simp::tests::test_arithmetic_mul ... ok
+test simp::tests::test_arithmetic_sub ... ok
+test simp::tests::test_check_goal_constant ... ok
+test simp::tests::test_check_goal_false_equality ... ok
+test simp::tests::test_check_goal_reflexive ... ok
+test simp::tests::test_simplify_constant_addition ... ok
+test simp::tests::test_check_goal_with_hypothesis ... ok
+test simp::tests::test_simplify_nested_arithmetic ... ok
+test simp::tests::test_simplify_with_substitution ... ok
+test simp::tests::test_term_to_sterm_app ... ok
+test simp::tests::test_term_to_sterm_lit ... ok
+test simp::tests::test_term_to_sterm_name ... ok
+test simp::tests::test_term_to_sterm_var ... ok
+
+test result: ok. 98 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+     Running unittests src/lib.rs (target/debug/deps/logicaffeine_language-be340fa56bde76cc)
+
+running 180 tests
+test analysis::dependencies::tests::ignores_links_after_abstract ... ok
+test analysis::dependencies::tests::no_dependencies_without_abstract ... ok
+test analysis::dependencies::tests::handles_spaces_in_alias ... ok
+test analysis::dependencies::tests::multiline_abstract ... ok
+test analysis::dependencies::tests::basic_dependency_scanning ... ok
+test analysis::dependencies::tests::handles_multiple_links_on_one_line ... ok
+test analysis::dependencies::tests::handles_https_urls ... ok
+test analysis::policy::tests::registry_stores_capabilities ... ok
+test analysis::policy::tests::registry_stores_predicates ... ok
+test analysis::registry::tests::registry_stores_and_retrieves ... ok
+test arena_ctx::tests::binary_builder_creates_binary_op ... ok
+test arena_ctx::tests::temporal_builder_creates_temporal ... ok
+test arena_ctx::tests::quantifier_builder_creates_quantifier ... ok
+test arena_ctx::tests::aspectual_builder_creates_aspectual ... ok
+test arena_ctx::tests::modal_builder_creates_modal ... ok
+test arena_ctx::tests::unary_builder_creates_unary_op ... ok
+test ast::logic::size_tests::test_ast_node_sizes ... ok
+test debug::tests::debug_world_works_with_dbg_pattern ... ok
+test debug::tests::expr_atom_display ... ok
+test debug::tests::expr_lambda_display ... ok
+test debug::tests::expr_modal_display ... ok
+test debug::tests::expr_binary_op_display ... ok
+test analysis::discovery::tests::discovery_parses_lww_int_field ... ok
+test debug::tests::expr_predicate_display ... ok
+test analysis::discovery::tests::discovery_parses_portable_enum ... ok
+test debug::tests::expr_quantifier_display ... ok
+test debug::tests::expr_temporal_display ... ok
+test debug::tests::symbol_display_with_interner ... ok
+test debug::tests::symbol_empty_displays_empty ... ok
+test debug::tests::term_constant_display ... ok
+test debug::tests::term_function_display ... ok
+test analysis::discovery::tests::discovery_works_with_markdown_header ... ok
+test debug::tests::term_group_display ... ok
+test analysis::discovery::tests::discovery_parses_struct_with_fields ... ok
+test analysis::discovery::tests::discovery_finds_generic_in_definition_block ... ok
+test compile::tests::test_compile_with_unicode_format ... ok
+test debug::tests::term_possessed_display ... ok
+test debug::tests::term_variable_display ... ok
+test drs::tests::drs_conditional_antecedent_accessible_from_consequent ... ok
+test drs::tests::drs_enter_exit_box ... ok
+test drs::tests::drs_get_universal_referents ... ok
+test drs::tests::drs_introduce_referent_tracks_source ... ok
+test drs::tests::drs_negation_blocks_accessibility ... ok
+test drs::tests::drs_new_has_main_box ... ok
+test drs::tests::drs_pronoun_resolution_marks_used ... ok
+test drs::tests::referent_source_universal_force ... ok
+test error::tests::arity_mismatch_socratic_mentions_function_and_counts ... ok
+test compile::tests::test_compile_all_scopes ... ok
+test error::tests::field_not_found_socratic_mentions_type_and_field ... ok
+test error::tests::not_a_function_socratic_mentions_found_type ... ok
+test compile::tests::test_compile_simple_sentence ... ok
+test error::tests::parse_error_has_span ... ok
+test error::tests::display_with_source_suggests_typo_fix ... ok
+test error::tests::infinite_type_socratic_mentions_both_descriptions ... ok
+test error::tests::type_mismatch_detailed_socratic_mentions_types ... ok
+test error::tests::display_with_source_has_color_codes ... ok
+test error::tests::display_with_source_shows_line_and_underline ... ok
+test error::tests::type_mismatch_detailed_without_context_is_clean ... ok
+test formatter::tests::latex_binary_operators ... ok
+test formatter::tests::latex_counterfactual ... ok
+test formatter::tests::latex_lambda ... ok
+test formatter::tests::latex_quantifiers ... ok
+test formatter::tests::latex_sanitization ... ok
+test formatter::tests::rust_binary_operators ... ok
+test formatter::tests::rust_implication_desugaring ... ok
+test formatter::tests::rust_lambda ... ok
+test formatter::tests::rust_quantifiers_as_comments ... ok
+test formatter::tests::unicode_binary_operators ... ok
+test formatter::tests::unicode_counterfactual ... ok
+test formatter::tests::unicode_lambda ... ok
+test formatter::tests::unicode_no_sanitization ... ok
+test formatter::tests::unicode_quantifiers ... ok
+test lambda::tests::beta_reduce_nested_lambda ... ok
+test lambda::tests::beta_reduce_non_application_unchanged ... ok
+test lambda::tests::beta_reduce_preserves_unbound_variables ... ok
+test lambda::tests::beta_reduce_simple_predicate ... ok
+test lambda::tests::beta_reduce_with_constant ... ok
+test lambda::tests::enumerate_scopings_no_quantifier ... ok
+test lambda::tests::enumerate_scopings_single_quantifier ... ok
+test lambda::tests::factorial_basic ... ok
+test lambda::tests::intensional_transpiles_with_brackets ... ok
+test lambda::tests::is_opaque_verb_believes ... ok
+test lambda::tests::is_opaque_verb_normal_verbs ... ok
+test lambda::tests::is_opaque_verb_seeks ... ok
+test lambda::tests::island_constraints_reduce_permutations ... ok
+test lambda::tests::lift_proper_name_applies_predicate ... ok
+test lambda::tests::lift_proper_name_returns_lambda ... ok
+test lambda::tests::lift_quantifier_existential_returns_lambda ... ok
+test lambda::tests::lift_quantifier_existential_structure ... ok
+test lambda::tests::lift_quantifier_universal_returns_lambda ... ok
+test lambda::tests::lift_quantifier_universal_structure ... ok
+test lambda::tests::make_intensional_creates_wrapper ... ok
+test lambda::tests::multiple_quantifiers_per_island ... ok
+test lambda::tests::scope_iterator_exact_size ... ok
+test lambda::tests::scope_iterator_no_duplicates ... ok
+test lambda::tests::scope_iterator_three_quantifiers_yields_six ... ok
+test lambda::tests::scope_iterator_two_quantifiers_yields_two ... ok
+test lambda::tests::substitute_respecting_opacity_allows_outside ... ok
+test lambda::tests::substitute_respecting_opacity_blocks_inside_intensional ... ok
+test lambda::tests::test_application_formatting ... ok
+test lambda::tests::test_lambda_app_helper_functions ... ok
+test lambda::tests::test_lambda_formatting_unicode ... ok
+test lambda::tests::test_nested_lambda ... ok
+test lexer::tests::bus_is_not_verb ... ok
+test lexer::tests::basic_tokenization ... ok
+test lexer::tests::iff_tokenizes_as_single_token ... ok
+test lambda::tests::test_lambda_formatting_latex ... ok
+test lexer::tests::himself_tokenizes_as_reflexive ... ok
+test lexer::tests::debug_that_token ... ok
+test lexer::tests::is_equal_to_tokenizes_as_identity ... ok
+test lexer::tests::is_identical_to_tokenizes_as_identity ... ok
+test lexer::tests::lexer_handles_apostrophe ... ok
+test lexer::tests::itself_tokenizes_as_reflexive ... ok
+test lexer::tests::lexer_handles_question_mark ... ok
+test lexer::tests::lowercase_a_is_article ... ok
+test lexer::tests::lexer_produces_valid_spans ... ok
+test lexer::tests::open_is_ambiguous ... ok
+test lexer::tests::ring_is_not_verb ... ok
+test lexer::tests::possessive_apostrophe_s ... ok
+test parser::tests::check_any_matches_wh_words ... ok
+test lexer::tests::to_stay_tokenizes_correctly ... ok
+test parser::tests::check_any_rejects_non_matching ... ok
+test lexer::tests::triple_quote_produces_string_token ... ok
+test proof_convert::tests::test_convert_implication ... ok
+test proof_convert::tests::test_convert_predicate ... ok
+test parser::tests::guard_preserves_state_on_commit ... ok
+test proof_convert::tests::test_convert_universal ... ok
+test registry::tests::case_insensitive ... ok
+test parser::tests::guard_restores_all_fields_on_drop ... ok
+test registry::tests::first_word_gets_single_letter ... ok
+test registry::tests::same_word_returns_same_symbol ... ok
+test registry::tests::second_word_same_letter_gets_numbered ... ok
+test style::tests::bold_red_combines_codes ... ok
+test style::tests::red_wraps_string ... ok
+test suggest::tests::levenshtein_deletion ... ok
+test suggest::tests::levenshtein_empty ... ok
+test suggest::tests::find_similar_case_insensitive ... ok
+test suggest::tests::find_similar_no_match ... ok
+test suggest::tests::find_similar_typo ... ok
+test session::tests::test_session_basic ... ok
+test suggest::tests::levenshtein_identical ... ok
+test suggest::tests::levenshtein_insertion ... ok
+test suggest::tests::levenshtein_one_char_diff ... ok
+test suggest::tests::levenshtein_transposition ... ok
+test session::tests::test_session_multiple_sentences ... ok
+test symbol_dict::tests::test_extract_connective_symbols ... ok
+test symbol_dict::tests::test_extract_existential ... ok
+test symbol_dict::tests::test_extract_predicate_names ... ok
+test symbol_dict::tests::test_extract_quantifier_symbols ... ok
+test symbol_dict::tests::test_extract_variable_names ... ok
+test symbol_dict::tests::test_group_symbols_by_kind ... ok
+test symbol_dict::tests::test_modal_symbols ... ok
+test symbol_dict::tests::test_no_duplicate_symbols ... ok
+test symbol_dict::tests::test_symbol_has_description ... ok
+test token::tests::modals_contains_all_modal_tokens ... ok
+test token::tests::span_default_is_zero ... ok
+test token::tests::span_new_stores_positions ... ok
+test token::tests::token_has_span_field ... ok
+test token::tests::wh_words_contains_all_wh_tokens ... ok
+test view::expr_view_tests::expr_view_equality_complex ... ok
+test view::expr_view_tests::modal_vector_equality_is_bit_exact ... ok
+test view::expr_view_tests::resolve_expr_app ... ok
+test view::expr_view_tests::resolve_expr_atom ... ok
+test view::expr_view_tests::resolve_expr_binary_op ... ok
+test view::expr_view_tests::resolve_expr_identity ... ok
+test view::expr_view_tests::resolve_expr_lambda ... ok
+test view::expr_view_tests::resolve_expr_modal ... ok
+test view::expr_view_tests::resolve_expr_predicate ... ok
+test view::expr_view_tests::resolve_expr_quantifier ... ok
+test view::expr_view_tests::resolve_expr_temporal ... ok
+test view::expr_view_tests::resolve_expr_unary_op ... ok
+test view::term_view_tests::nested_function_resolve ... ok
+test view::term_view_tests::resolve_term_constant ... ok
+test view::term_view_tests::resolve_term_function ... ok
+test view::term_view_tests::resolve_term_group ... ok
+test view::term_view_tests::resolve_term_possessed ... ok
+test view::term_view_tests::resolve_term_variable ... ok
+test view::term_view_tests::term_view_equality_is_bit_exact ... ok
+test visitor::tests::expr_counter_counts_nested ... ok
+test visitor::tests::variable_collector_finds_variables ... ok
+
+test result: ok. 180 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+     Running unittests src/lib.rs (target/debug/deps/logicaffeine_lexicon-891fc3b2e83ff08c)
+
+running 5 tests
+test runtime::tests::test_pluralize ... ok
+test runtime::tests::test_present_3s ... ok
+test runtime::tests::test_intersective_adjectives ... ok
+test runtime::tests::test_lexicon_loads ... ok
+test runtime::tests::test_proper_nouns ... ok
+
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+     Running unittests src/lib.rs (target/debug/deps/logicaffeine_lsp-5be9c037b640c968)
+
+running 199 tests
+test code_lens::tests::code_lens_empty_for_no_blocks ... ok
+test code_actions::tests::code_actions_empty_for_empty_doc ... ok
+test code_actions::tests::code_action_for_escape_return_suggests_copy ... ok
+test code_actions::tests::no_code_action_for_valid_code ... ok
+test code_lens::tests::code_lens_for_main_block ... ok
+test code_actions::tests::code_actions_no_crash_on_syntax_error ... ok
+test code_actions::tests::code_actions_returns_empty_for_valid_code ... ok
+test code_actions::tests::code_action_escape_assignment_suggests_copy ... ok
+test code_actions::tests::code_action_for_zero_index_suggests_one ... ok
+test code_lens::tests::code_lens_positioned_at_block_start ... ok
+test code_lens::tests::code_lens_proof_block_has_check ... ok
+test code_actions::tests::code_action_for_double_move_suggests_copy ... ok
+test code_lens::tests::code_lens_note_block_no_lenses ... ok
+test code_lens::tests::run_lens_has_arguments ... ok
+test code_lens::tests::code_lens_theorem_has_verify_and_prove ... ok
+test completion::tests::completion_includes_keywords_after_period ... ok
+test completion::tests::completion_no_crash_empty_doc ... ok
+test completion::tests::completion_items_have_correct_kind ... ok
+test completion::tests::completion_includes_variables_in_default_context ... ok
+test completion::tests::completion_snippets_have_snippet_format ... ok
+test completion::tests::completion_returns_items ... ok
+test completion::tests::completion_owned_variable_no_tag ... ok
+test completion::tests::completion_moved_variable_has_deprecated_tag ... ok
+test completion::tests::variant_completion_no_crash_with_inspect ... ok
+test diagnostics::tests::diagnostic_has_source ... ok
+test definition::tests::goto_def_correct_span_range ... ok
+test definition::tests::goto_def_returns_none_for_keyword ... ok
+test definition::tests::goto_definition_of_variable ... ok
+test diagnostics::tests::diagnostic_range_spans_correct_positions ... ok
+test diagnostics::tests::empty_errors_produce_empty_diagnostics ... ok
+test definition::tests::goto_definition_whitespace_returns_none ... ok
+test diagnostics::tests::escape_diagnostic_has_related_info_pointing_to_zone ... ok
+test diagnostics::tests::escape_error_produces_diagnostic_with_code ... ok
+test definition::tests::goto_definition_returns_correct_uri ... ok
+test diagnostics::tests::grammar_error_is_warning ... ok
+test diagnostics::tests::is_value_equality_has_diagnostic_code ... ok
+test diagnostics::tests::is_value_equality_is_warning ... ok
+test diagnostics::tests::multiple_errors_produce_multiple_diagnostics ... ok
+test diagnostics::tests::ownership_error_has_error_severity ... ok
+test completion::tests::completion_after_colon_type_completions ... ok
+test diagnostics::tests::ownership_error_message_is_socratic ... ok
+test diagnostics::tests::parse_error_produces_diagnostic ... ok
+test diagnostics::tests::regular_error_has_no_diagnostic_code ... ok
+test diagnostics::tests::type_mismatch_has_diagnostic_code ... ok
+test diagnostics::tests::undefined_variable_has_diagnostic_code ... ok
+test diagnostics::tests::use_after_move_has_diagnostic_code ... ok
+test diagnostics::tests::use_after_move_is_error_severity ... ok
+test diagnostics::tests::zero_index_is_information ... ok
+test diagnostics::tests::no_related_info_without_uri ... ok
+test diagnostics::tests::related_info_points_to_give_statement ... ok
+test document::tests::empty_document ... ok
+test diagnostics::tests::use_after_move_diagnostic_has_related_information ... ok
+test document::tests::document_source_stored ... ok
+test document::tests::document_ownership_states_available ... ok
+test document::tests::new_document_parses_source ... ok
+test document::tests::document_with_move_error_has_diagnostics ... ok
+test document_symbols::tests::block_kind_skipped_in_definitions ... ok
+test document::tests::line_index_syncs_after_update ... ok
+test document_symbols::tests::symbol_detail_populated ... ok
+test document_symbols::tests::symbols_empty_for_empty_doc ... ok
+test document::tests::update_changes_diagnostics_on_error ... ok
+test document::tests::update_replaces_analysis ... ok
+test document_symbols::tests::symbols_have_valid_ranges ... ok
+test document_symbols::tests::symbols_block_has_correct_kind ... ok
+test document_symbols::tests::symbols_include_block_headers ... ok
+test document_symbols::tests::symbols_include_variables ... ok
+test document_symbols::tests::function_params_nested ... ok
+test folding::tests::folding_ranges_empty_for_empty_doc ... ok
+test document_symbols::tests::variables_nested_under_block ... ok
+test document_symbols::tests::variable_symbols_have_no_children ... ok
+test folding::tests::folding_ranges_for_block ... ok
+test folding::tests::folding_ranges_are_region_kind ... ok
+test folding::tests::folding_ranges_have_valid_lines ... ok
+test folding::tests::folding_ranges_indent_dedent_folding ... ok
+test folding::tests::folding_ranges_unmatched_indent_no_panic ... ok
+test formatting::tests::formatting_empty_doc ... ok
+test folding::tests::folding_ranges_nested_blocks_multiple_ranges ... ok
+test formatting::tests::formatting_handles_mixed_tabs_spaces ... ok
+test formatting::tests::edit_ranges_start_at_correct_line ... ok
+test formatting::tests::formatting_multiple_tabs ... ok
+test formatting::tests::formatting_no_edits_for_spaces ... ok
+test formatting::tests::formatting_removes_trailing_whitespace ... ok
+test formatting::tests::formatting_replaces_tabs ... ok
+test formatting::tests::formatting_tab_replacement_produces_correct_ranges ... ok
+test formatting::tests::no_panic_multi_line_tabs ... ok
+test hover::tests::hover_borrowed_variable_shows_borrowed ... ok
+test hover::tests::hover_on_block_header ... ok
+test hover::tests::hover_on_keyword_shows_docs ... ok
+test hover::tests::hover_on_variable_shows_definition ... ok
+test hover::tests::hover_moved_variable_shows_ownership_state ... ok
+test hover::tests::hover_owned_variable_shows_owned ... ok
+test hover::tests::hover_set_keyword_docs ... ok
+test hover::tests::hover_returns_correct_range ... ok
+test hover::tests::hover_whitespace_returns_none ... ok
+test hover::tests::hover_verb_shows_lowercase_class ... ok
+test hover::tests::hover_theorem_shows_proof_hint ... ok
+test index::tests::block_spans_populated ... ok
+test index::tests::definition_at_finds_variable ... ok
+test index::tests::definition_at_whitespace_returns_none ... ok
+test index::tests::definitions_of_returns_correct_kind ... ok
+test index::tests::definitions_of_function ... ok
+test index::tests::definitions_of_unknown_returns_empty ... ok
+test index::tests::let_binding_has_detail ... ok
+test index::tests::let_binding_has_nondefault_span ... ok
+test hover::tests::hover_theorem_implication_shows_strategy ... ok
+test index::tests::let_binding_span_points_to_source ... ok
+test index::tests::multiple_variables_indexed ... ok
+test inlay_hints::tests::extract_inferred_type_from_detail ... ok
+test index::tests::reference_linked_to_definition ... ok
+test index::tests::parameter_has_own_span ... ok
+test index::tests::references_to_finds_usages ... ok
+test index::tests::references_to_exact_count ... ok
+test index::tests::second_occurrence_found ... ok
+test inlay_hints::tests::inlay_hints_empty_for_empty_doc ... ok
+test inlay_hints::tests::inlay_hint_borrowed_after_show ... ok
+test inlay_hints::tests::inlay_hint_no_marker_for_owned ... ok
+test inlay_hints::tests::inlay_hints_for_inferred_integer ... ok
+test line_index::tests::empty_source ... ok
+test inlay_hints::tests::inlay_hints_for_inferred_text ... ok
+test inlay_hints::tests::inlay_hints_hint_position_correct ... ok
+test line_index::tests::line_start_offset_out_of_bounds ... ok
+test inlay_hints::tests::inlay_hints_for_inferred_bool ... ok
+test line_index::tests::line_start_offset_returns_correct_values ... ok
+test line_index::tests::multi_line ... ok
+test inlay_hints::tests::inlay_hints_respects_range_parameter ... ok
+test line_index::tests::multibyte_utf8_roundtrip ... ok
+test inlay_hints::tests::inlay_hints_skip_default_spans ... ok
+test line_index::tests::offset_from_position ... ok
+test line_index::tests::out_of_bounds_offset ... ok
+test line_index::tests::out_of_bounds_position ... ok
+test line_index::tests::roundtrip ... ok
+test line_index::tests::single_line ... ok
+test line_index::tests::windows_line_endings ... ok
+test pipeline::tests::analyze_block_headers_indexed ... ok
+test pipeline::tests::analyze_empty_source ... ok
+test pipeline::tests::analyze_clean_code_no_analysis_errors ... ok
+test pipeline::tests::analyze_block_recovery_preserves_good_block ... ok
+test pipeline::tests::analyze_function_def ... ok
+test pipeline::tests::analyze_function_def_summarized ... ok
+test pipeline::tests::analyze_indexes_references ... ok
+test pipeline::tests::analyze_ownership_states_populated ... ok
+test pipeline::tests::analyze_multiple_lets ... ok
+test pipeline::tests::analyze_produces_tokens ... ok
+test pipeline::tests::analyze_generic_type_in_detail ... ok
+test pipeline::tests::analyze_moved_variable_has_moved_state ... ok
+test pipeline::tests::analyze_simple_let ... ok
+test pipeline::tests::analyze_single_block_with_error_still_reports ... ok
+test pipeline::tests::analyze_single_block_error_does_not_swallow ... ok
+test pipeline::tests::analyze_statement_spans_indexed ... ok
+test pipeline::tests::analyze_syntax_error_produces_diagnostics ... ok
+test references::tests::find_references_exact_count ... ok
+test references::tests::find_references_includes_usages ... ok
+test references::tests::find_references_correct_uri ... ok
+test pipeline::tests::analyze_use_after_move_produces_ownership_error ... ok
+test references::tests::find_references_include_declaration_adds_one ... ok
+test references::tests::find_references_unknown_returns_empty ... ok
+test rename::tests::prepare_rename_for_variable ... ok
+test rename::tests::rename_accepts_valid_name ... ok
+test rename::tests::prepare_rename_rejects_keywords ... ok
+test references::tests::find_references_with_declaration ... ok
+test references::tests::find_references_positions_are_correct ... ok
+test rename::tests::prepare_rename_rejects_more_tokens ... ok
+test rename::tests::rename_edits_at_correct_positions ... ok
+test rename::tests::rename_includes_definition_and_references ... ok
+test rename::tests::rename_rejects_numeric_start ... ok
+test semantic_tokens::tests::all_token_types_classified ... ok
+test semantic_tokens::tests::ambiguous_uses_primary ... ok
+test rename::tests::rename_rejects_reserved_keyword ... ok
+test semantic_tokens::tests::block_header_classified_as_namespace ... ok
+test rename::tests::rename_rejects_empty_name ... ok
+test semantic_tokens::tests::classify_ambiguous_nested_has_depth_guard ... ok
+test semantic_tokens::tests::classify_ambiguous_too_deep_returns_none ... ok
+test rename::tests::rename_variable_produces_edits ... ok
+test semantic_tokens::tests::delta_encoding ... ok
+test rename::tests::rename_rejects_whitespace_name ... ok
+test rename::tests::rename_unknown_returns_none ... ok
+test semantic_tokens::tests::encode_tokens_utf16_length ... ok
+test semantic_tokens::tests::keywords_classified_as_keyword ... ok
+test semantic_tokens::tests::multi_line_delta_encoding ... ok
+test semantic_tokens::tests::noun_classified_as_type ... ok
+test semantic_tokens::tests::number_literal_classified ... ok
+test semantic_tokens::tests::operators_classified_correctly ... ok
+test semantic_tokens::tests::proper_name_has_declaration_modifier ... ok
+test semantic_tokens::tests::string_literal_classified ... ok
+test semantic_tokens::tests::structural_tokens_skipped ... ok
+test semantic_tokens::tests::zero_length_tokens_skipped_in_encoding ... ok
+test signature_help::tests::extract_params_basic ... ok
+test signature_help::tests::extract_params_empty ... ok
+test signature_help::tests::extract_params_multiple ... ok
+test signature_help::tests::extract_params_no_parens ... ok
+test signature_help::tests::call_not_found_returns_none ... ok
+test signature_help::tests::signature_help_no_crash_empty_doc ... ok
+test signature_help::tests::active_parameter_tracking ... ok
+test signature_help::tests::signature_help_returns_none_without_call ... ok
+test signature_help::tests::signature_help_finds_function_via_span_not_pointer ... ok
+test signature_help::tests::signature_help_no_crash_on_out_of_bounds ... ok
+test signature_help::tests::signature_help_returns_signature_for_defined_function ... ok
+test signature_help::tests::with_not_counted_as_separator ... ok
+test formatting::tests::formatting_large_file_with_tabs ... ok
+
+test result: ok. 199 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+     Running unittests src/main.rs (target/debug/deps/logicaffeine_lsp-f69b5e042fe6bdb9)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src/lib.rs (target/debug/deps/logicaffeine_proof-8e01e6eabb08776b)
+
+running 12 tests
+test hints::tests::test_conjunction_hint ... ok
+test hints::tests::test_direct_match_hint ... ok
+test unify::tests::test_compose_substitutions ... ok
+test hints::tests::test_reflexivity_hint ... ok
+test unify::tests::test_alpha_equivalence_exists ... ok
+test unify::tests::test_alpha_equivalence_forall ... ok
+test hints::tests::test_modus_ponens_hint ... ok
+test unify::tests::test_occurs_check ... ok
+test unify::tests::test_alpha_equivalence_nested ... ok
+test unify::tests::test_unify_different_constants ... ok
+test unify::tests::test_unify_same_constant ... ok
+test unify::tests::test_unify_var_constant ... ok
+
+test result: ok. 12 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src/lib.rs (target/debug/deps/logicaffeine_system-8bbd91a4c894ce42)
+
+running 80 tests
+test concurrency::tests::test_check_preemption_no_yield_initially ... ok
+test concurrency::tests::test_pipe_recv_none_when_closed ... ok
+test concurrency::tests::test_pipe_try_send_full ... ok
+test concurrency::tests::test_pipe_sender_clone ... ok
+test concurrency::tests::test_pipe_try_recv_empty ... ok
+test concurrency::tests::test_pipe_receiver_close ... ok
+test concurrency::tests::test_pipe_send_recv ... ok
+test concurrency::tests::test_pipe_try_send_success ... ok
+test concurrency::tests::test_pipe_is_closed ... ok
+test concurrency::tests::test_spawn_returns_task_handle ... ok
+test concurrency::tests::test_task_handle_await_result ... ok
+test concurrency::tests::test_task_abort_with_pipe ... ok
+test concurrency::tests::test_spawn_with_captured_values ... ok
+test concurrency::tests::test_task_handle_is_finished_initially_false ... ok
+test concurrency::tests::test_spawn_with_complex_return_type ... ok
+test concurrency::tests::test_spawn_with_pipe_communication ... ok
+test concurrency::tests::test_multiple_producers_single_consumer ... ok
+test concurrency::tests::test_task_handle_abort ... ok
+test concurrency::tests::test_task_handle_creation_and_completion ... ok
+test concurrency::tests::test_check_preemption_yields_after_threshold ... ok
+test fs::tests::test_get_platform_vfs_returns_boxed_vfs ... ok
+test fs::tests::test_dyn_vfs_can_be_wrapped_in_arc ... ok
+test crdt::sync::tests::test_synced_creation ... ok
+test fs::tests::test_native_vfs_append ... ok
+test crdt::sync::tests::test_synced_mutate ... ok
+test crdt::sync::tests::test_synced_get ... ok
+test distributed::tests::test_distributed_mount_empty ... ok
+test fs::tests::test_dyn_vfs_supports_all_operations ... ok
+test fs::tests::test_native_vfs_append_creates_file_if_missing ... ok
+test fs::tests::test_native_vfs_exists_returns_false_for_missing_file ... ok
+test distributed::tests::test_distributed_persist_and_reload ... ok
+test distributed::tests::test_distributed_mutate ... ok
+test fs::tests::test_native_vfs_list_dir_empty ... ok
+test fs::tests::test_native_vfs_list_dir_nonexistent_returns_error ... ok
+test fs::tests::test_native_vfs_create_dir_all ... ok
+test fs::tests::test_native_vfs_exists_returns_true_after_write ... ok
+test fs::tests::test_native_vfs_read_nonexistent_returns_not_found ... ok
+test fs::tests::test_native_vfs_read_to_string_nonexistent_returns_not_found ... ok
+test fs::tests::test_native_vfs_nested_dirs ... ok
+test fs::tests::test_native_vfs_remove_nonexistent_returns_error ... ok
+test fs::tests::test_native_vfs_read_write_binary ... ok
+test fs::tests::test_native_vfs_read_write ... ok
+test fs::tests::test_native_vfs_list_dir_case_insensitive_sort ... ok
+test fs::tests::test_native_vfs_list_dir ... ok
+test fs::tests::test_native_vfs_remove_deletes_file ... ok
+test memory::tests::test_heap_zone_alloc ... ok
+test memory::tests::test_heap_zone_alloc_slice ... ok
+test memory::tests::test_heap_zone_reset ... ok
+test distributed::tests::test_distributed_compaction ... ok
+test fs::tests::test_native_vfs_rename_moves_file ... ok
+test memory::tests::test_heap_zone_as_slice_panics - should panic ... ok
+test memory::tests::test_mapped_zone ... ok
+test memory::tests::test_zone_type_checks ... ok
+test fs::tests::test_native_vfs_write_empty_file ... ok
+test fs::tests::test_native_vfs_resolve_strips_leading_slash ... ok
+test memory::tests::test_mapped_zone_alloc_panics - should panic ... ok
+test network::mesh::tests::test_connect_empty_fails ... ok
+test network::mesh::tests::test_listen_empty_fails ... ok
+test fs::tests::test_native_vfs_write_no_leftover_tmp ... ok
+test network::mesh::tests::test_mesh_node_creation ... ok
+test memory::tests::test_mapped_zone_type_checks ... ok
+test fs::tests::test_native_vfs_resolve_strips_path_traversal ... ok
+test network::mesh::tests::test_peer_agent_empty_fails ... ok
+test network::protocol::tests::test_protocol_name ... ok
+test network::mesh::tests::test_peer_agent_invalid_fails ... ok
+test network::mesh::tests::test_peer_agent_new ... ok
+test network::wire::tests::test_roundtrip ... ok
+test network::wire::tests::test_decode_invalid_bytes ... ok
+test network::sipping::tests::test_chunk_count_empty ... ok
+test fs::tests::test_native_vfs_write_overwrites_existing ... ok
+test temporal::tests::date_display ... ok
+test temporal::tests::date_to_ymd_epoch ... ok
+test network::sipping::tests::test_chunk_count_small_file ... ok
+test network::sipping::tests::test_chunk_hash_is_consistent ... ok
+test network::sipping::tests::test_custom_chunk_size ... ok
+test storage::tests::test_persistent_mount_empty ... ok
+test fs::tests::test_native_vfs_append_multiple_sequential ... ok
+test network::sipping::tests::test_manifest_has_correct_size ... ok
+test storage::tests::test_persistent_mutate ... ok
+test network::gossip::tests::test_subscriptions_registry ... ok
+
+test result: ok. 80 passed; 0 failed; 0 ignored; 0 measured; 8 filtered out; finished in 0.20s
+
+     Running unittests src/lib.rs (target/debug/deps/logicaffeine_tests-5d96e1d45ff9cda7)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/aktionsart_tests.rs (target/debug/deps/aktionsart_tests-0a79142c79561453)
+
+running 33 tests
+test achievement_verb_win_has_achievement_class ... ok
+test accomplishment_verb_build_has_accomplishment_class ... ok
+test accomplishment_verb_draw_has_accomplishment_class ... ok
+test accomplishment_verb_write_has_accomplishment_class ... ok
+test achievement_verb_die_has_achievement_class ... ok
+test achievement_verb_find_has_achievement_class ... ok
+test activity_verb_drive_has_activity_class ... ok
+test activity_verb_run_has_activity_class ... ok
+test activity_verb_swim_has_activity_class ... ok
+test durative_classes ... ok
+test debug_verb_class_for_knowing ... ok
+test debug_hating_lookup ... ok
+test semelfactive_verb_hit_has_semelfactive_class ... ok
+test semelfactive_verb_knock_has_semelfactive_class ... ok
+test semelfactive_verb_wag_has_semelfactive_class ... ok
+test state_is_stative ... ok
+test debug_knowing_parse ... ok
+test semelfactive_progressive_produces_iterative ... ok
+test activity_progressive_produces_progressive ... ok
+test accomplishment_present_produces_habitual ... ok
+test state_verb_exist_has_state_class ... ok
+test state_progressive_hate_is_rejected ... ok
+test state_progressive_is_rejected ... ok
+test state_progressive_love_is_rejected ... ok
+test state_verb_know_has_state_class ... ok
+test state_verb_love_has_state_class ... ok
+test state_past_produces_temporal_past ... ok
+test state_present_produces_simple_predication ... ok
+test telic_classes ... ok
+test activity_present_produces_habitual ... ok
+test activity_past_produces_temporal_past_without_habitual ... ok
+test achievement_past_produces_temporal_past ... ok
+test achievement_present_produces_habitual ... ok
+
+test result: ok. 33 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+     Running tests/audit_codegen.rs (target/debug/deps/audit_codegen-c257954fa5d2b5c9)
+
+running 3 tests
+test audit_for_each_vec_int_uses_copied ... ok
+test audit_hoisted_loop_no_clone_on_copy_types ... ok
+test audit_mergesort_benchmark_codegen ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+     Running tests/complex_combinations.rs (target/debug/deps/complex_combinations-2959f3c657b89eb4)
+
+running 22 tests
+test future_perfect_passive_with_agent ... ok
+test control_with_passive_complement ... ok
+test maximal_verb_stack ... ok
+test focus_particle_on_pp_object ... ok
+test focus_particle_on_object ... ok
+test mass_noun_comparative ... ok
+test donkey_sentence_with_ditransitive ... ok
+test event_with_instrument_and_manner_and_location ... ok
+test np_coordination_in_object_position ... ok
+test complex_gapping_with_adjuncts ... ok
+test numeric_quantifier_negation_interaction ... ok
+test counterfactual_with_causal_chain ... ok
+test raising_into_subject_into_object_control ... ok
+test presupposition_inside_conditional ... ok
+test simple_comparative ... ok
+test simple_presupposition ... ok
+test single_quantifier_has_one_reading ... ok
+test relative_clause_inside_pp_inside_relative ... ok
+test simple_counterfactual ... ok
+test two_quantifier_scope_ambiguity ... ok
+test simple_gapping ... ok
+test triple_nested_relative_clause ... ok
+
+test result: ok. 22 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+     Running tests/debug_any.rs (target/debug/deps/debug_any-094b2b68101af4c9)
+
+running 1 test
+test debug_simple_any ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+     Running tests/debug_aspect.rs (target/debug/deps/debug_aspect-d1a7fd29bb1a1b59)
+
+running 1 test
+test debug_aspect_chain ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+     Running tests/debug_card.rs (target/debug/deps/debug_card-78d05f66dc14f02d)
+
+running 2 tests
+test test_set_a_has_cardinality_5 ... ok
+test test_john_has_cardinality_5 ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/debug_garden.rs (target/debug/deps/debug_garden-53db0d63b9c7a1ce)
+
+running 1 test
+test debug_garden_path ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+     Running tests/debug_modal_relclause.rs (target/debug/deps/debug_modal_relclause-711bc3978cdf98d2)
+
+running 7 tests
+test quantified_subject_with_relative_clause_and_verb ... ok
+test negative_quantifier_simple_fol ... ok
+test negative_quantifier_with_relative_clause_and_modal ... ok
+test conditional_with_quantified_antecedent ... ok
+test conditional_simple_fol ... ok
+test all_three_marketing_sentences ... ok
+test simple_fol_output ... ok
+
+test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+     Running tests/debug_reciprocal.rs (target/debug/deps/debug_reciprocal-a955cd56ae64661e)
+
+running 1 test
+test debug_reciprocal ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+     Running tests/debug_tense.rs (target/debug/deps/debug_tense-9f53988562c95348)
+
+running 1 test
+test debug_tense_structures ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/diagnostic_bridge.rs (target/debug/deps/diagnostic_bridge-7e09a8b67daa0eba)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 11 filtered out; finished in 0.00s
+
+     Running tests/e2e_async_cross_cutting.rs (target/debug/deps/e2e_async_cross_cutting-e2d8425c0d03afe8)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 31 filtered out; finished in 0.00s
+
+     Running tests/e2e_causal_consistency.rs (target/debug/deps/e2e_causal_consistency-3f4ee27d9edd2c99)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 3 filtered out; finished in 0.00s
+
+     Running tests/e2e_closures.rs (target/debug/deps/e2e_closures-9b12e29c45f11c5d)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 31 filtered out; finished in 0.00s
+
+     Running tests/e2e_codegen_collections.rs (target/debug/deps/e2e_codegen_collections-06994b344d763003)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 18 filtered out; finished in 0.00s
+
+     Running tests/e2e_codegen_comparisons.rs (target/debug/deps/e2e_codegen_comparisons-23e54122b0b1f047)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 13 filtered out; finished in 0.00s
+
+     Running tests/e2e_codegen_control_flow.rs (target/debug/deps/e2e_codegen_control_flow-c0d3f00bd23b5067)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 22 filtered out; finished in 0.00s
+
+     Running tests/e2e_codegen_edge_cases.rs (target/debug/deps/e2e_codegen_edge_cases-f49567e71c6f270a)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 11 filtered out; finished in 0.00s
+
+     Running tests/e2e_codegen_enums.rs (target/debug/deps/e2e_codegen_enums-d45fd49983e50aed)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 9 filtered out; finished in 0.00s
+
+     Running tests/e2e_codegen_expressions.rs (target/debug/deps/e2e_codegen_expressions-10609134b21ae2c8)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 15 filtered out; finished in 0.00s
+
+     Running tests/e2e_codegen_functions.rs (target/debug/deps/e2e_codegen_functions-efb3202cde0e1fd5)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 12 filtered out; finished in 0.00s
+
+     Running tests/e2e_codegen_gaps.rs (target/debug/deps/e2e_codegen_gaps-a6acece93d86611a)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 64 filtered out; finished in 0.00s
+
+     Running tests/e2e_codegen_iteration.rs (target/debug/deps/e2e_codegen_iteration-cade0c2878dc7f27)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 9 filtered out; finished in 0.00s
+
+     Running tests/e2e_codegen_logical.rs (target/debug/deps/e2e_codegen_logical-33d94d8feb5e2cad)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 9 filtered out; finished in 0.00s
+
+     Running tests/e2e_codegen_maps.rs (target/debug/deps/e2e_codegen_maps-f9c7d2158c43ab91)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 8 filtered out; finished in 0.00s
+
+     Running tests/e2e_codegen_optimization.rs (target/debug/deps/e2e_codegen_optimization-ce8d3bfee603e54f)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 153 filtered out; finished in 0.00s
+
+     Running tests/e2e_codegen_primitives.rs (target/debug/deps/e2e_codegen_primitives-9a9f8f2d33a7742d)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 13 filtered out; finished in 0.00s
+
+     Running tests/e2e_codegen_sets.rs (target/debug/deps/e2e_codegen_sets-ee16df5729cff712)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 9 filtered out; finished in 0.00s
+
+     Running tests/e2e_codegen_structs.rs (target/debug/deps/e2e_codegen_structs-f307f893be8a47fe)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 9 filtered out; finished in 0.00s
+
+     Running tests/e2e_codegen_tuples.rs (target/debug/deps/e2e_codegen_tuples-1c3bfa7870301594)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 13 filtered out; finished in 0.00s
+
+     Running tests/e2e_codegen_types.rs (target/debug/deps/e2e_codegen_types-90b5c8921cc2b30a)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 8 filtered out; finished in 0.00s
+
+     Running tests/e2e_codegen_variables.rs (target/debug/deps/e2e_codegen_variables-5561717e6ed58fd9)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 3 filtered out; finished in 0.00s
+
+     Running tests/e2e_collections.rs (target/debug/deps/e2e_collections-4c8b584a07065fb7)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 18 filtered out; finished in 0.00s
+
+     Running tests/e2e_comparisons.rs (target/debug/deps/e2e_comparisons-9f32c4886fc2afbb)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 12 filtered out; finished in 0.00s
+
+     Running tests/e2e_concurrency.rs (target/debug/deps/e2e_concurrency-d0c5dfb16e380092)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 52 filtered out; finished in 0.00s
+
+     Running tests/e2e_control_flow.rs (target/debug/deps/e2e_control_flow-7e80dffb0f8fc0bf)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 22 filtered out; finished in 0.00s
+
+     Running tests/e2e_crdt.rs (target/debug/deps/e2e_crdt-7d056d831243d6d9)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 30 filtered out; finished in 0.00s
+
+     Running tests/e2e_edge_cases.rs (target/debug/deps/e2e_edge_cases-4ca19ce525ddf2de)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 10 filtered out; finished in 0.00s
+
+     Running tests/e2e_enums.rs (target/debug/deps/e2e_enums-8497947096e3bf9c)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 8 filtered out; finished in 0.00s
+
+     Running tests/e2e_expressions.rs (target/debug/deps/e2e_expressions-9812548608ad0b75)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 15 filtered out; finished in 0.00s
+
+     Running tests/e2e_feature_matrix.rs (target/debug/deps/e2e_feature_matrix-2f0d25dc2cec5df9)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 125 filtered out; finished in 0.00s
+
+     Running tests/e2e_functions.rs (target/debug/deps/e2e_functions-475bb73209925731)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 12 filtered out; finished in 0.00s
+
+     Running tests/e2e_gossip.rs (target/debug/deps/e2e_gossip-45a1633d9d6a8cc8)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 2 filtered out; finished in 0.00s
+
+     Running tests/e2e_gossip_edge_cases.rs (target/debug/deps/e2e_gossip_edge_cases-5531482014c4cff2)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 4 filtered out; finished in 0.00s
+
+     Running tests/e2e_integration.rs (target/debug/deps/e2e_integration-834fa554d560cb7c)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 6 filtered out; finished in 0.00s
+

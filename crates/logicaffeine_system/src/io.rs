@@ -118,6 +118,38 @@ impl<T: Showable> Showable for Vec<T> {
     }
 }
 
+impl<T: Showable> Showable for logicaffeine_data::LogosSeq<T> {
+    #[inline(always)]
+    fn format_show(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        let inner = self.borrow();
+        write!(f, "[")?;
+        for (i, item) in inner.iter().enumerate() {
+            if i > 0 {
+                write!(f, ", ")?;
+            }
+            item.format_show(f)?;
+        }
+        write!(f, "]")
+    }
+}
+
+impl<K: Showable + Eq + std::hash::Hash, V: Showable> Showable for logicaffeine_data::LogosMap<K, V> {
+    #[inline(always)]
+    fn format_show(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        let inner = self.borrow();
+        write!(f, "{{")?;
+        for (i, (k, v)) in inner.iter().enumerate() {
+            if i > 0 {
+                write!(f, ", ")?;
+            }
+            k.format_show(f)?;
+            write!(f, ": ")?;
+            v.format_show(f)?;
+        }
+        write!(f, "}}")
+    }
+}
+
 // Slices: same as Vec
 impl<T: Showable> Showable for [T] {
     #[inline(always)]

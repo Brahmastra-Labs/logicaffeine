@@ -40,16 +40,16 @@ pub(super) fn codegen_type_expr(ty: &TypeExpr, interner: &Interner) -> String {
                 }
                 "Seq" | "List" | "Vec" => {
                     if !params_str.is_empty() {
-                        format!("Vec<{}>", params_str[0])
+                        format!("LogosSeq<{}>", params_str[0])
                     } else {
-                        "Vec<()>".to_string()
+                        "LogosSeq<()>".to_string()
                     }
                 }
                 "Map" | "HashMap" => {
                     if params_str.len() >= 2 {
-                        format!("FxHashMap<{}, {}>", params_str[0], params_str[1])
+                        format!("LogosMap<{}, {}>", params_str[0], params_str[1])
                     } else {
-                        "FxHashMap<String, String>".to_string()
+                        "LogosMap<String, String>".to_string()
                     }
                 }
                 "Set" | "HashSet" => {
@@ -240,13 +240,15 @@ pub(super) fn codegen_enum_def(name: Symbol, variants: &[VariantDef], generics: 
         format!("<{}>", params.join(", "))
     };
 
+    let enum_name_str = interner.resolve(name);
+
     // Phase 47: Add Serialize, Deserialize derives if portable
     if is_portable {
         writeln!(output, "{}#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]", ind).unwrap();
     } else {
         writeln!(output, "{}#[derive(Debug, Clone, PartialEq)]", ind).unwrap();
     }
-    writeln!(output, "{}pub enum {}{} {{", ind, interner.resolve(name), generic_str).unwrap();
+    writeln!(output, "{}pub enum {}{} {{", ind, enum_name_str, generic_str).unwrap();
 
     for variant in variants {
         let variant_name = interner.resolve(variant.name);
@@ -256,7 +258,6 @@ pub(super) fn codegen_enum_def(name: Symbol, variants: &[VariantDef], generics: 
         } else {
             // Struct variant with named fields
             // Phase 102: Detect and box recursive fields
-            let enum_name_str = interner.resolve(name);
             let fields_str: Vec<String> = variant.fields.iter()
                 .map(|f| {
                     let rust_type = codegen_field_type(&f.ty, interner);
@@ -359,9 +360,9 @@ pub(super) fn codegen_field_type(ty: &FieldType, interner: &Interner) -> String 
             }
 
             let base_str = match base_name {
-                "List" | "Seq" => "Vec",
+                "List" | "Seq" => "LogosSeq",
                 "Set" => "FxHashSet",
-                "Map" => "FxHashMap",
+                "Map" => "LogosMap",
                 "Option" | "Maybe" => "Option",
                 "Result" => "Result",
                 // Phase 49: CRDT generic type
@@ -377,6 +378,18 @@ pub(super) fn codegen_field_type(ty: &FieldType, interner: &Interner) -> String 
         }
         // Phase 34: Type parameter reference (T, U, etc.)
         FieldType::TypeParam(sym) => interner.resolve(*sym).to_string(),
+    }
+}
+
+/// Check if a field type is a collection type (LogosSeq or LogosMap) that needs deep_clone
+/// instead of clone for proper value semantics in struct/enum copies.
+fn is_collection_field(ty: &FieldType, interner: &Interner) -> bool {
+    match ty {
+        FieldType::Generic { base, .. } => {
+            let name = interner.resolve(*base);
+            matches!(name, "Seq" | "List" | "Map" | "HashMap" | "Vec")
+        }
+        _ => false,
     }
 }
 

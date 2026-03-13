@@ -383,8 +383,9 @@ Show sumList(nums).
 "#;
     assert_exact_output(code, "15");
     let rust = compile_to_rust(code).unwrap();
-    assert!(rust.contains("items: &[i64]"),
-        "Read-only Vec param should be &[T], got:\n{}", rust);
+    // With reference semantics, borrow optimization is disabled — LogosSeq is always passed by Rc clone.
+    assert!(rust.contains("items: LogosSeq<i64>"),
+        "LogosSeq param stays LogosSeq<T> (reference semantics), got:\n{}", rust);
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -406,8 +407,8 @@ Show addAndSum(nums).
 "#;
     assert_exact_output(code, "105");
     let rust = compile_to_rust(code).unwrap();
-    assert!(rust.contains("items: Vec<i64>"),
-        "Mutated Vec param should stay Vec<T>, got:\n{}", rust);
+    assert!(rust.contains("items: LogosSeq<i64>"),
+        "Mutated LogosSeq param should stay LogosSeq<T>, got:\n{}", rust);
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -434,11 +435,9 @@ If isSafe(queens, 3, 5):
 "#;
     assert_exact_output(code, "safe");
     let rust = compile_to_rust(code).unwrap();
-    assert!(rust.contains("queens: &[i64]"),
-        "Read-only Vec param should be &[T], got:\n{}", rust);
-    // At the call site, should pass &queens instead of queens.clone()
-    assert!(!rust.contains("queens.clone()"),
-        "Call site should not clone for borrow param, got:\n{}", rust);
+    // With reference semantics, LogosSeq is always passed by Rc clone (O(1)).
+    assert!(rust.contains("queens: LogosSeq<i64>"),
+        "LogosSeq param stays LogosSeq<T> (reference semantics), got:\n{}", rust);
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -454,10 +453,9 @@ Show identity(nums).
 "#;
     assert_exact_output(code, "[1, 2, 3]");
     let rust = compile_to_rust(code).unwrap();
-    assert!(rust.contains("items: &[i64]"),
-        "Read-only Vec param should be &[T], got:\n{}", rust);
-    assert!(rust.contains(".to_vec()") || rust.contains(".to_owned()"),
-        "Returning borrowed param should convert to owned, got:\n{}", rust);
+    // With reference semantics, LogosSeq is always passed by Rc clone.
+    assert!(rust.contains("items: LogosSeq<i64>"),
+        "LogosSeq param stays LogosSeq<T> (reference semantics), got:\n{}", rust);
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -499,11 +497,11 @@ Show mergeSort(nums).
 "#;
     assert_exact_output(code, "[1, 2, 3, 5, 8]");
     let rust = compile_to_rust(code).unwrap();
-    // merge() only reads left and right — they should be &[i64]
-    assert!(rust.contains("left: &[i64]"),
-        "merge() read-only param 'left' should be &[T], got:\n{}", rust);
-    assert!(rust.contains("right: &[i64]"),
-        "merge() read-only param 'right' should be &[T], got:\n{}", rust);
+    // With reference semantics, LogosSeq is always passed by Rc clone.
+    assert!(rust.contains("left: LogosSeq<i64>"),
+        "merge() param 'left' should be LogosSeq<T> (reference semantics), got:\n{}", rust);
+    assert!(rust.contains("right: LogosSeq<i64>"),
+        "merge() param 'right' should be LogosSeq<T> (reference semantics), got:\n{}", rust);
 }
 
 // =============================================================================
@@ -1911,8 +1909,8 @@ Show sumAll(data).
     // Should NOT use borrow param — takes owned Vec
     assert!(!rust.contains("&[i64]"),
         "## No Borrow should prevent borrow optimization, got:\n{}", rust);
-    assert!(rust.contains("Vec<i64>") || rust.contains("items: Vec<i64>"),
-        "Should take owned Vec<i64> with ## No Borrow, got:\n{}", rust);
+    assert!(rust.contains("LogosSeq<i64>") || rust.contains("items: LogosSeq<i64>"),
+        "Should take owned LogosSeq<i64> with ## No Borrow, got:\n{}", rust);
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -1980,10 +1978,9 @@ Show data.
 "#;
     assert_exact_output(code, "[99, 20, 30]");
     let rust = compile_to_rust(code).unwrap();
-    assert!(rust.contains("&mut [i64]"),
-        "Element-only mutation should use &mut [T] param, got:\n{}", rust);
-    assert!(!rust.contains("fn setFirst(arr: Vec<i64>"),
-        "Should NOT take owned Vec, got:\n{}", rust);
+    // With reference semantics, LogosSeq uses interior mutability — no &mut [T] needed.
+    assert!(rust.contains("arr: LogosSeq<i64>"),
+        "Should take LogosSeq<i64> param (reference semantics), got:\n{}", rust);
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -2034,8 +2031,9 @@ Show item 1 of data.
 "#;
     assert_exact_output(code, "5");
     let rust = compile_to_rust(code).unwrap();
-    assert!(rust.contains("&mut [i64]"),
-        "siftDown should use &mut [T] for element-only mutation, got:\n{}", rust);
+    // With reference semantics, element mutation uses interior mutability, not &mut [T].
+    assert!(rust.contains("arr: LogosSeq<i64>"),
+        "siftDown should use LogosSeq<T> (reference semantics), got:\n{}", rust);
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -2280,8 +2278,9 @@ Show data.
 "#;
     assert_exact_output(code, "[99, 20, 30]");
     let rust = compile_to_rust(code).unwrap();
-    assert!(rust.contains("&mut [i64]"),
-        "Consume-alias with SetIndex-only should use &mut [T], got:\n{}", rust);
+    // With reference semantics, interior mutability replaces &mut [T].
+    assert!(rust.contains("arr: LogosSeq<i64>"),
+        "Should use LogosSeq<T> (reference semantics), got:\n{}", rust);
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -2317,8 +2316,9 @@ Show arr.
 "#;
     assert_exact_output(code, "[1, 2, 3, 5, 7, 8, 9]");
     let rust = compile_to_rust(code).unwrap();
-    assert!(rust.contains("fn qs(arr: &mut [i64]"),
-        "Quicksort consume-alias should use &mut [T], got:\n{}", rust);
+    // With reference semantics, interior mutability replaces &mut [T].
+    assert!(rust.contains("arr: LogosSeq<i64>"),
+        "Quicksort should use LogosSeq<T> (reference semantics), got:\n{}", rust);
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -2352,8 +2352,9 @@ Show item 1 of arr.
 "#;
     assert_exact_output(code, "5");
     let rust = compile_to_rust(code).unwrap();
-    assert!(rust.contains("fn sift_down(arr: &mut [i64]") || rust.contains("fn siftDown(arr: &mut [i64]"),
-        "Heapsort consume-alias should use &mut [T], got:\n{}", rust);
+    // With reference semantics, interior mutability replaces &mut [T].
+    assert!(rust.contains("arr: LogosSeq<i64>"),
+        "Heapsort should use LogosSeq<T> (reference semantics), got:\n{}", rust);
 }
 
 #[cfg(not(target_arch = "wasm32"))]

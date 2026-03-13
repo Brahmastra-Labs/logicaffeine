@@ -248,11 +248,17 @@ fn codegen_expr_boxed_internal(
             // Optimize HashMap .get() for equality comparisons to avoid cloning
             if matches!(op, BinaryOpKind::Eq | BinaryOpKind::NotEq) {
                 let neg = matches!(op, BinaryOpKind::NotEq);
-                // Check if left side is a HashMap index
+                // Check if left side is a HashMap/LogosMap index
                 if let Expr::Index { collection, index } = left {
                     if let Expr::Identifier(sym) = collection {
                         if let Some(t) = variable_types.get(sym) {
-                            if t.starts_with("std::collections::HashMap") || t.starts_with("HashMap") || t.starts_with("rustc_hash::FxHashMap") || t.starts_with("FxHashMap") {
+                            if t.starts_with("LogosMap") {
+                                let coll_str = recurse!(collection);
+                                let key_str = recurse!(index);
+                                let val_str = recurse!(right);
+                                let cmp = if neg { "!=" } else { "==" };
+                                return format!("({}.get(&({})) {} Some({}))", coll_str, key_str, cmp, val_str);
+                            } else if t.starts_with("std::collections::HashMap") || t.starts_with("HashMap") || t.starts_with("rustc_hash::FxHashMap") || t.starts_with("FxHashMap") {
                                 let coll_str = recurse!(collection);
                                 let key_str = recurse!(index);
                                 let val_str = recurse!(right);
@@ -266,11 +272,17 @@ fn codegen_expr_boxed_internal(
                         }
                     }
                 }
-                // Check if right side is a HashMap index
+                // Check if right side is a HashMap/LogosMap index
                 if let Expr::Index { collection, index } = right {
                     if let Expr::Identifier(sym) = collection {
                         if let Some(t) = variable_types.get(sym) {
-                            if t.starts_with("std::collections::HashMap") || t.starts_with("HashMap") || t.starts_with("rustc_hash::FxHashMap") || t.starts_with("FxHashMap") {
+                            if t.starts_with("LogosMap") {
+                                let coll_str = recurse!(collection);
+                                let key_str = recurse!(index);
+                                let val_str = recurse!(left);
+                                let cmp = if neg { "!=" } else { "==" };
+                                return format!("(Some({}) {} {}.get(&({})))", val_str, cmp, coll_str, key_str);
+                            } else if t.starts_with("std::collections::HashMap") || t.starts_with("HashMap") || t.starts_with("rustc_hash::FxHashMap") || t.starts_with("FxHashMap") {
                                 let coll_str = recurse!(collection);
                                 let key_str = recurse!(index);
                                 let val_str = recurse!(left);
@@ -547,7 +559,8 @@ fn codegen_expr_boxed_internal(
                 None
             };
             match known_type {
-                Some(t) if t.starts_with("Vec") => {
+                Some(t) if t.starts_with("LogosSeq") || t.starts_with("Vec") => {
+                    let is_logos_seq = t.starts_with("LogosSeq");
                     let suffix = if has_copy_element_type(t) { "" } else { ".clone()" };
                     // OPT-8: Check if index is a zero-based counter (already 0-based, no -1 needed)
                     let is_zero_based_counter = if let Expr::Identifier(idx_sym) = index {
@@ -597,7 +610,11 @@ fn codegen_expr_boxed_internal(
                             format!("({} - 1) as usize", recurse!(index))
                         }
                     } };
-                    format!("{}[{}]{}", coll_str, index_part, suffix)
+                    if is_logos_seq {
+                        format!("{}.borrow()[{}]{}", coll_str, index_part, suffix)
+                    } else {
+                        format!("{}[{}]{}", coll_str, index_part, suffix)
+                    }
                 }
                 Some(t) if t.starts_with("&[") || t.starts_with("&mut [") => {
                     let elem = t.strip_prefix("&mut [")
@@ -652,6 +669,11 @@ fn codegen_expr_boxed_internal(
                     } };
                     format!("{}[{}]{}", coll_str, index_part, suffix)
                 }
+                Some(t) if t.starts_with("LogosMap") => {
+                    let index_str = recurse!(index);
+                    // Use .get() which borrows the key (avoids moving String keys)
+                    format!("{}.get(&({})).expect(\"Key not found in map\")", coll_str, index_str)
+                }
                 Some(t) if t.starts_with("std::collections::HashMap") || t.starts_with("HashMap") || t.starts_with("rustc_hash::FxHashMap") || t.starts_with("FxHashMap") => {
                     let index_str = recurse!(index);
                     let suffix = if has_copy_value_type(t) { "" } else { ".clone()" };
@@ -672,25 +694,48 @@ fn codegen_expr_boxed_internal(
             let coll_str = recurse!(collection);
             let start_str = recurse!(start);
             let end_str = recurse!(end);
-            // Phase 43D: 1-indexed inclusive to 0-indexed exclusive
-            // "items 1 through 3" → &items[0..3] (elements at indices 0, 1, 2)
-            format!("&{}[({} - 1) as usize..{} as usize]", coll_str, start_str, end_str)
+            // For LogosSeq, need to borrow the inner Vec first
+            let known_type = if let Expr::Identifier(sym) = collection {
+                variable_types.get(sym).map(|s| s.split("|__hl:").next().unwrap_or(s.as_str()))
+            } else {
+                None
+            };
+            if matches!(known_type, Some(t) if t.starts_with("LogosSeq")) {
+                format!("&{}.borrow()[({} - 1) as usize..{} as usize]", coll_str, start_str, end_str)
+            } else {
+                format!("&{}[({} - 1) as usize..{} as usize]", coll_str, start_str, end_str)
+            }
         }
 
         Expr::Copy { expr: inner } => {
-            // Special case: Copy of Slice → emit arr[range].to_vec() without &
-            // Otherwise the & from Slice codegen captures .to_owned() giving &Vec<T>
+            // Special case: Copy of Slice → emit arr[range].to_vec() wrapped in LogosSeq
             if let Expr::Slice { collection, start, end } = inner {
                 let coll_str = recurse!(collection);
                 let start_str = recurse!(start);
                 let end_str = recurse!(end);
-                format!("{}[({} - 1) as usize..{} as usize].to_vec()", coll_str, start_str, end_str)
+                let known_type = if let Expr::Identifier(sym) = collection {
+                    variable_types.get(sym).map(|s| s.split("|__hl:").next().unwrap_or(s.as_str()))
+                } else {
+                    None
+                };
+                if matches!(known_type, Some(t) if t.starts_with("LogosSeq")) {
+                    format!("LogosSeq::from_vec({}.borrow()[({} - 1) as usize..{} as usize].to_vec())", coll_str, start_str, end_str)
+                } else {
+                    format!("{}[({} - 1) as usize..{} as usize].to_vec()", coll_str, start_str, end_str)
+                }
             } else {
+                // Check if the inner expression is a LogosSeq/LogosMap → deep_clone()
+                let known_type = if let Expr::Identifier(sym) = inner {
+                    variable_types.get(sym).map(|s| s.split("|__hl:").next().unwrap_or(s.as_str()))
+                } else {
+                    None
+                };
                 let expr_str = recurse!(inner);
-                // Phase 43D: Explicit owned copy — .to_owned() is universal:
-                // - &[T] (slices) → Vec<T> via [T]: ToOwned<Owned=Vec<T>>
-                // - Vec<T>, HashMap<K,V>, HashSet<T> → Self via Clone blanket impl
-                format!("{}.to_owned()", expr_str)
+                if matches!(known_type, Some(t) if t.starts_with("LogosSeq") || t.starts_with("LogosMap")) {
+                    format!("{}.deep_clone()", expr_str)
+                } else {
+                    format!("{}.to_owned()", expr_str)
+                }
             }
         }
 
@@ -749,7 +794,7 @@ fn codegen_expr_boxed_internal(
             let item_strs: Vec<String> = items.iter()
                 .map(|i| recurse!(i))
                 .collect();
-            format!("vec![{}]", item_strs.join(", "))
+            format!("LogosSeq::from_vec(vec![{}])", item_strs.join(", "))
         }
 
         Expr::Tuple(ref items) => {
@@ -917,14 +962,14 @@ fn codegen_expr_boxed_internal(
                             let elem = if !type_args.is_empty() {
                                 codegen_type_expr(&type_args[0], interner)
                             } else { "()".to_string() };
-                            format!("{{ let __v: Vec<{}> = Vec::with_capacity(({}) as usize); __v }}", elem, cap_str)
+                            format!("LogosSeq::<{}>::with_capacity(({}) as usize)", elem, cap_str)
                         }
                         "Map" | "HashMap" => {
                             let (k, v) = if type_args.len() >= 2 {
                                 (codegen_type_expr(&type_args[0], interner),
                                  codegen_type_expr(&type_args[1], interner))
                             } else { ("String".to_string(), "String".to_string()) };
-                            format!("{{ let __m: FxHashMap<{}, {}> = FxHashMap::with_capacity_and_hasher(({}) as usize, Default::default()); __m }}", k, v, cap_str)
+                            format!("LogosMap::<{}, {}>::with_capacity(({}) as usize)", k, v, cap_str)
                         }
                         "Set" | "HashSet" => {
                             let elem = if !type_args.is_empty() {

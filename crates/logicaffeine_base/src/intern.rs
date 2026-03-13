@@ -60,6 +60,7 @@ impl Default for Symbol {
 ///
 /// Each unique string is stored exactly once. Interning the same string twice
 /// returns the same symbol, enabling fast equality checks by comparing integers.
+#[derive(Clone)]
 pub struct Interner {
     map: HashMap<String, Symbol>,
     vec: Vec<String>,

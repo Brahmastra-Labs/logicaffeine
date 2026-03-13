@@ -181,10 +181,10 @@ fn test_seq_type_mapping() {
 Let x be 1.
 "#;
     let rust = compile_to_rust(source).expect("Should compile");
-    // Seq of Text -> Vec<String>
+    // Seq of Text -> LogosSeq<String>
     assert!(
-        rust.contains("Vec<String>"),
-        "Should map Seq of Text to Rust Vec<String>"
+        rust.contains("LogosSeq<String>"),
+        "Should map Seq of Text to Rust LogosSeq<String>"
     );
 }
 

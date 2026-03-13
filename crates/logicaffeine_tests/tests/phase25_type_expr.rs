@@ -70,7 +70,7 @@ fn let_with_list_of_int() {
     let result = compile_to_rust(source);
     assert!(result.is_ok(), "Should parse generic: {:?}", result);
     let rust = result.unwrap();
-    assert!(rust.contains("Vec<i64>"), "Should emit Vec<i64>: {}", rust);
+    assert!(rust.contains("LogosSeq<i64>"), "Should emit LogosSeq<i64>: {}", rust);
 }
 
 #[test]
@@ -89,7 +89,7 @@ fn let_with_nested_generic() {
     let result = compile_to_rust(source);
     assert!(result.is_ok(), "Should parse nested generic: {:?}", result);
     let rust = result.unwrap();
-    assert!(rust.contains("Vec<Vec<i64>>"), "Should emit Vec<Vec<i64>>: {}", rust);
+    assert!(rust.contains("LogosSeq<LogosSeq<i64>>"), "Should emit LogosSeq<LogosSeq<i64>>: {}", rust);
 }
 
 #[test]
@@ -122,7 +122,7 @@ fn mutable_with_list_annotation() {
     let result = compile_to_rust(source);
     assert!(result.is_ok(), "Should parse mutable generic: {:?}", result);
     let rust = result.unwrap();
-    assert!(rust.contains("let mut values: Vec<String>"), "Should emit mut Vec: {}", rust);
+    assert!(rust.contains("let mut values: LogosSeq<String>"), "Should emit mut LogosSeq: {}", rust);
 }
 
 // =============================================================================
@@ -176,7 +176,7 @@ fn maybe_nested_generic() {
     let result = compile_to_rust(source);
     assert!(result.is_ok(), "Should parse Maybe List of Int: {:?}", result);
     let rust = result.unwrap();
-    assert!(rust.contains("Option<Vec<i64>>"), "Maybe List of Int should emit Option<Vec<i64>>: {}", rust);
+    assert!(rust.contains("Option<LogosSeq<i64>>"), "Maybe List of Int should emit Option<LogosSeq<i64>>: {}", rust);
 }
 
 #[test]

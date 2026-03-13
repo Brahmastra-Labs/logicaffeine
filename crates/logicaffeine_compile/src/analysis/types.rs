@@ -157,14 +157,14 @@ impl LogosType {
             LogosType::Moment => "LogosMoment".into(),
             LogosType::Time => "LogosTime".into(),
             LogosType::Span => "LogosSpan".into(),
-            LogosType::Seq(inner) => format!("Vec<{}>", inner.to_rust_type()),
+            LogosType::Seq(inner) => format!("LogosSeq<{}>", inner.to_rust_type()),
             LogosType::Map(k, v) => format!(
-                "std::collections::HashMap<{}, {}>",
+                "LogosMap<{}, {}>",
                 k.to_rust_type(),
                 v.to_rust_type()
             ),
             LogosType::Set(inner) => {
-                format!("std::collections::HashSet<{}>", inner.to_rust_type())
+                format!("FxHashSet<{}>", inner.to_rust_type())
             }
             LogosType::Option(inner) => format!("Option<{}>", inner.to_rust_type()),
             LogosType::Function(params, ret) => {
@@ -279,10 +279,14 @@ impl LogosType {
             "LogosSpan" => LogosType::Span,
             _ => {
                 // Try to parse generic types
-                if let Some(inner) = s.strip_prefix("Vec<").and_then(|s| s.strip_suffix('>')) {
+                if let Some(inner) = s.strip_prefix("LogosSeq<")
+                    .or_else(|| s.strip_prefix("Vec<"))
+                    .and_then(|s| s.strip_suffix('>'))
+                {
                     LogosType::Seq(Box::new(Self::from_rust_type_str(inner)))
                 } else if let Some(inner) = s
-                    .strip_prefix("std::collections::HashMap<")
+                    .strip_prefix("LogosMap<")
+                    .or_else(|| s.strip_prefix("std::collections::HashMap<"))
                     .or_else(|| s.strip_prefix("HashMap<"))
                     .or_else(|| s.strip_prefix("rustc_hash::FxHashMap<"))
                     .or_else(|| s.strip_prefix("FxHashMap<"))
@@ -905,15 +909,15 @@ mod tests {
     fn to_rust_type_collections() {
         assert_eq!(
             LogosType::Seq(Box::new(LogosType::Int)).to_rust_type(),
-            "Vec<i64>"
+            "LogosSeq<i64>"
         );
         assert_eq!(
             LogosType::Map(Box::new(LogosType::String), Box::new(LogosType::Int)).to_rust_type(),
-            "std::collections::HashMap<String, i64>"
+            "LogosMap<String, i64>"
         );
         assert_eq!(
             LogosType::Set(Box::new(LogosType::Int)).to_rust_type(),
-            "std::collections::HashSet<i64>"
+            "FxHashSet<i64>"
         );
         assert_eq!(
             LogosType::Option(Box::new(LogosType::String)).to_rust_type(),
@@ -924,7 +928,7 @@ mod tests {
     #[test]
     fn to_rust_type_nested() {
         let nested = LogosType::Seq(Box::new(LogosType::Seq(Box::new(LogosType::Float))));
-        assert_eq!(nested.to_rust_type(), "Vec<Vec<f64>>");
+        assert_eq!(nested.to_rust_type(), "LogosSeq<LogosSeq<f64>>");
     }
 
     // =========================================================================
@@ -1269,7 +1273,7 @@ mod tests {
         env.register(z, LogosType::Unknown); // Should be filtered out
         let legacy = env.to_legacy_variable_types();
         assert_eq!(legacy.get(&x).unwrap(), "i64");
-        assert_eq!(legacy.get(&y).unwrap(), "Vec<f64>");
+        assert_eq!(legacy.get(&y).unwrap(), "LogosSeq<f64>");
         assert!(!legacy.contains_key(&z));
     }
 

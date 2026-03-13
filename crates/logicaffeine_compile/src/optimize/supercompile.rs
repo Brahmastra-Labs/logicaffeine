@@ -64,11 +64,39 @@ struct FuncDef<'a> {
     body: Block<'a>,
 }
 
+#[derive(Clone)]
+struct Configuration<'a> {
+    expr: &'a Expr<'a>,
+    store_snapshot: HashMap<Symbol, Value>,
+}
+
+struct History<'a> {
+    entries: Vec<Configuration<'a>>,
+}
+
+impl<'a> History<'a> {
+    fn new() -> Self {
+        Self { entries: Vec::new() }
+    }
+
+    fn push(&mut self, config: Configuration<'a>) {
+        if self.entries.len() >= 16 {
+            self.entries.remove(0);
+        }
+        self.entries.push(config);
+    }
+
+    fn check_embedding(&self, new_expr: &Expr<'a>) -> Option<&Configuration<'a>> {
+        self.entries.iter().find(|c| embeds(c.expr, new_expr))
+    }
+}
+
 struct SuperEnv<'a> {
     store: HashMap<Symbol, Value>,
     funcs: HashMap<Symbol, FuncDef<'a>>,
     memo: HashMap<(Symbol, Vec<Value>), Option<Value>>,
     steps: usize,
+    history: History<'a>,
 }
 
 impl<'a> SuperEnv<'a> {
@@ -78,6 +106,7 @@ impl<'a> SuperEnv<'a> {
             funcs: HashMap::new(),
             memo: HashMap::new(),
             steps: 0,
+            history: History::new(),
         }
     }
 }
@@ -501,6 +530,7 @@ fn drive_stmt<'a>(
     env: &mut SuperEnv<'a>,
     expr_arena: &'a Arena<Expr<'a>>,
     stmt_arena: &'a Arena<Stmt<'a>>,
+    interner: &mut Interner,
     depth: usize,
 ) -> Option<Stmt<'a>> {
     match stmt {
@@ -537,7 +567,7 @@ fn drive_stmt<'a>(
             if let Expr::Literal(Literal::Boolean(b)) = driven_cond {
                 if *b {
                     // Take then branch only
-                    let driven_then = drive_block(then_block, env, expr_arena, stmt_arena, depth);
+                    let driven_then = drive_block(then_block, env, expr_arena, stmt_arena, interner, depth);
                     Some(Stmt::If {
                         cond: driven_cond,
                         then_block: driven_then,
@@ -546,7 +576,7 @@ fn drive_stmt<'a>(
                 } else {
                     // Take else branch only
                     if let Some(eb) = else_block {
-                        let driven_else = drive_block(eb, env, expr_arena, stmt_arena, depth);
+                        let driven_else = drive_block(eb, env, expr_arena, stmt_arena, interner, depth);
                         Some(Stmt::If {
                             cond: driven_cond,
                             then_block: stmt_arena.alloc_slice(vec![]),
@@ -559,12 +589,12 @@ fn drive_stmt<'a>(
             } else {
                 // Condition unknown: drive both branches with snapshot/restore
                 let snapshot = env.store.clone();
-                let driven_then = drive_block(then_block, env, expr_arena, stmt_arena, depth);
+                let driven_then = drive_block(then_block, env, expr_arena, stmt_arena, interner, depth);
                 let then_store = env.store.clone();
 
                 env.store = snapshot;
                 let driven_else = else_block.map(|eb| {
-                    drive_block(eb, env, expr_arena, stmt_arena, depth)
+                    drive_block(eb, env, expr_arena, stmt_arena, interner, depth)
                 });
                 let else_store = env.store.clone();
 
@@ -587,13 +617,16 @@ fn drive_stmt<'a>(
             }
         }
         Stmt::While { cond, body, decreasing } => {
-            // Embedding-based generalization: instead of blindly removing all
-            // modified variables, iterate to find which variables actually change.
-            // Variables whose values are identical across iterations stay in the store.
             let modified = collect_modified_vars_block(body);
             let snapshot = env.store.clone();
 
-            // Widen only variables that are syntactically modified
+            // Snapshot configuration before entering loop
+            let pre_config = Configuration {
+                expr: cond,
+                store_snapshot: snapshot.clone(),
+            };
+
+            // Widen modified variables
             for sym in &modified {
                 env.store.remove(sym);
             }
@@ -601,22 +634,33 @@ fn drive_stmt<'a>(
             let driven_cond = drive_expr(cond, env, expr_arena, depth);
             // While-false elimination: if condition is statically false, remove loop
             if let Expr::Literal(Literal::Boolean(false)) = driven_cond {
-                // Restore snapshot — the loop never executes
                 env.store = snapshot;
                 return None;
             }
 
-            let driven_body = drive_block(body, env, expr_arena, stmt_arena, depth);
+            // Check embedding: if the driven condition embeds in a historical one,
+            // the whistle blows — use MSG to generalize and widen precisely.
+            if let Some(prev) = env.history.check_embedding(driven_cond) {
+                let generalized = msg(prev.expr, driven_cond, expr_arena, interner);
+                // Remove store entries for MSG-introduced variables to ensure termination
+                for i in 0..generalized.num_substitutions {
+                    let name = format!("__msg_{}", i);
+                    let sym = interner.intern(&name);
+                    env.store.remove(&sym);
+                }
+            }
 
-            // After loop, check which modified vars actually changed from snapshot.
-            // Variables that kept their snapshot value can stay in the store.
+            // Push configuration to history
+            env.history.push(pre_config);
+
+            let driven_body = drive_block(body, env, expr_arena, stmt_arena, interner, depth);
+
+            // After loop, preserve unmodified variables from snapshot
             let mut post_loop_store = HashMap::new();
             for (sym, val) in &snapshot {
                 if !modified.contains(sym) {
-                    // Not modified in loop body — value is preserved
                     post_loop_store.insert(*sym, val.clone());
                 }
-                // Modified vars stay removed (unknown after loop)
             }
             env.store = post_loop_store;
 
@@ -632,7 +676,7 @@ fn drive_stmt<'a>(
             for sym in &modified {
                 env.store.remove(sym);
             }
-            let driven_body = drive_block(body, env, expr_arena, stmt_arena, depth);
+            let driven_body = drive_block(body, env, expr_arena, stmt_arena, interner, depth);
             Some(Stmt::Repeat { pattern, iterable: driven_iter, body: driven_body })
         }
         Stmt::Show { object, recipient } => {
@@ -679,7 +723,7 @@ fn drive_stmt<'a>(
             // Drive inside function body with fresh store
             let snapshot = env.store.clone();
             env.store.clear();
-            let driven_body = drive_block(body, env, expr_arena, stmt_arena, depth);
+            let driven_body = drive_block(body, env, expr_arena, stmt_arena, interner, depth);
             env.store = snapshot;
             Some(Stmt::FunctionDef {
                 name, params, generics,
@@ -700,11 +744,12 @@ fn drive_block<'a>(
     env: &mut SuperEnv<'a>,
     expr_arena: &'a Arena<Expr<'a>>,
     stmt_arena: &'a Arena<Stmt<'a>>,
+    interner: &mut Interner,
     depth: usize,
 ) -> &'a [Stmt<'a>] {
     let mut result = Vec::with_capacity(block.len());
     for stmt in block.iter().cloned() {
-        if let Some(driven) = drive_stmt(stmt, env, expr_arena, stmt_arena, depth) {
+        if let Some(driven) = drive_stmt(stmt, env, expr_arena, stmt_arena, interner, depth) {
             result.push(driven);
         }
     }
@@ -775,7 +820,7 @@ pub fn supercompile_stmts<'a>(
 
     let mut result = Vec::with_capacity(stmts.len());
     for stmt in stmts {
-        if let Some(driven) = drive_stmt(stmt, &mut env, expr_arena, stmt_arena, 0) {
+        if let Some(driven) = drive_stmt(stmt, &mut env, expr_arena, stmt_arena, interner, 0) {
             result.push(driven);
         }
     }

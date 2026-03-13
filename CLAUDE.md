@@ -7,8 +7,8 @@
 3. **USE TDD** - Follow RED/GREEN test-driven development
 4. **NEVER MODIFY RED TESTS** - Do not update failing tests without stopping and asking the user first. The test defines the spec; if a test fails, fix the implementation, not the test. DO NOT UPDATE RED TESTS. IF YOU UPDATE RED TESTS TO MAKE THEM PASS WITHOUT STOPPING TO ASK THE USER YOU WILL BE DECOMISSIONED!
 5. **RUNNING TESTS**
-  Use `cargo test -- --skip e2e` when running tests unless asked to run all tests. BY DEFAULT, skip the e2e tests.
-  When asked to run all tests run `cargo test`.
+  Use `cargo test --no-fail-fast -- --skip e2e > /tmp/test_file_logs.txt 2>&1; echo "EXIT: $?" >> /tmp/test_file_logs.txt` when running tests unless asked to run all tests. BY DEFAULT, skip the e2e tests. Use a sensible file to dump the logs to.
+  When asked to run all tests run `cargo test --no-fail-fast -- > /tmp/test_file_logs.txt 2>&1; echo "EXIT: $?" >> /tmp/test_file_logs.txt`.
   When running tests, don't tail or head the outputs, just read the entire thing.
   During development, we will develop the RED test, then work until that passes, then run all our tests.
   For large refactors, we can selectively run existing tests to ensure we didn't break things.

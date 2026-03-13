@@ -807,7 +807,7 @@ pub enum ClosureBody<'a> {
 }
 
 /// Literal values in LOGOS.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone)]
 pub enum Literal {
     /// Integer literal
     Number(i64),
@@ -833,4 +833,47 @@ pub enum Literal {
     /// Time-of-day literal (nanoseconds from midnight)
     /// Range: 0 to 86_399_999_999_999 (just under 24 hours)
     Time(i64),
+}
+
+impl PartialEq for Literal {
+    fn eq(&self, other: &Self) -> bool {
+        match (self, other) {
+            (Literal::Number(a), Literal::Number(b)) => a == b,
+            (Literal::Float(a), Literal::Float(b)) => a.to_bits() == b.to_bits(),
+            (Literal::Text(a), Literal::Text(b)) => a == b,
+            (Literal::Boolean(a), Literal::Boolean(b)) => a == b,
+            (Literal::Nothing, Literal::Nothing) => true,
+            (Literal::Char(a), Literal::Char(b)) => a == b,
+            (Literal::Duration(a), Literal::Duration(b)) => a == b,
+            (Literal::Date(a), Literal::Date(b)) => a == b,
+            (Literal::Moment(a), Literal::Moment(b)) => a == b,
+            (Literal::Span { months: m1, days: d1 }, Literal::Span { months: m2, days: d2 }) => m1 == m2 && d1 == d2,
+            (Literal::Time(a), Literal::Time(b)) => a == b,
+            _ => false,
+        }
+    }
+}
+
+impl Eq for Literal {}
+
+impl std::hash::Hash for Literal {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        std::mem::discriminant(self).hash(state);
+        match self {
+            Literal::Number(n) => n.hash(state),
+            Literal::Float(f) => f.to_bits().hash(state),
+            Literal::Text(s) => s.hash(state),
+            Literal::Boolean(b) => b.hash(state),
+            Literal::Nothing => {}
+            Literal::Char(c) => c.hash(state),
+            Literal::Duration(d) => d.hash(state),
+            Literal::Date(d) => d.hash(state),
+            Literal::Moment(m) => m.hash(state),
+            Literal::Span { months, days } => {
+                months.hash(state);
+                days.hash(state);
+            }
+            Literal::Time(t) => t.hash(state),
+        }
+    }
 }

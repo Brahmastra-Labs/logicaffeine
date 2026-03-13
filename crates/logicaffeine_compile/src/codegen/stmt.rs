@@ -72,17 +72,17 @@ pub fn codegen_stmt<'a>(
                 match base_name {
                     "Seq" | "List" | "Vec" => {
                         let rust_type = if !params.is_empty() {
-                            format!("Vec<{}>", codegen_type_expr(&params[0], interner))
+                            format!("LogosSeq<{}>", codegen_type_expr(&params[0], interner))
                         } else {
-                            "Vec<()>".to_string()
+                            "LogosSeq<()>".to_string()
                         };
                         ctx.register_variable_type(*var, rust_type);
                     }
                     "Map" | "HashMap" => {
                         let rust_type = if params.len() >= 2 {
-                            format!("FxHashMap<{}, {}>", codegen_type_expr(&params[0], interner), codegen_type_expr(&params[1], interner))
+                            format!("LogosMap<{}, {}>", codegen_type_expr(&params[0], interner), codegen_type_expr(&params[1], interner))
                         } else {
-                            "FxHashMap<String, String>".to_string()
+                            "LogosMap<String, String>".to_string()
                         };
                         ctx.register_variable_type(*var, rust_type);
                     }
@@ -93,17 +93,17 @@ pub fn codegen_stmt<'a>(
                 match type_str {
                     "Seq" | "List" | "Vec" => {
                         let rust_type = if !type_args.is_empty() {
-                            format!("Vec<{}>", codegen_type_expr(&type_args[0], interner))
+                            format!("LogosSeq<{}>", codegen_type_expr(&type_args[0], interner))
                         } else {
-                            "Vec<()>".to_string()
+                            "LogosSeq<()>".to_string()
                         };
                         ctx.register_variable_type(*var, rust_type);
                     }
                     "Map" | "HashMap" => {
                         let rust_type = if type_args.len() >= 2 {
-                            format!("rustc_hash::FxHashMap<{}, {}>", codegen_type_expr(&type_args[0], interner), codegen_type_expr(&type_args[1], interner))
+                            format!("LogosMap<{}, {}>", codegen_type_expr(&type_args[0], interner), codegen_type_expr(&type_args[1], interner))
                         } else {
-                            "FxHashMap<String, String>".to_string()
+                            "LogosMap<String, String>".to_string()
                         };
                         ctx.register_variable_type(*var, rust_type);
                     }
@@ -114,15 +114,15 @@ pub fn codegen_stmt<'a>(
                 let elem_type = items.first()
                     .map(|e| infer_rust_type_from_expr(e, interner))
                     .unwrap_or_else(|| "_".to_string());
-                ctx.register_variable_type(*var, format!("Vec<{}>", elem_type));
+                ctx.register_variable_type(*var, format!("LogosSeq<{}>", elem_type));
             } else if let Expr::Identifier(src_sym) = value {
                 // Propagate type from source variable: `Let result be arr` inherits arr's type.
                 // For borrow params (&[T]), the copy becomes Vec<T> (owned).
                 if let Some(src_type) = ctx.get_variable_types().get(src_sym).cloned() {
                     if src_type.starts_with("&[") {
-                        // Borrow param copied → becomes owned Vec
+                        // Borrow param copied → becomes owned LogosSeq
                         let inner = src_type.strip_prefix("&[").and_then(|s| s.strip_suffix(']')).unwrap_or("_");
-                        ctx.register_variable_type(*var, format!("Vec<{}>", inner));
+                        ctx.register_variable_type(*var, format!("LogosSeq<{}>", inner));
                     } else if src_type.starts_with("&mut [") {
                         // Mutable borrow param consumed into alias → propagate &mut [T]
                         // so the alias continues to be treated as the in-place mutable borrow.
@@ -142,14 +142,17 @@ pub fn codegen_stmt<'a>(
                 };
                 if let Some(s) = src_sym {
                     if let Some(src_type) = ctx.get_variable_types().get(&s).cloned() {
-                        if src_type.starts_with("Vec") || src_type.starts_with("&[") {
-                            // Slice/copy always produces owned Vec
-                            let elem = if src_type.starts_with("Vec<") {
+                        if src_type.starts_with("LogosSeq") || src_type.starts_with("Vec") || src_type.starts_with("&[") {
+                            let elem = if src_type.starts_with("LogosSeq<") {
+                                src_type.strip_prefix("LogosSeq<").and_then(|t| t.strip_suffix('>')).unwrap_or("_")
+                            } else if src_type.starts_with("Vec<") {
                                 src_type.strip_prefix("Vec<").and_then(|t| t.strip_suffix('>')).unwrap_or("_")
                             } else {
                                 src_type.strip_prefix("&[").and_then(|t| t.strip_suffix(']')).unwrap_or("_")
                             };
-                            ctx.register_variable_type(*var, format!("Vec<{}>", elem));
+                            ctx.register_variable_type(*var, format!("LogosSeq<{}>", elem));
+                        } else if src_type.starts_with("LogosMap") {
+                            ctx.register_variable_type(*var, src_type);
                         }
                     }
                 }
@@ -200,14 +203,14 @@ pub fn codegen_stmt<'a>(
             // Grand Challenge: Variable is mutable if explicitly marked OR if it's a Set target
             let is_mutable = *mutable || mutable_vars.contains(var);
 
-            // When assigning a &[T] borrow param to a mutable local, convert to owned Vec.
-            // `Let mutable result be arr` where arr: &[i64] → `let mut result = arr.to_vec();`
-            if is_mutable {
-                if let Expr::Identifier(src_sym) = value {
-                    if let Some(src_type) = ctx.get_variable_types().get(src_sym) {
-                        if src_type.starts_with("&[") {
-                            value_str = format!("{}.to_vec()", value_str);
-                        }
+            // Reference semantics: clone LogosSeq/LogosMap on assignment to share the Rc.
+            // Borrow param (&[T]) assigned to mutable local → convert to owned.
+            if let Expr::Identifier(src_sym) = value {
+                if let Some(src_type) = ctx.get_variable_types().get(src_sym) {
+                    if src_type.starts_with("LogosSeq") || src_type.starts_with("LogosMap") {
+                        value_str = format!("{}.clone()", value_str);
+                    } else if is_mutable && src_type.starts_with("&[") {
+                        value_str = format!("{}.to_vec()", value_str);
                     }
                 }
             }
@@ -539,10 +542,19 @@ pub fn codegen_stmt<'a>(
                         }
                     }
                 } else {
-                    codegen_expr_boxed_with_types(
+                    let mut vs = codegen_expr_boxed_with_types(
                         value, interner, synced_vars, boxed_fields, registry,
                         async_functions, string_vars, var_types
-                    )
+                    );
+                    // Reference semantics: clone LogosSeq/LogosMap on assignment to share the Rc.
+                    if let Expr::Identifier(src_sym) = value {
+                        if let Some(src_type) = var_types.get(src_sym) {
+                            if src_type.starts_with("LogosSeq") || src_type.starts_with("LogosMap") {
+                                vs = format!("{}.clone()", vs);
+                            }
+                        }
+                    }
+                    vs
                 };
                 if !used_mut_borrow {
                     writeln!(output, "{}{} = {};", indent_str, target_name, value_str).unwrap();
@@ -591,6 +603,16 @@ pub fn codegen_stmt<'a>(
                     }
                     format!("&{}", s)
                 } else {
+                    // Regular param: clone non-Copy identifiers to avoid move-after-use.
+                    // LogosSeq/LogosMap .clone() is O(1) Rc clone — exactly what we want
+                    // for reference semantics.
+                    if let Expr::Identifier(sym) = a {
+                        if let Some(ty) = variable_types.get(sym) {
+                            if !is_copy_type(ty) {
+                                return format!("{}.clone()", s);
+                            }
+                        }
+                    }
                     s
                 }
             }).collect();
@@ -880,6 +902,21 @@ pub fn codegen_stmt<'a>(
                 writeln!(output, "{}let mut __iter = ({}).into_iter();", indent_str, iter_str).unwrap();
                 writeln!(output, "{}while let Some({}) = __iter.next() {{", indent_str, pattern_str).unwrap();
             } else {
+                // Determine iteration strategy based on collection type
+                let is_logos_seq = if let Expr::Identifier(coll_sym) = iterable {
+                    ctx.get_variable_types().get(coll_sym)
+                        .map(|s| s.split("|__hl:").next().unwrap_or(s.as_str()))
+                        .map_or(false, |t| t.starts_with("LogosSeq"))
+                } else {
+                    false
+                };
+
+                if is_logos_seq {
+                    // LogosSeq: snapshot the inner vec for iteration.
+                    // .to_vec() returns an owned Vec<T> — safe to iterate while
+                    // allowing mutations to the LogosSeq during/after the loop.
+                    writeln!(output, "{}for {} in {}.to_vec() {{", indent_str, pattern_str, iter_str).unwrap();
+                } else {
                 // Optimization: for known Vec<T>/&[T] with Copy element type,
                 // use .iter().copied() instead of .clone() to avoid copying the entire collection.
                 // For slices, must use .iter() since .clone() on &[T] clones the reference, not the data.
@@ -924,6 +961,7 @@ pub fn codegen_stmt<'a>(
                     // Clone the collection before iterating to avoid moving it.
                     // This allows the collection to be reused after the loop.
                     writeln!(output, "{}for {} in {}.clone() {{", indent_str, pattern_str, iter_str).unwrap();
+                }
                 }
             }
             if !par_emitted {
@@ -1519,9 +1557,9 @@ pub fn codegen_stmt<'a>(
                                 }
 
                                 if field_name == binding_name {
-                                    field_name.to_string()
+                                    format!("ref {}", field_name)
                                 } else {
-                                    format!("{}: {}", field_name, binding_name)
+                                    format!("{}: ref {}", field_name, binding_name)
                                 }
                             })
                             .collect();
@@ -1548,9 +1586,19 @@ pub fn codegen_stmt<'a>(
                 }
 
                 // Generate explicit dereferences for boxed bindings at the start of the arm
-                // This makes them usable as regular values in the rest of the body
+                // With ref bindings, boxed fields need double deref: ref -> Box -> inner
                 for binding_name in &inner_boxed_binding_names {
-                    writeln!(output, "{}        let {} = (*{}).clone();", indent_str, binding_name, binding_name).unwrap();
+                    writeln!(output, "{}        let {} = (**{}).clone();", indent_str, binding_name, binding_name).unwrap();
+                }
+
+                // Clone non-boxed ref bindings to get owned values
+                if let Some(_) = arm.variant {
+                    for (_field, binding) in &arm.bindings {
+                        let binding_name = interner.resolve(*binding);
+                        if !inner_boxed_binding_names.contains(binding_name) {
+                            writeln!(output, "{}        let {} = {}.clone();", indent_str, binding_name, binding_name).unwrap();
+                        }
+                    }
                 }
 
                 for stmt in arm.body {
@@ -1582,8 +1630,8 @@ pub fn codegen_stmt<'a>(
                                                     .map(|(f, b)| {
                                                         let fn_name = interner.resolve(*f);
                                                         let bn_name = interner.resolve(*b);
-                                                        if fn_name == bn_name { fn_name.to_string() }
-                                                        else { format!("{}: {}", fn_name, bn_name) }
+                                                        if fn_name == bn_name { format!("ref {}", fn_name) }
+                                                        else { format!("{}: ref {}", fn_name, bn_name) }
                                                     })
                                                     .collect();
                                                 writeln!(inner_output, "{}    {}{} {{ {} }} => {{", "    ".repeat(indent + 2), inner_enum_prefix, v_name, bindings.join(", ")).unwrap();
@@ -1665,6 +1713,37 @@ pub fn codegen_stmt<'a>(
             };
 
             match known_type {
+                Some(t) if t.starts_with("LogosSeq") => {
+                    // Use borrow_mut() for interior mutability — no &mut needed on the variable.
+                    let is_zero_based_counter = if let Expr::Identifier(idx_sym) = index {
+                        ctx.get_variable_types().get(idx_sym).map_or(false, |t| t == "__zero_based_i64")
+                    } else {
+                        false
+                    };
+                    let index_part = if is_zero_based_counter {
+                        let idx_name = codegen_expr_with_async(index, interner, synced_vars, async_functions, ctx.get_variable_types());
+                        format!("{} as usize", idx_name)
+                    } else {
+                        simplify_1based_index(index, interner, true)
+                    };
+                    // If RHS reads from the same collection, evaluate into a temp first
+                    // to avoid simultaneous borrow() and borrow_mut() on the same RefCell.
+                    let needs_tmp = if let Expr::Identifier(coll_sym) = collection {
+                        expr_indexes_collection(value, *coll_sym)
+                    } else {
+                        false
+                    };
+                    if needs_tmp {
+                        writeln!(output, "{}let __set_val = {};", indent_str, value_str).unwrap();
+                        writeln!(output, "{}{}.borrow_mut()[{}] = __set_val;", indent_str, coll_str, index_part).unwrap();
+                    } else {
+                        writeln!(output, "{}{}.borrow_mut()[{}] = {};", indent_str, coll_str, index_part, value_str).unwrap();
+                    }
+                }
+                Some(t) if t.starts_with("LogosMap") => {
+                    let index_str = codegen_expr_with_async(index, interner, synced_vars, async_functions, ctx.get_variable_types());
+                    writeln!(output, "{}{}.insert({}, {});", indent_str, coll_str, index_str, value_str).unwrap();
+                }
                 Some(t) if t.starts_with("Vec") || t.starts_with("&mut [") || t.starts_with("&[") => {
                     // OPT-8: Check if index is a zero-based counter
                     let is_zero_based_counter = if let Expr::Identifier(idx_sym) = index {
@@ -2413,7 +2492,7 @@ fn try_emit_parallel_reduction<'a>(
         ctx.get_variable_types().get(coll_sym)
             .map(|t| {
                 let t = t.split("|__hl:").next().unwrap_or(t.as_str());
-                t.starts_with("Vec<") && has_copy_element_type(t)
+                (t.starts_with("LogosSeq<") || t.starts_with("Vec<")) && has_copy_element_type(t)
             })
             .unwrap_or(false)
     } else {
@@ -2437,17 +2516,20 @@ fn try_emit_parallel_reduction<'a>(
     let mut out = String::new();
 
     // Emit parallel reduction with runtime threshold
+    // LogosSeq needs .borrow() to access the inner Vec for .par_iter()/.iter()
+    let borrow_expr = format!("{}.borrow()", iter_str);
     writeln!(out, "{}if {}.len() >= 10000 {{", indent_str, iter_str).unwrap();
     writeln!(out, "{}    use rayon::prelude::*;", indent_str).unwrap();
+    writeln!(out, "{}    let __par_ref = {};", indent_str, borrow_expr).unwrap();
     if needs_map {
-        writeln!(out, "{}    {} += {}.par_iter().copied().map(|{}| {}).sum::<i64>();",
-            indent_str, acc_name, iter_str, pattern_str, incr_code).unwrap();
+        writeln!(out, "{}    {} += __par_ref.par_iter().copied().map(|{}| {}).sum::<i64>();",
+            indent_str, acc_name, pattern_str, incr_code).unwrap();
     } else {
-        writeln!(out, "{}    {} += {}.par_iter().copied().sum::<i64>();",
-            indent_str, acc_name, iter_str).unwrap();
+        writeln!(out, "{}    {} += __par_ref.par_iter().copied().sum::<i64>();",
+            indent_str, acc_name).unwrap();
     }
     writeln!(out, "{}}} else {{", indent_str).unwrap();
-    writeln!(out, "{}    for {} in {}.iter().copied() {{", indent_str, pattern_str, iter_str).unwrap();
+    writeln!(out, "{}    for {} in {}.to_vec() {{", indent_str, pattern_str, iter_str).unwrap();
 
     match op {
         BinaryOpKind::Add => {
