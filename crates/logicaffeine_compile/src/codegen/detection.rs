@@ -1274,14 +1274,10 @@ fn symbol_appears_in_expr(sym: Symbol, expr: &Expr) -> bool {
 }
 
 /// Check if a TypeExpr is a Vec/Seq/List type (collection that could be borrowed as &[T]).
-pub(super) fn is_vec_type_expr(ty: &TypeExpr, interner: &Interner) -> bool {
-    match ty {
-        TypeExpr::Generic { base, .. } => {
-            let name = interner.resolve(*base);
-            matches!(name, "Seq" | "List" | "Vec")
-        }
-        _ => false,
-    }
+/// Returns false for Seq/List/Vec: these are now LogosSeq<T> with reference semantics
+/// (Rc<RefCell<Vec<T>>>), so borrow optimization doesn't apply — clone is O(1).
+pub(super) fn is_vec_type_expr(_ty: &TypeExpr, _interner: &Interner) -> bool {
+    false
 }
 
 /// For a function's parameters and body, return the set of parameter indices

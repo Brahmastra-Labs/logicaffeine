@@ -103,6 +103,17 @@ pub struct EffectEnv {
 }
 
 impl EffectEnv {
+    /// Analyze already-parsed statements and return the EffectEnv.
+    pub fn from_stmts(stmts: &[Stmt<'_>], interner: &Interner) -> Self {
+        let env = analyze_program(stmts, interner);
+        Self {
+            bindings: env.bindings,
+            aggregate: env.aggregate,
+            functions: env.functions,
+            interner: interner.clone(),
+        }
+    }
+
     /// Analyze a complete LOGOS source and return the EffectEnv.
     pub fn analyze_source(source: &str) -> Result<Self, ParseError> {
         let mut interner = Interner::new();

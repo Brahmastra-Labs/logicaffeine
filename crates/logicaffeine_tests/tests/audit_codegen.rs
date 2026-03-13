@@ -52,9 +52,9 @@ Show n.
 "#;
     let rust = compile_to_rust(code).unwrap();
 
-    // Merge capacity: result Vec should use Vec::with_capacity
-    assert!(rust.contains("Vec::with_capacity"),
-        "Merge result should use Vec::with_capacity, got:\n{}", rust);
+    // Merge capacity: result should use LogosSeq::with_capacity
+    assert!(rust.contains("LogosSeq::with_capacity"),
+        "Merge result should use LogosSeq::with_capacity, got:\n{}", rust);
 
     // Loop bounds hoisting: left_len and right_len should be hoisted
     assert!(rust.contains("let left_len"),
@@ -70,9 +70,9 @@ Show n.
     assert!(rust.contains("ri > right_len"),
         "Body condition should use hoisted right_len, got:\n{}", rust);
 
-    // Read-only param: arr should be borrowed as &[i64]
-    assert!(rust.contains("arr: &[i64]"),
-        "Read-only param should be &[i64], got:\n{}", rust);
+    // With reference semantics, arr is passed as LogosSeq<i64> (O(1) Rc clone)
+    assert!(rust.contains("arr: LogosSeq<i64>"),
+        "Param should be LogosSeq<i64>, got:\n{}", rust);
 
     // BUG FIX: .clone() on Copy types in hoisted while loops.
     // The |__hl: suffix on variable types broke type parsing, causing
@@ -82,10 +82,14 @@ Show n.
     let merge_fn = rust.split("fn mergeSort").nth(1)
         .and_then(|s| s.split("\nfn ").next())
         .unwrap_or(&rust);
-    assert!(!merge_fn.contains(".clone()"),
-        "mergeSort should have NO .clone() calls — i64 is Copy.\n\
-         The |__hl: hoisting suffix is breaking type parsing.\n\
-         Generated code:\n{}", merge_fn);
+    // LogosSeq.clone() is expected (O(1) Rc clone for reference semantics).
+    // But element-level .clone() on logos_get results (i64 is Copy) should NOT appear.
+    for line in merge_fn.lines() {
+        if line.contains("logos_get") {
+            assert!(!line.contains(".clone()"),
+                "Should not clone i64 element from logos_get — i64 is Copy.\nLine: {}", line);
+        }
+    }
 }
 
 #[cfg(not(target_arch = "wasm32"))]

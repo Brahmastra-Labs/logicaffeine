@@ -880,3 +880,223 @@ Show result.
 "#;
     assert_exact_output(source, "11");
 }
+
+// =============================================================================
+// Sprint A — Fix PE Foundation (Step A1, A2, A3)
+// =============================================================================
+
+#[test]
+fn pe_spec_key_is_structured() {
+    // SpecKey should be (Symbol, Vec<Option<Literal>>), not (Symbol, String)
+    // Verify two calls with same static values produce the same key
+    let source = r#"
+## To scale (factor: Int) and (x: Int) -> Int:
+    Return factor * x.
+
+## Main
+    Let a be scale(3, 10).
+    Let b be scale(3, 20).
+    Show a.
+    Show b.
+"#;
+    assert_exact_output(source, "30\n60");
+}
+
+#[test]
+fn pe_spec_key_no_string_collision() {
+    // Two different static patterns that would collide with string keys:
+    // scale(10, D) and scale(1, 0, D) if serialized as "S10,D" vs "S1,S0,D"
+    // With structured keys, these are different Vecs with different lengths.
+    let source = r#"
+## To process2 (a: Int) and (b: Int) -> Int:
+    Return a + b.
+
+## To process3 (a: Int) and (b: Int) and (c: Int) -> Int:
+    Return a + b + c.
+
+## Main
+    Let x be process2(10, 5).
+    Let y be process3(1, 0, 5).
+    Show x.
+    Show y.
+"#;
+    assert_exact_output(source, "15\n6");
+}
+
+#[test]
+fn pe_structured_embedding_detects_growth() {
+    // A function called with increasingly large static arguments should be
+    // terminated by the embedding check before hitting the variant limit.
+    // With string containment, "S5" is contained in "S50" which is wrong.
+    // With structured embedding, Number(5) embeds in Number(50) correctly.
+    let source = r#"
+## To grow (n: Int) and (x: Int) -> Int:
+    If n is at most 0:
+        Return x.
+    Return grow(n - 1, x + 1).
+
+## Main
+    Let result be grow(5, 0).
+    Show result.
+"#;
+    assert_exact_output(source, "5");
+}
+
+#[test]
+fn pe_structured_embedding_no_false_positive() {
+    // "S5" is a substring of "S50" — string containment gives a false positive.
+    // Structured embedding: Number(5) embeds in Number(50) (|5| ≤ |50|) — correct.
+    // But Number(50) does NOT embed in Number(5) — no false negative.
+    let source = r#"
+## To compute (base: Int) and (x: Int) -> Int:
+    Return base * x.
+
+## Main
+    Let a be compute(5, 10).
+    Let b be compute(50, 10).
+    Show a.
+    Show b.
+"#;
+    assert_exact_output(source, "50\n500");
+}
+
+#[test]
+fn pe_effect_env_allows_pure_specialization() {
+    // A function that uses patterns the ad-hoc body_has_io might not recognize
+    // as pure (e.g., complex control flow) should still be specializable if
+    // EffectEnv confirms it's pure.
+    let source = r#"
+## To classify (n: Int) -> Int:
+    If n is greater than 100:
+        Return 3.
+    If n is greater than 10:
+        Return 2.
+    If n is greater than 0:
+        Return 1.
+    Return 0.
+
+## Main
+    Let a be classify(50).
+    Let b be classify(5).
+    Show a.
+    Show b.
+"#;
+    assert_exact_output(source, "2\n1");
+}
+
+#[test]
+fn pe_effect_env_blocks_impure_specialization() {
+    // A function with IO should not be specialized, confirmed by EffectEnv
+    let source = r#"
+## To logAndCompute (n: Int) and (x: Int) -> Int:
+    Show n.
+    Return n * x.
+
+## Main
+    Let result be logAndCompute(5, 10).
+    Show result.
+"#;
+    assert_exact_output(source, "5\n50");
+}
+
+// =============================================================================
+// Phase 2.1 — EffectEnv Wiring (3 tests)
+// =============================================================================
+
+#[test]
+fn pe_effect_env_check_is_not_io() {
+    // Check is classified as security_check (not IO) by EffectEnv,
+    // but body_has_io() incorrectly treats it as IO and blocks specialization.
+    // With EffectEnv wired in using !function_has_io(), this function
+    // should be specializable since Check is security_check, not IO.
+    let source = r#"## Record User:
+    role: Text.
+
+## Policy
+A User is admin if the user's role equals "admin".
+
+## To native parseInt (s: Text) -> Int
+
+## To validate (threshold: Int, u: User) -> Int:
+    Check that the u is admin.
+    If threshold is greater than 10:
+        Return threshold.
+    Return 0.
+
+## Main
+Let u be a new User with role "admin".
+Let result be validate(100, u).
+Show result.
+"#;
+    let rust = compile_to_rust(source).unwrap();
+    assert!(
+        rust.contains("validate_s0"),
+        "Function with Check (security_check, not IO) should be specializable \
+         when EffectEnv is wired in with !function_has_io() override.\nGot:\n{}",
+        rust
+    );
+}
+
+#[test]
+fn pe_effect_env_check_plus_show_still_blocked() {
+    // A function with both Check AND Show should NOT be specialized,
+    // because Show IS io even though Check is only security_check.
+    let source = r#"## Record User:
+    role: Text.
+
+## Policy
+A User is admin if the user's role equals "admin".
+
+## To native parseInt (s: Text) -> Int
+
+## To audit (threshold: Int, u: User) -> Int:
+    Check that the u is admin.
+    Show threshold.
+    If threshold is greater than 10:
+        Return threshold.
+    Return 0.
+
+## Main
+Let u be a new User with role "admin".
+Let result be audit(100, u).
+Show result.
+"#;
+    let rust = compile_to_rust(source).unwrap();
+    assert!(
+        !rust.contains("audit_s0"),
+        "Function with Check AND Show should NOT be specialized — Show is IO.\nGot:\n{}",
+        rust
+    );
+}
+
+#[test]
+fn pe_effect_env_transitive_io_blocked() {
+    // EffectEnv propagates effects through the call graph.
+    // If a function calls another function that has IO, the caller
+    // should also be marked as having IO and blocked from specialization.
+    // body_has_io() doesn't look through function calls, so without EffectEnv
+    // `compute` would be incorrectly specialized. With EffectEnv, the transitive
+    // IO through `printVal` is detected and specialization is blocked.
+    let source = r#"## To native parseInt (s: Text) -> Int
+
+## To printVal (x: Int) -> Int:
+    Show x.
+    Return x.
+
+## To compute (factor: Int, n: Int) -> Int:
+    Let shown be printVal(n).
+    Return factor * shown.
+
+## Main
+Let n be parseInt("7").
+Let result be compute(3, n).
+Show result.
+"#;
+    let rust = compile_to_rust(source).unwrap();
+    assert!(
+        !rust.contains("compute_s0"),
+        "Function that transitively calls IO (Show via printVal) should NOT be \
+         specialized when EffectEnv propagates IO through call graph.\nGot:\n{}",
+        rust
+    );
+}

@@ -151,7 +151,7 @@ Return.
 
     let rust = compile_to_rust(source).expect("Should compile");
     assert!(rust.contains("struct Container<T>"), "Should have generic parameter: {}", rust);
-    assert!(rust.contains("items: Vec<T>"), "Field should be Vec<T>: {}", rust);
+    assert!(rust.contains("items: LogosSeq<T>"), "Field should be LogosSeq<T>: {}", rust);
 }
 
 #[test]

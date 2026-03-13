@@ -633,3 +633,94 @@ Show 0.
     ]);
     assert_eq!(result2.return_bt, BindingTime::Static(Literal::Number(81)));
 }
+
+// =============================================================================
+// Sprint B — BTA SCC Ordering (Step B3)
+// =============================================================================
+
+#[test]
+fn bta_scc_mutual_recursion_converges() {
+    // Two mutually recursive functions should converge to a fixed point
+    // when analyzed in SCC order.
+    let source = r#"
+## To isEven (n: Int) -> Bool:
+    If n equals 0:
+        Return true.
+    Return isOdd(n - 1).
+
+## To isOdd (n: Int) -> Bool:
+    If n equals 0:
+        Return false.
+    Return isEven(n - 1).
+
+## Main
+    Show isEven(4).
+"#;
+    common::assert_exact_output(source, "true");
+}
+
+#[test]
+fn bta_scc_three_way_recursion() {
+    // Three-way mutual recursion — SCC should group all three
+    let source = r#"
+## To alpha (n: Int) -> Int:
+    If n is at most 0:
+        Return 1.
+    Return beta(n - 1) + 1.
+
+## To beta (n: Int) -> Int:
+    If n is at most 0:
+        Return 2.
+    Return gamma(n - 1) + 1.
+
+## To gamma (n: Int) -> Int:
+    If n is at most 0:
+        Return 3.
+    Return alpha(n - 1) + 1.
+
+## Main
+    Show alpha(3).
+"#;
+    // alpha(3) → beta(2)+1 → (gamma(1)+1)+1 → ((alpha(0)+1)+1)+1 → ((1+1)+1)+1 = 4
+    common::assert_exact_output(source, "4");
+}
+
+// ============================================================
+// Sprint J: SCC fixed-point tests
+// ============================================================
+
+/// Mutual recursion even(n) ↔ odd(n) should be analyzed correctly by BTA.
+#[test]
+fn scc_mutual_recursion_fixed_point() {
+    let source = r#"
+## To checkEven (n: Int) -> Bool:
+    If n equals 0:
+        Return true.
+    Return checkOdd(n - 1).
+
+## To checkOdd (n: Int) -> Bool:
+    If n equals 0:
+        Return false.
+    Return checkEven(n - 1).
+
+## Main
+    Show checkEven(4).
+    Show checkOdd(3).
+"#;
+    common::assert_exact_output(source, "true\ntrue");
+}
+
+/// Linear dependency chain: helper → process → main, should be analyzed in correct order.
+#[test]
+fn scc_topological_order() {
+    let source = r#"## To helper (x: Int) -> Int:
+    Return x + 1.
+
+## To process (x: Int) -> Int:
+    Return helper(x) * 2.
+
+## Main
+    Show process(5).
+"#;
+    common::assert_exact_output(source, "12");
+}

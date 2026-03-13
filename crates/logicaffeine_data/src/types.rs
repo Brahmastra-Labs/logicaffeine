@@ -15,11 +15,13 @@
 //! | `Unit` | `()` | The unit type |
 //! | `Char` | `char` | Unicode scalar values |
 //! | `Byte` | `u8` | Raw bytes |
-//! | `Seq<T>` | `Vec<T>` | Ordered sequences |
+//! | `Seq<T>` | `LogosSeq<T>` | Ordered sequences (reference semantics) |
 //! | `Set<T>` | `HashSet<T>` | Unordered unique elements |
-//! | `Map<K,V>` | `HashMap<K,V>` | Key-value mappings |
+//! | `Map<K,V>` | `LogosMap<K,V>` | Key-value mappings (reference semantics) |
 
+use std::cell::RefCell;
 use std::hash::Hash;
+use std::rc::Rc;
 
 /// Non-negative integers. Maps to Peano `Nat` in the kernel.
 pub type Nat = u64;
@@ -38,11 +40,257 @@ pub type Char = char;
 /// Raw bytes (0-255).
 pub type Byte = u8;
 
-/// Ordered sequences (lists).
-pub type Seq<T> = Vec<T>;
+/// Ordered sequence with reference semantics.
+///
+/// `LogosSeq<T>` wraps `Rc<RefCell<Vec<T>>>` to provide shared mutable access.
+/// Cloning a `LogosSeq` produces a shallow copy (shared reference), not a deep copy.
+/// Use `.deep_clone()` for an independent copy (LOGOS `copy of`).
+#[derive(Debug)]
+pub struct LogosSeq<T>(pub Rc<RefCell<Vec<T>>>);
 
-/// Key-value mappings with FxHash for fast integer-key performance.
-pub type Map<K, V> = rustc_hash::FxHashMap<K, V>;
+impl<T> LogosSeq<T> {
+    pub fn new() -> Self {
+        Self(Rc::new(RefCell::new(Vec::new())))
+    }
+
+    pub fn from_vec(v: Vec<T>) -> Self {
+        Self(Rc::new(RefCell::new(v)))
+    }
+
+    pub fn with_capacity(cap: usize) -> Self {
+        Self(Rc::new(RefCell::new(Vec::with_capacity(cap))))
+    }
+
+    pub fn push(&self, value: T) {
+        self.0.borrow_mut().push(value);
+    }
+
+    pub fn pop(&self) -> Option<T> {
+        self.0.borrow_mut().pop()
+    }
+
+    pub fn len(&self) -> usize {
+        self.0.borrow().len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.0.borrow().is_empty()
+    }
+
+    pub fn remove(&self, index: usize) -> T {
+        self.0.borrow_mut().remove(index)
+    }
+
+    pub fn borrow(&self) -> std::cell::Ref<'_, Vec<T>> {
+        self.0.borrow()
+    }
+
+    pub fn borrow_mut(&self) -> std::cell::RefMut<'_, Vec<T>> {
+        self.0.borrow_mut()
+    }
+}
+
+impl<T: Clone> LogosSeq<T> {
+    pub fn deep_clone(&self) -> Self {
+        Self(Rc::new(RefCell::new(self.0.borrow().clone())))
+    }
+
+    pub fn to_vec(&self) -> Vec<T> {
+        self.0.borrow().clone()
+    }
+
+    pub fn extend_from_slice(&self, other: &[T]) {
+        self.0.borrow_mut().extend_from_slice(other);
+    }
+
+    pub fn iter(&self) -> LogosSeqIter<T> {
+        LogosSeqIter {
+            data: self.to_vec(),
+            pos: 0,
+        }
+    }
+}
+
+pub struct LogosSeqIter<T> {
+    data: Vec<T>,
+    pos: usize,
+}
+
+impl<T: Clone> Iterator for LogosSeqIter<T> {
+    type Item = T;
+    fn next(&mut self) -> Option<T> {
+        if self.pos < self.data.len() {
+            let val = self.data[self.pos].clone();
+            self.pos += 1;
+            Some(val)
+        } else {
+            None
+        }
+    }
+}
+
+impl<T: Ord> LogosSeq<T> {
+    pub fn sort(&self) {
+        self.0.borrow_mut().sort();
+    }
+}
+
+impl<T> LogosSeq<T> {
+    pub fn reverse(&self) {
+        self.0.borrow_mut().reverse();
+    }
+}
+
+impl<T> Clone for LogosSeq<T> {
+    fn clone(&self) -> Self {
+        Self(Rc::clone(&self.0))
+    }
+}
+
+impl<T> Default for LogosSeq<T> {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl<T: PartialEq> PartialEq for LogosSeq<T> {
+    fn eq(&self, other: &Self) -> bool {
+        *self.0.borrow() == *other.0.borrow()
+    }
+}
+
+impl<T: std::fmt::Display> std::fmt::Display for LogosSeq<T> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let inner = self.0.borrow();
+        write!(f, "[")?;
+        for (i, item) in inner.iter().enumerate() {
+            if i > 0 { write!(f, ", ")?; }
+            write!(f, "{}", item)?;
+        }
+        write!(f, "]")
+    }
+}
+
+impl<T: PartialEq> LogosContains<T> for LogosSeq<T> {
+    #[inline(always)]
+    fn logos_contains(&self, value: &T) -> bool {
+        self.0.borrow().contains(value)
+    }
+}
+
+impl<T: Clone> IntoIterator for LogosSeq<T> {
+    type Item = T;
+    type IntoIter = std::vec::IntoIter<T>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.to_vec().into_iter()
+    }
+}
+
+/// Key-value mapping with reference semantics.
+///
+/// `LogosMap<K, V>` wraps `Rc<RefCell<FxHashMap<K, V>>>` to provide shared mutable access.
+/// Cloning a `LogosMap` produces a shallow copy (shared reference), not a deep copy.
+/// Use `.deep_clone()` for an independent copy (LOGOS `copy of`).
+#[derive(Debug)]
+pub struct LogosMap<K, V>(pub Rc<RefCell<rustc_hash::FxHashMap<K, V>>>);
+
+impl<K: Eq + Hash, V> LogosMap<K, V> {
+    pub fn new() -> Self {
+        Self(Rc::new(RefCell::new(rustc_hash::FxHashMap::default())))
+    }
+
+    pub fn with_capacity(cap: usize) -> Self {
+        Self(Rc::new(RefCell::new(
+            rustc_hash::FxHashMap::with_capacity_and_hasher(cap, Default::default()),
+        )))
+    }
+
+    pub fn from_map(m: rustc_hash::FxHashMap<K, V>) -> Self {
+        Self(Rc::new(RefCell::new(m)))
+    }
+
+    pub fn insert(&self, key: K, value: V) -> Option<V> {
+        self.0.borrow_mut().insert(key, value)
+    }
+
+    pub fn remove(&self, key: &K) -> Option<V> {
+        self.0.borrow_mut().remove(key)
+    }
+
+    pub fn len(&self) -> usize {
+        self.0.borrow().len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.0.borrow().is_empty()
+    }
+
+    pub fn contains_key(&self, key: &K) -> bool {
+        self.0.borrow().contains_key(key)
+    }
+
+    pub fn borrow(&self) -> std::cell::Ref<'_, rustc_hash::FxHashMap<K, V>> {
+        self.0.borrow()
+    }
+
+    pub fn borrow_mut(&self) -> std::cell::RefMut<'_, rustc_hash::FxHashMap<K, V>> {
+        self.0.borrow_mut()
+    }
+}
+
+impl<K: Eq + Hash + Clone, V: Clone> LogosMap<K, V> {
+    pub fn deep_clone(&self) -> Self {
+        Self(Rc::new(RefCell::new(self.0.borrow().clone())))
+    }
+
+    pub fn get(&self, key: &K) -> Option<V> {
+        self.0.borrow().get(key).cloned()
+    }
+}
+
+impl<K, V> Clone for LogosMap<K, V> {
+    fn clone(&self) -> Self {
+        Self(Rc::clone(&self.0))
+    }
+}
+
+impl<K: Eq + Hash, V> Default for LogosMap<K, V> {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl<K: PartialEq + Eq + Hash, V: PartialEq> PartialEq for LogosMap<K, V> {
+    fn eq(&self, other: &Self) -> bool {
+        *self.0.borrow() == *other.0.borrow()
+    }
+}
+
+impl<K: std::fmt::Display + Eq + Hash, V: std::fmt::Display> std::fmt::Display for LogosMap<K, V> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let inner = self.0.borrow();
+        write!(f, "{{")?;
+        for (i, (k, v)) in inner.iter().enumerate() {
+            if i > 0 { write!(f, ", ")?; }
+            write!(f, "{}: {}", k, v)?;
+        }
+        write!(f, "}}")
+    }
+}
+
+impl<K: Eq + Hash, V> LogosContains<K> for LogosMap<K, V> {
+    #[inline(always)]
+    fn logos_contains(&self, key: &K) -> bool {
+        self.0.borrow().contains_key(key)
+    }
+}
+
+/// Ordered sequences with reference semantics.
+pub type Seq<T> = LogosSeq<T>;
+
+/// Key-value mappings with reference semantics.
+pub type Map<K, V> = LogosMap<K, V>;
 
 /// Unordered collections of unique elements with FxHash.
 pub type Set<T> = rustc_hash::FxHashSet<T>;

@@ -1198,3 +1198,147 @@ Show r.
     // 5^2 + 4^2 + 3^2 + 2^2 + 1^2 = 25 + 16 + 9 + 4 + 1 = 55
     common::assert_exact_output(source, "55");
 }
+
+// =============================================================================
+// Sprint B — Fix Supercompiler Foundation (Steps B1, B2)
+// =============================================================================
+
+#[test]
+fn supercompile_while_precise_widening() {
+    // A while loop that modifies two variables but one is predictable.
+    // With precise widening (MSG-based), the predictable variable stays known.
+    // With aggressive widening (remove all), both become unknown.
+    let source = r#"
+## To test () -> Int:
+    Let mutable sum be 0.
+    Let mutable i be 1.
+    Let scale be 10.
+    While i is at most 3:
+        Set sum to sum + (i * scale).
+        Set i to i + 1.
+    Return sum.
+
+## Main
+    Show test().
+"#;
+    common::assert_exact_output(source, "60");
+}
+
+#[test]
+fn supercompile_embedding_prevents_divergence() {
+    // A recursive function with growing argument should be caught by embedding
+    // before the depth limit. Verifies embeds() is actually called.
+    let source = r#"
+## To recurse (n: Int) -> Int:
+    If n is at most 0:
+        Return 0.
+    Return n + recurse(n - 1).
+
+## Main
+    Show recurse(5).
+"#;
+    common::assert_exact_output(source, "15");
+}
+
+#[test]
+fn supercompile_index_static_collection() {
+    // Index into a known-static list should resolve at compile time
+    let source = r#"
+## Main
+    Let items be [10, 20, 30].
+    Let second be item 2 of items.
+    Show second.
+"#;
+    common::assert_exact_output(source, "20");
+}
+
+#[test]
+fn supercompile_index_dynamic_preserved() {
+    // Index with dynamic index should be preserved in residual
+    let source = r#"
+## To getItem (items: Seq of Int) and (i: Int) -> Int:
+    Return item i of items.
+
+## Main
+    Let items be [10, 20, 30].
+    Show getItem(items, 2).
+"#;
+    common::assert_exact_output(source, "20");
+}
+
+// ============================================================
+// Sprint J: MSG wiring tests
+// ============================================================
+
+/// MSG of two identical expressions should produce no substitutions.
+#[test]
+fn msg_identical_no_substitutions() {
+    let arena = Arena::new();
+    let mut interner = Interner::new();
+
+    let x_sym = interner.intern("x");
+    let e1 = arena.alloc(Expr::BinaryOp {
+        op: BinaryOpKind::Add,
+        left: arena.alloc(Expr::Identifier(x_sym)),
+        right: arena.alloc(Expr::Literal(Literal::Number(1))),
+    });
+    let e2 = arena.alloc(Expr::BinaryOp {
+        op: BinaryOpKind::Add,
+        left: arena.alloc(Expr::Identifier(x_sym)),
+        right: arena.alloc(Expr::Literal(Literal::Number(1))),
+    });
+
+    let result = msg(e1, e2, &arena, &mut interner);
+    assert_eq!(result.num_substitutions, 0, "MSG of identical exprs should have 0 substitutions");
+}
+
+/// MSG should preserve common structure and introduce vars for differences.
+#[test]
+fn msg_preserves_common_structure() {
+    let arena = Arena::new();
+    let mut interner = Interner::new();
+
+    let a_sym = interner.intern("a");
+    // e1 = a + 1
+    let e1 = arena.alloc(Expr::BinaryOp {
+        op: BinaryOpKind::Add,
+        left: arena.alloc(Expr::Identifier(a_sym)),
+        right: arena.alloc(Expr::Literal(Literal::Number(1))),
+    });
+    // e2 = a + 2
+    let e2 = arena.alloc(Expr::BinaryOp {
+        op: BinaryOpKind::Add,
+        left: arena.alloc(Expr::Identifier(a_sym)),
+        right: arena.alloc(Expr::Literal(Literal::Number(2))),
+    });
+
+    let result = msg(e1, e2, &arena, &mut interner);
+    // Common: a + ___, different: 1 vs 2 → 1 substitution
+    assert_eq!(result.num_substitutions, 1, "MSG(a+1, a+2) should have 1 substitution");
+    // Result should be BinaryOp with Add
+    match result.expr {
+        Expr::BinaryOp { op, left, .. } => {
+            assert_eq!(*op, BinaryOpKind::Add);
+            // Left should be preserved as 'a'
+            match left {
+                Expr::Identifier(sym) => assert_eq!(*sym, a_sym),
+                _ => panic!("Left of MSG should be Identifier(a)"),
+            }
+        }
+        _ => panic!("MSG result should be a BinaryOp"),
+    }
+}
+
+/// Supercompile with a while loop should not panic when MSG is wired.
+#[test]
+fn supercompile_while_msg_no_panic() {
+    let source = r#"## Main
+    Let mutable i be 0.
+    Let mutable total be 0.
+    While i is less than 10:
+        Set total to total + i.
+        Set i to i + 1.
+    Show total.
+"#;
+    common::assert_exact_output(source, "45");
+}

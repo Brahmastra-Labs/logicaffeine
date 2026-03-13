@@ -23,6 +23,7 @@
 //! ```
 
 use std::env as std_env;
+use logicaffeine_data::LogosSeq;
 
 /// Returns the value of an environment variable.
 ///
@@ -62,6 +63,6 @@ pub fn get(key: String) -> Option<String> {
 /// let args = env::args();
 /// assert!(!args.is_empty());
 /// ```
-pub fn args() -> Vec<String> {
-    std_env::args().collect()
+pub fn args() -> LogosSeq<String> {
+    LogosSeq::from_vec(std_env::args().collect())
 }

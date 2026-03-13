@@ -87,7 +87,7 @@ impl BindingTime {
 
 pub type Division = HashMap<Symbol, BindingTime>;
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct BtaResult {
     pub division: Division,
     pub return_bt: BindingTime,
@@ -289,6 +289,65 @@ pub fn analyze_function_bt<'a>(
     };
     cache.insert(cache_key, result.clone());
     result
+}
+
+// =============================================================================
+// SCC-Ordered Analysis
+// =============================================================================
+
+pub fn analyze_with_sccs<'a>(
+    stmts: &[Stmt<'a>],
+    interner: &Interner,
+) -> BtaCache {
+    use crate::analysis::callgraph::CallGraph;
+
+    let cg = CallGraph::build(stmts, interner);
+
+    let mut funcs: HashMap<Symbol, FuncDef<'a>> = HashMap::new();
+    for stmt in stmts {
+        if let Stmt::FunctionDef { name, params, body, is_native: false, .. } = stmt {
+            funcs.insert(*name, FuncDef { params: params.clone(), body });
+        }
+    }
+
+    let mut cache = BtaCache::new();
+
+    // Process SCCs in topological order (sccs are already in reverse topo order from Kosaraju)
+    for scc in cg.sccs.iter().rev() {
+        if scc.len() == 1 {
+            // Non-recursive (or self-recursive): analyze once
+            let sym = scc[0];
+            if let Some(func_def) = funcs.get(&sym) {
+                let arg_bts: Vec<BindingTime> = func_def.params.iter()
+                    .map(|_| BindingTime::Dynamic)
+                    .collect();
+                analyze_function_bt(sym, &func_def.params, func_def.body, &arg_bts, &funcs, &mut cache);
+            }
+        } else {
+            // Mutually recursive SCC: iterate to fixed point
+            for _iteration in 0..10 {
+                let mut changed = false;
+                for &sym in scc {
+                    if let Some(func_def) = funcs.get(&sym) {
+                        let arg_bts: Vec<BindingTime> = func_def.params.iter()
+                            .map(|_| BindingTime::Dynamic)
+                            .collect();
+                        let key = (sym, arg_bts.clone());
+                        let old = cache.get(&key).cloned();
+                        let result = analyze_function_bt(sym, &func_def.params, func_def.body, &arg_bts, &funcs, &mut cache);
+                        if old.as_ref() != Some(&result) {
+                            changed = true;
+                        }
+                    }
+                }
+                if !changed {
+                    break;
+                }
+            }
+        }
+    }
+
+    cache
 }
 
 // =============================================================================

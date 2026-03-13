@@ -20,7 +20,8 @@ pub use crdt::{
     MVRegister, Merge, ORMap, ORSet, PNCounter, RemoveWins, ReplicaId, SetBias, VClock, RGA, YATA,
 };
 pub use types::{
-    Bool, Byte, Char, Int, LogosContains, Map, Nat, Real, Seq, Set, Text, Tuple, Unit, Value,
+    Bool, Byte, Char, Int, LogosContains, LogosMap, LogosSeq, Map, Nat, Real, Seq, Set, Text,
+    Tuple, Unit, Value,
 };
 pub use rustc_hash::{FxHashMap, FxHashSet};
 pub use indexing::{LogosGetChar, LogosIndex, LogosIndexMut};

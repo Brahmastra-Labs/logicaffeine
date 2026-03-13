@@ -1202,7 +1202,7 @@ If a equals b:
 Show items.
 "#;
     let rust = compile_to_rust(source).unwrap();
-    assert!(rust.contains("__swap_tmp"), "Should optimize equality swap with __swap_tmp, got:\n{}", rust);
+    assert!(rust.contains(".swap("), "Should optimize equality swap with .swap(), got:\n{}", rust);
 }
 
 #[test]
@@ -1218,7 +1218,7 @@ If a is not b:
 Show items.
 "#;
     let rust = compile_to_rust(source).unwrap();
-    assert!(rust.contains("__swap_tmp"), "Should optimize not-equal swap with __swap_tmp, got:\n{}", rust);
+    assert!(rust.contains(".swap("), "Should optimize not-equal swap with .swap(), got:\n{}", rust);
 }
 
 // =============================================================================
@@ -1279,7 +1279,7 @@ While i is at most 3:
 "#;
     let rust = compile_to_rust(source).unwrap();
     assert!(rust.contains("for i in 0..3"), "Should emit 0-based for-range with indexing, got:\n{}", rust);
-    assert!(rust.contains("items[i as usize]"), "Should emit direct index (no -1 subtract), got:\n{}", rust);
+    assert!(rust.contains("items.borrow()[i as usize]"), "Should emit direct index (no -1 subtract), got:\n{}", rust);
 }
 
 #[test]
@@ -1340,6 +1340,7 @@ Show i.
 
 #[test]
 fn tier1b_copy_type_no_clone() {
+    // LogosSeq iteration uses .to_vec() to snapshot the inner vec (safe for reference semantics)
     let source = r#"## Main
 Let items: Seq of Int be [1, 2, 3].
 Repeat for x in items:
@@ -1347,32 +1348,31 @@ Repeat for x in items:
 Show items.
 "#;
     let rust = compile_to_rust(source).unwrap();
-    assert!(!rust.contains(".clone()"), "Copy-type iteration should not clone, got:\n{}", rust);
-    assert!(rust.contains(".iter().copied()"), "Should use iter().copied(), got:\n{}", rust);
+    assert!(rust.contains(".to_vec()"), "LogosSeq iteration should use .to_vec(), got:\n{}", rust);
 }
 
 #[test]
 fn tier1b_non_copy_type_lazy_clones() {
-    // Non-Copy type with non-mutating body uses .iter().cloned() (lazy per-element)
-    // instead of .clone() (full collection clone upfront)
+    // LogosSeq iteration uses .to_vec() regardless of element type (reference semantics)
     let source = r#"## Main
 Let items: Seq of Text be ["a", "b"].
 Repeat for x in items:
     Show x.
 "#;
     let rust = compile_to_rust(source).unwrap();
-    assert!(rust.contains(".iter().cloned()"), "Non-Copy type with read-only body should use .iter().cloned(), got:\n{}", rust);
+    assert!(rust.contains(".to_vec()"), "LogosSeq iteration should use .to_vec(), got:\n{}", rust);
 }
 
 #[test]
 fn tier1b_mutating_body_keeps_clone() {
+    // LogosSeq iteration uses .to_vec() which is safe even when body mutates collection
     let source = r#"## Main
 Let items: Seq of Int be [1, 2, 3].
 Repeat for x in items:
     Push x to items.
 "#;
     let rust = compile_to_rust(source).unwrap();
-    assert!(rust.contains(".clone()"), "Mutating body must keep .clone(), got:\n{}", rust);
+    assert!(rust.contains(".to_vec()"), "LogosSeq mutation-safe iteration should use .to_vec(), got:\n{}", rust);
 }
 
 #[test]
@@ -1395,7 +1395,7 @@ Repeat for f in flags:
     Show f.
 "#;
     let rust = compile_to_rust(source).unwrap();
-    assert!(rust.contains(".iter().copied()"), "Bool seq should use iter().copied(), got:\n{}", rust);
+    assert!(rust.contains(".to_vec()"), "LogosSeq Bool iteration should use .to_vec(), got:\n{}", rust);
 }
 
 #[test]
@@ -1670,7 +1670,7 @@ While i is less than n - 1:
 Show item 1 of arr.
 "#;
     let rust = compile_to_rust(source).unwrap();
-    assert!(rust.contains("__swap_tmp"), "Swap pattern should fire for nested while loop with inferred Vec type, got:\n{}", rust);
+    assert!(rust.contains(".swap("), "Swap pattern should fire for nested while loop with inferred Vec type, got:\n{}", rust);
 }
 
 #[test]
@@ -2235,8 +2235,7 @@ Show compute(3, 7, 5).
 
 #[test]
 fn ref_iter_no_mutation() {
-    // Non-Copy element type, body only reads → should use .iter().cloned() (lazy per-element)
-    // instead of .clone() (full collection clone upfront)
+    // LogosSeq iteration always uses .to_vec() (reference semantics — safe snapshot)
     let source = r#"## Main
 Let items: Seq of Text be ["hello", "world"].
 Repeat for x in items:
@@ -2244,20 +2243,15 @@ Repeat for x in items:
 "#;
     let rust = compile_to_rust(source).unwrap();
     assert!(
-        rust.contains(".iter().cloned()"),
-        "Non-Copy type with read-only body should use .iter().cloned(), got:\n{}",
-        rust
-    );
-    assert!(
-        !rust.contains("items.clone()"),
-        "Should NOT use full .clone() when body doesn't mutate, got:\n{}",
+        rust.contains(".to_vec()"),
+        "LogosSeq iteration should use .to_vec(), got:\n{}",
         rust
     );
 }
 
 #[test]
 fn ref_iter_with_mutation() {
-    // Non-Copy element type, body mutates the collection → must keep .clone()
+    // LogosSeq iteration uses .to_vec() which is safe even when body mutates
     let source = r#"## Main
 Let items: Seq of Text be ["hello", "world"].
 Repeat for x in items:
@@ -2265,8 +2259,8 @@ Repeat for x in items:
 "#;
     let rust = compile_to_rust(source).unwrap();
     assert!(
-        rust.contains(".clone()"),
-        "Non-Copy type with mutating body must keep .clone(), got:\n{}",
+        rust.contains(".to_vec()"),
+        "LogosSeq mutation-safe iteration should use .to_vec(), got:\n{}",
         rust
     );
 }
