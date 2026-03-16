@@ -62,6 +62,58 @@ pub fn get_articles_by_tag(tag: &str) -> Vec<&'static Article> {
 /// All news articles
 static ARTICLES: &[Article] = &[
     Article {
+        slug: "release-0-9-4-pe-infrastructure",
+        title: "v0.9.4 — PE Infrastructure, Self-Application & Reference Semantics",
+        date: "2026-03-16",
+        summary: "PE BTI and mini source programs for Futamura Projections 2 and 3, genuine self-application verified, Rc-based reference semantics with LogosSeq/LogosMap, and ~5,000 new tests.",
+        content: r#"
+## PE Infrastructure
+
+Three new LOGOS source programs power the Futamura projection pipeline:
+
+- **PE BTI source** (`pe_bti_source.logos`, 1215 LOC) — a binding-time improved partial evaluator. Renames internal predicates (`isStatic` → `checkStatic`, `specResults` → `memoCache`) and uses B-suffixed entry points (`peExprB`, `peBlockB`) to avoid name collisions during self-application. This is what Projection 2 produces as a compiler.
+
+- **PE mini source** (`pe_mini_source.logos`, 785 LOC) — a clean-room minimal partial evaluator with its own `PEMiniState` type (no `specResults`/`onStack` fields). Uses M-suffixed entry points (`peExprM`, `peBlockM`). This is what Projection 3 produces as a compiler generator.
+
+- **Decompile source** (`decompile_source.logos`, 645 LOC) — a source-level decompiler that converts PE output back to readable LOGOS.
+
+## Genuine Self-Application
+
+The partial evaluator can now specialize itself. Key results verified by tests:
+
+- `PE(pe_source, nano-PE(CInt(42)))` produces `"42"` — The Trick demonstrated
+- `PE(pe_source, pe_mini(5+3))` produces `"8"` — a real PE specializing a real PE
+- Projection 2 with dynamic target: PE produces residual code containing the dynamic target and no source PE function definitions
+
+Critical fixes that enabled this: `CMapGet` folding for `CNewVariant`/`CNew` expressions, `staticEnv` seeding in all-static `CCall`, and `isLiteral` → `isStaticValue` promotion in `CLet`/`CSet`.
+
+## Reference Semantics
+
+Collections now use Rc-based reference semantics throughout:
+
+- **`LogosSeq<T>`** wraps `Rc<RefCell<Vec<T>>>` — `.clone()` is O(1) shared reference, `.deep_clone()` copies data
+- **`LogosMap<K,V>`** wraps `Rc<RefCell<FxHashMap<K,V>>>` — same semantics
+- Interior mutability via `RefCell::borrow_mut()` — methods take `&self`
+- `copy of` in LOGOS source triggers `.deep_clone()` for value semantics where needed
+
+## PE Engine Improvements
+
+- **specResults memoization** activated with deep-cloned body results
+- **makeKey collision fix** — `exprToKeyPart` covers all `CExpr` variants with structural keys
+- **MSG wiring** — `interner` threaded through drive/generalize, `msg()` activated on whistle
+- **BTA SCC wiring** — `analyze_with_sccs()` called in optimize paths
+- **isStatic expansion** — `CNew`, `CRange`, `CCopy` recognized as static
+- **Partially-static data** — `CLen` folds `CTuple`, `exprToVal` handles `CNewVariant`/`CNew`
+- **extractReturn sentinel** — changed fallback from `CInt(0)` to `CVar("__no_return__")` to prevent silent miscompilation
+
+## Testing
+
+~5,000 new Futamura projection tests across Sprints A–J, plus 191 lines of reference semantics E2E tests. All 4,513 tests pass with zero regressions.
+"#,
+        tags: &["release", "compiler", "partial-evaluation", "futamura"],
+        author: "LOGICAFFEINE Team",
+    },
+    Article {
         slug: "release-0-9-0-type-checker",
         title: "v0.9.0 — Type Checker, Codegen Refactor & Performance Push",
         date: "2026-02-27",

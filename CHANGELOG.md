@@ -4,6 +4,26 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.9.4] - 2026-03-16
+
+### Added
+- **PE BTI source** (`optimize/pe_bti_source.logos`, 1215 LOC) — binding-time improved partial evaluator source for Futamura Projection 2.
+- **PE mini source** (`optimize/pe_mini_source.logos`, 785 LOC) — minimal clean-room partial evaluator for Futamura Projection 3.
+- **Decompile source** (`optimize/decompile_source.logos`, 645 LOC) — source-level decompiler for PE output.
+- **Reference semantics tests** (`e2e_ref_semantics.rs`, 191 lines) — end-to-end tests for Rc-based reference semantics.
+- **~5,000 new Futamura projection tests** — genuine self-application, Sprint I/J infrastructure, PE mini/BTI verification.
+
+### Changed
+- **Self-interpreter** (`compile.rs`) — expanded by 974 lines with enhanced value handling, environment management, and PE integration.
+- **PE source** (`pe_source.logos`) — expanded by 948 lines with specResults memoization, makeKey collision fixes, MSG wiring, BTA SCC support, and partially-static data handling.
+- **Partial evaluator** (`partial_eval.rs`) — 264 lines of improvements: staticEnv copy propagation, CInspect field binding, mixed-arg CCall inlining, extractReturn sentinel fix.
+- **Supercompiler** (`supercompile.rs`) — 81 lines of driving/generalization enhancements.
+- **BTA** (`bta.rs`) — 61 lines: SCC wiring, isStatic expansion for CNew/CRange/CCopy.
+- **Codegen peephole** (`peephole.rs`) — 152 lines of new optimization patterns.
+- **Codegen stmt/expr** — 239 lines of emission improvements across `stmt.rs` and `expr.rs`.
+- **Data types** (`types.rs`) — 260 lines: LogosSeq/LogosMap reference-semantic wrappers with interior mutability.
+- **Indexing** (`indexing.rs`) — 58 lines: new indexing operations for reference-semantic collections.
+
 ## [0.9.3] - 2026-03-06
 
 ### Added
