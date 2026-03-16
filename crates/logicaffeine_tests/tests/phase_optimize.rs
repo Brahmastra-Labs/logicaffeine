@@ -1202,7 +1202,7 @@ If a equals b:
 Show items.
 "#;
     let rust = compile_to_rust(source).unwrap();
-    assert!(rust.contains(".swap("), "Should optimize equality swap with .swap(), got:\n{}", rust);
+    assert!(rust.contains("__swap_tmp"), "Should optimize equality swap with __swap_tmp, got:\n{}", rust);
 }
 
 #[test]
@@ -1218,7 +1218,7 @@ If a is not b:
 Show items.
 "#;
     let rust = compile_to_rust(source).unwrap();
-    assert!(rust.contains(".swap("), "Should optimize not-equal swap with .swap(), got:\n{}", rust);
+    assert!(rust.contains("__swap_tmp"), "Should optimize not-equal swap with __swap_tmp, got:\n{}", rust);
 }
 
 // =============================================================================
@@ -1670,7 +1670,7 @@ While i is less than n - 1:
 Show item 1 of arr.
 "#;
     let rust = compile_to_rust(source).unwrap();
-    assert!(rust.contains(".swap("), "Swap pattern should fire for nested while loop with inferred Vec type, got:\n{}", rust);
+    assert!(rust.contains("__swap_tmp"), "Swap pattern should fire for nested while loop with inferred Vec type, got:\n{}", rust);
 }
 
 #[test]

@@ -249,7 +249,7 @@ pub(crate) fn try_emit_for_range_pattern<'a>(
     // Hoist inner buffer if buffer reuse detected.
     if let Some(ref reuse) = buffer_reuse {
         let reuse_inner = names.ident(reuse.inner_sym);
-        writeln!(output, "{}let {}: LogosSeq<{}> = LogosSeq::new();", indent_str, reuse_inner, reuse.inner_elem_type).unwrap();
+        writeln!(output, "{}let mut {}: LogosSeq<{}> = LogosSeq::new();", indent_str, reuse_inner, reuse.inner_elem_type).unwrap();
     }
 
     writeln!(output, "{}for {} in {} {{", indent_str, counter_name, range_str).unwrap();
@@ -1132,8 +1132,8 @@ pub(crate) fn try_emit_vec_fill_pattern<'a>(
 
     // Statement 1: Let [mutable] vec_var be a new Seq of T.
     // Note: mutable keyword is optional — mutability is inferred from Push in the loop body.
-    let (vec_sym, elem_type) = match stmts[idx] {
-        Stmt::Let { var, value, ty, .. } => {
+    let (vec_sym, elem_type, vec_is_mutable) = match stmts[idx] {
+        Stmt::Let { var, value, ty, mutable } => {
             // Check for explicit type annotation like `: Seq of Bool`
             let type_from_annotation = if let Some(TypeExpr::Generic { base, params }) = ty {
                 let base_name = interner.resolve(*base);
@@ -1163,7 +1163,7 @@ pub(crate) fn try_emit_vec_fill_pattern<'a>(
             };
 
             match type_from_annotation.or(type_from_new) {
-                Some(t) => (*var, t),
+                Some(t) => (*var, t, *mutable),
                 None => return None,
             }
         }
@@ -1337,8 +1337,9 @@ pub(crate) fn try_emit_vec_fill_pattern<'a>(
             };
 
             let mut output = String::new();
-            writeln!(output, "{}let {}: LogosSeq<{}> = LogosSeq::from_vec(vec![{}; {}]);",
-                indent_str, vec_name, elem_type, fill_val_str, count_expr).unwrap();
+            let mut_kw = if vec_is_mutable { "mut " } else { "" };
+            writeln!(output, "{}let {}{}: LogosSeq<{}> = LogosSeq::from_vec(vec![{}; {}]);",
+                indent_str, mut_kw, vec_name, elem_type, fill_val_str, count_expr).unwrap();
 
             ctx.register_variable_type(vec_sym, format!("LogosSeq<{}>", elem_type));
 
@@ -1826,7 +1827,7 @@ pub(crate) fn try_emit_swap_pattern<'a>(
     // Try Pattern B first: unconditional 3-statement swap (more general)
     // Statement 2: Set item I of arr to item J of arr.
     // Statement 3: Set item J of arr to tmp.
-    if let Some(result) = try_emit_unconditional_swap(stmts, idx, a_sym, arr_sym_1, idx_expr_1, interner, indent) {
+    if let Some(result) = try_emit_unconditional_swap(stmts, idx, a_sym, arr_sym_1, idx_expr_1, interner, indent, variable_types) {
         return Some(result);
     }
 
@@ -1929,8 +1930,12 @@ pub(crate) fn try_emit_swap_pattern<'a>(
                 writeln!(output, "{}if __bm[{}] {} __bm[{}] {{",
                     indent_str, idx1_simplified, op_str, idx2_simplified,
                 ).unwrap();
-                writeln!(output, "{}    __bm.swap({}, {});",
+                writeln!(output, "{}    let __swap_tmp = __bm[{}];",
+                    indent_str, idx1_simplified).unwrap();
+                writeln!(output, "{}    __bm[{}] = __bm[{}];",
                     indent_str, idx1_simplified, idx2_simplified).unwrap();
+                writeln!(output, "{}    __bm[{}] = __swap_tmp;",
+                    indent_str, idx2_simplified).unwrap();
                 writeln!(output, "{}}}", indent_str).unwrap();
                 writeln!(output, "{}}}", indent_str).unwrap();
             } else {
@@ -2494,8 +2499,8 @@ pub(crate) fn try_emit_vec_with_capacity_pattern<'a>(
     }
 
     // Statement 1: Let [mutable] vec_var = new Seq of T (or Map of K to V)
-    let (vec_sym, collection_info) = match stmts[idx] {
-        Stmt::Let { var, value, ty, .. } => {
+    let (vec_sym, collection_info, vec_is_mutable) = match stmts[idx] {
+        Stmt::Let { var, value, ty, mutable } => {
             let type_from_annotation = if let Some(TypeExpr::Generic { base, params }) = ty {
                 let base_name = interner.resolve(*base);
                 if matches!(base_name, "Seq" | "List" | "Vec") && !params.is_empty() {
@@ -2529,7 +2534,7 @@ pub(crate) fn try_emit_vec_with_capacity_pattern<'a>(
             };
 
             match type_from_annotation.or(type_from_new) {
-                Some(info) => (*var, info),
+                Some(info) => (*var, info, *mutable),
                 None => return None,
             }
         }
@@ -2717,21 +2722,23 @@ pub(crate) fn try_emit_vec_with_capacity_pattern<'a>(
     };
 
     let mut output = String::new();
+    let is_mutable = vec_is_mutable || mutable_vars.contains(&vec_sym);
+    let mut_kw = if is_mutable { "mut " } else { "" };
 
     match &collection_info {
         CollInfo::Vec(elem_type) => {
             if let Some(fill_value) = &vec_fill_literal {
-                writeln!(output, "{}let {}: LogosSeq<{}> = LogosSeq::from_vec(vec![{}; {}]);",
-                    indent_str, vec_name, elem_type, fill_value, capacity_expr).unwrap();
+                writeln!(output, "{}let {}{}: LogosSeq<{}> = LogosSeq::from_vec(vec![{}; {}]);",
+                    indent_str, mut_kw, vec_name, elem_type, fill_value, capacity_expr).unwrap();
             } else {
-                writeln!(output, "{}let {}: LogosSeq<{}> = LogosSeq::with_capacity({});",
-                    indent_str, vec_name, elem_type, capacity_expr).unwrap();
+                writeln!(output, "{}let {}{}: LogosSeq<{}> = LogosSeq::with_capacity({});",
+                    indent_str, mut_kw, vec_name, elem_type, capacity_expr).unwrap();
             }
             ctx.register_variable_type(vec_sym, format!("LogosSeq<{}>", elem_type));
         }
         CollInfo::Map(key_type, val_type) => {
-            writeln!(output, "{}let {}: LogosMap<{}, {}> = LogosMap::with_capacity({});",
-                indent_str, vec_name, key_type, val_type, capacity_expr).unwrap();
+            writeln!(output, "{}let {}{}: LogosMap<{}, {}> = LogosMap::with_capacity({});",
+                indent_str, mut_kw, vec_name, key_type, val_type, capacity_expr).unwrap();
             ctx.register_variable_type(vec_sym, format!("LogosMap<{}, {}>", key_type, val_type));
         }
     }
@@ -2743,20 +2750,21 @@ pub(crate) fn try_emit_vec_with_capacity_pattern<'a>(
     let body_without_increment = &body[..body.len() - 1];
     for stmt in intervening {
         let sibling_cap = detect_sibling_collection(stmt, body_without_increment, interner);
-        if let Some((sib_sym, sib_info)) = sibling_cap {
+        if let Some((sib_sym, sib_info, sib_mutable)) = sibling_cap {
             let sib_name = interner.resolve(sib_sym);
+            let sib_mut = if sib_mutable || mutable_vars.contains(&sib_sym) { "mut " } else { "" };
             // Sibling collections always use with_capacity, never vec![val; N].
             // The loop still runs (for the primary collection), so vec![val; N]
             // would double the elements — the fill creates N items AND the loop pushes N more.
             match &sib_info {
                 CollInfo::Vec(elem_type) => {
-                    writeln!(output, "{}let {}: LogosSeq<{}> = LogosSeq::with_capacity({});",
-                        indent_str, sib_name, elem_type, capacity_expr).unwrap();
+                    writeln!(output, "{}let {}{}: LogosSeq<{}> = LogosSeq::with_capacity({});",
+                        indent_str, sib_mut, sib_name, elem_type, capacity_expr).unwrap();
                     ctx.register_variable_type(sib_sym, format!("LogosSeq<{}>", elem_type));
                 }
                 CollInfo::Map(key_type, val_type) => {
-                    writeln!(output, "{}let {}: LogosMap<{}, {}> = LogosMap::with_capacity({});",
-                        indent_str, sib_name, key_type, val_type, capacity_expr).unwrap();
+                    writeln!(output, "{}let {}{}: LogosMap<{}, {}> = LogosMap::with_capacity({});",
+                        indent_str, sib_mut, sib_name, key_type, val_type, capacity_expr).unwrap();
                     ctx.register_variable_type(sib_sym, format!("LogosMap<{}, {}>", key_type, val_type));
                 }
             }
@@ -2796,9 +2804,9 @@ fn detect_sibling_collection<'a>(
     stmt: &Stmt<'a>,
     body_without_increment: &[Stmt<'a>],
     interner: &Interner,
-) -> Option<(Symbol, CollInfo)> {
-    let (var, value, ty) = match stmt {
-        Stmt::Let { var, value, ty, .. } => (*var, *value, ty.as_ref()),
+) -> Option<(Symbol, CollInfo, bool)> {
+    let (var, value, ty, is_mutable) = match stmt {
+        Stmt::Let { var, value, ty, mutable } => (*var, *value, ty.as_ref(), *mutable),
         _ => return None,
     };
 
@@ -2851,7 +2859,7 @@ fn detect_sibling_collection<'a>(
         }
     };
 
-    if has_push { Some((var, info)) } else { None }
+    if has_push { Some((var, info, is_mutable)) } else { None }
 }
 
 /// Peephole optimization for merge-style Vec construction.
@@ -3255,6 +3263,7 @@ fn try_emit_unconditional_swap<'a>(
     idx_expr_1: &Expr,
     interner: &Interner,
     indent: usize,
+    variable_types: &HashMap<Symbol, String>,
 ) -> Option<(String, usize)> {
     if idx + 2 >= stmts.len() {
         return None;
@@ -3314,13 +3323,27 @@ fn try_emit_unconditional_swap<'a>(
     let idx1_simplified = simplify_1based_index(idx_expr_1, interner, true);
     let idx2_simplified = simplify_1based_index(idx_expr_2, interner, true);
 
-    // Check which function to pass variable_types through — we need it from the caller
-    // For now, detect LogosSeq from the matched type check earlier
+    let is_logos_seq = variable_types.get(&arr_sym)
+        .map_or(false, |t| t.starts_with("LogosSeq"));
+
     let mut output = String::new();
-    writeln!(output, "{}{{ let mut __bm = {}.borrow_mut();", indent_str, arr_name).unwrap();
-    writeln!(output, "{}__bm.swap({}, {});",
-        indent_str, idx1_simplified, idx2_simplified).unwrap();
-    writeln!(output, "{}}}", indent_str).unwrap();
+    if is_logos_seq {
+        writeln!(output, "{}{{ let mut __bm = {}.borrow_mut();", indent_str, arr_name).unwrap();
+        writeln!(output, "{}let __swap_tmp = __bm[{}];",
+            indent_str, idx1_simplified).unwrap();
+        writeln!(output, "{}__bm[{}] = __bm[{}];",
+            indent_str, idx1_simplified, idx2_simplified).unwrap();
+        writeln!(output, "{}__bm[{}] = __swap_tmp;",
+            indent_str, idx2_simplified).unwrap();
+        writeln!(output, "{}}}", indent_str).unwrap();
+    } else {
+        writeln!(output, "{}let __swap_tmp = {}[{}];",
+            indent_str, arr_name, idx1_simplified).unwrap();
+        writeln!(output, "{}{}[{}] = {}[{}];",
+            indent_str, arr_name, idx1_simplified, arr_name, idx2_simplified).unwrap();
+        writeln!(output, "{}{}[{}] = __swap_tmp;",
+            indent_str, arr_name, idx2_simplified).unwrap();
+    }
 
     Some((output, 2)) // consumed 2 extra statements (SetIndex + SetIndex)
 }

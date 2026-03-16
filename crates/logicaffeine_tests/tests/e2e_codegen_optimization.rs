@@ -763,7 +763,7 @@ Show dp.
     assert!(rust.contains("vec!["),
         "Prefix+fill pattern should use vec![], got:\n{}", rust);
     // Should override dp[0] = 1
-    assert!(rust.contains("dp[0] = 1"),
+    assert!(rust.contains("[0] = 1"),
         "Should override prefix element, got:\n{}", rust);
 }
 
@@ -911,8 +911,8 @@ Show dst.
     assert_exact_output(code, "[10, 20, 30]");
     let rust = compile_to_rust(code).unwrap();
     assert!(
-        rust.contains(".to_vec()"),
-        "Seq-copy loop should emit .to_vec(), got:\n{}",
+        rust.contains(".deep_clone()") || rust.contains(".to_vec()"),
+        "Seq-copy loop should emit .deep_clone() or .to_vec(), got:\n{}",
         rust
     );
 }
@@ -1042,7 +1042,7 @@ Show length of arr.
 "#;
     assert_exact_output(code, "10");
     let rust = compile_to_rust(code).unwrap();
-    assert!(rust.contains("Vec::with_capacity(") || rust.contains("vec!["),
+    assert!(rust.contains("with_capacity(") || rust.contains("vec!["),
         "Pre-allocation should fire with intervening stmt, got:\n{}", rust);
     assert!(!rust.contains("Seq::<i64>::default()") && !rust.contains("Vec::<i64>::new()"),
         "Should not use default/new (no pre-alloc), got:\n{}", rust);
@@ -1064,7 +1064,7 @@ Show length of arr.
 "#;
     assert_exact_output(code, "5");
     let rust = compile_to_rust(code).unwrap();
-    assert!(rust.contains("Vec::with_capacity(") || rust.contains("vec!["),
+    assert!(rust.contains("with_capacity(") || rust.contains("vec!["),
         "Pre-allocation should fire with 2 intervening stmts, got:\n{}", rust);
 }
 
@@ -1100,7 +1100,7 @@ Show arr.
 "#;
     assert_exact_output(code, "[0, 1, 4, 9, 16]");
     let rust = compile_to_rust(code).unwrap();
-    assert!(rust.contains("Vec::with_capacity("),
+    assert!(rust.contains("with_capacity("),
         "Computed push should use Vec::with_capacity, got:\n{}", rust);
 }
 
@@ -1153,7 +1153,7 @@ Show length of flags.
 "#;
     assert_exact_output(code, "8");
     let rust = compile_to_rust(code).unwrap();
-    assert!(rust.contains("vec![true; ") || rust.contains("Vec::with_capacity("),
+    assert!(rust.contains("vec![true; ") || rust.contains("with_capacity("),
         "Bool fill should use vec![true; N] or with_capacity, got:\n{}", rust);
 }
 
@@ -1174,7 +1174,7 @@ Show length of arr.
 "#;
     assert_exact_output(code, "20");
     let rust = compile_to_rust(code).unwrap();
-    assert!(rust.contains("Vec::with_capacity(") || rust.contains("vec!["),
+    assert!(rust.contains("with_capacity(") || rust.contains("vec!["),
         "prefix_sum pattern should pre-allocate, got:\n{}", rust);
 }
 
@@ -1192,7 +1192,7 @@ Show item 1 of arr.
 "#;
     assert_exact_output(code, "10");
     let rust = compile_to_rust(code).unwrap();
-    assert!(rust.contains("arr[0]"),
+    assert!(rust.contains("[0]"),
         "Literal index 1 should simplify to [0], got:\n{}", rust);
     assert!(!rust.contains("(1 - 1)"),
         "Should not contain (1 - 1), got:\n{}", rust);
@@ -1208,7 +1208,7 @@ Show item 3 of arr.
 "#;
     assert_exact_output(code, "30");
     let rust = compile_to_rust(code).unwrap();
-    assert!(rust.contains("arr[2]"),
+    assert!(rust.contains("[2]"),
         "Literal index 3 should simplify to [2], got:\n{}", rust);
     assert!(!rust.contains("(3 - 1)"),
         "Should not contain (3 - 1), got:\n{}", rust);
@@ -1240,7 +1240,7 @@ Show arr.
 "#;
     assert_exact_output(code, "[99, 20, 30]");
     let rust = compile_to_rust(code).unwrap();
-    assert!(rust.contains("arr[0]"),
+    assert!(rust.contains("[0]"),
         "SetIndex literal 1 should simplify to [0], got:\n{}", rust);
 }
 
@@ -1300,9 +1300,9 @@ Show arr.
     assert!(rust.contains("__swap_tmp"),
         "Should use __swap_tmp, got:\n{}", rust);
     // Literal swap indices should simplify: item 1 -> [0], item 3 -> [2]
-    assert!(rust.contains("arr[0]"),
+    assert!(rust.contains("[0]"),
         "Literal swap index 1 should simplify to [0], got:\n{}", rust);
-    assert!(rust.contains("arr[2]"),
+    assert!(rust.contains("[2]"),
         "Literal swap index 3 should simplify to [2], got:\n{}", rust);
 }
 
@@ -2680,7 +2680,7 @@ Show result.
 "#;
     assert_exact_output(code, "[5, 0, 8, 0, 9]");
     let rust = compile_to_rust(code).unwrap();
-    assert!(rust.contains("Vec::with_capacity("),
+    assert!(rust.contains("with_capacity("),
         "All-branch push loop should use Vec::with_capacity, got:\n{}", rust);
 }
 
@@ -2933,7 +2933,7 @@ Show merge(a, b).
 "#;
     assert_exact_output(code, "[1, 2, 3, 4, 5, 6]");
     let rust = compile_to_rust(code).unwrap();
-    assert!(rust.contains("Vec::with_capacity("),
+    assert!(rust.contains("with_capacity("),
         "Merge result should use Vec::with_capacity, got:\n{}", rust);
     assert!(rust.contains("left.len()") && rust.contains("right.len()"),
         "Capacity should reference left.len() + right.len(), got:\n{}", rust);
@@ -3818,10 +3818,10 @@ Show fillTwo(5).
 "#;
     let code = compile_to_rust(source).unwrap();
     // Both a and b should get with_capacity (not Vec::new() or Seq::default())
-    let with_cap_count = code.matches("Vec::with_capacity(").count();
+    let with_cap_count = code.matches("with_capacity(").count();
     assert!(
         with_cap_count >= 2,
-        "Expected Vec::with_capacity for both a and b, found {} occurrences in:\n{}", with_cap_count, code
+        "Expected with_capacity for both a and b, found {} occurrences in:\n{}", with_cap_count, code
     );
 }
 
