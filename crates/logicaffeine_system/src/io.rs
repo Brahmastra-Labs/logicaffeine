@@ -32,6 +32,14 @@ pub trait Showable {
     fn format_show(&self, f: &mut fmt::Formatter) -> fmt::Result;
 }
 
+// Blanket impl for references: &T is Showable if T is Showable
+impl<T: Showable + ?Sized> Showable for &T {
+    #[inline(always)]
+    fn format_show(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        (**self).format_show(f)
+    }
+}
+
 // Primitives: use Display formatting
 impl Showable for i32 {
     #[inline(always)]
@@ -165,13 +173,8 @@ impl<T: Showable> Showable for [T] {
     }
 }
 
-// Reference to slice
-impl<T: Showable> Showable for &[T] {
-    #[inline(always)]
-    fn format_show(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        (*self).format_show(f)
-    }
-}
+// Note: &[T] is covered by the blanket `impl<T: Showable + ?Sized> Showable for &T`
+// since `[T]: Showable`.
 
 // Option type: shows "nothing" or the value
 impl<T: Showable> Showable for Option<T> {

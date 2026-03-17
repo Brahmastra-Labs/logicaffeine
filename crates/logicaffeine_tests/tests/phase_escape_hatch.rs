@@ -345,7 +345,7 @@ Let mut scores be a new Map of Text to Int.
 Set item "alice" of scores to 100.
 Set item "bob" of scores to 200.
 Escape to Rust:
-    let total: i64 = scores.values().sum();
+    let total: i64 = scores.values().into_iter().sum();
     println!("{}", total);
 "#,
         "300",
@@ -752,12 +752,13 @@ fn e2e_escape_expr_binary_search() {
         r#"## To bsearch (haystack: Seq of Int, target: Int) -> Int:
     Let result: Int be Escape to Rust:
         let mut lo: usize = 0;
-        let mut hi: usize = haystack.len();
+        let inner = haystack.borrow();
+        let mut hi: usize = inner.len();
         while lo < hi {
             let mid = lo + (hi - lo) / 2;
-            if haystack[mid] == target {
+            if inner[mid] == target {
                 return (mid as i64) + 1;
-            } else if haystack[mid] < target {
+            } else if inner[mid] < target {
                 lo = mid + 1;
             } else {
                 hi = mid;
@@ -937,7 +938,7 @@ fn e2e_escape_expr_constructs_logos_list() {
     assert_output_lines(
         r#"## Main
 Let items: Seq of Int be Escape to Rust:
-    vec![1_i64, 2, 3, 4, 5]
+    LogosSeq::from_vec(vec![1_i64, 2, 3, 4, 5])
 Repeat for n in items:
     Show n.
 "#,

@@ -171,6 +171,12 @@ impl<T: std::fmt::Display> std::fmt::Display for LogosSeq<T> {
     }
 }
 
+impl<T> From<Vec<T>> for LogosSeq<T> {
+    fn from(v: Vec<T>) -> Self {
+        Self::from_vec(v)
+    }
+}
+
 impl<T: PartialEq> LogosContains<T> for LogosSeq<T> {
     #[inline(always)]
     fn logos_contains(&self, value: &T) -> bool {
@@ -246,6 +252,14 @@ impl<K: Eq + Hash + Clone, V: Clone> LogosMap<K, V> {
 
     pub fn get(&self, key: &K) -> Option<V> {
         self.0.borrow().get(key).cloned()
+    }
+
+    pub fn values(&self) -> Vec<V> {
+        self.0.borrow().values().cloned().collect()
+    }
+
+    pub fn keys(&self) -> Vec<K> {
+        self.0.borrow().keys().cloned().collect()
     }
 }
 

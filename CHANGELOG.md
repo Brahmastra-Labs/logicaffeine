@@ -4,6 +4,16 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.9.5] - 2026-03-17
+
+### Fixed
+- **Peephole mutability** — `vec_fill`, `vec_with_capacity`, sibling collection, and buffer reuse patterns now emit `let mut` when the LOGOS source declares `mutable`.
+- **Conditional/unconditional swap** — LogosSeq swap codegen uses `__swap_tmp` inside `borrow_mut()` scope instead of `.swap()`, matching the codegen spec.
+- **Showable blanket impl** — `&T: Showable` where `T: Showable`, fixing nested inspect arms with ref-bound pattern variables.
+- **LogosMap `.values()`/`.keys()`** — added methods returning owned `Vec` for escape block compatibility.
+- **LogosSeq `From<Vec<T>>`** — conversion from `Vec<T>` for escape block interop.
+- **Escape block updates** — binary search, map access, and list construction escape tests updated for `LogosSeq`/`LogosMap` APIs.
+
 ## [0.9.4] - 2026-03-16
 
 ### Added
