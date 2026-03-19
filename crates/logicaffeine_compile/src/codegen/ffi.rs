@@ -653,7 +653,7 @@ pub(crate) fn codegen_c_accessors(ty: &TypeExpr, interner: &Interner, registry: 
                     emit_null_handle_check(&mut out, "std::ptr::null_mut() as LogosHandle");
                     emit_registry_deref(&mut out, "std::ptr::null_mut() as LogosHandle");
                     writeln!(out, "        let map = unsafe {{ &*(__ptr as *const {}) }};", map_type).unwrap();
-                    writeln!(out, "        let keys: Vec<{}> = map.borrow().keys().cloned().collect();", key_rust).unwrap();
+                    writeln!(out, "        let keys = LogosSeq::from_vec(map.borrow().keys().cloned().collect::<Vec<{}>>());", key_rust).unwrap();
                     writeln!(out, "        let __kptr = Box::into_raw(Box::new(keys)) as usize;").unwrap();
                     writeln!(out, "        let mut __reg = logos_handle_registry().lock().unwrap_or_else(|e| e.into_inner());").unwrap();
                     writeln!(out, "        let (__id, _) = __reg.register(__kptr);").unwrap();
@@ -668,7 +668,7 @@ pub(crate) fn codegen_c_accessors(ty: &TypeExpr, interner: &Interner, registry: 
                     emit_null_handle_check(&mut out, "std::ptr::null_mut() as LogosHandle");
                     emit_registry_deref(&mut out, "std::ptr::null_mut() as LogosHandle");
                     writeln!(out, "        let map = unsafe {{ &*(__ptr as *const {}) }};", map_type).unwrap();
-                    writeln!(out, "        let values: Vec<{}> = map.borrow().values().cloned().collect();", val_rust).unwrap();
+                    writeln!(out, "        let values = LogosSeq::from_vec(map.borrow().values().cloned().collect::<Vec<{}>>());", val_rust).unwrap();
                     writeln!(out, "        let __vptr = Box::into_raw(Box::new(values)) as usize;").unwrap();
                     writeln!(out, "        let mut __reg = logos_handle_registry().lock().unwrap_or_else(|e| e.into_inner());").unwrap();
                     writeln!(out, "        let (__id, _) = __reg.register(__vptr);").unwrap();

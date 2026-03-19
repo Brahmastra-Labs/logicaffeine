@@ -4,10 +4,11 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-## [0.9.7] - 2026-03-19
+## [0.9.8] - 2026-03-19
 
 ### Fixed
-- **FFI serde for LogosSeq/LogosMap** — added `Serialize` and `Deserialize` impls for `LogosSeq<T>` and `LogosMap<K,V>`. The FFI codegen emits `serde_json` calls for JSON round-trip on these types, but the `Rc<RefCell<...>>` wrappers lacked serde impls since the reference semantics change in 0.9.4. Only affected CI (tests gated behind `ffi-link-tests` feature flag).
+- **FFI serde for LogosSeq/LogosMap** — added `Serialize` and `Deserialize` impls for `LogosSeq<T>` and `LogosMap<K,V>`. The FFI codegen emits `serde_json` calls for JSON round-trip on these types, but the `Rc<RefCell<...>>` wrappers lacked serde impls since the reference semantics change in 0.9.4.
+- **FFI map keys/values type mismatch** — `logos_map_*_keys()` and `logos_map_*_values()` stored raw `Vec<T>` in the handle registry but downstream `logos_seq_*_len()`/`logos_seq_*_free()` cast them to `LogosSeq<T>` (now `Rc<RefCell<Vec<T>>>`). Fixed by wrapping in `LogosSeq::from_vec()` before registration.
 
 ## [0.9.6] - 2026-03-19
 
