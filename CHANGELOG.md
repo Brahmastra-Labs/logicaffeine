@@ -4,6 +4,11 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.9.7] - 2026-03-19
+
+### Fixed
+- **FFI serde for LogosSeq/LogosMap** — added `Serialize` and `Deserialize` impls for `LogosSeq<T>` and `LogosMap<K,V>`. The FFI codegen emits `serde_json` calls for JSON round-trip on these types, but the `Rc<RefCell<...>>` wrappers lacked serde impls since the reference semantics change in 0.9.4. Only affected CI (tests gated behind `ffi-link-tests` feature flag).
+
 ## [0.9.6] - 2026-03-19
 
 ### Fixed

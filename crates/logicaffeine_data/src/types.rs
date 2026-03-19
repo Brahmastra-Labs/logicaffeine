@@ -177,6 +177,19 @@ impl<T> From<Vec<T>> for LogosSeq<T> {
     }
 }
 
+impl<T: serde::Serialize> serde::Serialize for LogosSeq<T> {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        self.0.borrow().serialize(serializer)
+    }
+}
+
+impl<'de, T: serde::Deserialize<'de>> serde::Deserialize<'de> for LogosSeq<T> {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        let vec = Vec::<T>::deserialize(deserializer)?;
+        Ok(Self::from_vec(vec))
+    }
+}
+
 impl<T: PartialEq> LogosContains<T> for LogosSeq<T> {
     #[inline(always)]
     fn logos_contains(&self, value: &T) -> bool {
@@ -290,6 +303,19 @@ impl<K: std::fmt::Display + Eq + Hash, V: std::fmt::Display> std::fmt::Display f
             write!(f, "{}: {}", k, v)?;
         }
         write!(f, "}}")
+    }
+}
+
+impl<K: serde::Serialize + Eq + Hash, V: serde::Serialize> serde::Serialize for LogosMap<K, V> {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        self.0.borrow().serialize(serializer)
+    }
+}
+
+impl<'de, K: serde::Deserialize<'de> + Eq + Hash, V: serde::Deserialize<'de>> serde::Deserialize<'de> for LogosMap<K, V> {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        let map = rustc_hash::FxHashMap::<K, V>::deserialize(deserializer)?;
+        Ok(Self::from_map(map))
     }
 }
 
