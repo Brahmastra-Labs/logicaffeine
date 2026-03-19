@@ -4,6 +4,21 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.9.6] - 2026-03-19
+
+### Fixed
+- **Studio file browser** — broken since 0.9.0. Dioxus 0.7 stopped serving `assets/` directly; moved `opfs-worker.js` and `style.css` to `public/assets/` so the OPFS web worker and stylesheet load correctly. Studio sidebar now shows files again.
+- **CI deploy** — `robots.txt`, `sitemap.xml`, `_redirects` moved from `assets/` to `public/`, eliminating the manual copy step in `deploy-frontend.yml`.
+
+### Added
+- **Local Vec optimization** — escape analysis (`collect_escaping_collection_vars`) identifies collection variables that never leave the function boundary. These are stored as `Vec<T>` with zero-overhead indexing instead of `LogosSeq<T>` (Rc<RefCell<Vec<T>>>).
+- **Borrow parameter optimization** — readonly `Seq<T>` parameters emit `&[T]` borrows; mutable-only parameters emit `&mut [T]`. Borrow types propagate through aliases.
+- **Function return type tracking** — codegen context tracks function return types for call-site type inference.
+
+### Changed
+- **Peephole patterns** — slice/push/extend/drain patterns updated to handle both `Vec<T>` and `LogosSeq<T>` sources.
+- **Test infrastructure** — offline-first `cargo build`/`cargo run` (tries `--offline` first, falls back to online). Increased `RUST_MIN_STACK` for deeply recursive AST walks.
+
 ## [0.9.5] - 2026-03-17
 
 ### Fixed

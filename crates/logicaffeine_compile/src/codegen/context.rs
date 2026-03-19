@@ -53,6 +53,10 @@ pub struct RefinementContext<'a> {
     /// Used for proper string concatenation codegen (format! vs +).
     string_vars: HashSet<Symbol>,
 
+    /// Maps function Symbol to its return type string.
+    /// Used to infer variable types from function call results.
+    fn_returns: HashMap<Symbol, String>,
+
     /// Variables live immediately after the current top-level statement.
     ///
     /// `None` = no liveness information available → OPT-1C must conservatively clone.
@@ -62,6 +66,10 @@ pub struct RefinementContext<'a> {
     /// Consumed (cleared to `None`) at the start of `codegen_stmt` so that recursive calls for
     /// nested blocks conservatively clone.
     live_vars_after: Option<HashSet<Symbol>>,
+
+    /// Collection variables that escape the function (passed to calls, returned).
+    /// Variables NOT in this set can use Vec<T> instead of LogosSeq<T> for zero-overhead indexing.
+    escaping_vars: HashSet<Symbol>,
 }
 
 impl<'a> RefinementContext<'a> {
@@ -72,6 +80,8 @@ impl<'a> RefinementContext<'a> {
             boxed_binding_scopes: vec![HashSet::new()],
             string_vars: HashSet::new(),
             live_vars_after: None,
+            escaping_vars: HashSet::new(),
+            fn_returns: HashMap::new(),
         }
     }
 
@@ -83,7 +93,29 @@ impl<'a> RefinementContext<'a> {
             boxed_binding_scopes: vec![HashSet::new()],
             string_vars: type_env.to_legacy_string_vars(),
             live_vars_after: None,
+            escaping_vars: HashSet::new(),
+            fn_returns: HashMap::new(),
         }
+    }
+
+    /// Set the escaping vars for local Vec optimization.
+    pub fn set_escaping_vars(&mut self, vars: HashSet<Symbol>) {
+        self.escaping_vars = vars;
+    }
+
+    /// Check if a variable escapes (and thus must remain LogosSeq).
+    pub fn var_escapes(&self, sym: &Symbol) -> bool {
+        self.escaping_vars.contains(sym)
+    }
+
+    /// Register a function's return type.
+    pub fn register_fn_return(&mut self, fn_sym: Symbol, return_type: String) {
+        self.fn_returns.insert(fn_sym, return_type);
+    }
+
+    /// Get a function's return type.
+    pub fn get_fn_return(&self, fn_sym: &Symbol) -> Option<&String> {
+        self.fn_returns.get(fn_sym)
     }
 
     /// Set the live-after set for the next statement about to be generated.

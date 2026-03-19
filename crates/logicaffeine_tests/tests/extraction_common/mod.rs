@@ -60,13 +60,23 @@ edition = "2021"
     std::fs::write(project_dir.join("Cargo.toml"), cargo_toml).unwrap();
     std::fs::write(project_dir.join("src/main.rs"), &full_code).unwrap();
 
-    // Run with shared target dir for caching
+    // Run with shared target dir for caching — try offline first, fall back to online
     let output = Command::new("cargo")
-        .args(["run", "--quiet"])
+        .args(["run", "--quiet", "--offline"])
         .current_dir(project_dir)
         .env("CARGO_TARGET_DIR", get_shared_target_dir())
         .output()
         .expect("cargo run");
+    let output = if !output.status.success() && String::from_utf8_lossy(&output.stderr).contains("--offline") {
+        Command::new("cargo")
+            .args(["run", "--quiet"])
+            .current_dir(project_dir)
+            .env("CARGO_TARGET_DIR", get_shared_target_dir())
+            .output()
+            .expect("cargo run")
+    } else {
+        output
+    };
 
     E2EResult {
         stdout: String::from_utf8_lossy(&output.stdout).to_string(),

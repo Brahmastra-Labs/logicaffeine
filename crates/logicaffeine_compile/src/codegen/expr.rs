@@ -481,15 +481,28 @@ fn codegen_expr_boxed_internal(
                 .map(|(i, a)| {
                     let s = recurse!(a);
                     if callee_borrow_indices.contains(&i) {
-                        // Borrow param: pass reference instead of cloning
+                        // Borrow param: pass &[T] reference instead of cloning
                         if let Expr::Identifier(sym) = a {
                             if let Some(ty) = variable_types.get(sym) {
-                                if ty.starts_with("&[") {
+                                let ty = ty.split("|__hl:").next().unwrap_or(ty.as_str());
+                                if ty.starts_with("&[") || ty.starts_with("&mut [") {
                                     return s; // Already a slice — pass through
                                 }
+                                if ty.starts_with("Vec<") {
+                                    return format!("&{}", s); // Vec<T> derefs to &[T]
+                                }
+                                if ty.starts_with("LogosSeq") {
+                                    return format!("&*{}.borrow()", s);
+                                }
                             }
+                            // Unknown type at borrow position — default to LogosSeq conversion.
+                            // All LOGOS Seq variables are LogosSeq<T> unless materialized as Vec<T>
+                            // (which is always tracked). Safe because borrow positions only accept Seq<T>.
+                            return format!("&*{}.borrow()", s);
                         }
-                        format!("&{}", s)
+                        // Non-identifier at borrow position (e.g. list literal, function call).
+                        // The expression evaluates to LogosSeq<T>; borrow the temporary.
+                        format!("&*{}.borrow()", s)
                     } else {
                         // Regular param: clone non-Copy identifiers
                         if let Expr::Identifier(sym) = a {
@@ -720,6 +733,8 @@ fn codegen_expr_boxed_internal(
                 };
                 if matches!(known_type, Some(t) if t.starts_with("LogosSeq")) {
                     format!("LogosSeq::from_vec({}.borrow()[({} - 1) as usize..{} as usize].to_vec())", coll_str, start_str, end_str)
+                } else if matches!(known_type, Some(t) if t.starts_with("&[") || t.starts_with("Vec<")) {
+                    format!("LogosSeq::from_vec({}[({} - 1) as usize..{} as usize].to_vec())", coll_str, start_str, end_str)
                 } else {
                     format!("{}[({} - 1) as usize..{} as usize].to_vec()", coll_str, start_str, end_str)
                 }
@@ -731,7 +746,13 @@ fn codegen_expr_boxed_internal(
                     None
                 };
                 let expr_str = recurse!(inner);
-                if matches!(known_type, Some(t) if t.starts_with("LogosSeq") || t.starts_with("LogosMap")) {
+                if matches!(known_type, Some(t) if t.starts_with("Vec<")) {
+                    // Slice variable stored as Vec<T> — wrap with LogosSeq::from_vec.
+                    // One copy (.clone()) + zero-cost wrap, same as old pre-ref-semantics .to_vec().
+                    format!("LogosSeq::from_vec({}.clone())", expr_str)
+                } else if matches!(known_type, Some(t) if t.starts_with("&[")) {
+                    format!("LogosSeq::from_vec({}.to_vec())", expr_str)
+                } else if matches!(known_type, Some(t) if t.starts_with("LogosSeq") || t.starts_with("LogosMap")) {
                     format!("{}.deep_clone()", expr_str)
                 } else {
                     format!("{}.to_owned()", expr_str)

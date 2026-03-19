@@ -1274,10 +1274,14 @@ fn symbol_appears_in_expr(sym: Symbol, expr: &Expr) -> bool {
 }
 
 /// Check if a TypeExpr is a Vec/Seq/List type (collection that could be borrowed as &[T]).
-/// Returns false for Seq/List/Vec: these are now LogosSeq<T> with reference semantics
-/// (Rc<RefCell<Vec<T>>>), so borrow optimization doesn't apply — clone is O(1).
-pub(super) fn is_vec_type_expr(_ty: &TypeExpr, _interner: &Interner) -> bool {
-    false
+pub(super) fn is_vec_type_expr(ty: &TypeExpr, interner: &Interner) -> bool {
+    match ty {
+        TypeExpr::Generic { base, .. } => {
+            let name = interner.resolve(*base);
+            matches!(name, "Seq" | "List" | "Vec")
+        }
+        _ => false,
+    }
 }
 
 /// For a function's parameters and body, return the set of parameter indices
@@ -1298,22 +1302,114 @@ pub(super) fn collect_readonly_vec_param_indices(
     readonly_indices
 }
 
-/// Convert a Vec<T> type string to a slice &[T] type string.
-/// E.g., "Vec<i64>" → "&[i64]", "Vec<String>" → "&[String]"
+/// Convert a Vec<T> or LogosSeq<T> type string to a slice &[T] type string.
+/// E.g., "Vec<i64>" → "&[i64]", "LogosSeq<i64>" → "&[i64]"
 pub(super) fn vec_to_slice_type(vec_type: &str) -> String {
     if let Some(inner) = vec_type.strip_prefix("Vec<").and_then(|s| s.strip_suffix('>')) {
+        format!("&[{}]", inner)
+    } else if let Some(inner) = vec_type.strip_prefix("LogosSeq<").and_then(|s| s.strip_suffix('>')) {
         format!("&[{}]", inner)
     } else {
         vec_type.to_string()
     }
 }
 
-/// Convert `Vec<T>` to `&mut [T]` for mutable borrow parameters.
+/// Convert `Vec<T>` or `LogosSeq<T>` to `&mut [T]` for mutable borrow parameters.
 pub(super) fn vec_to_mut_slice_type(vec_type: &str) -> String {
     if let Some(inner) = vec_type.strip_prefix("Vec<").and_then(|s| s.strip_suffix('>')) {
         format!("&mut [{}]", inner)
+    } else if let Some(inner) = vec_type.strip_prefix("LogosSeq<").and_then(|s| s.strip_suffix('>')) {
+        format!("&mut [{}]", inner)
     } else {
         vec_type.to_string()
+    }
+}
+
+/// Collect locally-created Seq/List variables that escape the function body.
+/// A variable "escapes" if it is:
+/// - Passed to a function call (without `copy of` wrapper)
+/// - Returned from the function
+/// Variables NOT in the returned set can safely use `Vec<T>` instead of `LogosSeq<T>`.
+pub(super) fn collect_escaping_collection_vars(stmts: &[Stmt], interner: &Interner) -> HashSet<Symbol> {
+    let mut escaped = HashSet::new();
+    collect_escaping_vars_block(stmts, &mut escaped);
+    escaped
+}
+
+fn collect_escaping_vars_block(stmts: &[Stmt], escaped: &mut HashSet<Symbol>) {
+    for stmt in stmts {
+        collect_escaping_vars_stmt(stmt, escaped);
+    }
+}
+
+fn collect_escaping_vars_stmt(stmt: &Stmt, escaped: &mut HashSet<Symbol>) {
+    match stmt {
+        Stmt::Call { args, .. } => {
+            for arg in args.iter() {
+                collect_escaping_vars_from_call_arg(arg, escaped);
+            }
+        }
+        Stmt::Return { value: Some(expr) } => {
+            if let Expr::Identifier(sym) = expr {
+                escaped.insert(*sym);
+            }
+        }
+        Stmt::If { then_block, else_block, .. } => {
+            collect_escaping_vars_block(then_block, escaped);
+            if let Some(else_stmts) = else_block {
+                collect_escaping_vars_block(else_stmts, escaped);
+            }
+        }
+        Stmt::While { body, .. } | Stmt::Repeat { body, .. } => {
+            collect_escaping_vars_block(body, escaped);
+        }
+        Stmt::Let { value, .. } => {
+            collect_escaping_vars_from_expr_calls(value, escaped);
+        }
+        Stmt::Set { value, .. } => {
+            collect_escaping_vars_from_expr_calls(value, escaped);
+        }
+        _ => {}
+    }
+}
+
+/// Check if an expression is a direct call arg (not wrapped in Copy).
+fn collect_escaping_vars_from_call_arg(expr: &Expr, escaped: &mut HashSet<Symbol>) {
+    match expr {
+        Expr::Identifier(sym) => { escaped.insert(*sym); }
+        Expr::Copy { .. } => { /* copy of X does not cause X to escape */ }
+        _ => {
+            // For complex expressions, check nested identifiers
+            collect_escaping_vars_from_expr_ids(expr, escaped);
+        }
+    }
+}
+
+/// Collect identifiers that appear as direct args in Call expressions within an expression.
+fn collect_escaping_vars_from_expr_calls(expr: &Expr, escaped: &mut HashSet<Symbol>) {
+    match expr {
+        Expr::Call { args, .. } => {
+            for arg in args.iter() {
+                collect_escaping_vars_from_call_arg(arg, escaped);
+            }
+        }
+        Expr::BinaryOp { left, right, .. } => {
+            collect_escaping_vars_from_expr_calls(left, escaped);
+            collect_escaping_vars_from_expr_calls(right, escaped);
+        }
+        _ => {}
+    }
+}
+
+/// Collect direct identifier references from a non-Copy expression used as a call arg.
+fn collect_escaping_vars_from_expr_ids(expr: &Expr, escaped: &mut HashSet<Symbol>) {
+    match expr {
+        Expr::Identifier(sym) => { escaped.insert(*sym); }
+        Expr::BinaryOp { left, right, .. } => {
+            collect_escaping_vars_from_expr_ids(left, escaped);
+            collect_escaping_vars_from_expr_ids(right, escaped);
+        }
+        _ => {}
     }
 }
 

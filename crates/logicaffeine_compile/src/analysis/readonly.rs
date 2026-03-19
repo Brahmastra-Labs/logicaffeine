@@ -15,6 +15,18 @@ use super::types::{LogosType, TypeEnv};
 ///
 /// Parameters in this set are eligible for `&[T]` borrow in codegen instead
 /// of requiring ownership or cloning.
+///
+/// # Safety under Rc<RefCell> (reference) semantics
+///
+/// LogosSeq<T> is Rc<RefCell<Vec<T>>>. The analysis is safe because:
+/// - `Let mutable X be param` is caught by `collect_consumed_params`, which
+///   removes the param from the readonly set. This prevents aliasing where
+///   a mutable local could mutate through the shared Rc.
+/// - Interior mutation via Rc clone requires the `mutable` keyword on the
+///   alias, which triggers the consumed-param check.
+/// - Fixed-point propagation through the callgraph catches transitive
+///   mutations: if a callee mutates a param position, all callers passing
+///   a readonly candidate to that position lose their readonly status.
 pub struct ReadonlyParams {
     /// fn_sym → set of param symbols that are readonly within that function.
     pub readonly: HashMap<Symbol, HashSet<Symbol>>,

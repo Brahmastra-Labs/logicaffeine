@@ -213,12 +213,23 @@ rayon = "1"
     std::fs::write(project_dir.join("src/main.rs"), &rust_code).unwrap();
 
     // 4. Build (but don't run) - use shared target dir for caching
+    //    Try --offline first, fall back to online if cache isn't warm.
     let output = Command::new("cargo")
-        .args(["build", "--quiet"])
+        .args(["build", "--quiet", "--offline"])
         .current_dir(project_dir)
         .env("CARGO_TARGET_DIR", get_shared_target_dir())
         .output()
         .expect("cargo build");
+    let output = if !output.status.success() && String::from_utf8_lossy(&output.stderr).contains("--offline") {
+        Command::new("cargo")
+            .args(["build", "--quiet"])
+            .current_dir(project_dir)
+            .env("CARGO_TARGET_DIR", get_shared_target_dir())
+            .output()
+            .expect("cargo build")
+    } else {
+        output
+    };
 
     let binary_path = get_shared_target_dir().join(format!("debug/{}", pkg_name));
 
@@ -284,15 +295,28 @@ rayon = "1"
     std::fs::write(project_dir.join("src/main.rs"), &rust_code).unwrap();
 
     // 4. Run - use shared target dir for caching
+    //    Try --offline first to avoid transient crates.io failures, fall back to online.
     //    Set RUST_MIN_STACK=64MB so deeply-recursive PE/cogen programs
     //    don't overflow on structural AST walks.
     let output = Command::new("cargo")
-        .args(["run", "--quiet"])
+        .args(["run", "--quiet", "--offline"])
         .current_dir(project_dir)
         .env("CARGO_TARGET_DIR", get_shared_target_dir())
         .env("RUST_MIN_STACK", "268435456")
         .output()
         .expect("cargo run");
+    // Fall back to online if --offline failed (e.g. first run, cache not warm)
+    let output = if !output.status.success() && String::from_utf8_lossy(&output.stderr).contains("--offline") {
+        Command::new("cargo")
+            .args(["run", "--quiet"])
+            .current_dir(project_dir)
+            .env("CARGO_TARGET_DIR", get_shared_target_dir())
+            .env("RUST_MIN_STACK", "268435456")
+            .output()
+            .expect("cargo run")
+    } else {
+        output
+    };
 
     E2EResult {
         stdout: String::from_utf8_lossy(&output.stdout).to_string(),
@@ -567,13 +591,23 @@ rayon = "1"
     std::fs::write(project_dir.join("Cargo.toml"), cargo_toml).unwrap();
     std::fs::write(project_dir.join("src/lib.rs"), &lib_code).unwrap();
 
-    // 3. Build the staticlib
+    // 3. Build the staticlib — try offline first, fall back to online
     let build_output = Command::new("cargo")
-        .args(["build", "--quiet"])
+        .args(["build", "--quiet", "--offline"])
         .current_dir(project_dir)
         .env("CARGO_TARGET_DIR", get_shared_target_dir())
         .output()
         .expect("cargo build");
+    let build_output = if !build_output.status.success() && String::from_utf8_lossy(&build_output.stderr).contains("--offline") {
+        Command::new("cargo")
+            .args(["build", "--quiet"])
+            .current_dir(project_dir)
+            .env("CARGO_TARGET_DIR", get_shared_target_dir())
+            .output()
+            .expect("cargo build")
+    } else {
+        build_output
+    };
 
     if !build_output.status.success() {
         return CLinkResult {

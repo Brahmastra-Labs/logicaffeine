@@ -70,9 +70,9 @@ Show n.
     assert!(rust.contains("ri > right_len"),
         "Body condition should use hoisted right_len, got:\n{}", rust);
 
-    // With reference semantics, arr is passed as LogosSeq<i64> (O(1) Rc clone)
-    assert!(rust.contains("arr: LogosSeq<i64>"),
-        "Param should be LogosSeq<i64>, got:\n{}", rust);
+    // With borrow params, readonly arr is passed as &[i64] (zero-copy borrow)
+    assert!(rust.contains("arr: &[i64]"),
+        "Param should be &[i64] (readonly borrow), got:\n{}", rust);
 
     // BUG FIX: .clone() on Copy types in hoisted while loops.
     // The |__hl: suffix on variable types broke type parsing, causing

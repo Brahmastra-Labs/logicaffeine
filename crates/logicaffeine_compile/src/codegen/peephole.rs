@@ -2260,12 +2260,19 @@ pub(crate) fn try_emit_seq_from_slice_pattern<'a>(
 
                                 let mut cont_output = String::new();
 
+                                // Check source type to determine if .borrow() is needed
+                                let src_is_logos_seq = ctx.get_variable_types().get(&c_src_sym)
+                                    .map(|t| t.split("|__hl:").next().unwrap_or(t.as_str()))
+                                    .map(|t| t.starts_with("LogosSeq"))
+                                    .unwrap_or(true); // default to LogosSeq
+                                let borrow_prefix = if src_is_logos_seq { format!("{}.borrow()", src_name) } else { src_name.to_string() };
+
                                 if c_is_exclusive {
-                                    writeln!(cont_output, "{}let {}: LogosSeq<{}> = LogosSeq::from_vec({}.borrow()[({} - 1) as usize..({} - 1) as usize].to_vec());",
-                                        indent_str, dst_name, elem_type, src_name, counter_name, end_str).unwrap();
+                                    writeln!(cont_output, "{}let {}: LogosSeq<{}> = LogosSeq::from_vec({}[({} - 1) as usize..({} - 1) as usize].to_vec());",
+                                        indent_str, dst_name, elem_type, borrow_prefix, counter_name, end_str).unwrap();
                                 } else {
-                                    writeln!(cont_output, "{}let {}: LogosSeq<{}> = LogosSeq::from_vec({}.borrow()[({} - 1) as usize..{} as usize].to_vec());",
-                                        indent_str, dst_name, elem_type, src_name, counter_name, end_str).unwrap();
+                                    writeln!(cont_output, "{}let {}: LogosSeq<{}> = LogosSeq::from_vec({}[({} - 1) as usize..{} as usize].to_vec());",
+                                        indent_str, dst_name, elem_type, borrow_prefix, counter_name, end_str).unwrap();
                                 }
 
                                 ctx.register_variable_type(dst_sym, format!("LogosSeq<{}>", elem_type));
@@ -2407,28 +2414,38 @@ pub(crate) fn try_emit_seq_from_slice_pattern<'a>(
 
             let mut output = String::new();
 
+            // Check source type: &[T] and Vec<T> don't need .borrow()
+            let src_type = ctx.get_variable_types().get(&src_sym).cloned().unwrap_or_default();
+            let needs_borrow = src_type.starts_with("LogosSeq");
+            let borrow_prefix = if needs_borrow { ".borrow()" } else { "" };
+
             if is_start_one && is_end_length_of_src {
-                writeln!(output, "{}let mut {}: LogosSeq<{}> = {}.deep_clone();",
-                    indent_str, dst_name, elem_type, src_name).unwrap();
+                if needs_borrow {
+                    writeln!(output, "{}let mut {}: LogosSeq<{}> = {}.deep_clone();",
+                        indent_str, dst_name, elem_type, src_name).unwrap();
+                } else {
+                    writeln!(output, "{}let mut {}: LogosSeq<{}> = LogosSeq::from_vec({}.to_vec());",
+                        indent_str, dst_name, elem_type, src_name).unwrap();
+                }
             } else {
                 let start_str = codegen_expr_simple(start_expr, interner);
                 let end_str = codegen_expr_simple(end_expr, interner);
 
                 if is_exclusive {
                     if matches!(start_expr, Expr::Literal(Literal::Number(1))) {
-                        writeln!(output, "{}let mut {}: LogosSeq<{}> = LogosSeq::from_vec({}.borrow()[..({} - 1) as usize].to_vec());",
-                            indent_str, dst_name, elem_type, src_name, end_str).unwrap();
+                        writeln!(output, "{}let mut {}: LogosSeq<{}> = LogosSeq::from_vec({}{}[..({} - 1) as usize].to_vec());",
+                            indent_str, dst_name, elem_type, src_name, borrow_prefix, end_str).unwrap();
                     } else {
-                        writeln!(output, "{}let mut {}: LogosSeq<{}> = LogosSeq::from_vec({}.borrow()[({} - 1) as usize..({} - 1) as usize].to_vec());",
-                            indent_str, dst_name, elem_type, src_name, start_str, end_str).unwrap();
+                        writeln!(output, "{}let mut {}: LogosSeq<{}> = LogosSeq::from_vec({}{}[({} - 1) as usize..({} - 1) as usize].to_vec());",
+                            indent_str, dst_name, elem_type, src_name, borrow_prefix, start_str, end_str).unwrap();
                     }
                 } else {
                     if matches!(start_expr, Expr::Literal(Literal::Number(1))) {
-                        writeln!(output, "{}let mut {}: LogosSeq<{}> = LogosSeq::from_vec({}.borrow()[..{} as usize].to_vec());",
-                            indent_str, dst_name, elem_type, src_name, end_str).unwrap();
+                        writeln!(output, "{}let mut {}: LogosSeq<{}> = LogosSeq::from_vec({}{}[..{} as usize].to_vec());",
+                            indent_str, dst_name, elem_type, src_name, borrow_prefix, end_str).unwrap();
                     } else {
-                        writeln!(output, "{}let mut {}: LogosSeq<{}> = LogosSeq::from_vec({}.borrow()[({} - 1) as usize..{} as usize].to_vec());",
-                            indent_str, dst_name, elem_type, src_name, start_str, end_str).unwrap();
+                        writeln!(output, "{}let mut {}: LogosSeq<{}> = LogosSeq::from_vec({}{}[({} - 1) as usize..{} as usize].to_vec());",
+                            indent_str, dst_name, elem_type, src_name, borrow_prefix, start_str, end_str).unwrap();
                     }
                 }
             }
@@ -3417,10 +3434,14 @@ fn try_bare_slice_push_with_init<'a>(
 
     // Emit the optimized code
     let remaining = &stmts[idx + 2..];
+    let src_is_logos_seq = variable_types.get(&while_info.src_sym)
+        .map(|t| t.split("|__hl:").next().unwrap_or(t.as_str()))
+        .map(|t| t.starts_with("LogosSeq"))
+        .unwrap_or(true);
     let output = emit_extend_from_slice(
         interner, indent, while_info.dst_sym, while_info.src_sym, counter_sym,
         start_expr, while_info.end_expr, while_info.is_exclusive,
-        remaining, Some(is_new_binding),
+        remaining, Some(is_new_binding), src_is_logos_seq,
     );
 
     Some((output, 1)) // consumed 1 extra statement (the While)
@@ -3454,10 +3475,14 @@ fn try_bare_slice_push_bare_while<'a>(
     let start_expr = Expr::Identifier(counter_sym);
 
     let remaining = &stmts[idx + 1..];
+    let src_is_logos_seq = variable_types.get(&src_sym)
+        .map(|t| t.split("|__hl:").next().unwrap_or(t.as_str()))
+        .map(|t| t.starts_with("LogosSeq"))
+        .unwrap_or(true);
     let output = emit_extend_from_slice(
         interner, indent, dst_sym, src_sym, counter_sym,
         &start_expr, end_expr, is_exclusive,
-        remaining, None, // no binding info — counter already exists
+        remaining, None, src_is_logos_seq,
     );
 
     Some((output, 0)) // no extra statements consumed
@@ -3581,6 +3606,7 @@ fn emit_extend_from_slice(
     is_exclusive: bool,
     remaining: &[&Stmt],
     binding_info: Option<bool>, // Some(true) = new let, Some(false) = reassignment, None = already exists
+    src_is_logos_seq: bool,
 ) -> String {
     let indent_str = "    ".repeat(indent);
     let names = RustNames::new(interner);
@@ -3589,18 +3615,19 @@ fn emit_extend_from_slice(
     let counter_name = names.ident(counter_sym);
     let start_str = codegen_expr_simple(start_expr, interner);
     let end_str = codegen_expr_simple(end_expr, interner);
+    let borrow_expr = if src_is_logos_seq { format!("{}.borrow()", src_name) } else { src_name.to_string() };
 
     let mut output = String::new();
 
     if is_exclusive {
         writeln!(output, "{}if {} < {} {{", indent_str, start_str, end_str).unwrap();
-        writeln!(output, "{}    {}.extend_from_slice(&{}.borrow()[({} - 1) as usize..({} - 1) as usize]);",
-            indent_str, dst_name, src_name, start_str, end_str).unwrap();
+        writeln!(output, "{}    {}.extend_from_slice(&{}[({} - 1) as usize..({} - 1) as usize]);",
+            indent_str, dst_name, borrow_expr, start_str, end_str).unwrap();
         writeln!(output, "{}}}", indent_str).unwrap();
     } else {
         writeln!(output, "{}if {} <= {} {{", indent_str, start_str, end_str).unwrap();
-        writeln!(output, "{}    {}.extend_from_slice(&{}.borrow()[({} - 1) as usize..{} as usize]);",
-            indent_str, dst_name, src_name, start_str, end_str).unwrap();
+        writeln!(output, "{}    {}.extend_from_slice(&{}[({} - 1) as usize..{} as usize]);",
+            indent_str, dst_name, borrow_expr, start_str, end_str).unwrap();
         writeln!(output, "{}}}", indent_str).unwrap();
     }
 
@@ -3726,10 +3753,17 @@ pub(crate) fn try_emit_drain_tail_in_while<'a>(
 
     let mut output = String::new();
 
+    // Check source type to determine if .borrow() is needed
+    let array_is_logos_seq = ctx.get_variable_types().get(&array_sym)
+        .map(|t| t.split("|__hl:").next().unwrap_or(t.as_str()))
+        .map(|t| t.starts_with("LogosSeq"))
+        .unwrap_or(true);
+    let borrow_expr = if array_is_logos_seq { format!("{}.borrow()", array_name) } else { array_name.to_string() };
+
     // Emit the If with extend_from_slice + break for the then-branch.
     writeln!(output, "{}if {} {{", indent_str, cond_str).unwrap();
-    writeln!(output, "{}    {}.extend_from_slice(&{}.borrow()[({} - 1) as usize..]);",
-        indent_str, target_name, array_name, counter_name).unwrap();
+    writeln!(output, "{}    {}.extend_from_slice(&{}[({} - 1) as usize..]);",
+        indent_str, target_name, borrow_expr, counter_name).unwrap();
     writeln!(output, "{}    break;", indent_str).unwrap();
     writeln!(output, "{}}} else {{", indent_str).unwrap();
 

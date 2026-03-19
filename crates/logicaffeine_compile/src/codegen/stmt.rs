@@ -120,9 +120,8 @@ pub fn codegen_stmt<'a>(
                 // For borrow params (&[T]), the copy becomes Vec<T> (owned).
                 if let Some(src_type) = ctx.get_variable_types().get(src_sym).cloned() {
                     if src_type.starts_with("&[") {
-                        // Borrow param copied → becomes owned LogosSeq
-                        let inner = src_type.strip_prefix("&[").and_then(|s| s.strip_suffix(']')).unwrap_or("_");
-                        ctx.register_variable_type(*var, format!("LogosSeq<{}>", inner));
+                        // Propagate borrow type — rebinding the slice, not copying
+                        ctx.register_variable_type(*var, src_type);
                     } else if src_type.starts_with("&mut [") {
                         // Mutable borrow param consumed into alias → propagate &mut [T]
                         // so the alias continues to be treated as the in-place mutable borrow.
@@ -154,6 +153,15 @@ pub fn codegen_stmt<'a>(
                         } else if src_type.starts_with("LogosMap") {
                             ctx.register_variable_type(*var, src_type);
                         }
+                    }
+                }
+            }
+
+            // Infer result type from function call return types
+            if !ctx.get_variable_types().contains_key(var) {
+                if let Expr::Call { function, .. } = value {
+                    if let Some(rt) = ctx.get_fn_return(function).cloned() {
+                        ctx.register_variable_type(*var, rt);
                     }
                 }
             }
@@ -190,6 +198,65 @@ pub fn codegen_stmt<'a>(
                         }
                         // Don't register as string var — it's a u8 now
                         return output;
+                    }
+                }
+            }
+
+            // Materialize Expr::Slice on LogosSeq as Vec<T> to avoid dangling
+            // &[T] borrows from temporary Ref guards. Stored as Vec (not LogosSeq)
+            // so that downstream `copy of` can wrap with LogosSeq::from_vec()
+            // for zero-copy ownership transfer instead of deep_clone.
+            if let Expr::Slice { collection, start, end } = value {
+                if let Expr::Identifier(coll_sym) = collection {
+                    if let Some(coll_type) = ctx.get_variable_types().get(coll_sym).cloned() {
+                        if coll_type.starts_with("LogosSeq<") {
+                            let elem_type = coll_type.strip_prefix("LogosSeq<")
+                                .and_then(|t| t.strip_suffix('>'))
+                                .unwrap_or("_");
+                            let coll_name = names.ident(*coll_sym);
+                            let start_str = codegen_expr_boxed_with_types(
+                                start, interner, synced_vars, boxed_fields, registry, async_functions,
+                                ctx.get_string_vars(), ctx.get_variable_types()
+                            );
+                            let end_str = codegen_expr_boxed_with_types(
+                                end, interner, synced_vars, boxed_fields, registry, async_functions,
+                                ctx.get_string_vars(), ctx.get_variable_types()
+                            );
+                            let is_mutable = *mutable || mutable_vars.contains(var);
+                            let mutk = if is_mutable { "mut " } else { "" };
+                            writeln!(output, "{}let {}{}: Vec<{}> = {}.borrow()[({} - 1) as usize..{} as usize].to_vec();",
+                                indent_str, mutk, var_name, elem_type, coll_name, start_str, end_str).unwrap();
+                            // Register as Vec<T> — indexing works directly, and `copy of`
+                            // wraps with LogosSeq::from_vec(x.clone()) for one-copy semantics.
+                            ctx.register_variable_type(*var, format!("Vec<{}>", elem_type));
+                            if is_definitely_string_expr_with_vars(value, ctx.get_string_vars()) {
+                                ctx.register_string_var(*var);
+                            }
+                            return output;
+                        } else if coll_type.starts_with("&[") {
+                            let elem_type = coll_type.strip_prefix("&[")
+                                .and_then(|t| t.strip_suffix(']'))
+                                .unwrap_or("_");
+                            let coll_name = names.ident(*coll_sym);
+                            let start_str = codegen_expr_boxed_with_types(
+                                start, interner, synced_vars, boxed_fields, registry, async_functions,
+                                ctx.get_string_vars(), ctx.get_variable_types()
+                            );
+                            let end_str = codegen_expr_boxed_with_types(
+                                end, interner, synced_vars, boxed_fields, registry, async_functions,
+                                ctx.get_string_vars(), ctx.get_variable_types()
+                            );
+                            let is_mutable = *mutable || mutable_vars.contains(var);
+                            let mutk = if is_mutable { "mut " } else { "" };
+                            // Direct slice of borrow param — no .borrow() needed
+                            writeln!(output, "{}let {}{}: Vec<{}> = {}[({} - 1) as usize..{} as usize].to_vec();",
+                                indent_str, mutk, var_name, elem_type, coll_name, start_str, end_str).unwrap();
+                            ctx.register_variable_type(*var, format!("Vec<{}>", elem_type));
+                            if is_definitely_string_expr_with_vars(value, ctx.get_string_vars()) {
+                                ctx.register_string_var(*var);
+                            }
+                            return output;
+                        }
                     }
                 }
             }
@@ -381,24 +448,39 @@ pub fn codegen_stmt<'a>(
                                         async_functions, string_vars, var_types
                                     );
                                     if callee_mut_borrow_indices.contains(&i) {
-                                        // Mut borrow param: pass &mut reference
+                                        // Mut borrow param: pass &mut [T] reference
                                         if let Expr::Identifier(sym) = a {
                                             if let Some(ty) = var_types.get(sym) {
+                                                let ty = ty.split("|__hl:").next().unwrap_or(ty.as_str());
                                                 if ty.starts_with("&mut [") {
                                                     return s; // Already &mut slice
                                                 }
+                                                if ty.starts_with("LogosSeq") {
+                                                    return format!("&mut *{}.borrow_mut()", s);
+                                                }
                                             }
+                                            // Unknown type — default to LogosSeq
+                                            return format!("&mut *{}.borrow_mut()", s);
                                         }
                                         format!("&mut {}", s)
                                     } else if callee_borrow_indices.contains(&i) {
                                         if let Expr::Identifier(sym) = a {
                                             if let Some(ty) = var_types.get(sym) {
-                                                if ty.starts_with("&[") {
+                                                let ty = ty.split("|__hl:").next().unwrap_or(ty.as_str());
+                                                if ty.starts_with("&[") || ty.starts_with("&mut [") {
                                                     return s;
                                                 }
+                                                if ty.starts_with("Vec<") {
+                                                    return format!("&{}", s);
+                                                }
+                                                if ty.starts_with("LogosSeq") {
+                                                    return format!("&*{}.borrow()", s);
+                                                }
                                             }
+                                            // Unknown type — default to LogosSeq
+                                            return format!("&*{}.borrow()", s);
                                         }
-                                        format!("&{}", s)
+                                        format!("&*{}.borrow()", s)
                                     } else {
                                         s
                                     }
@@ -452,12 +534,26 @@ pub fn codegen_stmt<'a>(
                                 if callee_borrow_indices.contains(&i) {
                                     if let Expr::Identifier(sym) = a {
                                         if let Some(ty) = var_types.get(sym) {
-                                            if ty.starts_with("&[") {
+                                            let ty = ty.split("|__hl:").next().unwrap_or(ty.as_str());
+                                            if ty.starts_with("&[") || ty.starts_with("&mut [") {
                                                 return s;
                                             }
+                                            if ty.starts_with("Vec<") {
+                                                return format!("&{}", s);
+                                            }
+                                            if ty.starts_with("LogosSeq") {
+                                                if *sym == *target {
+                                                    return format!("&*{}.clone().borrow()", s);
+                                                }
+                                                return format!("&*{}.borrow()", s);
+                                            }
                                         }
+                                        if *sym == *target {
+                                            return format!("&*{}.clone().borrow()", s);
+                                        }
+                                        return format!("&*{}.borrow()", s);
                                     }
-                                    format!("&{}", s)
+                                    format!("&*{}.borrow()", s)
                                 } else if i == move_pos {
                                     s // Move: no .clone()
                                 } else {
@@ -497,12 +593,26 @@ pub fn codegen_stmt<'a>(
                                 if callee_borrow_indices.contains(&i) {
                                     if let Expr::Identifier(sym) = a {
                                         if let Some(ty) = var_types.get(sym) {
-                                            if ty.starts_with("&[") {
+                                            let ty = ty.split("|__hl:").next().unwrap_or(ty.as_str());
+                                            if ty.starts_with("&[") || ty.starts_with("&mut [") {
                                                 return s;
                                             }
+                                            if ty.starts_with("Vec<") {
+                                                return format!("&{}", s);
+                                            }
+                                            if ty.starts_with("LogosSeq") {
+                                                if *sym == *target {
+                                                    return format!("&*{}.clone().borrow()", s);
+                                                }
+                                                return format!("&*{}.borrow()", s);
+                                            }
                                         }
+                                        if *sym == *target {
+                                            return format!("&*{}.clone().borrow()", s);
+                                        }
+                                        return format!("&*{}.borrow()", s);
                                     }
-                                    format!("&{}", s)
+                                    format!("&*{}.borrow()", s)
                                 } else if let Expr::Identifier(sym) = a {
                                     if let Some(ty) = var_types.get(sym) {
                                         if !is_copy_type(ty) {
@@ -583,25 +693,40 @@ pub fn codegen_stmt<'a>(
             let args_str: Vec<String> = args.iter().enumerate().map(|(i, a)| {
                 let s = codegen_expr_with_async(a, interner, synced_vars, async_functions, variable_types);
                 if callee_mut_borrow_indices.contains(&i) {
-                    // Mut borrow param: pass &mut reference
+                    // Mut borrow param: pass &mut [T] reference
                     if let Expr::Identifier(sym) = a {
                         if let Some(ty) = variable_types.get(sym) {
+                            let ty = ty.split("|__hl:").next().unwrap_or(ty.as_str());
                             if ty.starts_with("&mut [") {
                                 return s; // Already &mut slice
                             }
+                            if ty.starts_with("LogosSeq") {
+                                return format!("&mut *{}.borrow_mut()", s);
+                            }
                         }
+                        // Unknown type — default to LogosSeq
+                        return format!("&mut *{}.borrow_mut()", s);
                     }
                     format!("&mut {}", s)
                 } else if callee_borrow_indices.contains(&i) {
-                    // Borrow param: pass reference instead of moving
+                    // Borrow param: pass &[T] reference instead of moving
                     if let Expr::Identifier(sym) = a {
                         if let Some(ty) = variable_types.get(sym) {
-                            if ty.starts_with("&[") {
+                            let ty = ty.split("|__hl:").next().unwrap_or(ty.as_str());
+                            if ty.starts_with("&[") || ty.starts_with("&mut [") {
                                 return s; // Already a slice — pass through
                             }
+                            if ty.starts_with("Vec<") {
+                                return format!("&{}", s);
+                            }
+                            if ty.starts_with("LogosSeq") {
+                                return format!("&*{}.borrow()", s);
+                            }
                         }
+                        // Unknown type — default to LogosSeq
+                        return format!("&*{}.borrow()", s);
                     }
-                    format!("&{}", s)
+                    format!("&*{}.borrow()", s)
                 } else {
                     // Regular param: clone non-Copy identifiers to avoid move-after-use.
                     // LogosSeq/LogosMap .clone() is O(1) Rc clone — exactly what we want
@@ -1003,14 +1128,18 @@ pub fn codegen_stmt<'a>(
         Stmt::Return { value } => {
             if let Some(v) = value {
                 let value_str = codegen_expr_boxed_with_types(v, interner, synced_vars, boxed_fields, registry, async_functions, ctx.get_string_vars(), ctx.get_variable_types());
-                // If returning a borrowed slice param, convert to owned Vec
-                let needs_to_vec = if let Expr::Identifier(sym) = v {
-                    ctx.get_variable_types().get(sym)
-                        .map(|t| t.starts_with("&["))
-                        .unwrap_or(false)
-                } else {
-                    false
+                // If returning a borrowed slice param (or copy of one), wrap in LogosSeq
+                let slice_sym = match v {
+                    Expr::Identifier(sym) => Some(*sym),
+                    Expr::Copy { expr: inner } => {
+                        if let Expr::Identifier(sym) = inner { Some(*sym) } else { None }
+                    }
+                    _ => None,
                 };
+                let needs_to_vec = slice_sym
+                    .and_then(|sym| ctx.get_variable_types().get(&sym))
+                    .map(|t| t.starts_with("&["))
+                    .unwrap_or(false);
                 // If returning a &mut borrow param, the mutation was in-place — just return
                 let is_mut_borrow_return = if let Expr::Identifier(sym) = v {
                     ctx.get_variable_types().get(sym)
@@ -1022,7 +1151,7 @@ pub fn codegen_stmt<'a>(
                 if is_mut_borrow_return {
                     writeln!(output, "{}return;", indent_str).unwrap();
                 } else if needs_to_vec {
-                    writeln!(output, "{}return {}.to_vec();", indent_str, value_str).unwrap();
+                    writeln!(output, "{}return LogosSeq::from_vec({}.to_vec());", indent_str, value_str).unwrap();
                 } else {
                     writeln!(output, "{}return {};", indent_str, value_str).unwrap();
                 }
@@ -2492,7 +2621,7 @@ fn try_emit_parallel_reduction<'a>(
         ctx.get_variable_types().get(coll_sym)
             .map(|t| {
                 let t = t.split("|__hl:").next().unwrap_or(t.as_str());
-                (t.starts_with("LogosSeq<") || t.starts_with("Vec<")) && has_copy_element_type(t)
+                (t.starts_with("LogosSeq<") || t.starts_with("Vec<") || t.starts_with("&[")) && has_copy_element_type(t)
             })
             .unwrap_or(false)
     } else {
@@ -2517,8 +2646,18 @@ fn try_emit_parallel_reduction<'a>(
 
     // Emit parallel reduction with runtime threshold
     // LogosSeq needs .borrow() to access the inner Vec for .par_iter()/.iter()
-    let borrow_expr = format!("{}.borrow()", iter_str);
-    writeln!(out, "{}if {}.len() >= 10000 {{", indent_str, iter_str).unwrap();
+    // &[T] and Vec<T> can be used directly without .borrow()
+    let (borrow_expr, len_expr) = if let Expr::Identifier(coll_sym) = iterable {
+        let ty = ctx.get_variable_types().get(coll_sym).map(|s| s.split("|__hl:").next().unwrap_or(s.as_str()));
+        if matches!(ty, Some(t) if t.starts_with("LogosSeq")) {
+            (format!("{}.borrow()", iter_str), format!("{}.len()", iter_str))
+        } else {
+            (iter_str.to_string(), format!("{}.len()", iter_str))
+        }
+    } else {
+        (format!("{}.borrow()", iter_str), format!("{}.len()", iter_str))
+    };
+    writeln!(out, "{}if {} >= 10000 {{", indent_str, len_expr).unwrap();
     writeln!(out, "{}    use rayon::prelude::*;", indent_str).unwrap();
     writeln!(out, "{}    let __par_ref = {};", indent_str, borrow_expr).unwrap();
     if needs_map {

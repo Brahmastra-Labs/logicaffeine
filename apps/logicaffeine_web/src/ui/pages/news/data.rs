@@ -62,6 +62,33 @@ pub fn get_articles_by_tag(tag: &str) -> Vec<&'static Article> {
 /// All news articles
 static ARTICLES: &[Article] = &[
     Article {
+        slug: "release-0-9-6-studio-fix-local-vec",
+        title: "v0.9.6 — Studio Fix & Local Vec Optimization",
+        date: "2026-03-19",
+        summary: "Fixes the Studio file browser broken since 0.9.0, adds escape-analysis-driven local Vec optimization for zero-overhead collection indexing, and borrow parameter emission for readonly/mutable-only Seq params.",
+        content: r#"
+## Studio File Browser Fix
+
+The Studio sidebar has been broken since v0.9.0 when Dioxus was upgraded from 0.6 to 0.7. The root cause: Dioxus 0.7 no longer serves files from the `assets/` directory directly. The OPFS web worker (`opfs-worker.js`) and stylesheet (`style.css`) were silently 404ing, which broke the file browser UI.
+
+The fix moves these files to `public/assets/` where Dioxus 0.7 serves them at the same URLs the app expects. Additionally, `robots.txt`, `sitemap.xml`, and `_redirects` move from `assets/` to `public/`, eliminating the manual copy step that was patched into `deploy-frontend.yml`.
+
+## Local Vec Optimization
+
+A new escape analysis pass (`collect_escaping_collection_vars`) identifies collection variables that never leave the function boundary — they're not returned, not passed to other functions, and not stored in structs. These "local" collections are now stored as plain `Vec<T>` instead of `LogosSeq<T>` (the `Rc<RefCell<Vec<T>>>` wrapper), providing zero-overhead indexing without the indirection and runtime borrow checking of `RefCell`.
+
+## Borrow Parameter Optimization
+
+Readonly `Seq<T>` parameters now emit `&[T]` borrows instead of cloning the entire collection. Mutable-only parameters emit `&mut [T]`. The borrow type propagates through aliases — if a parameter is aliased to a local variable, the local inherits the borrow type. This pairs with the existing call-graph-based readonly analysis to eliminate unnecessary allocations at function boundaries.
+
+## Peephole Pattern Updates
+
+The peephole optimizer's slice, push, extend, and drain patterns have been updated to handle both `Vec<T>` and `LogosSeq<T>` source types, ensuring optimizations fire regardless of whether a collection was determined to be local or escaping.
+"#,
+        tags: &["release", "compiler", "performance", "studio"],
+        author: "LOGICAFFEINE Team",
+    },
+    Article {
         slug: "release-0-9-4-pe-infrastructure",
         title: "v0.9.4 — PE Infrastructure, Self-Application & Reference Semantics",
         date: "2026-03-16",

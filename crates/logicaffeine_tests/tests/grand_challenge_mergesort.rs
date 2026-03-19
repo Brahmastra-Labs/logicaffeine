@@ -219,7 +219,7 @@ fn mergesort_function_compiles() {
     assert!(result.is_ok(), "MergeSort function should compile: {:?}", result);
     let rust = result.unwrap();
     assert!(rust.contains("fn MergeSort"), "Should generate MergeSort function: {}", rust);
-    assert!(rust.contains(".to_owned()"), "Should generate .to_owned() for copy: {}", rust);
+    assert!(rust.contains("LogosSeq::from_vec"), "Should generate LogosSeq::from_vec for copy of slice: {}", rust);
 }
 
 #[test]
@@ -291,7 +291,7 @@ fn full_mergesort_compiles() {
     assert!(rust.contains("&&"), "Should have && for compound conditions");
     assert!(rust.contains(".push("), "Should have .push() for Push statements");
     assert!(rust.contains(".len()"), "Should have .len() for length of");
-    assert!(rust.contains(".to_owned()"), "Should have .to_owned() for copy of");
+    assert!(rust.contains("LogosSeq::from_vec"), "Should have LogosSeq::from_vec for copy of slice");
 }
 
 // =============================================================================
@@ -400,12 +400,21 @@ tokio = {{ version = "1", features = ["rt-multi-thread", "macros"] }}
     std::fs::write(project_dir.join("Cargo.toml"), cargo_toml).unwrap();
     std::fs::write(project_dir.join("src/main.rs"), &rust_code).unwrap();
 
-    // 3. Build and run
+    // 3. Build and run — try offline first, fall back to online
     let output = Command::new("cargo")
-        .args(["run", "--quiet"])
+        .args(["run", "--quiet", "--offline"])
         .current_dir(project_dir)
         .output()
         .expect("Failed to run cargo");
+    let output = if !output.status.success() && String::from_utf8_lossy(&output.stderr).contains("--offline") {
+        Command::new("cargo")
+            .args(["run", "--quiet"])
+            .current_dir(project_dir)
+            .output()
+            .expect("Failed to run cargo")
+    } else {
+        output
+    };
 
     let stdout = String::from_utf8_lossy(&output.stdout);
     let stderr = String::from_utf8_lossy(&output.stderr);

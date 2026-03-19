@@ -21,7 +21,7 @@ use super::detection::{
     collect_pipe_sender_params, collect_pipe_vars,
     collect_mutable_vars_stmt, is_result_type,
     vec_to_slice_type, vec_to_mut_slice_type, collect_give_arg_indices, is_vec_type_expr,
-    collect_single_char_text_vars,
+    collect_single_char_text_vars, collect_escaping_collection_vars,
     detect_double_recursion_closed_form,
 };
 use super::expr::{codegen_expr, codegen_expr_with_async};
@@ -53,6 +53,32 @@ use super::{
     try_emit_buffer_reuse_while,
     classify_type_for_c_abi, CAbiClass,
 };
+
+/// Check if a function body contains escape blocks (raw Rust code).
+/// Functions with escape blocks should not have their param types changed
+/// by borrow optimization, since the escape code may depend on specific types.
+fn body_contains_escape(body: &[Stmt]) -> bool {
+    body.iter().any(|stmt| stmt_contains_escape(stmt))
+}
+
+fn stmt_contains_escape(stmt: &Stmt) -> bool {
+    match stmt {
+        Stmt::Escape { .. } => true,
+        Stmt::Let { value, .. } => expr_contains_escape(value),
+        Stmt::Set { value, .. } => expr_contains_escape(value),
+        Stmt::If { then_block, else_block, .. } => {
+            body_contains_escape(then_block)
+                || else_block.as_ref().map_or(false, |eb| body_contains_escape(eb))
+        }
+        Stmt::While { body, .. } | Stmt::Repeat { body, .. } => body_contains_escape(body),
+        Stmt::Inspect { arms, .. } => arms.iter().any(|arm| body_contains_escape(arm.body)),
+        _ => false,
+    }
+}
+
+fn expr_contains_escape(expr: &Expr) -> bool {
+    matches!(expr, Expr::Escape { .. })
+}
 
 /// - Uses `Distributed<T>` when both Mount and Sync detected
 /// - Boxes recursive enum fields
@@ -216,6 +242,10 @@ pub fn codegen_program(stmts: &[Stmt], registry: &TypeRegistry, policies: &Polic
             if detect_accumulator_pattern(*name, body).is_some() {
                 continue;
             }
+            // Skip functions with escape blocks — raw Rust code may assume specific param types
+            if body_contains_escape(body) {
+                continue;
+            }
             let indices: HashSet<usize> = params.iter().enumerate()
                 .filter(|(_, (sym, param_type))| {
                     readonly_params.is_readonly(*name, *sym)
@@ -250,6 +280,9 @@ pub fn codegen_program(stmts: &[Stmt], registry: &TypeRegistry, policies: &Polic
             if is_tail_recursive(*name, body) || detect_accumulator_pattern(*name, body).is_some() {
                 continue;
             }
+            if body_contains_escape(body) {
+                continue;
+            }
             // Skip if already has readonly borrow params (readonly takes precedence)
             let readonly_indices = borrow_params_map.get(name).cloned().unwrap_or_default();
             let indices: HashSet<usize> = params.iter().enumerate()
@@ -270,6 +303,15 @@ pub fn codegen_program(stmts: &[Stmt], registry: &TypeRegistry, policies: &Polic
     // Used by codegen_function_def to enable last-use move optimization (OPT-1C).
     let liveness = LivenessResult::analyze(stmts);
 
+    // Build function return type map for variable type inference at call sites
+    let fn_returns_map: HashMap<Symbol, String> = stmts.iter().filter_map(|s| {
+        if let Stmt::FunctionDef { name, return_type: Some(rt), .. } = s {
+            Some((*name, codegen_type_expr(rt, interner)))
+        } else {
+            None
+        }
+    }).collect();
+
     // Phase 32/38: Emit function definitions before main
     for stmt in stmts {
         if let Stmt::FunctionDef { name, params, generics, body, return_type, is_native, native_path, is_exported, export_target, opt_flags } = stmt {
@@ -285,7 +327,7 @@ pub fn codegen_program(stmts: &[Stmt], registry: &TypeRegistry, policies: &Polic
                 }
                 // Skip individual emission — already emitted as part of merged pair
             } else {
-                output.push_str(&codegen_function_def(*name, generics, params, body, return_type.as_ref().copied(), *is_native, *native_path, *is_exported, *export_target, interner, &lww_fields, &mv_fields, &async_functions, &boxed_fields, registry, &pure_functions, type_env, &borrow_params_map, &mut_borrow_params_map, &liveness, opt_flags));
+                output.push_str(&codegen_function_def(*name, generics, params, body, return_type.as_ref().copied(), *is_native, *native_path, *is_exported, *export_target, interner, &lww_fields, &mv_fields, &async_functions, &boxed_fields, registry, &pure_functions, type_env, &borrow_params_map, &mut_borrow_params_map, &liveness, opt_flags, &fn_returns_map));
             }
         }
     }
@@ -329,6 +371,9 @@ pub fn codegen_program(stmts: &[Stmt], registry: &TypeRegistry, policies: &Polic
         writeln!(output, "    let vfs: std::sync::Arc<dyn logicaffeine_system::fs::Vfs + Send + Sync> = std::sync::Arc::from(logicaffeine_system::fs::get_platform_vfs());").unwrap();
     }
     let mut main_ctx = RefinementContext::from_type_env(type_env);
+    // Local Vec optimization: detect which collection vars escape main
+    let main_escaping = collect_escaping_collection_vars(stmts, interner);
+    main_ctx.set_escaping_vars(main_escaping);
     // OPT: Register single-char text vars as u8 type for optimized codegen
     for sym in &single_char_vars {
         main_ctx.register_variable_type(*sym, "__single_char_u8".to_string());
@@ -342,6 +387,10 @@ pub fn codegen_program(stmts: &[Stmt], registry: &TypeRegistry, policies: &Polic
     for (fn_sym, indices) in &mut_borrow_params_map {
         let indices_str = indices.iter().map(|i| i.to_string()).collect::<Vec<_>>().join(",");
         main_ctx.register_variable_type(*fn_sym, format!("fn_mut_borrow:{}", indices_str));
+    }
+    // Register function return types for variable type inference at call sites
+    for (fn_sym, rt_str) in &fn_returns_map {
+        main_ctx.register_fn_return(*fn_sym, rt_str.clone());
     }
     let mut main_synced_vars = HashSet::new();  // Phase 52: Track synced variables in main
     // Phase 56: Pre-scan for Mount+Sync combinations
@@ -455,6 +504,7 @@ fn codegen_function_def(
     mut_borrow_params_map: &HashMap<Symbol, HashSet<usize>>,
     liveness: &LivenessResult,
     opt_flags: &HashSet<OptFlag>,
+    fn_returns_map: &HashMap<Symbol, String>,
 ) -> String {
     let mut output = String::new();
     let names = RustNames::new(interner);
@@ -675,6 +725,9 @@ fn codegen_function_def(
         }
 
         let mut func_ctx = RefinementContext::new();
+        // Local Vec optimization: detect which collection vars escape this function
+        let func_escaping = collect_escaping_collection_vars(body, interner);
+        func_ctx.set_escaping_vars(func_escaping);
         // OPT: Detect single-char text vars in function body
         let func_single_char_vars = collect_single_char_text_vars(body, interner);
         for sym in &func_single_char_vars {
@@ -705,6 +758,10 @@ fn codegen_function_def(
         for (fn_sym, indices) in mut_borrow_params_map {
             let indices_str = indices.iter().map(|i| i.to_string()).collect::<Vec<_>>().join(",");
             func_ctx.register_variable_type(*fn_sym, format!("fn_mut_borrow:{}", indices_str));
+        }
+        // Register function return types for variable type inference at call sites
+        for (fn_sym, rt_str) in fn_returns_map {
+            func_ctx.register_fn_return(*fn_sym, rt_str.clone());
         }
 
         // Phase 54: Functions receive pipe senders as parameters, no local pipe declarations
