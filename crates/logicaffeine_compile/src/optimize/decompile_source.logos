@@ -10,11 +10,11 @@
     If op equals "/":
         Return " / ".
     If op equals "%":
-        Return " mod ".
+        Return " % ".
     If op equals "==":
         Return " equals ".
     If op equals "!=":
-        Return " is not equal to ".
+        Return " is not ".
     If op equals "<":
         Return " is less than ".
     If op equals ">":
@@ -59,7 +59,7 @@
             Let ls be decompileExpr(left).
             Let rs be decompileExpr(right).
             Let opS be opToStr(op).
-            Return "{ls}{opS}{rs}".
+            Return "({ls}{opS}{rs})".
         When CNot (inner):
             Let innerStr be decompileExpr(inner).
             Return "not {innerStr}".
@@ -88,6 +88,8 @@
             Let ts be decompileExpr(target).
             Return "{field} of {ts}".
         When CNewVariant (tag, names, vals):
+            If length of names equals 0:
+                Return "a new {tag}".
             Let vParts be a new Seq of Text.
             Let mutable vi be 1.
             Repeat for nm in names:
@@ -142,6 +144,8 @@
             Let rs be decompileExpr(right).
             Return "intersection of {ls} and {rs}".
         When CNew (typeName, fieldNames, fields):
+            If length of fieldNames equals 0:
+                Return "a new {typeName}".
             Let fParts be a new Seq of Text.
             Let mutable fi be 1.
             Repeat for fname in fieldNames:
@@ -212,18 +216,31 @@
             Let es be decompileExpr(expr).
             Return "{pad}Return {es}.{nl}".
         When CIf (cond, thenB, elseB):
+            Let thenEmpty be length of thenB equals 0.
+            Let elseEmpty be length of elseB equals 0.
+            If thenEmpty and elseEmpty:
+                Return "".
             Let cs be decompileExpr(cond).
+            Let innerPadIf be makePad(indent + 1).
+            If thenEmpty:
+                Let negCs be "not ({cs})".
+                Let elseS be decompileBlock(elseB, indent + 1).
+                Return "{pad}If {negCs}:{nl}{elseS}".
             Let thenS be decompileBlock(thenB, indent + 1).
             Let mutable ifResult be "{pad}If {cs}:{nl}{thenS}".
-            If length of elseB is greater than 0:
+            If not elseEmpty:
                 Let elseS be decompileBlock(elseB, indent + 1).
                 Set ifResult to "{ifResult}{pad}Otherwise:{nl}{elseS}".
             Return ifResult.
         When CRepeat (var, coll, body):
+            If length of body equals 0:
+                Return "".
             Let cs be decompileExpr(coll).
             Let bs be decompileBlock(body, indent + 1).
             Return "{pad}Repeat for {var} in {cs}:{nl}{bs}".
         When CWhile (cond, body):
+            If length of body equals 0:
+                Return "".
             Let cs be decompileExpr(cond).
             Let bs be decompileBlock(body, indent + 1).
             Return "{pad}While {cs}:{nl}{bs}".
@@ -242,11 +259,14 @@
         When CInspect (target, arms):
             Let ts be decompileExpr(target).
             Let mutable result be "{pad}Inspect {ts}:{nl}".
+            Let bodyPad be makePad(indent + 2).
             Repeat for arm in arms:
                 Inspect arm:
                     When CWhen (varName, bindings, armBody):
                         Let innerPad be "{pad}    ".
                         Let bs be decompileBlock(armBody, indent + 2).
+                        If length of armBody equals 0:
+                            Set bs to "{bodyPad}Let skip be true.{nl}".
                         If length of bindings is greater than 0:
                             Let bindStr be joinExprs(bindings, ", ").
                             Set result to "{result}{innerPad}When {varName} ({bindStr}):{nl}{bs}".
@@ -255,6 +275,8 @@
                     When COtherwise (otherwiseBody):
                         Let innerPad2 be "{pad}    ".
                         Let obStr be decompileBlock(otherwiseBody, indent + 2).
+                        If length of otherwiseBody equals 0:
+                            Set obStr to "{bodyPad}Let skip be true.{nl}".
                         Set result to "{result}{innerPad2}Otherwise:{nl}{obStr}".
             Return result.
         When CCallS (name, args):
@@ -271,6 +293,8 @@
         When CPop (target):
             Return "{pad}Pop from {target}.{nl}".
         When CRepeatRange (var, start, end, body):
+            If length of body equals 0:
+                Return "".
             Let ss be decompileExpr(start).
             Let es be decompileExpr(end).
             Let bs be decompileBlock(body, indent + 1).
@@ -361,7 +385,17 @@
             Let hs be decompileExpr(handle).
             Return "{pad}Stop task {hs}.{nl}".
         When CSelect (branches):
-            Return "{pad}Select ...{nl}".
+            Let mutable selStr be "{pad}Select:{nl}".
+            Repeat for selBr in branches:
+                Inspect selBr:
+                    When CSelectRecv (selChan, selVar, selBody):
+                        Let selBodyStr be decompileBlock(selBody, indent + 1).
+                        Set selStr to "{selStr}{pad}    When receiving {selVar} from {selChan}:{nl}{selBodyStr}".
+                    When CSelectTimeout (selDur, selBody):
+                        Let selDurStr be decompileExpr(selDur).
+                        Let selBodyStr be decompileBlock(selBody, indent + 1).
+                        Set selStr to "{selStr}{pad}    After {selDurStr}:{nl}{selBodyStr}".
+            Return selStr.
         When CCreatePipe (name, capacity):
             Let cs be decompileExpr(capacity).
             Return "{pad}Create pipe {name} with capacity {cs}.{nl}".

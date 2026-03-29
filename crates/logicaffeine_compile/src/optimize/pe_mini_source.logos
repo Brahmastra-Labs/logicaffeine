@@ -76,10 +76,14 @@
                 Push exprToValM(v) to vvals.
             Return a new VVariant with typeName tag and variantName tag and fields vvals.
         When CNew (typeName, fieldNames, fieldExprs):
+            If typeName equals "Map":
+                Return a new VMap with entries a new Map of Text to CVal.
             Let vvals be a new Seq of CVal.
             Repeat for fe in fieldExprs:
                 Push exprToValM(fe) to vvals.
             Return a new VVariant with typeName typeName and variantName typeName and fields vvals.
+        When CCopy (target):
+            Return exprToValM(target).
         Otherwise:
             Return a new VNothing.
 
@@ -102,6 +106,8 @@
             If present:
                 Return a new COptionSome with inner (valToExprM(inner)).
             Return a new COptionNone.
+        When VMap (entries):
+            Return a new CNew with typeName "Map" and fieldNames (a new Seq of Text) and fields (a new Seq of CExpr).
         Otherwise:
             Return a new CVar with name "__unresolvable".
 
@@ -230,6 +236,78 @@
                 Let ap be exprToKeyPartM(a).
                 Set parts to "{parts}_{ap}".
             Return parts.
+        When CIndex (coll, idx):
+            Let cp be exprToKeyPartM(coll).
+            Let ip be exprToKeyPartM(idx).
+            Return "idx_{cp}_{ip}".
+        When CLen (target):
+            Let tp be exprToKeyPartM(target).
+            Return "len_{tp}".
+        When CMapGet (mapExpr, key):
+            Let mp be exprToKeyPartM(mapExpr).
+            Let kp be exprToKeyPartM(key).
+            Return "mg_{mp}_{kp}".
+        When CNewSeq:
+            Return "seq".
+        When CNewSet:
+            Return "set".
+        When CFieldAccess (target, field):
+            Let tp be exprToKeyPartM(target).
+            Return "fa{field}_{tp}".
+        When CNew (typeName, fieldNames, fieldExprs):
+            Let mutable parts be "new{typeName}".
+            Repeat for fv in fieldExprs:
+                Let vp be exprToKeyPartM(fv).
+                Set parts to "{parts}_{vp}".
+            Return parts.
+        When CRange (rangeStart, rangeEnd):
+            Let sp be exprToKeyPartM(rangeStart).
+            Let ep be exprToKeyPartM(rangeEnd).
+            Return "r_{sp}_{ep}".
+        When CSlice (sliceColl, sliceStart, sliceEnd):
+            Let cp be exprToKeyPartM(sliceColl).
+            Let sp be exprToKeyPartM(sliceStart).
+            Let ep be exprToKeyPartM(sliceEnd).
+            Return "sl_{cp}_{sp}_{ep}".
+        When CCopy (copyTarget):
+            Let tp be exprToKeyPartM(copyTarget).
+            Return "cp_{tp}".
+        When CContains (containsColl, containsElem):
+            Let cp be exprToKeyPartM(containsColl).
+            Let ep be exprToKeyPartM(containsElem).
+            Return "ct_{cp}_{ep}".
+        When CUnion (unionLeft, unionRight):
+            Let lp be exprToKeyPartM(unionLeft).
+            Let rp be exprToKeyPartM(unionRight).
+            Return "un_{lp}_{rp}".
+        When CIntersection (interLeft, interRight):
+            Let lp be exprToKeyPartM(interLeft).
+            Let rp be exprToKeyPartM(interRight).
+            Return "ix_{lp}_{rp}".
+        When CClosure (clParams, clBody, clCaptured):
+            Return "cl".
+        When CCallExpr (ceTarget, ceArgs):
+            Let tp be exprToKeyPartM(ceTarget).
+            Return "ce_{tp}".
+        When CInterpolatedString (isParts):
+            Let mutable ps be "is".
+            Repeat for isPart in isParts:
+                Inspect isPart:
+                    When CLiteralPart (litVal):
+                        Set ps to "{ps}_lt{litVal}".
+                    When CExprPart (epExpr):
+                        Let pp be exprToKeyPartM(epExpr).
+                        Set ps to "{ps}_{pp}".
+            Return ps.
+        When CDuration (durAmount, durUnit):
+            Let ap be exprToKeyPartM(durAmount).
+            Return "dur_{ap}_{durUnit}".
+        When CTimeNow:
+            Return "tnow".
+        When CDateToday:
+            Return "today".
+        When CEscExpr (escCode):
+            Return "esc".
         Otherwise:
             Return "unk".
 
@@ -330,7 +408,8 @@
                                 Set pidx to pidx + 1.
                             Let childState be peStateWithEnvDepthStaticM(state, callEnv, depth - 1, childSEnv).
                             Let peBody be peBlockM(body, childState).
-                            Let bodyResult be extractReturnM(peBody).
+                            Let rawResultM be extractReturnM(peBody).
+                            Let bodyResult be validateExtractReturnM(rawResultM, peBody).
                             Inspect bodyResult:
                                 When CVar (brName2):
                                     If brName2 equals "__no_return__":
@@ -412,6 +491,19 @@
         When CContains (containsColl, containsElem):
             Let peColl be peExprM(containsColl, state).
             Let peElem be peExprM(containsElem, state).
+            Inspect peColl:
+                When CNew (cnTypeName, cnFieldNames, cnFields):
+                    If length of cnFields equals 0:
+                        Return a new CBool with value false.
+                When CNewSeq:
+                    Return a new CBool with value false.
+                When CNewSet:
+                    Return a new CBool with value false.
+                When CList (litems):
+                    If length of litems equals 0:
+                        Return a new CBool with value false.
+                Otherwise:
+                    Let skipContains be true.
             Return a new CContains with coll peColl and elem peElem.
         When CUnion (unionLeft, unionRight):
             Let peLeft be peExprM(unionLeft, state).
@@ -475,6 +567,41 @@
                 Return true.
             Otherwise:
                 Let skip be true.
+    Return false.
+
+## To collectSetVarsM (stmts: Seq of CStmt) -> Seq of Text:
+    Let result be a new Seq of Text.
+    Repeat for s in stmts:
+        Inspect s:
+            When CSet (setName, setExpr):
+                Push setName to result.
+            When CIf (ifCond, ifThen, ifElse):
+                Let thenVars be collectSetVarsM(ifThen).
+                Repeat for tv in thenVars:
+                    Push tv to result.
+                Let elseVars be collectSetVarsM(ifElse).
+                Repeat for ev in elseVars:
+                    Push ev to result.
+            When CWhile (wCond, wBody):
+                Let wVars be collectSetVarsM(wBody).
+                Repeat for wv in wVars:
+                    Push wv to result.
+            When CRepeat (rVar, rColl, rBody):
+                Let rVars be collectSetVarsM(rBody).
+                Repeat for rv in rVars:
+                    Push rv to result.
+            Otherwise:
+                Let skip be true.
+    Return result.
+
+## To isDeadTargetM (targetName: Text) and (env: Map of Text to CVal) -> Bool:
+    Let tk be "{targetName}".
+    If env contains tk:
+        Let tv be item tk of env.
+        Let tvn be checkVNothingM(tv).
+        If tvn:
+            Return false.
+        Return true.
     Return false.
 
 ## To peBlockM (stmts: Seq of CStmt) and (state: PEMiniState) -> Seq of CStmt:
@@ -550,9 +677,59 @@
                     Let elseRes3 be peBlockM(elseBlock, state).
                     Push (a new CIf with cond peCond and thenBlock thenRes3 and elseBlock elseRes3) to blockResult.
             When CWhile (whileCond, whileBody):
+                Let modVars be collectSetVarsM(whileBody).
+                Let sEnvW be peStaticEnvM(state).
+                Repeat for mv in modVars:
+                    Let mvK1 be "{mv}".
+                    If sEnvW contains mvK1:
+                        Let mvK2 be "{mv}".
+                        Let prevVal be item mvK2 of sEnvW.
+                        Let mvK3 be "{mv}".
+                        Push (a new CLet with name mvK3 and expr prevVal) to blockResult.
+                        Let mvK4 be "{mv}".
+                        Remove mvK4 from sEnvW.
+                        Let mvK5 be "{mv}".
+                        Set item mvK5 of env to a new VNothing.
                 Let peCond be peExprM(whileCond, state).
-                Let peBody be peBlockM(whileBody, state).
-                Push (a new CWhile with cond peCond and body peBody) to blockResult.
+                Let condLitW be checkLiteralM(peCond).
+                If condLitW:
+                    Inspect peCond:
+                        When CBool (bW):
+                            If not bW:
+                                Let skipW be true.
+                            Otherwise:
+                                Let peBody be peBlockM(whileBody, state).
+                                Let sEnvPost1 be peStaticEnvM(state).
+                                Repeat for mv1 in modVars:
+                                    Let mv1K be "{mv1}".
+                                    If sEnvPost1 contains mv1K:
+                                        Let mv1K2 be "{mv1}".
+                                        Remove mv1K2 from sEnvPost1.
+                                        Let mv1K3 be "{mv1}".
+                                        Set item mv1K3 of env to a new VNothing.
+                                Push (a new CWhile with cond peCond and body peBody) to blockResult.
+                        Otherwise:
+                            Let peBody2 be peBlockM(whileBody, state).
+                            Let sEnvPost2 be peStaticEnvM(state).
+                            Repeat for mv2 in modVars:
+                                Let mv2K be "{mv2}".
+                                If sEnvPost2 contains mv2K:
+                                    Let mv2K2 be "{mv2}".
+                                    Remove mv2K2 from sEnvPost2.
+                                    Let mv2K3 be "{mv2}".
+                                    Set item mv2K3 of env to a new VNothing.
+                            Push (a new CWhile with cond peCond and body peBody2) to blockResult.
+                Otherwise:
+                    Let peBody3 be peBlockM(whileBody, state).
+                    Let sEnvPost3 be peStaticEnvM(state).
+                    Repeat for mv3 in modVars:
+                        Let mv3K be "{mv3}".
+                        If sEnvPost3 contains mv3K:
+                            Let mv3K2 be "{mv3}".
+                            Remove mv3K2 from sEnvPost3.
+                            Let mv3K3 be "{mv3}".
+                            Set item mv3K3 of env to a new VNothing.
+                    Push (a new CWhile with cond peCond and body peBody3) to blockResult.
             When CReturn (retExpr):
                 Let peVal be peExprM(retExpr, state).
                 Push (a new CReturn with expr peVal) to blockResult.
@@ -565,17 +742,61 @@
                     Push peExprM(a, state) to peArgs.
                 Push (a new CCallS with name callName and args peArgs) to blockResult.
             When CPush (pushExpr, pushTarget):
+                Let sEnvPush be peStaticEnvM(state).
+                Let ptk1 be "{pushTarget}".
+                If sEnvPush contains ptk1:
+                    Let ptk2 be "{pushTarget}".
+                    Let ptPrev be item ptk2 of sEnvPush.
+                    Let ptk3 be "{pushTarget}".
+                    Push (a new CLet with name ptk3 and expr ptPrev) to blockResult.
+                    Let ptk4 be "{pushTarget}".
+                    Remove ptk4 from sEnvPush.
+                    Let ptk5 be "{pushTarget}".
+                    Set item ptk5 of env to a new VNothing.
                 Let peVal be peExprM(pushExpr, state).
                 Push (a new CPush with expr peVal and target pushTarget) to blockResult.
             When CSetIdx (siTarget, siIdx, siVal):
+                Let sEnvSI be peStaticEnvM(state).
+                Let sik1 be "{siTarget}".
+                If sEnvSI contains sik1:
+                    Let sik2 be "{siTarget}".
+                    Let siPrev be item sik2 of sEnvSI.
+                    Let sik3 be "{siTarget}".
+                    Push (a new CLet with name sik3 and expr siPrev) to blockResult.
+                    Let sik4 be "{siTarget}".
+                    Remove sik4 from sEnvSI.
+                    Let sik5 be "{siTarget}".
+                    Set item sik5 of env to a new VNothing.
                 Let peIdx be peExprM(siIdx, state).
                 Let peVal be peExprM(siVal, state).
                 Push (a new CSetIdx with target siTarget and idx peIdx and val peVal) to blockResult.
             When CMapSet (msTarget, msKey, msVal):
+                Let sEnvMS be peStaticEnvM(state).
+                Let msk1 be "{msTarget}".
+                If sEnvMS contains msk1:
+                    Let msk2 be "{msTarget}".
+                    Let msPrev be item msk2 of sEnvMS.
+                    Let msk3 be "{msTarget}".
+                    Push (a new CLet with name msk3 and expr msPrev) to blockResult.
+                    Let msk4 be "{msTarget}".
+                    Remove msk4 from sEnvMS.
+                    Let msk5 be "{msTarget}".
+                    Set item msk5 of env to a new VNothing.
                 Let peKey be peExprM(msKey, state).
                 Let peVal be peExprM(msVal, state).
                 Push (a new CMapSet with target msTarget and key peKey and val peVal) to blockResult.
             When CPop (popTarget):
+                Let sEnvPop be peStaticEnvM(state).
+                Let ppk1 be "{popTarget}".
+                If sEnvPop contains ppk1:
+                    Let ppk2 be "{popTarget}".
+                    Let ppPrev be item ppk2 of sEnvPop.
+                    Let ppk3 be "{popTarget}".
+                    Push (a new CLet with name ppk3 and expr ppPrev) to blockResult.
+                    Let ppk4 be "{popTarget}".
+                    Remove ppk4 from sEnvPop.
+                    Let ppk5 be "{popTarget}".
+                    Set item ppk5 of env to a new VNothing.
                 Push (a new CPop with target popTarget) to blockResult.
             When CRepeat (repVar, repColl, repBody):
                 Let peColl be peExprM(repColl, state).
@@ -603,22 +824,89 @@
                     Otherwise:
                         Let skip be true.
                 If not didUnroll:
+                    Let sEnvF be peStaticEnvM(state).
+                    If sEnvF contains repVar:
+                        Remove repVar from sEnvF.
+                    Let repVarEnvKey be "{repVar}".
+                    Set item repVarEnvKey of env to a new VNothing.
+                    Let repModVars be collectSetVarsM(repBody).
+                    Repeat for rmv in repModVars:
+                        Let rmvK be "{rmv}".
+                        If sEnvF contains rmvK:
+                            Let rmvK2 be "{rmv}".
+                            Let rmvPrev be item rmvK2 of sEnvF.
+                            Let rmvK3 be "{rmv}".
+                            Push (a new CLet with name rmvK3 and expr rmvPrev) to blockResult.
+                            Let rmvK4 be "{rmv}".
+                            Remove rmvK4 from sEnvF.
+                            Let rmvK5 be "{rmv}".
+                            Set item rmvK5 of env to a new VNothing.
                     Let peBody be peBlockM(repBody, state).
                     Push (a new CRepeat with var repVar and coll peColl and body peBody) to blockResult.
             When CRepeatRange (rrVar, rrStart, rrEnd, rrBody):
                 Let peStart be peExprM(rrStart, state).
                 Let peEnd be peExprM(rrEnd, state).
+                Let sEnvRR be peStaticEnvM(state).
+                If sEnvRR contains rrVar:
+                    Remove rrVar from sEnvRR.
+                Let rrVarEnvKey be "{rrVar}".
+                Set item rrVarEnvKey of env to a new VNothing.
+                Let rrModVars be collectSetVarsM(rrBody).
+                Repeat for rrmv in rrModVars:
+                    Let rrmvK be "{rrmv}".
+                    If sEnvRR contains rrmvK:
+                        Let rrmvK2 be "{rrmv}".
+                        Let rrmvPrev be item rrmvK2 of sEnvRR.
+                        Let rrmvK3 be "{rrmv}".
+                        Push (a new CLet with name rrmvK3 and expr rrmvPrev) to blockResult.
+                        Let rrmvK4 be "{rrmv}".
+                        Remove rrmvK4 from sEnvRR.
+                        Let rrmvK5 be "{rrmv}".
+                        Set item rrmvK5 of env to a new VNothing.
                 Let peBody be peBlockM(rrBody, state).
                 Push (a new CRepeatRange with var rrVar and start peStart and end peEnd and body peBody) to blockResult.
             When CBreak:
                 Push a new CBreak to blockResult.
             When CAdd (addElem, addTarget):
+                Let sEnvAdd be peStaticEnvM(state).
+                Let adk1 be "{addTarget}".
+                If sEnvAdd contains adk1:
+                    Let adk2 be "{addTarget}".
+                    Let adPrev be item adk2 of sEnvAdd.
+                    Let adk3 be "{addTarget}".
+                    Push (a new CLet with name adk3 and expr adPrev) to blockResult.
+                    Let adk4 be "{addTarget}".
+                    Remove adk4 from sEnvAdd.
+                    Let adk5 be "{addTarget}".
+                    Set item adk5 of env to a new VNothing.
                 Let peVal be peExprM(addElem, state).
                 Push (a new CAdd with elem peVal and target addTarget) to blockResult.
             When CRemove (remElem, remTarget):
+                Let sEnvRem be peStaticEnvM(state).
+                Let rmk1 be "{remTarget}".
+                If sEnvRem contains rmk1:
+                    Let rmk2 be "{remTarget}".
+                    Let rmPrev be item rmk2 of sEnvRem.
+                    Let rmk3 be "{remTarget}".
+                    Push (a new CLet with name rmk3 and expr rmPrev) to blockResult.
+                    Let rmk4 be "{remTarget}".
+                    Remove rmk4 from sEnvRem.
+                    Let rmk5 be "{remTarget}".
+                    Set item rmk5 of env to a new VNothing.
                 Let peVal be peExprM(remElem, state).
                 Push (a new CRemove with elem peVal and target remTarget) to blockResult.
             When CSetField (sfTarget, sfField, sfValExpr):
+                Let sEnvSF be peStaticEnvM(state).
+                Let sfk1 be "{sfTarget}".
+                If sEnvSF contains sfk1:
+                    Let sfk2 be "{sfTarget}".
+                    Let sfPrev be item sfk2 of sEnvSF.
+                    Let sfk3 be "{sfTarget}".
+                    Push (a new CLet with name sfk3 and expr sfPrev) to blockResult.
+                    Let sfk4 be "{sfTarget}".
+                    Remove sfk4 from sEnvSF.
+                    Let sfk5 be "{sfTarget}".
+                    Set item sfk5 of env to a new VNothing.
                 Let peVal be peExprM(sfValExpr, state).
                 Push (a new CSetField with target sfTarget and field sfField and val peVal) to blockResult.
             When CStructDef (sdName, sdFieldNames):
@@ -740,7 +1028,17 @@
                 Let peStHandle be peExprM(stHandle, state).
                 Push (a new CStopTask with handle peStHandle) to blockResult.
             When CSelect (selBranches):
-                Push (a new CSelect with branches selBranches) to blockResult.
+                Let peSelBranches be a new Seq of CSelectBranch.
+                Repeat for selBr in selBranches:
+                    Inspect selBr:
+                        When CSelectRecv (selChan, selVar, selBody):
+                            Let peSelBody be peBlockM(selBody, state).
+                            Push (a new CSelectRecv with chan selChan and var selVar and body peSelBody) to peSelBranches.
+                        When CSelectTimeout (selDur, selBody):
+                            Let peSelDur be peExprM(selDur, state).
+                            Let peSelBody be peBlockM(selBody, state).
+                            Push (a new CSelectTimeout with duration peSelDur and body peSelBody) to peSelBranches.
+                Push (a new CSelect with branches peSelBranches) to blockResult.
             When CCreatePipe (cpName, cpCapacity):
                 Let peCpCapacity be peExprM(cpCapacity, state).
                 Push (a new CCreatePipe with name cpName and capacity peCpCapacity) to blockResult.
@@ -772,6 +1070,24 @@
                 Let peZoneBody be peBlockM(zoneBody, state).
                 Push (a new CZone with name zoneName and kind zoneKind and body peZoneBody) to blockResult.
     Return blockResult.
+
+## To validateExtractReturnM (result: CExpr) and (bodyStmts: Seq of CStmt) -> CExpr:
+    Inspect result:
+        When CVar (retName):
+            If retName equals "__no_return__":
+                Return result.
+            If retName equals "__unresolvable":
+                Return result.
+            Repeat for s in bodyStmts:
+                Inspect s:
+                    When CLet (letName, letExpr):
+                        If letName equals retName:
+                            Return a new CVar with name "__no_return__".
+                    Otherwise:
+                        Let skip be true.
+            Return result.
+        Otherwise:
+            Return result.
 
 ## To extractReturnM (stmts: Seq of CStmt) -> CExpr:
     Let mutable idx be length of stmts.

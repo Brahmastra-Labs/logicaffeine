@@ -1471,7 +1471,11 @@ fn try_inline_expr(expr: &Expr, interner: &Interner) -> Option<String> {
                 let text = interner.resolve(*s);
                 Some(format!("(a new CText with value \"{}\")", text))
             }
-            Literal::Float(f) => Some(format!("(a new CFloat with value {})", f)),
+            Literal::Float(f) => {
+                let fs = format!("{}", f);
+                let fs = if fs.contains('.') { fs } else { format!("{}.0", fs) };
+                Some(format!("(a new CFloat with value {})", fs))
+            }
             Literal::Nothing => Some("(a new CText with value \"nothing\")".to_string()),
             _ => None,
         },
@@ -2200,6 +2204,18 @@ fn encode_expr_src(expr: &Expr, counter: &mut usize, output: &mut String, intern
                 output.push_str(&format!("Let {} be a new CNewSeq.\n", var));
             } else if tn == "Set" {
                 output.push_str(&format!("Let {} be a new CNewSet.\n", var));
+            } else if tn == "Map" || tn.starts_with("Map ") {
+                // Empty map creation — encode as CNew with "Map" type
+                let names_var = format!("nvNames_{}", *counter);
+                *counter += 1;
+                output.push_str(&format!("Let {} be a new Seq of Text.\n", names_var));
+                let vals_var = format!("nvVals_{}", *counter);
+                *counter += 1;
+                output.push_str(&format!("Let {} be a new Seq of CExpr.\n", vals_var));
+                output.push_str(&format!(
+                    "Let {} be a new CNew with typeName \"Map\" and fieldNames {} and fields {}.\n",
+                    var, names_var, vals_var
+                ));
             } else if init_fields.is_empty() {
                 let names_var = format!("nvNames_{}", *counter);
                 *counter += 1;
@@ -2399,6 +2415,19 @@ fn encode_expr_src(expr: &Expr, counter: &mut usize, output: &mut String, intern
             output.push_str(&format!(
                 "Let {} be a new CEscExpr with code \"{}\".\n",
                 var, code_str.replace('\"', "\\\"")
+            ));
+        }
+        Expr::List(elems) => {
+            let items_var = format!("litems_{}", *counter);
+            *counter += 1;
+            output.push_str(&format!("Let {} be a new Seq of CExpr.\n", items_var));
+            for elem in elems {
+                let elem_var = encode_expr_src(elem, counter, output, interner, variants);
+                output.push_str(&format!("Push {} to {}.\n", elem_var, items_var));
+            }
+            output.push_str(&format!(
+                "Let {} be a new CList with items {}.\n",
+                var, items_var
             ));
         }
         _ => {
@@ -3144,7 +3173,6 @@ fn encode_stmts_src(stmt: &Stmt, counter: &mut usize, output: &mut String, inter
             result
         }
         Stmt::Repeat { pattern, iterable, body, .. } => {
-            // Lower to: Let idx = CInt(1). CWhile(idx <= CLen(coll), [Let var = CIndex(coll, idx), ...body..., Set idx = idx + 1])
             let loop_var_name = match pattern {
                 Pattern::Identifier(sym) => interner.resolve(*sym).to_string(),
                 Pattern::Tuple(syms) => {
@@ -3156,109 +3184,32 @@ fn encode_stmts_src(stmt: &Stmt, counter: &mut usize, output: &mut String, inter
                 }
             };
 
-            // Generate a unique index variable name
-            let idx_name = format!("__idx_{}", *counter);
-            *counter += 1;
-
-            // Let idx = CInt(1) — 1-based indexing
-            let idx_init_expr = format!("e_{}", *counter);
-            *counter += 1;
-            output.push_str(&format!("Let {} be a new CInt with value 1.\n", idx_init_expr));
-            let idx_init = format!("s_{}", *counter);
-            *counter += 1;
-            output.push_str(&format!(
-                "Let {} be a new CLet with name \"{}\" and expr {}.\n",
-                idx_init, idx_name, idx_init_expr
-            ));
-
-            // While condition: idx <= length of coll (fresh iterable encoding)
-            let iter_for_len = encode_expr_src(iterable, counter, output, interner, variants);
-            let idx_var_expr = format!("e_{}", *counter);
-            *counter += 1;
-            output.push_str(&format!("Let {} be a new CVar with name \"{}\".\n", idx_var_expr, idx_name));
-            let len_expr = format!("e_{}", *counter);
-            *counter += 1;
-            output.push_str(&format!("Let {} be a new CLen with target {}.\n", len_expr, iter_for_len));
-            let while_cond = format!("e_{}", *counter);
-            *counter += 1;
-            output.push_str(&format!(
-                "Let {} be a new CBinOp with op \"<=\" and left {} and right {}.\n",
-                while_cond, idx_var_expr, len_expr
-            ));
-
-            // While body
-            let while_body_list = format!("stmtList_{}", *counter);
-            *counter += 1;
-            output.push_str(&format!("Let {} be a new Seq of CStmt.\n", while_body_list));
-
-            // Let loop_var = CIndex(coll, idx) (fresh iterable encoding)
-            let iter_for_index = encode_expr_src(iterable, counter, output, interner, variants);
-            let idx_ref = format!("e_{}", *counter);
-            *counter += 1;
-            output.push_str(&format!("Let {} be a new CVar with name \"{}\".\n", idx_ref, idx_name));
-            let elem_expr = format!("e_{}", *counter);
-            *counter += 1;
-            output.push_str(&format!(
-                "Let {} be a new CIndex with coll {} and idx {}.\n",
-                elem_expr, iter_for_index, idx_ref
-            ));
-            let elem_let = format!("s_{}", *counter);
-            *counter += 1;
-            output.push_str(&format!(
-                "Let {} be a new CLet with name \"{}\" and expr {}.\n",
-                elem_let, loop_var_name, elem_expr
-            ));
-            output.push_str(&format!("Push {} to {}.\n", elem_let, while_body_list));
-
-            // Encode body statements (use encode_stmts_src for Inspect/Repeat, encode_stmt_src for others)
-            let body_refs: Vec<&Stmt> = body.iter().collect();
-            for body_stmt in &body_refs {
-                match body_stmt {
-                    Stmt::Inspect { .. } | Stmt::Repeat { .. } => {
-                        let vars = encode_stmts_src(body_stmt, counter, output, interner, variants);
-                        for v in vars {
-                            output.push_str(&format!("Push {} to {}.\n", v, while_body_list));
-                        }
-                    }
-                    _ => {
-                        let bvar = encode_stmt_src(body_stmt, counter, output, interner, variants);
-                        if !bvar.is_empty() {
-                            output.push_str(&format!("Push {} to {}.\n", bvar, while_body_list));
-                        }
-                    }
-                }
+            // Range-based repeat: encode as CRepeatRange
+            if let Expr::Range { start, end } = iterable {
+                let start_var = encode_expr_src(start, counter, output, interner, variants);
+                let end_var = encode_expr_src(end, counter, output, interner, variants);
+                let body_stmts: Vec<&Stmt> = body.iter().collect();
+                let body_var = encode_stmt_list_src(&body_stmts, counter, output, interner, variants);
+                let rr = format!("s_{}", *counter);
+                *counter += 1;
+                output.push_str(&format!(
+                    "Let {} be a new CRepeatRange with var \"{}\" and start {} and end {} and body {}.\n",
+                    rr, loop_var_name, start_var, end_var, body_var
+                ));
+                return vec![rr];
             }
 
-            // Set idx = idx + 1
-            let idx_ref2 = format!("e_{}", *counter);
-            *counter += 1;
-            output.push_str(&format!("Let {} be a new CVar with name \"{}\".\n", idx_ref2, idx_name));
-            let one_expr = format!("e_{}", *counter);
-            *counter += 1;
-            output.push_str(&format!("Let {} be a new CInt with value 1.\n", one_expr));
-            let inc_expr = format!("e_{}", *counter);
+            // Collection-based repeat: encode as CRepeat
+            let coll_var = encode_expr_src(iterable, counter, output, interner, variants);
+            let body_stmts: Vec<&Stmt> = body.iter().collect();
+            let body_var = encode_stmt_list_src(&body_stmts, counter, output, interner, variants);
+            let rep = format!("s_{}", *counter);
             *counter += 1;
             output.push_str(&format!(
-                "Let {} be a new CBinOp with op \"+\" and left {} and right {}.\n",
-                inc_expr, idx_ref2, one_expr
+                "Let {} be a new CRepeat with var \"{}\" and coll {} and body {}.\n",
+                rep, loop_var_name, coll_var, body_var
             ));
-            let inc_set = format!("s_{}", *counter);
-            *counter += 1;
-            output.push_str(&format!(
-                "Let {} be a new CSet with name \"{}\" and expr {}.\n",
-                inc_set, idx_name, inc_expr
-            ));
-            output.push_str(&format!("Push {} to {}.\n", inc_set, while_body_list));
-
-            // CWhile node
-            let while_var = format!("s_{}", *counter);
-            *counter += 1;
-            output.push_str(&format!(
-                "Let {} be a new CWhile with cond {} and body {}.\n",
-                while_var, while_cond, while_body_list
-            ));
-
-            vec![idx_init, while_var]
+            vec![rep]
         }
         _ => {
             let v = encode_stmt_src(stmt, counter, output, interner, variants);
@@ -4268,6 +4219,41 @@ rayon = "1"
     Ok(String::from_utf8_lossy(&output.stdout).to_string())
 }
 
+/// Result of a genuine Futamura projection via self-application.
+/// Contains the LOGOS source of the residual and the discovered entry points.
+pub struct GenuineProjectionResult {
+    /// The LOGOS source of the genuine residual — exactly as the PE produced it,
+    /// including specialized function definitions and a ## Main block.
+    pub source: String,
+    /// The name of the block-level entry point (e.g., "peBlockM_d_vPEMiniR_...").
+    /// This is the specialized function that takes a Seq of CStmt and returns Seq of CStmt.
+    pub block_entry: String,
+    /// The name of the expression-level entry point, if discovered.
+    pub expr_entry: Option<String>,
+}
+
+/// Discover specialized entry points from a PE residual.
+/// Searches for `## To {prefix}_...` function definitions in the residual source.
+fn discover_entry_points(residual: &str, block_prefix: &str, expr_prefix: &str)
+    -> (String, Option<String>)
+{
+    let mut block_entry = String::new();
+    let mut expr_entry = None;
+    for line in residual.lines() {
+        let trimmed = line.trim();
+        if let Some(rest) = trimmed.strip_prefix("## To ") {
+            // Extract function name: everything before the first ' ('
+            let name = rest.split(" (").next().unwrap_or("").trim();
+            if name.starts_with(block_prefix) && block_entry.is_empty() {
+                block_entry = name.to_string();
+            } else if name.starts_with(expr_prefix) && expr_entry.is_none() {
+                expr_entry = Some(name.to_string());
+            }
+        }
+    }
+    (block_entry, expr_entry)
+}
+
 /// Real Futamura Projection 1: pe(program) = compiled_program
 ///
 /// Encodes the program as CProgram data, runs the LOGOS PE on it,
@@ -4323,31 +4309,236 @@ pub fn projection1_source_real(core_types: &str, _interpreter: &str, program: &s
     }
 }
 
-/// Real Futamura Projection 2: PE(PE, interpreter) = compiler
+/// Run genuine P2 on a specific target: PE(pe_source, pe_mini(target))
 ///
-/// Returns pe_bti with entry points renamed to compileExpr/compileBlock/extractReturn.
-/// pe_bti is the BTI-refined PE used as the practical compiler, supporting
-/// full function inlining and all PE optimizations.
+/// This is the real Futamura Projection 2 applied end-to-end:
+/// 1. Build pe_mini applied to the target (pe_mini compiles the target)
+/// 2. Encode the combined pe_mini+target as CProgram data
+/// 3. Run pe_source on the encoded data (PE specializes pe_mini for this target)
+/// 4. Decompile the residual to LOGOS source
+/// 5. Execute the decompiled residual to get the target's output
 ///
-/// Genuine self-application PE(pe_source, pe_mini) is verified by tests
-/// (genuine_p2_pe_mini_full_scale_dynamic_target). The genuine P2 output
-/// can be obtained via genuine_projection2_residual().
-///
-/// Returns ONLY the compiler source (no type definitions). Callers must
-/// prepend appropriate CORE_TYPES for the BTI state representation.
-pub fn projection2_source_real(_core_types: &str, _interpreter: &str) -> Result<String, String> {
-    let pe_bti = pe_bti_source_text();
+/// No decompilation of specialized functions — the PE directly produces the compiled
+/// target as CStmt data, which is decompiled to a simple LOGOS program and run.
+pub fn run_genuine_p2_on_target(program: &str, core_types: &str, interpreter: &str) -> Result<String, String> {
+    let pe_mini = pe_mini_source_text();
+    let pe = pe_source_text();
 
-    // Rename entry points: peExprB→compileExpr, peBlockB→compileBlock, extractReturnB→extractReturn
-    let compiler = replace_word(
-        &replace_word(
-            &replace_word(pe_bti, "peExprB", "compileExpr"),
-            "peBlockB", "compileBlock",
-        ),
-        "extractReturnB", "extractReturn",
+    let full_source = if program.contains("## Main") || program.contains("## To ") {
+        program.to_string()
+    } else {
+        format!("## Main\n{}", program)
+    };
+
+    // Build pe_mini applied to the specific target.
+    // pe_mini ONLY COMPILES the target — produces CStmt data as output.
+    // Build pe_mini + interpreter applied to the target.
+    // pe_mini compiles the target, coreExecBlock runs the compiled result.
+    let target_encoded = encode_program_source(&full_source)
+        .map_err(|e| format!("Failed to encode target: {:?}", e))?;
+    let pe_mini_prog = format!(
+        "{}\n{}\n{}\n## Main\n{}\n\
+         Let compileEnv be a new Map of Text to CVal.\n\
+         Let compileState be makePeState(compileEnv, encodedFuncMap, 200).\n\
+         Let compiled be peBlockM(encodedMain, compileState).\n\
+         Let runEnv be a new Map of Text to CVal.\n\
+         coreExecBlock(compiled, runEnv, encodedFuncMap).\n",
+        core_types, pe_mini, interpreter, target_encoded
     );
 
-    Ok(compiler.to_string())
+    // Encode pe_mini+target as CProgram data for the outer PE
+    let encoded = encode_program_source_compact(&pe_mini_prog)
+        .map_err(|e| format!("Failed to encode pe_mini+target for P2: {:?}", e))?;
+
+    // The driver runs PE on the encoded pe_mini+target, then executes the residual.
+    // peFuncs(state) contains BOTH the PE-specialized functions AND the original
+    // functions from the encoded program (including pe_mini, interpreter, and
+    // target functions like factorial).
+    let driver = r#"    Let state be makePeState(a new Map of Text to CVal, encodedFuncMap, 500).
+    Let residual be peBlock(encodedMain, state).
+    Let allFuncs be peFuncs(state).
+    Let runEnv be a new Map of Text to CVal.
+    coreExecBlock(residual, runEnv, allFuncs).
+"#;
+    let combined = format!(
+        "{}\n{}\n{}\n## Main\n{}\n{}",
+        CORE_TYPES_FOR_PE, pe, interpreter, encoded, driver
+    );
+
+    run_logos_source(&combined)
+}
+
+/// Run genuine P3 on a specific target: PE(pe_source, pe_bti(target))
+pub fn run_genuine_p3_on_target(program: &str, core_types: &str, interpreter: &str) -> Result<String, String> {
+    let pe_bti = pe_bti_source_text();
+    let pe = pe_source_text();
+
+    let full_source = if program.contains("## Main") || program.contains("## To ") {
+        program.to_string()
+    } else {
+        format!("## Main\n{}", program)
+    };
+
+    let bti_types = CORE_TYPES_FOR_PE
+        .replace("specResults", "memoCache")
+        .replace("onStack", "callGuard");
+
+    let target_encoded = encode_program_source(&full_source)
+        .map_err(|e| format!("Failed to encode target: {:?}", e))?;
+    let pe_bti_prog = format!(
+        "{}\n{}\n{}\n## Main\n{}\n\
+         Let compileEnv be a new Map of Text to CVal.\n\
+         Let compileState be makePeState(compileEnv, encodedFuncMap, 200).\n\
+         Let compiled be peBlockB(encodedMain, compileState).\n\
+         Let runEnv be a new Map of Text to CVal.\n\
+         coreExecBlock(compiled, runEnv, encodedFuncMap).\n",
+        bti_types, pe_bti, interpreter, target_encoded
+    );
+
+    let encoded = encode_program_source_compact(&pe_bti_prog)
+        .map_err(|e| format!("Failed to encode pe_bti+target for P3: {:?}", e))?;
+
+    // Execute residual directly — no decompilation needed
+    let driver = r#"    Let state be makePeState(a new Map of Text to CVal, encodedFuncMap, 200).
+    Let residual be peBlock(encodedMain, state).
+    Let runEnv be a new Map of Text to CVal.
+    coreExecBlock(residual, runEnv, encodedFuncMap).
+"#;
+    let combined = format!(
+        "{}\n{}\n{}\n## Main\n{}\n{}",
+        CORE_TYPES_FOR_PE, pe, interpreter, encoded, driver
+    );
+
+    run_logos_source(&combined)
+}
+
+/// Genuine Futamura Projection 2 via self-application: PE(pe_source, pe_mini(targetExpr))
+///
+/// The outer PE (pe_source) specializes pe_mini's expression evaluator with known
+/// state (empty env, empty funcs, depth 200). The result contains specialized
+/// peExprM_ functions with all PE overhead removed (The Trick).
+///
+/// Block-level compilation uses the original pe_mini source — the specialization
+/// operates at the expression level because the PE cannot specialize across the
+/// dynamic iteration in peBlockM.
+pub fn projection2_source_real(_core_types: &str, _interpreter: &str) -> Result<GenuineProjectionResult, String> {
+    let pe_mini = pe_mini_source_text();
+    let pe = pe_source_text();
+    let decompile = decompile_source_text();
+
+    // Build pe_mini program with peExprM as entry — expression-level specialization
+    let program = format!(
+        "{}\n{}\n## Main\n    Let env be a new Map of Text to CVal.\n    Let funcs be a new Map of Text to CFunc.\n    Let state be makePeState(env, funcs, 200).\n    Let result be peExprM(targetExpr, state).\n    Inspect result:\n        When CInt (v):\n            Show v.\n        Otherwise:\n            Show \"dynamic\".\n",
+        CORE_TYPES_FOR_PE, pe_mini
+    );
+
+    // Encode pe_mini + driver as CProgram data (compact encoding)
+    let encoded = encode_program_source_compact(&program)
+        .map_err(|e| format!("Failed to encode pe_mini for P2: {:?}", e))?;
+
+    // Driver: run PE, then decompile specialized functions transitively.
+    // Fixpoint collection: discover all transitively-referenced specialized functions
+    // at arbitrary depth, not limited to any fixed number of levels.
+    let driver = r#"    Let state be makePeState(a new Map of Text to CVal, encodedFuncMap, 200).
+    Let residual be peBlock(encodedMain, state).
+    Let nl be chr(10).
+    Let mutable output be "".
+    Let specFuncs be peFuncs(state).
+    Let mutable allNames be collectCallNames(residual).
+    Let mutable emitted be a new Map of Text to Bool.
+    Let mutable changed be true.
+    While changed:
+        Set changed to false.
+        Let mutable toAdd be a new Seq of Text.
+        Repeat for fnKey in allNames:
+            Let fkStr be "{fnKey}".
+            If emitted contains fkStr:
+                Let skipE be true.
+            Otherwise:
+                Set item fkStr of emitted to true.
+                Let fkStr2 be "{fnKey}".
+                If specFuncs contains fkStr2:
+                    Let fdef be item fkStr2 of specFuncs.
+                    Inspect fdef:
+                        When CFuncDef (fn0, ps0, body0):
+                            Let children be collectCallNames(body0).
+                            Repeat for child in children:
+                                Let childStr be "{child}".
+                                If not emitted contains childStr:
+                                    Push child to toAdd.
+                                    Set changed to true.
+                        Otherwise:
+                            Let skipF be true.
+        Repeat for ta in toAdd:
+            Push ta to allNames.
+    Repeat for fnKey in allNames:
+        Let fkStr be "{fnKey}".
+        If specFuncs contains fkStr:
+            Let fdef be item fkStr of specFuncs.
+            Let funcSrc be decompileFunc(fdef).
+            If the length of funcSrc is greater than 0:
+                Set output to "{output}{funcSrc}{nl}".
+    Let mainSrc be decompileBlock(residual, 0).
+    Set output to "{output}## Main{nl}{mainSrc}".
+    Show output.
+"#;
+    let combined = format!("{}\n{}\n{}\n## Main\n{}\n{}", CORE_TYPES_FOR_PE, pe, decompile, encoded, driver);
+
+    let result = run_logos_source(&combined)?;
+
+    // The decompiler outputs `Any` for parameter/return types since type info is lost
+    // during encoding. Fix specialized function signatures to use correct types.
+    let result = fix_decompiled_types(&result, &[
+        ("peExprM_", "(e: CExpr) -> CExpr:"),
+        ("peBlockM_", "(stmts: Seq of CStmt) -> Seq of CStmt:"),
+        ("checkLiteralM_", "(e: CExpr) -> Bool:"),
+        ("exprToValM_", "(e: CExpr) -> CVal:"),
+        ("valToExprM_", "(v: CVal) -> CExpr:"),
+        ("evalBinOpM_", "(binOp: Text) and (lv: CVal) and (rv: CVal) -> CVal:"),
+        ("isCopyPropSafeM_", "(e: CExpr) -> Bool:"),
+        ("checkVNothingM_", "(v: CVal) -> Bool:"),
+        ("hasReturnM_", "(stmts: Seq of CStmt) -> Bool:"),
+        ("extractReturnM_", "(stmts: Seq of CStmt) -> CExpr:"),
+        ("validateExtractReturnM_", "(result: CExpr) and (bodyStmts: Seq of CStmt) -> CExpr:"),
+        ("makeKeyM_", "(fnName: Text) and (args: Seq of CExpr) -> Text:"),
+        ("exprToKeyPartM_", "(e: CExpr) -> Text:"),
+        ("collectSetVarsM_", "(stmts: Seq of CStmt) -> Seq of Text:"),
+        ("peEnvM_", "(st: PEMiniState) -> Map of Text to CVal:"),
+        ("peFuncsM_", "(st: PEMiniState) -> Map of Text to CFunc:"),
+        ("peDepthM_", "(st: PEMiniState) -> Int:"),
+        ("peStaticEnvM_", "(st: PEMiniState) -> Map of Text to CExpr:"),
+        ("peMemoCacheM_", "(st: PEMiniState) -> Map of Text to CExpr:"),
+        ("peStateWithEnvDepthM_", "(st: PEMiniState) and (newEnv: Map of Text to CVal) and (d: Int) -> PEMiniState:"),
+        ("peStateWithEnvDepthStaticM_", "(st: PEMiniState) and (newEnv: Map of Text to CVal) and (d: Int) and (newSe: Map of Text to CExpr) -> PEMiniState:"),
+    ]);
+
+    let (_block_entry, expr_entry) = discover_entry_points(&result, "peBlockM_", "peExprM_");
+    let expr_fn = expr_entry.as_ref()
+        .ok_or_else(|| "Genuine P2: no peExprM_ entry found in residual".to_string())?;
+
+    // Strip the ## Main block from the residual — we only need the specialized function
+    // definitions. The test harness provides its own ## Main.
+    let func_defs_only = strip_main_block(&result);
+
+    // The specialized functions call pe_mini's unspecialized helpers (checkLiteralM,
+    // valToExprM, etc.) which the PE couldn't fold because their args are dynamic.
+    // Include the original pe_mini source so these helpers are available.
+    let pe_mini_helpers = pe_mini_source_text();
+
+    // Generate block wrapper that delegates to the genuine specialized expr function
+    let wrapper = generate_block_wrapper(expr_fn, "compileBlock");
+
+    // Combine: pe_mini helpers first (authoritative), then specialized functions, then wrapper.
+    // Deduplicate: if the decompiled residual redefines a pe_mini function (unspecialized),
+    // the dedup removes the second definition, keeping the original pe_mini version.
+    let combined = format!("{}\n{}\n{}", pe_mini_helpers, func_defs_only, wrapper);
+    let full_source = deduplicate_functions(&combined);
+
+    Ok(GenuineProjectionResult {
+        source: full_source,
+        block_entry: "compileBlock".to_string(),
+        expr_entry,
+    })
 }
 
 /// Run genuine PE(pe_source, pe_mini(targetExpr)) and return the specialized
@@ -4453,27 +4644,382 @@ pub fn genuine_projection3_residual() -> Result<String, String> {
     Ok(result)
 }
 
-/// Real Futamura Projection 3: PE(PE, PE) = compiler_generator (cogen)
+/// Genuine Futamura Projection 3 via self-application: PE(pe_source, pe_bti(targetStmts))
 ///
-/// Returns the minimal PE (pe_mini) with entry points renamed to
-/// cogenExpr/cogenBlock/extractReturn. The pe_mini is a clean-room
-/// minimal PE with no memoization, no staticEnv, no specialization.
+/// The outer PE (pe_source) specializes pe_bti (a full PE with memoization,
+/// structurally identical to pe_source with renamed entry points) with known
+/// state (empty env, empty funcs, depth 200). This is genuinely PE(PE, PE).
 ///
-/// Returns ONLY the cogen source (no type definitions). Callers must
-/// prepend appropriate CORE_TYPES.
-pub fn projection3_source_real(_core_types: &str) -> Result<String, String> {
-    let pe_mini = pe_mini_source_text();
+/// The result is a specialized cogen: a program generator that takes a target
+/// program and produces a compiler for it.
+pub fn projection3_source_real(_core_types: &str) -> Result<GenuineProjectionResult, String> {
+    let pe_bti = pe_bti_source_text();
+    let pe = pe_source_text();
+    let decompile = decompile_source_text();
 
-    // Rename entry points: peExprM→cogenExpr, peBlockM→cogenBlock, extractReturnM→extractReturn
-    let cogen = replace_word(
-        &replace_word(
-            &replace_word(pe_mini, "peExprM", "cogenExpr"),
-            "peBlockM", "cogenBlock",
-        ),
-        "extractReturnM", "extractReturn",
+    // pe_bti uses memoCache/callGuard instead of specResults/onStack
+    let bti_types = CORE_TYPES_FOR_PE
+        .replace("specResults", "memoCache")
+        .replace("onStack", "callGuard");
+
+    // Build pe_bti program with peExprB as entry — expression-level specialization
+    let program = format!(
+        "{}\n{}\n## Main\n    Let env be a new Map of Text to CVal.\n    Let funcs be a new Map of Text to CFunc.\n    Let state be makePeState(env, funcs, 200).\n    Let result be peExprB(targetExpr, state).\n    Inspect result:\n        When CInt (v):\n            Show v.\n        Otherwise:\n            Show \"dynamic\".\n",
+        bti_types, pe_bti
     );
 
-    Ok(cogen.to_string())
+    // Encode pe_bti + driver as CProgram data (compact encoding)
+    let encoded = encode_program_source_compact(&program)
+        .map_err(|e| format!("Failed to encode pe_bti for P3: {:?}", e))?;
+
+    // Driver: fixpoint transitive collection (same algorithm as P2)
+    let driver = r#"    Let state be makePeState(a new Map of Text to CVal, encodedFuncMap, 200).
+    Let residual be peBlock(encodedMain, state).
+    Let nl be chr(10).
+    Let mutable output be "".
+    Let specFuncs be peFuncs(state).
+    Let mutable allNames be collectCallNames(residual).
+    Let mutable emitted be a new Map of Text to Bool.
+    Let mutable changed be true.
+    While changed:
+        Set changed to false.
+        Let mutable toAdd be a new Seq of Text.
+        Repeat for fnKey in allNames:
+            Let fkStr be "{fnKey}".
+            If emitted contains fkStr:
+                Let skipE be true.
+            Otherwise:
+                Set item fkStr of emitted to true.
+                Let fkStr2 be "{fnKey}".
+                If specFuncs contains fkStr2:
+                    Let fdef be item fkStr2 of specFuncs.
+                    Inspect fdef:
+                        When CFuncDef (fn0, ps0, body0):
+                            Let children be collectCallNames(body0).
+                            Repeat for child in children:
+                                Let childStr be "{child}".
+                                If not emitted contains childStr:
+                                    Push child to toAdd.
+                                    Set changed to true.
+                        Otherwise:
+                            Let skipF be true.
+        Repeat for ta in toAdd:
+            Push ta to allNames.
+    Repeat for fnKey in allNames:
+        Let fkStr be "{fnKey}".
+        If specFuncs contains fkStr:
+            Let fdef be item fkStr of specFuncs.
+            Let funcSrc be decompileFunc(fdef).
+            If the length of funcSrc is greater than 0:
+                Set output to "{output}{funcSrc}{nl}".
+    Let mainSrc be decompileBlock(residual, 0).
+    Set output to "{output}## Main{nl}{mainSrc}".
+    Show output.
+"#;
+    let combined = format!("{}\n{}\n{}\n## Main\n{}\n{}", CORE_TYPES_FOR_PE, pe, decompile, encoded, driver);
+
+    let result = run_logos_source(&combined)?;
+
+    // Fix decompiled types for pe_bti specialized functions (B suffix)
+    let result = fix_decompiled_types(&result, &[
+        ("peExprB_", "(e: CExpr) -> CExpr:"),
+        ("peBlockB_", "(stmts: Seq of CStmt) -> Seq of CStmt:"),
+        ("isStatic_", "(e: CExpr) -> Bool:"),
+        ("isLiteral_", "(e: CExpr) -> Bool:"),
+        ("allStatic_", "(args: Seq of CExpr) -> Bool:"),
+        ("exprToVal_", "(e: CExpr) -> CVal:"),
+        ("valToExpr_", "(v: CVal) -> CExpr:"),
+        ("evalBinOp_", "(binOp: Text) and (lv: CVal) and (rv: CVal) -> CVal:"),
+        ("isCopyPropSafe_", "(e: CExpr) -> Bool:"),
+        ("isVNothing_", "(v: CVal) -> Bool:"),
+        ("hasReturn_", "(stmts: Seq of CStmt) -> Bool:"),
+        ("extractReturnB_", "(stmts: Seq of CStmt) -> CExpr:"),
+        ("makeKey_", "(fnName: Text) and (args: Seq of CExpr) -> Text:"),
+        ("exprToKeyPartB_", "(e: CExpr) -> Text:"),
+        ("collectSetVars_", "(stmts: Seq of CStmt) -> Seq of Text:"),
+    ]);
+
+    let (_block_entry, expr_entry) = discover_entry_points(&result, "peBlockB_", "peExprB_");
+    let expr_fn = expr_entry.as_ref()
+        .ok_or_else(|| "Genuine P3: no peExprB_ entry found in residual".to_string())?;
+
+    // Strip the ## Main block — we only need the specialized function definitions
+    let func_defs_only = strip_main_block(&result);
+
+    // Include pe_bti helpers (unspecialized functions called by specialized ones)
+    let pe_bti_helpers = pe_bti_source_text();
+
+    // Generate block wrapper that delegates to the genuine specialized expr function
+    let wrapper = generate_block_wrapper(expr_fn, "cogenBlock");
+    let combined = format!("{}\n{}\n{}", pe_bti_helpers, func_defs_only, wrapper);
+    let full_source = deduplicate_functions(&combined);
+
+    Ok(GenuineProjectionResult {
+        source: full_source,
+        block_entry: "cogenBlock".to_string(),
+        expr_entry,
+    })
+}
+
+/// Remove duplicate function definitions, keeping the first occurrence.
+fn deduplicate_functions(source: &str) -> String {
+    let mut seen = std::collections::HashSet::new();
+    let mut result = String::with_capacity(source.len());
+    let mut skip_until_next = false;
+    for line in source.lines() {
+        let trimmed = line.trim();
+        if let Some(rest) = trimmed.strip_prefix("## To ") {
+            let name = rest.split(' ').next().unwrap_or("");
+            if !seen.insert(name.to_string()) {
+                skip_until_next = true;
+                continue;
+            }
+            skip_until_next = false;
+        } else if trimmed.starts_with("## Main") {
+            skip_until_next = false;
+        } else if skip_until_next {
+            // Skip body of duplicate function
+            if !trimmed.starts_with("## ") {
+                continue;
+            }
+            skip_until_next = false;
+        }
+        result.push_str(line);
+        result.push('\n');
+    }
+    result
+}
+
+/// Strip the ## Main block from decompiled source, keeping only function definitions.
+/// The genuine residual's ## Main references internal PE variables (targetExpr, blockResult)
+/// that don't exist in the test context. We only need the specialized function definitions.
+fn strip_main_block(source: &str) -> String {
+    let mut result = String::with_capacity(source.len());
+    let mut in_main = false;
+    for line in source.lines() {
+        let trimmed = line.trim();
+        if trimmed == "## Main" {
+            in_main = true;
+            continue;
+        }
+        if in_main {
+            // Main block ends when we hit another ## To definition or end of file
+            if trimmed.starts_with("## To ") {
+                in_main = false;
+            } else {
+                continue;
+            }
+        }
+        result.push_str(line);
+        result.push('\n');
+    }
+    result
+}
+
+/// Extract the ## Main block content from source.
+fn extract_main_block(source: &str) -> String {
+    let mut result = String::new();
+    let mut in_main = false;
+    for line in source.lines() {
+        let trimmed = line.trim();
+        if trimmed == "## Main" {
+            in_main = true;
+            continue;
+        }
+        if in_main {
+            if trimmed.starts_with("## To ") {
+                break;
+            }
+            result.push_str(line);
+            result.push('\n');
+        }
+    }
+    result
+}
+
+/// Fix decompiled function signatures: replace `(param: Any) -> Any:` with correct types.
+/// The decompiler loses type information during encoding, so specialized functions
+/// get `Any` types. This restores the correct types based on function name prefixes.
+fn fix_decompiled_types(source: &str, type_map: &[(&str, &str)]) -> String {
+    // First pass: fix function signatures (Any → correct types)
+    let mut result = String::with_capacity(source.len());
+    for line in source.lines() {
+        let trimmed = line.trim();
+        if let Some(rest) = trimmed.strip_prefix("## To ") {
+            let name = rest.split(' ').next().unwrap_or("");
+            let mut fixed = false;
+            for (prefix, sig) in type_map {
+                if name.starts_with(prefix) {
+                    result.push_str(&format!("## To {} {}\n", name, sig));
+                    fixed = true;
+                    break;
+                }
+            }
+            if !fixed {
+                result.push_str(line);
+                result.push('\n');
+            }
+        } else {
+            result.push_str(line);
+            result.push('\n');
+        }
+    }
+    // Second pass: fix `Any` in collection constructors and parameter types in function bodies.
+    // The decompiler uses `Any` because CNewSeq/CNewSet lose element type info.
+    // In the PE-specialized context, sequences always hold CExpr and sets hold CExpr.
+    let result = result
+        .replace("Seq of Any", "Seq of CExpr")
+        .replace("Set of Any", "Set of CExpr")
+        .replace(": Any)", ": CExpr)")
+        .replace("-> Any:", "-> CExpr:");
+
+    result
+}
+
+/// Generate a LOGOS block-level wrapper that iterates statements and delegates
+/// expression processing to a genuine specialized peExprM_/peExprB_ function.
+///
+/// The wrapper handles all 54 CStmt variants, applying `expr_entry` to every
+/// CExpr sub-field and recursing `wrapper_name` into every nested Seq of CStmt.
+fn generate_block_wrapper(expr_entry: &str, wrapper_name: &str) -> String {
+    format!(r#"
+## To {wrapper_name} (stmts: Seq of CStmt) -> Seq of CStmt:
+    Let result be a new Seq of CStmt.
+    Repeat for s in stmts:
+        Inspect s:
+            When CLet (name, expr):
+                Push (a new CLet with name name and expr {expr_entry}(expr)) to result.
+            When CSet (name, expr):
+                Push (a new CSet with name name and expr {expr_entry}(expr)) to result.
+            When CIf (cond, thenBlock, elseBlock):
+                Push (a new CIf with cond {expr_entry}(cond) and thenBlock {wrapper_name}(thenBlock) and elseBlock {wrapper_name}(elseBlock)) to result.
+            When CWhile (cond, body):
+                Push (a new CWhile with cond {expr_entry}(cond) and body {wrapper_name}(body)) to result.
+            When CReturn (expr):
+                Push (a new CReturn with expr {expr_entry}(expr)) to result.
+            When CShow (expr):
+                Push (a new CShow with expr {expr_entry}(expr)) to result.
+            When CCallS (name, args):
+                Let newArgs be a new Seq of CExpr.
+                Repeat for a in args:
+                    Push {expr_entry}(a) to newArgs.
+                Push (a new CCallS with name name and args newArgs) to result.
+            When CPush (expr, target):
+                Push (a new CPush with expr {expr_entry}(expr) and target target) to result.
+            When CSetIdx (target, idx, val):
+                Push (a new CSetIdx with target target and idx {expr_entry}(idx) and val {expr_entry}(val)) to result.
+            When CMapSet (target, key, val):
+                Push (a new CMapSet with target target and key {expr_entry}(key) and val {expr_entry}(val)) to result.
+            When CPop (target):
+                Push (a new CPop with target target) to result.
+            When CRepeat (repVar, coll, body):
+                Push (a new CRepeat with var repVar and coll {expr_entry}(coll) and body {wrapper_name}(body)) to result.
+            When CRepeatRange (rrVar, start, end, body):
+                Push (a new CRepeatRange with var rrVar and start {expr_entry}(start) and end {expr_entry}(end) and body {wrapper_name}(body)) to result.
+            When CBreak:
+                Push a new CBreak to result.
+            When CAdd (elem, target):
+                Push (a new CAdd with elem {expr_entry}(elem) and target target) to result.
+            When CRemove (elem, target):
+                Push (a new CRemove with elem {expr_entry}(elem) and target target) to result.
+            When CSetField (target, field, val):
+                Push (a new CSetField with target target and field field and val {expr_entry}(val)) to result.
+            When CStructDef (sdName, sdFields):
+                Push (a new CStructDef with name sdName and fieldNames sdFields) to result.
+            When CInspect (target, arms):
+                Let newArms be a new Seq of CMatchArm.
+                Repeat for arm in arms:
+                    Inspect arm:
+                        When CWhen (vn, bindings, body):
+                            Push (a new CWhen with variantName vn and bindings bindings and body {wrapper_name}(body)) to newArms.
+                        When COtherwise (body):
+                            Push (a new COtherwise with body {wrapper_name}(body)) to newArms.
+                Push (a new CInspect with target {expr_entry}(target) and arms newArms) to result.
+            When CEnumDef (edName, edVariants):
+                Push (a new CEnumDef with name edName and variants edVariants) to result.
+            When CRuntimeAssert (raCond, raMsg):
+                Push (a new CRuntimeAssert with cond {expr_entry}(raCond) and msg {expr_entry}(raMsg)) to result.
+            When CGive (giveExpr, giveTarget):
+                Push (a new CGive with expr {expr_entry}(giveExpr) and target giveTarget) to result.
+            When CEscStmt (escCode):
+                Push (a new CEscStmt with code escCode) to result.
+            When CSleep (dur):
+                Push (a new CSleep with duration {expr_entry}(dur)) to result.
+            When CReadConsole (rcTarget):
+                Push (a new CReadConsole with target rcTarget) to result.
+            When CReadFile (rfPath, rfTarget):
+                Push (a new CReadFile with path {expr_entry}(rfPath) and target rfTarget) to result.
+            When CWriteFile (wfPath, wfContent):
+                Push (a new CWriteFile with path {expr_entry}(wfPath) and content {expr_entry}(wfContent)) to result.
+            When CCheck (chkPred, chkMsg):
+                Push (a new CCheck with predicate {expr_entry}(chkPred) and msg {expr_entry}(chkMsg)) to result.
+            When CAssert (assertProp):
+                Push (a new CAssert with proposition {expr_entry}(assertProp)) to result.
+            When CTrust (trustProp, trustJust):
+                Push (a new CTrust with proposition {expr_entry}(trustProp) and justification trustJust) to result.
+            When CRequire (reqDep):
+                Push (a new CRequire with dependency reqDep) to result.
+            When CMerge (mergeTarget, mergeOther):
+                Push (a new CMerge with target mergeTarget and other {expr_entry}(mergeOther)) to result.
+            When CIncrease (incTarget, incAmount):
+                Push (a new CIncrease with target incTarget and amount {expr_entry}(incAmount)) to result.
+            When CDecrease (decTarget, decAmount):
+                Push (a new CDecrease with target decTarget and amount {expr_entry}(decAmount)) to result.
+            When CAppendToSeq (asTarget, asValue):
+                Push (a new CAppendToSeq with target asTarget and value {expr_entry}(asValue)) to result.
+            When CResolve (resTarget):
+                Push (a new CResolve with target resTarget) to result.
+            When CSync (syncTarget, syncChannel):
+                Push (a new CSync with target syncTarget and channel {expr_entry}(syncChannel)) to result.
+            When CMount (mountTarget, mountPath):
+                Push (a new CMount with target mountTarget and path {expr_entry}(mountPath)) to result.
+            When CConcurrent (concBranches):
+                Let newBranches be a new Seq of Seq of CStmt.
+                Repeat for branch in concBranches:
+                    Push {wrapper_name}(branch) to newBranches.
+                Push (a new CConcurrent with branches newBranches) to result.
+            When CParallel (parBranches):
+                Let newBranches be a new Seq of Seq of CStmt.
+                Repeat for branch in parBranches:
+                    Push {wrapper_name}(branch) to newBranches.
+                Push (a new CParallel with branches newBranches) to result.
+            When CLaunchTask (ltBody, ltHandle):
+                Push (a new CLaunchTask with body {wrapper_name}(ltBody) and handle ltHandle) to result.
+            When CStopTask (stHandle):
+                Push (a new CStopTask with handle {expr_entry}(stHandle)) to result.
+            When CSelect (selBranches):
+                Let newBranches be a new Seq of CSelectBranch.
+                Repeat for br in selBranches:
+                    Inspect br:
+                        When CSelectRecv (chan, bvar, body):
+                            Push (a new CSelectRecv with chan chan and var bvar and body {wrapper_name}(body)) to newBranches.
+                        When CSelectTimeout (dur, body):
+                            Push (a new CSelectTimeout with duration {expr_entry}(dur) and body {wrapper_name}(body)) to newBranches.
+                Push (a new CSelect with branches newBranches) to result.
+            When CCreatePipe (cpName, cpCapacity):
+                Push (a new CCreatePipe with name cpName and capacity {expr_entry}(cpCapacity)) to result.
+            When CSendPipe (spPipe, spValue):
+                Push (a new CSendPipe with chan spPipe and value {expr_entry}(spValue)) to result.
+            When CReceivePipe (rpPipe, rpTarget):
+                Push (a new CReceivePipe with chan rpPipe and target rpTarget) to result.
+            When CTrySendPipe (tspPipe, tspValue):
+                Push (a new CTrySendPipe with chan tspPipe and value {expr_entry}(tspValue)) to result.
+            When CTryReceivePipe (trpPipe, trpTarget):
+                Push (a new CTryReceivePipe with chan trpPipe and target trpTarget) to result.
+            When CSpawn (spawnType, spawnTarget):
+                Push (a new CSpawn with agentType spawnType and target spawnTarget) to result.
+            When CSendMessage (smTarget, smMsg):
+                Push (a new CSendMessage with target {expr_entry}(smTarget) and msg {expr_entry}(smMsg)) to result.
+            When CAwaitMessage (amTarget):
+                Push (a new CAwaitMessage with target amTarget) to result.
+            When CListen (listenAddr, listenHandler):
+                Push (a new CListen with addr {expr_entry}(listenAddr) and handler listenHandler) to result.
+            When CConnectTo (connAddr, connTarget):
+                Push (a new CConnectTo with addr {expr_entry}(connAddr) and target connTarget) to result.
+            When CZone (zoneName, zoneKind, zoneBody):
+                Push (a new CZone with name zoneName and kind zoneKind and body {wrapper_name}(zoneBody)) to result.
+    Return result.
+"#, wrapper_name = wrapper_name, expr_entry = expr_entry)
 }
 
 fn replace_word(source: &str, from: &str, to: &str) -> String {

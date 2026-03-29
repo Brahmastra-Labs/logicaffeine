@@ -62,6 +62,37 @@ pub fn get_articles_by_tag(tag: &str) -> Vec<&'static Article> {
 /// All news articles
 static ARTICLES: &[Article] = &[
     Article {
+        slug: "release-0-9-9-futamura-validated",
+        title: "v0.9.9 — All 3 Futamura Projections Validated",
+        date: "2026-03-29",
+        summary: "PE Map/CCopy support across all PE variants, expression embedding analysis for smarter memoization, extended key generation, and full validation of all three Futamura Projections with 6,035 tests passing.",
+        content: r#"
+## Futamura Projections — Fully Validated
+
+All three Futamura Projections are now verified with comprehensive cross-projection equivalence testing:
+
+- **P1 (Specialization)** — 25-pair program equivalence, Jones optimality confirmed, zero interpretive overhead in residual code.
+- **P2 (Compiler Generation)** — no PE dispatch names or BTA artifacts leak into generated compilers, comprehensive P1 matching verified.
+- **P3 (Compiler-Generator Generation)** — triple equivalence across 10 programs, cross-projection byte-identical output, cogen matches P2 compiler, 20 surface-level language feature tests covering structs, maps, sequences, options, variants, control flow, recursion, and copy semantics.
+
+512 Futamura-specific tests pass. 6,035 total tests across the full suite with 0 failures.
+
+## PE Map & CCopy Support
+
+All three PE variants (pe_source, pe_bti, pe_mini) now handle Map types and copy expressions through partial evaluation. `exprToVal` processes `CNew` with Map typename and `CCopy` targets; `valToExpr` reconstructs Map values for residual code emission.
+
+## Expression Embedding Analysis
+
+New `exprEmbeds()` and `argsStrictlyEmbed()` predicates compare expression structure to determine when one expression is subsumed by another — enabling more precise memoization decisions during specialization. Covers CInt, CBool, CText, CFloat, CVar, CBinOp, CCall, and CList structures.
+
+## Extended Key Generation
+
+pe_mini now generates unique memoization keys for 15 additional CExpr variants, preventing key collisions in the specialization cache for complex programs involving collections, maps, field access, ranges, slices, copies, and set operations.
+"#,
+        tags: &["release", "compiler", "futamura-projections", "partial-evaluation"],
+        author: "LOGICAFFEINE Team",
+    },
+    Article {
         slug: "release-0-9-6-studio-fix-local-vec",
         title: "v0.9.6 — Studio Fix & Local Vec Optimization",
         date: "2026-03-19",

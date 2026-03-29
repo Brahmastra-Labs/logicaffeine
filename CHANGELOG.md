@@ -4,6 +4,22 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.9.9] - 2026-03-29
+
+### Added
+- **PE Map/CCopy support** — all three PE variants (pe_source, pe_bti, pe_mini) now handle `VMap` in `exprToVal`/`valToExpr` and `CCopy` expression evaluation, enabling Map types and copy semantics through partial evaluation.
+- **Expression embedding analysis** — new `exprEmbeds()` and `argsStrictlyEmbed()` predicates in pe_source and pe_bti for more sophisticated memoization decisions during specialization.
+- **Extended key generation** — pe_mini now generates unique memoization keys for 15 additional CExpr variants (CIndex, CLen, CMapGet, CNewSeq, CNewSet, CFieldAccess, CNew, CRange, CSlice, CCopy, CContains, CUnion, CIntersection, etc.).
+- **Decompilation infrastructure** — `discover_entry_points()`, `fix_decompiled_types()`, and `generate_block_wrapper()` helpers in compile.rs for automated PE code generation.
+- **P3 surface-level language coverage** — 20 new tests verifying all language features through the Third Futamura Projection (structs, maps, seqs, options, variants, control flow, recursion, copy semantics).
+
+### Changed
+- **Repeat statement encoding** — simplified by extracting common logic into `encode_stmt_list_src`, removing 77 lines of explicit while-loop lowering.
+- **Float literal formatting** — ensures float values always include a decimal point in encoded output.
+
+### Verified
+- **All 3 Futamura Projections** — 6,035 tests pass (512 Futamura-specific + full e2e suite), 0 failures, 0 regressions. Jones optimality confirmed. P1 specialization, P2 compiler generation, P3 compiler-generator generation all validated with cross-projection equivalence checks.
+
 ## [0.9.8] - 2026-03-19
 
 ### Fixed
