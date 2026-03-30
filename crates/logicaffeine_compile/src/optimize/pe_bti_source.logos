@@ -630,7 +630,7 @@
                 Let fn2 be "{fn1}".
                 Let func be item fn2 of funcs.
                 Inspect func:
-                    When CFuncDef (fname, params, body):
+                    When CFuncDef (fname, params, fnParamTypes, fnReturnType, body):
                         Let callEnv be a new Map of Text to CVal.
                         Let childSEnv be a new Map of Text to CExpr.
                         Let mutable pidx be 1.
@@ -686,7 +686,7 @@
                 Let fn4 be "{fn1}".
                 Let func2 be item fn4 of funcs.
                 Inspect func2:
-                    When CFuncDef (fname, params, body):
+                    When CFuncDef (fname, params, fnParamTypes, fnReturnType, body):
                         Let callEnv be a new Map of Text to CVal.
                         Let childSEnv be a new Map of Text to CExpr.
                         Let dynParams be a new Seq of Text.
@@ -714,7 +714,8 @@
                         Repeat for dp in dynParams:
                             Let dpCopy be "{dp}".
                             Push dpCopy to phDynParams.
-                        Let placeholderFunc be a new CFuncDef with name sk4 and params phDynParams and body placeholderBody.
+                        Let phPT be a new Seq of Text.
+                        Let placeholderFunc be a new CFuncDef with name sk4 and params phDynParams and paramTypes phPT and returnType "Any" and body placeholderBody.
                         Let sk5 be "{specKeyStr}".
                         Set item sk5 of funcs to placeholderFunc.
                         Let childState be peStateWithEnvDepthStaticB(state, callEnv, depth - 1, childSEnv).
@@ -726,7 +727,8 @@
                         Repeat for dp in dynParams:
                             Let dpCopy be "{dp}".
                             Push dpCopy to spDynParams.
-                        Let specFunc be a new CFuncDef with name sk6 and params spDynParams and body peBody.
+                        Let spPT be a new Seq of Text.
+                        Let specFunc be a new CFuncDef with name sk6 and params spDynParams and paramTypes spPT and returnType "Any" and body peBody.
                         Let sk7 be "{specKeyStr}".
                         Set item sk7 of funcs to specFunc.
                         Inspect bodyResult:

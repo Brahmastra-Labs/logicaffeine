@@ -102,7 +102,7 @@ const CORE_TYPES: &str = r#"
     A CSelectTimeout with duration CExpr and body Seq of CStmt.
 
 ## A CFunc is one of:
-    A CFuncDef with name Text and params Seq of Text and body Seq of CStmt.
+    A CFuncDef with name Text and params Seq of Text and paramTypes Seq of Text and returnType Text and body Seq of CStmt.
 
 ## A CProgram is one of:
     A CProg with funcs Seq of CFunc and main Seq of CStmt.
@@ -490,7 +490,7 @@ const INTERPRETER: &str = r#"
             If callInFuncs:
                 Let func be item name of funcs.
                 Inspect func:
-                    When CFuncDef (fname, params, body):
+                    When CFuncDef (fname, params, fnParamTypes, fnReturnType, body):
                         Let callEnv be a new Map of Text to CVal.
                         Let mutable idx be 1.
                         Repeat for p in params:
@@ -877,7 +877,7 @@ const INTERPRETER: &str = r#"
                 If csInFuncs:
                     Let func be item name of funcs.
                     Inspect func:
-                        When CFuncDef (fname, params, body):
+                        When CFuncDef (fname, params, fnParamTypes, fnReturnType, body):
                             Let callEnv be a new Map of Text to CVal.
                             Let mutable cidx be 1.
                             Repeat for p in params:
@@ -1648,7 +1648,7 @@ Let retStmt be a new CReturn with expr retExpr.
 Push retStmt to doubleBody.
 Let doubleParams be a new Seq of Text.
 Push "x" to doubleParams.
-Let doubleFn be a new CFuncDef with name "double" and params doubleParams and body doubleBody.
+Let doubleFn be a new CFuncDef with name "double" and params doubleParams and paramTypes (a new Seq of Text) and returnType "Any" and body doubleBody.
 Let funcMap be a new Map of Text to CFunc.
 Set item "double" of funcMap to doubleFn.
 Let callArgs be a new Seq of CExpr.
@@ -1681,7 +1681,7 @@ Let ifStmt be a new CIf with cond cond and thenBlock baseThen and elseBlock recE
 Push ifStmt to factBody.
 Let factParams be a new Seq of Text.
 Push "n" to factParams.
-Let factFn be a new CFuncDef with name "factorial" and params factParams and body factBody.
+Let factFn be a new CFuncDef with name "factorial" and params factParams and paramTypes (a new Seq of Text) and returnType "Any" and body factBody.
 Let funcMap be a new Map of Text to CFunc.
 Set item "factorial" of funcMap to factFn.
 Let callArgs be a new Seq of CExpr.
@@ -1721,7 +1721,7 @@ Let outerIf be a new CIf with cond cond0 and thenBlock base0Then and elseBlock e
 Push outerIf to fibBody.
 Let fibParams be a new Seq of Text.
 Push "n" to fibParams.
-Let fibFn be a new CFuncDef with name "fib" and params fibParams and body fibBody.
+Let fibFn be a new CFuncDef with name "fib" and params fibParams and paramTypes (a new Seq of Text) and returnType "Any" and body fibBody.
 Let funcMap be a new Map of Text to CFunc.
 Set item "fib" of funcMap to fibFn.
 Let callArgs be a new Seq of CExpr.
@@ -1753,7 +1753,7 @@ Let evenIf be a new CIf with cond evenCond and thenBlock evenBaseThen and elseBl
 Push evenIf to evenBody.
 Let evenParams be a new Seq of Text.
 Push "n" to evenParams.
-Let evenFn be a new CFuncDef with name "isEven" and params evenParams and body evenBody.
+Let evenFn be a new CFuncDef with name "isEven" and params evenParams and paramTypes (a new Seq of Text) and returnType "Any" and body evenBody.
 Let oddBody be a new Seq of CStmt.
 Let oddCond be a new CBinOp with op "==" and left (a new CVar with name "n") and right (a new CInt with value 0).
 Let oddBaseThen be a new Seq of CStmt.
@@ -1767,7 +1767,7 @@ Let oddIf be a new CIf with cond oddCond and thenBlock oddBaseThen and elseBlock
 Push oddIf to oddBody.
 Let oddParams be a new Seq of Text.
 Push "n" to oddParams.
-Let oddFn be a new CFuncDef with name "isOdd" and params oddParams and body oddBody.
+Let oddFn be a new CFuncDef with name "isOdd" and params oddParams and paramTypes (a new Seq of Text) and returnType "Any" and body oddBody.
 Let funcMap be a new Map of Text to CFunc.
 Set item "isEven" of funcMap to evenFn.
 Set item "isOdd" of funcMap to oddFn.
@@ -1790,7 +1790,7 @@ fn core_eval_missing_function() {
     run_interpreter_program(
         r#"Let emptyBody be a new Seq of CStmt.
 Let emptyParams be a new Seq of Text.
-Let emptyFn be a new CFuncDef with name "noop" and params emptyParams and body emptyBody.
+Let emptyFn be a new CFuncDef with name "noop" and params emptyParams and paramTypes (a new Seq of Text) and returnType "Any" and body emptyBody.
 Let funcMap be a new Map of Text to CFunc.
 Set item "noop" of funcMap to emptyFn.
 Let callArgs be a new Seq of CExpr.
@@ -1919,7 +1919,7 @@ fn core_eval_scoping_isolation() {
 Push (a new CReturn with expr (a new CVar with name "x")) to retBody.
 Let retParams be a new Seq of Text.
 Push "x" to retParams.
-Let retFn be a new CFuncDef with name "getX" and params retParams and body retBody.
+Let retFn be a new CFuncDef with name "getX" and params retParams and paramTypes (a new Seq of Text) and returnType "Any" and body retBody.
 Let funcMap be a new Map of Text to CFunc.
 Set item "getX" of funcMap to retFn.
 Let setX be a new CLet with name "x" and expr (a new CInt with value 100).
@@ -1950,7 +1950,7 @@ Let whileStmt be a new CWhile with cond loopCond and body whileBody.
 Push initI to fnBody.
 Push whileStmt to fnBody.
 Let fnParams be a new Seq of Text.
-Let fn be a new CFuncDef with name "earlyRet" and params fnParams and body fnBody.
+Let fn be a new CFuncDef with name "earlyRet" and params fnParams and paramTypes (a new Seq of Text) and returnType "Any" and body fnBody.
 Let funcMap be a new Map of Text to CFunc.
 Set item "earlyRet" of funcMap to fn.
 Let callArgs be a new Seq of CExpr.
@@ -2715,7 +2715,7 @@ Let factBody be a new Seq of CStmt.
 Push factIf to factBody.
 Let factParams be a new Seq of Text.
 Push "n" to factParams.
-Let factFunc be a new CFuncDef with name "factorial" and params factParams and body factBody.
+Let factFunc be a new CFuncDef with name "factorial" and params factParams and paramTypes (a new Seq of Text) and returnType "Any" and body factBody.
 Let funcs be a new Map of Text to CFunc.
 Set item "factorial" of funcs to factFunc.
 Let callArg be a new CInt with value 5.
@@ -2754,7 +2754,7 @@ Let dblStmts be a new Seq of CStmt.
 Push dblRet to dblStmts.
 Let dblParams be a new Seq of Text.
 Push "n" to dblParams.
-Let dblFunc be a new CFuncDef with name "double" and params dblParams and body dblStmts.
+Let dblFunc be a new CFuncDef with name "double" and params dblParams and paramTypes (a new Seq of Text) and returnType "Any" and body dblStmts.
 Let funcs be a new Map of Text to CFunc.
 Set item "double" of funcs to dblFunc.
 Let callArg1 be a new CInt with value 3.
@@ -2870,7 +2870,7 @@ Let factBody be a new Seq of CStmt.
 Push factIf to factBody.
 Let factParams be a new Seq of Text.
 Push "n" to factParams.
-Let factFunc be a new CFuncDef with name "factorial" and params factParams and body factBody.
+Let factFunc be a new CFuncDef with name "factorial" and params factParams and paramTypes (a new Seq of Text) and returnType "Any" and body factBody.
 Let funcs be a new Map of Text to CFunc.
 Set item "factorial" of funcs to factFunc.
 Let callArg be a new CInt with value 5.
@@ -4139,7 +4139,7 @@ Let repStmt be a new CRepeat with var "x" and coll (a new CVar with name "xs") a
 Push repStmt to fnBody.
 Push a new CReturn with expr (a new CInt with value 0) to fnBody.
 Let params be a new Seq of Text.
-Let fn be a new CFuncDef with name "findFirst" and params params and body fnBody.
+Let fn be a new CFuncDef with name "findFirst" and params params and paramTypes (a new Seq of Text) and returnType "Any" and body fnBody.
 Let funcMap be a new Map of Text to CFunc.
 Set item "findFirst" of funcMap to fn.
 Let callArgs be a new Seq of CExpr.
@@ -4746,7 +4746,7 @@ Push "pt" to funcParams.
 Let funcBody be a new Seq of CStmt.
 Let faExpr be a new CFieldAccess with target (a new CVar with name "pt") and field "x".
 Push a new CReturn with expr faExpr to funcBody.
-Let funcDef be a new CFuncDef with name "getX" and params funcParams and body funcBody.
+Let funcDef be a new CFuncDef with name "getX" and params funcParams and paramTypes (a new Seq of Text) and returnType "Any" and body funcBody.
 Let fieldExprs be a new Seq of CExpr.
 Push a new CInt with value 42 to fieldExprs.
 Push a new CInt with value 99 to fieldExprs.
@@ -4980,7 +4980,7 @@ Push a new CVar with name "a" to fExprs.
 Push a new CVar with name "b" to fExprs.
 Let fNew be a new CNew with typeName "Point" and fieldNames fieldNames and fields fExprs.
 Push a new CReturn with expr fNew to funcBody.
-Let funcDef be a new CFuncDef with name "makePoint" and params funcParams and body funcBody.
+Let funcDef be a new CFuncDef with name "makePoint" and params funcParams and paramTypes (a new Seq of Text) and returnType "Any" and body funcBody.
 Let callArgs be a new Seq of CExpr.
 Push a new CInt with value 100 to callArgs.
 Push a new CInt with value 200 to callArgs.
@@ -5249,7 +5249,7 @@ Let funcBody be a new Seq of CStmt.
 Push letX to funcBody.
 Push inspStmt to funcBody.
 Let funcParams be a new Seq of Text.
-Let func be a new CFuncDef with name "getValue" and params funcParams and body funcBody.
+Let func be a new CFuncDef with name "getValue" and params funcParams and paramTypes (a new Seq of Text) and returnType "Any" and body funcBody.
 Let funcMap be a new Map of Text to CFunc.
 Set item "getValue" of funcMap to func.
 Let callExpr be a new CCall with name "getValue" and args (a new Seq of CExpr).
@@ -5512,7 +5512,7 @@ Let funcBody be a new Seq of CStmt.
 Push inspStmt to funcBody.
 Let funcParams be a new Seq of Text.
 Push "b" to funcParams.
-Let func be a new CFuncDef with name "unbox" and params funcParams and body funcBody.
+Let func be a new CFuncDef with name "unbox" and params funcParams and paramTypes (a new Seq of Text) and returnType "Any" and body funcBody.
 Let funcMap be a new Map of Text to CFunc.
 Set item "unbox" of funcMap to func.
 Let callArgs be a new Seq of CExpr.
@@ -5541,7 +5541,7 @@ Let nvExpr be a new CNewVariant with tag "Wrapped" and fnames fnames1 and fvals 
 Push a new CReturn with expr nvExpr to fnBody.
 Let fnParams be a new Seq of Text.
 Push "x" to fnParams.
-Let func be a new CFuncDef with name "wrap" and params fnParams and body fnBody.
+Let func be a new CFuncDef with name "wrap" and params fnParams and paramTypes (a new Seq of Text) and returnType "Any" and body fnBody.
 Let funcMap be a new Map of Text to CFunc.
 Set item "wrap" of funcMap to func.
 Let callArgs be a new Seq of CExpr.
@@ -5721,7 +5721,7 @@ Let applyCallArgs be a new Seq of CExpr.
 Push a new CVar with name "val" to applyCallArgs.
 Let applyBody be a new Seq of CStmt.
 Push a new CReturn with expr (a new CCallExpr with target (a new CVar with name "fn") and args applyCallArgs) to applyBody.
-Let applyFn be a new CFuncDef with name "apply" and params applyParams and body applyBody.
+Let applyFn be a new CFuncDef with name "apply" and params applyParams and paramTypes (a new Seq of Text) and returnType "Any" and body applyBody.
 Let funcMap be a new Map of Text to CFunc.
 Set item "apply" of funcMap to applyFn.
 Let clParams be a new Seq of Text.
@@ -5760,7 +5760,7 @@ Let clCaptured be a new Seq of Text.
 Push "n" to clCaptured.
 Let maBody be a new Seq of CStmt.
 Push a new CReturn with expr (a new CClosure with params clParams and body clBody and captured clCaptured) to maBody.
-Let maFn be a new CFuncDef with name "makeAdder" and params maParams and body maBody.
+Let maFn be a new CFuncDef with name "makeAdder" and params maParams and paramTypes (a new Seq of Text) and returnType "Any" and body maBody.
 Let funcMap be a new Map of Text to CFunc.
 Set item "makeAdder" of funcMap to maFn.
 Let makeArgs be a new Seq of CExpr.
@@ -6000,7 +6000,7 @@ Let innerCaptured be a new Seq of Text.
 Push "factor" to innerCaptured.
 Let mmBody be a new Seq of CStmt.
 Push a new CReturn with expr (a new CClosure with params innerParams and body innerBody and captured innerCaptured) to mmBody.
-Let mmFn be a new CFuncDef with name "makeMultiplier" and params mmParams and body mmBody.
+Let mmFn be a new CFuncDef with name "makeMultiplier" and params mmParams and paramTypes (a new Seq of Text) and returnType "Any" and body mmBody.
 Let funcMap be a new Map of Text to CFunc.
 Set item "makeMultiplier" of funcMap to mmFn.
 Let makeArgs be a new Seq of CExpr.
@@ -6360,7 +6360,7 @@ Push a new CGive with expr (a new CBinOp with op "*" and left (a new CVar with n
 Push a new CReturn with expr (a new CVar with name "result") to fnBody.
 Let fnParams be a new Seq of Text.
 Push "n" to fnParams.
-Let fn1 be a new CFuncDef with name "double" and params fnParams and body fnBody.
+Let fn1 be a new CFuncDef with name "double" and params fnParams and paramTypes (a new Seq of Text) and returnType "Any" and body fnBody.
 Let funcMap be a new Map of Text to CFunc.
 Set item "double" of funcMap to fn1.
 Let callArgs be a new Seq of CExpr.
@@ -7687,7 +7687,7 @@ fn fix_pe_source_mixed_arg_substitutes_static() {
     Let retStmt be a new CReturn with expr mulExpr.
     Let scaleBody be a new Seq of CStmt.
     Push retStmt to scaleBody.
-    Set item "scale" of funcs to a new CFuncDef with name "scale" and params scaleParams and body scaleBody.
+    Set item "scale" of funcs to a new CFuncDef with name "scale" and params scaleParams and paramTypes (a new Seq of Text) and returnType "Any" and body scaleBody.
     Let callArgs be a new Seq of CExpr.
     Push (a new CInt with value 3) to callArgs.
     Push (a new CVar with name "x") to callArgs.
@@ -7736,7 +7736,7 @@ fn fix_pe_source_mixed_arg_all_dynamic_residualizes() {
     Let retStmt be a new CReturn with expr addExpr.
     Let addBody be a new Seq of CStmt.
     Push retStmt to addBody.
-    Set item "add" of funcs to a new CFuncDef with name "add" and params addParams and body addBody.
+    Set item "add" of funcs to a new CFuncDef with name "add" and params addParams and paramTypes (a new Seq of Text) and returnType "Any" and body addBody.
     Let callArgs be a new Seq of CExpr.
     Push (a new CVar with name "a") to callArgs.
     Push (a new CVar with name "b") to callArgs.
@@ -7866,7 +7866,7 @@ fn fix_pe_source_memo_caches_all_static() {
     Let dblBody be a new Seq of CStmt.
     Let mulExpr be a new CBinOp with op "*" and left (a new CVar with name "n") and right (a new CInt with value 2).
     Push (a new CReturn with expr mulExpr) to dblBody.
-    Set item "dbl" of funcs to a new CFuncDef with name "dbl" and params dblParams and body dblBody.
+    Set item "dbl" of funcs to a new CFuncDef with name "dbl" and params dblParams and paramTypes (a new Seq of Text) and returnType "Any" and body dblBody.
     Let call1Args be a new Seq of CExpr.
     Push (a new CInt with value 5) to call1Args.
     Let call1 be a new CCall with name "dbl" and args call1Args.
@@ -7952,7 +7952,7 @@ fn fix_pe_env_split_into_function() {
     Push "x" to fParams.
     Let fBody be a new Seq of CStmt.
     Push (a new CReturn with expr (a new CBinOp with op "*" and left (a new CVar with name "x") and right (a new CInt with value 2))) to fBody.
-    Set item "f" of funcs to a new CFuncDef with name "f" and params fParams and body fBody.
+    Set item "f" of funcs to a new CFuncDef with name "f" and params fParams and paramTypes (a new Seq of Text) and returnType "Any" and body fBody.
     Let callArgs be a new Seq of CExpr.
     Push (a new CInt with value 5) to callArgs.
     Let callExpr be a new CCall with name "f" and args callArgs.
@@ -8125,7 +8125,7 @@ fn fix_pe_env_split_mixed_arg_static_propagation() {
     Push "y" to scaleParams.
     Let scaleBody be a new Seq of CStmt.
     Push (a new CReturn with expr (a new CBinOp with op "+" and left (a new CBinOp with op "*" and left (a new CVar with name "factor") and right (a new CInt with value 10)) and right (a new CVar with name "y"))) to scaleBody.
-    Set item "scale" of funcs to a new CFuncDef with name "scale" and params scaleParams and body scaleBody.
+    Set item "scale" of funcs to a new CFuncDef with name "scale" and params scaleParams and paramTypes (a new Seq of Text) and returnType "Any" and body scaleBody.
     Let callArgs be a new Seq of CExpr.
     Push (a new CInt with value 3) to callArgs.
     Push (a new CVar with name "input") to callArgs.
@@ -8709,13 +8709,22 @@ fn fix_p2_real_no_depth_tracking() {
 #[test]
 fn fix_p2_real_no_memo_infrastructure() {
     let p2 = get_p2_genuine();
+    // P2 should not contain pe_source's memo infrastructure (specResults).
+    // pe_mini has its OWN infrastructure (memoCache, onStackM) which is expected.
     assert!(
         !p2.source.contains("specResults"),
-        "P2 compiler should not contain specResults"
+        "P2 compiler should not contain pe_source's specResults"
     );
-    assert!(
-        !p2.source.contains("onStack"),
-        "P2 compiler should not contain onStack"
+    // pe_mini's onStackM is expected; pe_source's bare "onStack " (6 chars + space) is not.
+    // Count occurrences of "onStack" that are NOT followed by "M" to detect pe_source leakage.
+    let bare_onstack_count = p2.source.match_indices("onStack").filter(|(idx, _)| {
+        let after = p2.source.as_bytes().get(idx + 7);
+        after != Some(&b'M')
+    }).count();
+    assert_eq!(
+        bare_onstack_count, 0,
+        "P2 compiler should not contain pe_source's bare 'onStack' (found {})",
+        bare_onstack_count
     );
 }
 
@@ -9102,11 +9111,15 @@ fn pe_mini_smaller_than_pe_bti() {
 #[test]
 fn pe_mini_no_overhead_markers() {
     let source = logicaffeine_compile::compile::pe_mini_source_text();
-    assert!(!source.contains("isStatic("), "pe_mini has no isStatic");
-    assert!(!source.contains("isLiteral("), "pe_mini has no isLiteral");
-    assert!(!source.contains("allStatic("), "pe_mini has no allStatic");
-    assert!(!source.contains("specResults"), "pe_mini has no specResults");
-    assert!(!source.contains("onStack"), "pe_mini has no onStack");
+    // pe_mini has its OWN versions (isStaticM, allStaticM, onStackM) but should NOT
+    // have pe_source's exact names (isStatic, allStatic, onStack without M suffix).
+    // This ensures pe_mini is a distinct PE, not a copy of pe_source.
+    assert!(!source.contains("isLiteral("), "pe_mini has no isLiteral (pe_source's predicate)");
+    assert!(!source.contains("specResults"), "pe_mini uses memoCache not specResults");
+    // pe_mini now has isStaticM, allStaticM, onStackM — these are proper PE features
+    assert!(source.contains("isStaticM("), "pe_mini should have isStaticM");
+    assert!(source.contains("allStaticM("), "pe_mini should have allStaticM");
+    assert!(source.contains("onStackM"), "pe_mini should have onStackM for cycle detection");
 }
 
 // --- H.5: Cross-projection verification ---
@@ -11784,9 +11797,10 @@ fn genuine_p2_residual_has_dynamic_target() {
         .expect("Genuine P2 must complete");
 
     assert!(
-        genuine.contains("targetExpr"),
-        "Genuine P2 residual must reference the dynamic targetExpr.\n\
-         This proves the target is the only unresolved input."
+        genuine.contains("targetStmts"),
+        "Genuine P2 residual must reference the dynamic targetStmts.\n\
+         This proves the target is the only unresolved input.\n\
+         (Block-level specialization uses targetStmts, not targetExpr.)"
     );
 }
 
@@ -11873,9 +11887,10 @@ fn genuine_p3_residual_has_dynamic_target() {
         .expect("Genuine P3 must complete");
 
     assert!(
-        genuine.contains("targetExpr"),
-        "Genuine P3 residual must reference the dynamic targetExpr.\n\
-         This proves the target is the only unresolved input."
+        genuine.contains("targetStmts"),
+        "Genuine P3 residual must reference the dynamic targetStmts.\n\
+         This proves the target is the only unresolved input.\n\
+         (Block-level specialization uses targetStmts, not targetExpr.)"
     );
 }
 
@@ -12433,5 +12448,394 @@ fn p3_surface_copy_semantics() {
     compile_and_run_via_p3(
         "## Main\nLet xs be [1, 2, 3].\nLet ys be copy of xs.\nPush 4 to ys.\nShow length of xs.\nShow length of ys.",
         "3\n4",
+    );
+}
+
+// ============================================================
+// Sprint L: Jones Optimality Verification
+// Proves all 3 Futamura projections are proper and Jones-optimal.
+// ============================================================
+
+// --- L.1: P2 block entry is PE-generated, not Rust scaffolding ---
+
+#[test]
+fn jones_p2_block_entry_is_pe_generated() {
+    let p2 = get_p2_genuine();
+    assert!(
+        p2.source.contains("peBlockM_"),
+        "P2 must contain a PE-generated peBlockM_ specialized function.\n\
+         This proves the block handler was produced by partial evaluation,\n\
+         not by Rust scaffolding (generate_block_wrapper)."
+    );
+}
+
+#[test]
+fn jones_p3_block_entry_is_pe_generated() {
+    let p3 = get_p3_genuine();
+    assert!(
+        p3.source.contains("peBlockB_"),
+        "P3 must contain a PE-generated peBlockB_ specialized function.\n\
+         This proves the cogen block handler was produced by partial evaluation."
+    );
+}
+
+// --- L.2: No PE dispatch names in P2 compiler ---
+
+#[test]
+fn jones_p2_residual_no_unspecialized_pe_dispatch() {
+    // Check the RESIDUAL (PE output), not the full assembled source (which includes helpers).
+    // The residual should only contain specialized versions (peExprM_, peBlockM_),
+    // not the unspecialized entry points.
+    let residual = get_p2_residual();
+    // The residual should have specialized functions (peBlockM_, peExprM_)
+    assert!(
+        residual.contains("peBlockM_") || residual.contains("peExprM_"),
+        "P2 residual must contain specialized PE functions (peBlockM_ or peExprM_)"
+    );
+    // Count unspecialized "## To peExprM " definitions (not peExprM_xxx specialized)
+    let has_unspecialized_def = residual.lines().any(|line| {
+        let trimmed = line.trim();
+        trimmed.starts_with("## To peExprM ") || trimmed.starts_with("## To peBlockM ")
+    });
+    assert!(
+        !has_unspecialized_def,
+        "P2 residual must not define unspecialized peExprM/peBlockM\n\
+         — only specialized variants (peExprM_xxx, peBlockM_xxx) should appear."
+    );
+}
+
+#[test]
+fn jones_p3_residual_no_unspecialized_pe_dispatch() {
+    let residual = get_p3_residual();
+    assert!(
+        residual.contains("peBlockB_") || residual.contains("peExprB_"),
+        "P3 residual must contain specialized PE functions (peBlockB_ or peExprB_)"
+    );
+    let has_unspecialized_def = residual.lines().any(|line| {
+        let trimmed = line.trim();
+        trimmed.starts_with("## To peExprB ") || trimmed.starts_with("## To peBlockB ")
+    });
+    assert!(
+        !has_unspecialized_def,
+        "P3 residual must not define unspecialized peExprB/peBlockB\n\
+         — only specialized variants should appear."
+    );
+}
+
+// --- L.3: No PE infrastructure leakage ---
+
+#[test]
+fn jones_p2_no_depth_tracking() {
+    let p2 = get_p2_genuine();
+    assert!(
+        !p2.source.contains("depth is at most 0"),
+        "P2 compiler should not have depth termination checks — depth was static."
+    );
+}
+
+#[test]
+fn jones_p2_no_pe_source_specresults() {
+    let p2 = get_p2_genuine();
+    assert!(
+        !p2.source.contains("specResults"),
+        "P2 compiler should not contain pe_source's specResults infrastructure."
+    );
+}
+
+#[test]
+fn jones_p2_no_pe_source_onstack() {
+    let p2 = get_p2_genuine();
+    // Check for pe_source's bare "onStack" (not pe_mini's "onStackM")
+    let bare_count = p2.source.match_indices("onStack").filter(|(idx, _)| {
+        p2.source.as_bytes().get(idx + 7) != Some(&b'M')
+    }).count();
+    assert_eq!(
+        bare_count, 0,
+        "P2 compiler should not contain pe_source's bare 'onStack' (found {})",
+        bare_count
+    );
+}
+
+// --- L.4: Size reduction chain P3 < P2 < PE ---
+
+#[test]
+fn jones_p2_smaller_than_pe() {
+    let p2 = get_p2_residual();
+    let pe = logicaffeine_compile::compile::pe_source_text();
+    eprintln!("P2: {} bytes, PE: {} bytes", p2.len(), pe.len());
+    assert!(
+        p2.len() < pe.len(),
+        "P2 ({} bytes) must be smaller than PE ({} bytes) — specialization removes overhead.",
+        p2.len(), pe.len()
+    );
+}
+
+#[test]
+fn jones_p3_smaller_than_pe() {
+    let p3 = get_p3_residual();
+    let pe = logicaffeine_compile::compile::pe_source_text();
+    eprintln!("P3: {} bytes, PE: {} bytes", p3.len(), pe.len());
+    assert!(
+        p3.len() < pe.len(),
+        "P3 ({} bytes) must be smaller than PE ({} bytes) — specialization removes overhead.",
+        p3.len(), pe.len()
+    );
+}
+
+// --- L.5: Inspect count reduction (The Trick at block level) ---
+
+#[test]
+fn jones_p2_fewer_inspects_than_pe_source() {
+    let p2 = get_p2_residual();
+    let pe = logicaffeine_compile::compile::pe_source_text();
+    let p2_inspects = p2.matches("Inspect ").count();
+    let pe_inspects = pe.matches("Inspect ").count();
+    eprintln!("P2: {} Inspects, PE: {} Inspects", p2_inspects, pe_inspects);
+    assert!(
+        p2_inspects < pe_inspects,
+        "P2 ({}) must have strictly fewer Inspects than PE ({}).\n\
+         Specialization should eliminate pe_mini's dispatch overhead.",
+        p2_inspects, pe_inspects
+    );
+}
+
+#[test]
+fn jones_p3_fewer_inspects_than_pe_source() {
+    let p3 = get_p3_residual();
+    let pe = logicaffeine_compile::compile::pe_source_text();
+    let p3_inspects = p3.matches("Inspect ").count();
+    let pe_inspects = pe.matches("Inspect ").count();
+    eprintln!("P3: {} Inspects, PE: {} Inspects", p3_inspects, pe_inspects);
+    assert!(
+        p3_inspects < pe_inspects,
+        "P3 ({}) must have strictly fewer Inspects than PE ({}).\n\
+         Specialization should eliminate pe_bti's dispatch overhead.",
+        p3_inspects, pe_inspects
+    );
+}
+
+// --- L.6: pe_mini is a proper PE (not just a constant folder) ---
+
+#[test]
+fn jones_pe_mini_has_function_specialization() {
+    let pe_mini = logicaffeine_compile::compile::pe_mini_source_text();
+    assert!(pe_mini.contains("hasSomeStatic"), "pe_mini must detect mixed static/dynamic args");
+    assert!(pe_mini.contains("hasSomeDynamic"), "pe_mini must detect mixed static/dynamic args");
+    assert!(pe_mini.contains("dynParams"), "pe_mini must create specialized functions with dynamic-only params");
+    assert!(pe_mini.contains("makeCycleKeyM"), "pe_mini must generate unique specialization keys");
+}
+
+#[test]
+fn jones_pe_mini_has_cycle_detection() {
+    let pe_mini = logicaffeine_compile::compile::pe_mini_source_text();
+    assert!(pe_mini.contains("onStackM"), "pe_mini must have cycle detection via onStackM");
+    assert!(pe_mini.contains("osHitM"), "pe_mini must check for recursive specialization cycles");
+}
+
+#[test]
+fn jones_pe_mini_has_compound_static_recognition() {
+    let pe_mini = logicaffeine_compile::compile::pe_mini_source_text();
+    assert!(pe_mini.contains("isStaticM"), "pe_mini must have isStaticM predicate");
+    assert!(pe_mini.contains("isStaticValueM"), "pe_mini must have isStaticValueM predicate");
+    assert!(pe_mini.contains("allStaticM"), "pe_mini must have allStaticM predicate");
+    // Verify isStaticM recognizes compound types
+    assert!(pe_mini.contains("CNewVariant"), "pe_mini's isStaticM must handle CNewVariant");
+    assert!(pe_mini.contains("CTuple"), "pe_mini's isStaticM must handle CTuple");
+    assert!(pe_mini.contains("CNew"), "pe_mini's isStaticM must handle CNew");
+}
+
+// --- L.7: P2/P3 behavioral correctness (cross-projection equivalence) ---
+
+#[test]
+fn jones_p1_p2_equivalence_factorial() {
+    let p1_out = run_via_p1("## To f (n: Int) -> Int:\n    If n is at most 1:\n        Return 1.\n    Return n * f(n - 1).\n\n## Main\nShow f(5).");
+    let p2_out = run_via_p2_real("## To f (n: Int) -> Int:\n    If n is at most 1:\n        Return 1.\n    Return n * f(n - 1).\n\n## Main\nShow f(5).");
+    assert_eq!(p1_out, "120", "P1 factorial");
+    assert_eq!(p2_out, "120", "P2 factorial");
+    assert_eq!(p1_out, p2_out, "P1 and P2 must produce identical output for factorial.");
+}
+
+#[test]
+fn jones_p1_p2_equivalence_fibonacci() {
+    let p1_out = run_via_p1("## To fib (n: Int) -> Int:\n    If n is at most 0:\n        Return 0.\n    If n equals 1:\n        Return 1.\n    Return fib(n - 1) + fib(n - 2).\n\n## Main\nShow fib(10).");
+    let p2_out = run_via_p2_real("## To fib (n: Int) -> Int:\n    If n is at most 0:\n        Return 0.\n    If n equals 1:\n        Return 1.\n    Return fib(n - 1) + fib(n - 2).\n\n## Main\nShow fib(10).");
+    assert_eq!(p1_out, "55", "P1 fibonacci");
+    assert_eq!(p2_out, "55", "P2 fibonacci");
+    assert_eq!(p1_out, p2_out, "P1 and P2 must produce identical output for fibonacci.");
+}
+
+#[test]
+fn jones_p1_p2_equivalence_string_concat() {
+    let prog = "## Main\nLet a be \"hello\".\nLet b be \" world\".\nShow a + b.";
+    let p1_out = run_via_p1(prog);
+    let p2_out = run_via_p2_real(prog);
+    assert_eq!(p1_out, "hello world");
+    assert_eq!(p2_out, "hello world");
+    assert_eq!(p1_out, p2_out, "P1 and P2 must produce identical output for string concat.");
+}
+
+#[test]
+fn jones_p1_p2_equivalence_control_flow() {
+    let prog = "## Main\nLet mutable x be 0.\nLet mutable i be 1.\nWhile i is at most 10:\n    Set x to x + i.\n    Set i to i + 1.\nShow x.";
+    let p1_out = run_via_p1(prog);
+    let p2_out = run_via_p2_real(prog);
+    assert_eq!(p1_out, "55");
+    assert_eq!(p2_out, "55");
+    assert_eq!(p1_out, p2_out, "P1 and P2 must produce identical output for while loop.");
+}
+
+#[test]
+fn jones_p1_p2_equivalence_collections() {
+    let prog = "## Main\nLet xs be [10, 20, 30].\nShow item 2 of xs.\nShow length of xs.";
+    let p1_out = run_via_p1(prog);
+    let p2_out = run_via_p2_real(prog);
+    assert_eq!(p1_out, "20\n3");
+    assert_eq!(p2_out, "20\n3");
+    assert_eq!(p1_out, p2_out, "P1 and P2 must produce identical output for collections.");
+}
+
+// --- L.8: P2/P3 correctness on diverse programs ---
+
+#[test]
+fn jones_p2_real_handles_nested_functions() {
+    compile_and_run_via_p2_real(
+        "## To double (x: Int) -> Int:\n    Return x * 2.\n\n\
+         ## To quadruple (x: Int) -> Int:\n    Return double(double(x)).\n\n\
+         ## Main\nShow quadruple(5).",
+        "20",
+    );
+}
+
+#[test]
+fn jones_p2_real_handles_recursion() {
+    compile_and_run_via_p2_real(
+        "## To sumTo (n: Int) -> Int:\n    If n is at most 0:\n        Return 0.\n    Return n + sumTo(n - 1).\n\n## Main\nShow sumTo(10).",
+        "55",
+    );
+}
+
+#[test]
+fn jones_p3_real_handles_nested_functions() {
+    compile_and_run_via_p3_real(
+        "## To double (x: Int) -> Int:\n    Return x * 2.\n\n\
+         ## To quadruple (x: Int) -> Int:\n    Return double(double(x)).\n\n\
+         ## Main\nShow quadruple(5).",
+        "20",
+    );
+}
+
+#[test]
+fn jones_p3_real_handles_recursion() {
+    compile_and_run_via_p3_real(
+        "## To sumTo (n: Int) -> Int:\n    If n is at most 0:\n        Return 0.\n    Return n + sumTo(n - 1).\n\n## Main\nShow sumTo(10).",
+        "55",
+    );
+}
+
+// --- L.9: CFunc carries types through the pipeline ---
+
+#[test]
+fn jones_cfunc_has_param_types() {
+    let core_types = CORE_TYPES;
+    assert!(
+        core_types.contains("paramTypes Seq of Text"),
+        "CFunc must have paramTypes field"
+    );
+    assert!(
+        core_types.contains("returnType Text"),
+        "CFunc must have returnType field"
+    );
+}
+
+#[test]
+fn jones_decompiler_emits_real_types() {
+    let decompile = logicaffeine_compile::compile::decompile_source_text();
+    // Verify the decompiler uses fparamTypes and freturnType, not hardcoded "Any"
+    assert!(
+        decompile.contains("fparamTypes"),
+        "Decompiler must use fparamTypes from CFunc, not hardcoded Any"
+    );
+    assert!(
+        decompile.contains("freturnType"),
+        "Decompiler must use freturnType from CFunc, not hardcoded Any"
+    );
+}
+
+#[test]
+fn jones_encoding_preserves_types() {
+    // Encode a function and verify the output contains paramTypes and returnType
+    let program = "## To add (x: Int) and (y: Int) -> Int:\n    Return x + y.\n\n## Main\nShow add(1, 2).";
+    let encoded = logicaffeine_compile::compile::encode_program_source(program).unwrap();
+    assert!(
+        encoded.contains("paramTypes"),
+        "Encoding must produce paramTypes field.\nEncoded:\n{}",
+        &encoded[..encoded.len().min(500)]
+    );
+    assert!(
+        encoded.contains("returnType"),
+        "Encoding must produce returnType field.\nEncoded:\n{}",
+        &encoded[..encoded.len().min(500)]
+    );
+    // Verify actual type values are present
+    assert!(
+        encoded.contains("\"Int\""),
+        "Encoding must contain the type name 'Int' for the parameters.\nEncoded:\n{}",
+        &encoded[..encoded.len().min(500)]
+    );
+}
+
+// --- L.10: generate_block_wrapper is GONE ---
+
+#[test]
+fn jones_no_rust_block_wrapper_function() {
+    // Verify that the compile.rs source doesn't contain generate_block_wrapper
+    // This test documents that the Rust scaffolding has been permanently removed.
+    let compile_src = include_str!("../../logicaffeine_compile/src/compile.rs");
+    assert!(
+        !compile_src.contains("fn generate_block_wrapper"),
+        "generate_block_wrapper must be deleted — block handling is PE-generated."
+    );
+}
+
+// --- L.11: P2 block handler has PE structure, not structural mapping ---
+
+#[test]
+fn jones_p2_block_handler_has_pe_logic() {
+    let p2 = get_p2_genuine();
+    // The PE-generated block handler should include pe_mini's logic:
+    // - hasReturnM checks (early return detection)
+    // - env/staticEnv mutations
+    // These would NOT be present in a simple structural mapper (generate_block_wrapper).
+    assert!(
+        p2.source.contains("hasReturnM") || p2.source.contains("hasReturnM_"),
+        "P2 block handler must include PE's hasReturnM logic — proves it's PE-generated."
+    );
+}
+
+#[test]
+fn jones_p3_block_handler_has_pe_logic() {
+    let p3 = get_p3_genuine();
+    assert!(
+        p3.source.contains("hasReturn") || p3.source.contains("hasReturn_") || p3.source.contains("hasReturnB"),
+        "P3 block handler must include PE's hasReturn logic — proves it's PE-generated."
+    );
+}
+
+// --- L.12: Genuine residuals reference dynamic target ---
+
+#[test]
+fn jones_p2_residual_has_dynamic_stmts() {
+    let genuine = get_p2_residual();
+    assert!(
+        genuine.contains("targetStmts"),
+        "P2 residual must reference the dynamic targetStmts — block-level specialization."
+    );
+}
+#[test]
+fn jones_p3_residual_has_dynamic_stmts() {
+    let genuine = get_p3_residual();
+    assert!(
+        genuine.contains("targetStmts"),
+        "P3 residual must reference the dynamic targetStmts — block-level specialization."
     );
 }

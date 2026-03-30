@@ -9,6 +9,7 @@
 
 mod axioms;
 mod kripke;
+pub mod knowledge_graph;
 
 pub use axioms::apply_axioms;
 pub use kripke::apply_kripke_lowering;

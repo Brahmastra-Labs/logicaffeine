@@ -67,6 +67,10 @@ fn collect_suppress_existential_events_inner<'a>(expr: &LogicExpr<'a>, events: &
         LogicExpr::Temporal { body, .. } => {
             collect_suppress_existential_events_inner(body, events);
         }
+        LogicExpr::TemporalBinary { left, right, .. } => {
+            collect_suppress_existential_events_inner(left, events);
+            collect_suppress_existential_events_inner(right, events);
+        }
         LogicExpr::Aspectual { body, .. } => {
             collect_suppress_existential_events_inner(body, events);
         }
@@ -482,6 +486,14 @@ impl<'a> LogicExpr<'a> {
                 let mut inner = String::new();
                 body.write_logic(&mut inner, registry, interner, fmt)?;
                 write!(w, "{}", fmt.temporal(operator, &inner))
+            }
+
+            LogicExpr::TemporalBinary { operator, left, right } => {
+                let mut l = String::new();
+                let mut r = String::new();
+                left.write_logic(&mut l, registry, interner, fmt)?;
+                right.write_logic(&mut r, registry, interner, fmt)?;
+                write!(w, "{}", fmt.temporal_binary(operator, &l, &r))
             }
 
             LogicExpr::Aspectual { operator, body } => {

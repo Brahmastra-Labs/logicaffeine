@@ -1,43 +1,48 @@
 ## A PEMiniState is one of:
-    A PEMiniR with env Map of Text to CVal and funcs Map of Text to CFunc and depth Int and staticEnv Map of Text to CExpr and memoCache Map of Text to CExpr.
+    A PEMiniR with env Map of Text to CVal and funcs Map of Text to CFunc and depth Int and staticEnv Map of Text to CExpr and memoCache Map of Text to CExpr and onStackM Seq of Text.
 
 ## To makePeState (e: Map of Text to CVal) and (f: Map of Text to CFunc) and (d: Int) -> PEMiniState:
-    Return a new PEMiniR with env e and funcs f and depth d and staticEnv (a new Map of Text to CExpr) and memoCache (a new Map of Text to CExpr).
+    Return a new PEMiniR with env e and funcs f and depth d and staticEnv (a new Map of Text to CExpr) and memoCache (a new Map of Text to CExpr) and onStackM (a new Seq of Text).
 
 ## To peEnvM (st: PEMiniState) -> Map of Text to CVal:
     Inspect st:
-        When PEMiniR (e, f, d, se, mc):
+        When PEMiniR (e, f, d, se, mc, os):
             Return e.
 
 ## To peFuncsM (st: PEMiniState) -> Map of Text to CFunc:
     Inspect st:
-        When PEMiniR (e, f, d, se, mc):
+        When PEMiniR (e, f, d, se, mc, os):
             Return f.
 
 ## To peDepthM (st: PEMiniState) -> Int:
     Inspect st:
-        When PEMiniR (e, f, d, se, mc):
+        When PEMiniR (e, f, d, se, mc, os):
             Return d.
 
 ## To peMemoCacheM (st: PEMiniState) -> Map of Text to CExpr:
     Inspect st:
-        When PEMiniR (e, f, d, se, mc):
+        When PEMiniR (e, f, d, se, mc, os):
             Return mc.
 
 ## To peStaticEnvM (st: PEMiniState) -> Map of Text to CExpr:
     Inspect st:
-        When PEMiniR (e, f, d, se, mc):
+        When PEMiniR (e, f, d, se, mc, os):
             Return se.
+
+## To peOnStackM (st: PEMiniState) -> Seq of Text:
+    Inspect st:
+        When PEMiniR (e, f, d, se, mc, os):
+            Return os.
 
 ## To peStateWithEnvDepthM (st: PEMiniState) and (newEnv: Map of Text to CVal) and (d: Int) -> PEMiniState:
     Inspect st:
-        When PEMiniR (e, f, oldD, se, mc):
-            Return a new PEMiniR with env newEnv and funcs f and depth d and staticEnv (a new Map of Text to CExpr) and memoCache mc.
+        When PEMiniR (e, f, oldD, se, mc, os):
+            Return a new PEMiniR with env newEnv and funcs f and depth d and staticEnv (a new Map of Text to CExpr) and memoCache mc and onStackM os.
 
 ## To peStateWithEnvDepthStaticM (st: PEMiniState) and (newEnv: Map of Text to CVal) and (d: Int) and (newSe: Map of Text to CExpr) -> PEMiniState:
     Inspect st:
-        When PEMiniR (e, f, oldD, se, mc):
-            Return a new PEMiniR with env newEnv and funcs f and depth d and staticEnv newSe and memoCache mc.
+        When PEMiniR (e, f, oldD, se, mc, os):
+            Return a new PEMiniR with env newEnv and funcs f and depth d and staticEnv newSe and memoCache mc and onStackM os.
 
 ## To isCopyPropSafeM (e: CExpr) -> Bool:
     Inspect e:
@@ -47,6 +52,83 @@
             Return false.
         Otherwise:
             Return true.
+
+## To isStaticM (e: CExpr) -> Bool:
+    Inspect e:
+        When CInt (v):
+            Return true.
+        When CBool (v):
+            Return true.
+        When CText (v):
+            Return true.
+        When CFloat (v):
+            Return true.
+        When CList (items):
+            Repeat for elem in items:
+                Let s be isStaticM(elem).
+                If not s:
+                    Return false.
+            Return true.
+        When CNewVariant (tag, names, vals):
+            Repeat for v in vals:
+                Let s be isStaticM(v).
+                If not s:
+                    Return false.
+            Return true.
+        When CTuple (items):
+            Repeat for elem in items:
+                Let s be isStaticM(elem).
+                If not s:
+                    Return false.
+            Return true.
+        When COptionSome (inner):
+            Return isStaticM(inner).
+        When COptionNone:
+            Return true.
+        When CNewSeq:
+            Return true.
+        When CNewSet:
+            Return true.
+        When CNew (typeName, fieldNames, fieldExprs):
+            Repeat for fe in fieldExprs:
+                Let s be isStaticM(fe).
+                If not s:
+                    Return false.
+            Return true.
+        When CRange (start, end):
+            Let s1 be isStaticM(start).
+            Let s2 be isStaticM(end).
+            Return (s1 and s2).
+        When CCopy (target):
+            Return isStaticM(target).
+        Otherwise:
+            Return false.
+
+## To isStaticValueM (e: CExpr) -> Bool:
+    Inspect e:
+        When CNewSeq:
+            Return false.
+        When CNewSet:
+            Return false.
+        Otherwise:
+            Return isStaticM(e).
+
+## To allStaticM (args: Seq of CExpr) -> Bool:
+    Repeat for a in args:
+        Let s be isStaticM(a).
+        If not s:
+            Return false.
+    Return true.
+
+## To makeCycleKeyM (fnName: Text) and (args: Seq of CExpr) -> Text:
+    Let key be "spec_{fnName}".
+    Repeat for a in args:
+        If isStaticM(a):
+            Let part be exprToKeyPartM(a).
+            Set key to "{key}_s{part}".
+        Otherwise:
+            Set key to "{key}_d".
+    Return key.
 
 ## To checkVNothingM (v: CVal) -> Bool:
     Inspect v:
@@ -375,12 +457,8 @@
             Let peArgs be a new Seq of CExpr.
             Repeat for a in argExprs:
                 Push peExprM(a, state) to peArgs.
-            Let mutable allLit be true.
-            Repeat for pa in peArgs:
-                Let litCheck be checkLiteralM(pa).
-                If not litCheck:
-                    Set allLit to false.
-            If allLit:
+            Let allStat be allStaticM(peArgs).
+            If allStat:
                 Let fn1 be "{fnName}".
                 Let memoKey be makeKeyM(fn1, peArgs).
                 Let memoKeyStr be "{memoKey}".
@@ -389,10 +467,17 @@
                 If mc contains mk0:
                     Let cached be item mk0 of mc.
                     Return cached.
+                Let osLocal be peOnStackM(state).
+                Let mutable osHitM be false.
+                Repeat for osKey in osLocal:
+                    If osKey equals memoKeyStr:
+                        Set osHitM to true.
+                If osHitM:
+                    Return a new CCall with name fnName and args peArgs.
                 If funcs contains fn1:
                     Let func be item fn1 of funcs.
                     Inspect func:
-                        When CFuncDef (fname, params, body):
+                        When CFuncDef (fname, params, fnParamTypes, fnReturnType, body):
                             Let callEnv be a new Map of Text to CVal.
                             Let childSEnv be a new Map of Text to CExpr.
                             Let mutable pidx be 1.
@@ -406,7 +491,13 @@
                                     Let pk2 be "{p}".
                                     Set item pk2 of childSEnv to (copy of argExpr).
                                 Set pidx to pidx + 1.
+                            Let childOsM be copy of osLocal.
+                            Let memoKeyStrCopy be "{memoKeyStr}".
+                            Push memoKeyStrCopy to childOsM.
                             Let childState be peStateWithEnvDepthStaticM(state, callEnv, depth - 1, childSEnv).
+                            Inspect childState:
+                                When PEMiniR (ce, cf, cd, cse, cmc, cos):
+                                    Set childState to a new PEMiniR with env ce and funcs cf and depth cd and staticEnv cse and memoCache cmc and onStackM childOsM.
                             Let peBody be peBlockM(body, childState).
                             Let rawResultM be extractReturnM(peBody).
                             Let bodyResult be validateExtractReturnM(rawResultM, peBody).
@@ -423,6 +514,89 @@
                         Otherwise:
                             Let fn2 be "{fnName}".
                             Return a new CCall with name fn2 and args peArgs.
+            Let mutable hasSomeStatic be false.
+            Let mutable hasSomeDynamic be false.
+            Repeat for pa in peArgs:
+                If isStaticM(pa):
+                    Set hasSomeStatic to true.
+                Otherwise:
+                    Set hasSomeDynamic to true.
+            If hasSomeStatic:
+                If hasSomeDynamic:
+                    Let specKeyStr be makeCycleKeyM(fnName, peArgs).
+                    Let specCache be peMemoCacheM(state).
+                    Let sk1 be "{specKeyStr}".
+                    If specCache contains sk1:
+                        Let dynArgs be a new Seq of CExpr.
+                        Repeat for pa in peArgs:
+                            If not isStaticM(pa):
+                                Push pa to dynArgs.
+                        Let sk2 be "{specKeyStr}".
+                        Return a new CCall with name sk2 and args dynArgs.
+                    Let fn4 be "{fnName}".
+                    If funcs contains fn4:
+                        Let func2 be item fn4 of funcs.
+                        Inspect func2:
+                            When CFuncDef (fname, params, fnParamTypes, fnReturnType, body):
+                                Let callEnv be a new Map of Text to CVal.
+                                Let childSEnv be a new Map of Text to CExpr.
+                                Let dynParams be a new Seq of Text.
+                                Let mutable pidx be 1.
+                                Repeat for p in params:
+                                    Let argExpr be item pidx of peArgs.
+                                    If isStaticM(argExpr):
+                                        Let argVal be exprToValM(argExpr).
+                                        Let pk1 be "{p}".
+                                        Set item pk1 of callEnv to argVal.
+                                        Let pk2 be "{p}".
+                                        Let argExprCopy be copy of argExpr.
+                                        Set item pk2 of childSEnv to argExprCopy.
+                                    Otherwise:
+                                        Let pk3 be "{p}".
+                                        Push pk3 to dynParams.
+                                        Let pk4 be "{p}".
+                                        Set item pk4 of callEnv to a new VNothing.
+                                    Set pidx to pidx + 1.
+                                Let sk3 be "{specKeyStr}".
+                                Set item sk3 of specCache to a new CInt with value 0.
+                                Let placeholderBody be a new Seq of CStmt.
+                                Let sk4 be "{specKeyStr}".
+                                Let phDynParams be a new Seq of Text.
+                                Repeat for dp in dynParams:
+                                    Let dpCopy be "{dp}".
+                                    Push dpCopy to phDynParams.
+                                Let phPT be a new Seq of Text.
+                                Let placeholderFunc be a new CFuncDef with name sk4 and params phDynParams and paramTypes phPT and returnType "Any" and body placeholderBody.
+                                Let sk5 be "{specKeyStr}".
+                                Set item sk5 of funcs to placeholderFunc.
+                                Let childState be peStateWithEnvDepthStaticM(state, callEnv, depth - 1, childSEnv).
+                                Let peBody be peBlockM(body, childState).
+                                Let rawResultM2 be extractReturnM(peBody).
+                                Let bodyResult be validateExtractReturnM(rawResultM2, peBody).
+                                Let sk6 be "{specKeyStr}".
+                                Let spDynParams be a new Seq of Text.
+                                Repeat for dp in dynParams:
+                                    Let dpCopy be "{dp}".
+                                    Push dpCopy to spDynParams.
+                                Let spPT be a new Seq of Text.
+                                Let specFunc be a new CFuncDef with name sk6 and params spDynParams and paramTypes spPT and returnType "Any" and body peBody.
+                                Let sk7 be "{specKeyStr}".
+                                Set item sk7 of funcs to specFunc.
+                                Inspect bodyResult:
+                                    When CVar (brName):
+                                        If brName equals "__no_return__":
+                                            Let fallbackDynArgs be a new Seq of CExpr.
+                                            Repeat for pa in peArgs:
+                                                If not isStaticM(pa):
+                                                    Push pa to fallbackDynArgs.
+                                            Let sk8 be "{specKeyStr}".
+                                            Return a new CCall with name sk8 and args fallbackDynArgs.
+                                    Otherwise:
+                                        Let skip2 be true.
+                                Return bodyResult.
+                            Otherwise:
+                                Let fn5 be "{fnName}".
+                                Return a new CCall with name fn5 and args peArgs.
             Return a new CCall with name fnName and args peArgs.
         When CIndex (collExpr, idxExpr):
             Let peColl be peExprM(collExpr, state).
@@ -616,7 +790,7 @@
         Inspect s:
             When CLet (letName, letExpr):
                 Let peVal be peExprM(letExpr, state).
-                Let litV be checkLiteralM(peVal).
+                Let litV be isStaticValueM(peVal).
                 Let cpSafe be isCopyPropSafeM(peVal).
                 If cpSafe:
                     Let letNameS be "{letName}".
@@ -636,7 +810,7 @@
                     Push (a new CLet with name letName and expr peVal) to blockResult.
             When CSet (setName, setExpr):
                 Let peVal be peExprM(setExpr, state).
-                Let litV be checkLiteralM(peVal).
+                Let litV be isStaticValueM(peVal).
                 Let cpSafeS be isCopyPropSafeM(peVal).
                 If cpSafeS:
                     Let setNameS be "{setName}".
@@ -656,7 +830,7 @@
                     Push (a new CSet with name setName and expr peVal) to blockResult.
             When CIf (ifCond, thenBlock, elseBlock):
                 Let peCond be peExprM(ifCond, state).
-                Let condLit be checkLiteralM(peCond).
+                Let condLit be isStaticM(peCond).
                 If condLit:
                     Inspect peCond:
                         When CBool (b):
@@ -691,7 +865,7 @@
                         Let mvK5 be "{mv}".
                         Set item mvK5 of env to a new VNothing.
                 Let peCond be peExprM(whileCond, state).
-                Let condLitW be checkLiteralM(peCond).
+                Let condLitW be isStaticM(peCond).
                 If condLitW:
                     Inspect peCond:
                         When CBool (bW):
@@ -916,6 +1090,7 @@
             When CInspect (inspTarget, inspArms):
                 Let peTarget be peExprM(inspTarget, state).
                 Let mutable didDispatch be false.
+                Let targetStatic be isStaticM(peTarget).
                 Inspect peTarget:
                     When CNewVariant (nvTag, nvNames, nvVals):
                         Repeat for arm in inspArms:
@@ -923,9 +1098,13 @@
                                 When CWhen (wName, wBindings, wBody):
                                     If wName equals nvTag:
                                         Let mutable bidx be 1.
+                                        Let sEnvI be peStaticEnvM(state).
                                         Repeat for b in wBindings:
                                             Let bval be item bidx of nvVals.
-                                            Set item b of env to exprToValM(bval).
+                                            Let bkey1 be "{b}".
+                                            Set item bkey1 of env to exprToValM(bval).
+                                            Let bkey2 be "{b}".
+                                            Set item bkey2 of sEnvI to (copy of bval).
                                             Set bidx to bidx + 1.
                                         Let matchedBody be peBlockM(wBody, state).
                                         Repeat for ms in matchedBody:

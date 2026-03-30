@@ -117,10 +117,85 @@ fn lower_expr<'a>(
         }
 
         LogicExpr::Temporal { operator, body } => {
-            let new_body = lower_expr(body, ctx, expr_arena, term_arena, interner);
-            expr_arena.alloc(LogicExpr::Temporal {
-                operator: *operator,
-                body: new_body,
+            use crate::ast::logic::TemporalOperator;
+            match operator {
+                // LTL operators → Kripke world quantification
+                TemporalOperator::Always => {
+                    // G(φ) → ∀w'(Accessible_Temporal(w, w') → φ(w'))
+                    lower_temporal_unary(
+                        body, ctx, expr_arena, term_arena, interner,
+                        "Accessible_Temporal", true,
+                    )
+                }
+                TemporalOperator::Eventually => {
+                    // F(φ) → ∃w'(Reachable_Temporal(w, w') ∧ φ(w'))
+                    lower_temporal_unary(
+                        body, ctx, expr_arena, term_arena, interner,
+                        "Reachable_Temporal", false,
+                    )
+                }
+                TemporalOperator::Next => {
+                    // X(φ) → ∀w'(Next_Temporal(w, w') → φ(w'))
+                    lower_temporal_unary(
+                        body, ctx, expr_arena, term_arena, interner,
+                        "Next_Temporal", true,
+                    )
+                }
+                // Priorian tense operators — pass through (linguistic, not hardware)
+                TemporalOperator::Past | TemporalOperator::Future => {
+                    let new_body = lower_expr(body, ctx, expr_arena, term_arena, interner);
+                    expr_arena.alloc(LogicExpr::Temporal {
+                        operator: *operator,
+                        body: new_body,
+                    })
+                }
+            }
+        }
+
+        LogicExpr::TemporalBinary { operator, left, right } => {
+            // φ U ψ → ψ(w) ∨ (φ(w) ∧ ∃w'(Next_Temporal(w,w') ∧ (φ U ψ)(w')))
+            // For now: lower both operands with world threading
+            let new_left = lower_expr(left, ctx, expr_arena, term_arena, interner);
+            let new_right = lower_expr(right, ctx, expr_arena, term_arena, interner);
+
+            // Generate Next_Temporal accessibility for the recursive step
+            let source_world = ctx.current_world;
+            let target_world = ctx.fresh_world(interner);
+            let next_name = interner.intern("Next_Temporal");
+            let accessibility = expr_arena.alloc(LogicExpr::Predicate {
+                name: next_name,
+                args: term_arena.alloc_slice([
+                    Term::Variable(source_world),
+                    Term::Variable(target_world),
+                ]),
+                world: None,
+            });
+
+            // Build: right(w) ∨ (left(w) ∧ ∃w'(Next_Temporal(w,w') ∧ ...))
+            let recursive_body = expr_arena.alloc(LogicExpr::BinaryOp {
+                left: accessibility,
+                op: crate::token::TokenType::And,
+                right: expr_arena.alloc(LogicExpr::TemporalBinary {
+                    operator: *operator,
+                    left: new_left,
+                    right: new_right,
+                }),
+            });
+            let existential = expr_arena.alloc(LogicExpr::Quantifier {
+                kind: QuantifierKind::Existential,
+                variable: target_world,
+                body: recursive_body,
+                island_id: 0,
+            });
+            let left_and_next = expr_arena.alloc(LogicExpr::BinaryOp {
+                left: new_left,
+                op: crate::token::TokenType::And,
+                right: existential,
+            });
+            expr_arena.alloc(LogicExpr::BinaryOp {
+                left: new_right,
+                op: crate::token::TokenType::Or,
+                right: left_and_next,
             })
         }
 
@@ -305,6 +380,7 @@ fn lower_modal<'a>(
     let access_name = match vector.domain {
         ModalDomain::Alethic => interner.intern("Accessible_Alethic"),
         ModalDomain::Deontic => interner.intern("Accessible_Deontic"),
+        ModalDomain::Temporal => interner.intern("Accessible_Temporal"),
     };
 
     let accessibility = expr_arena.alloc(LogicExpr::Predicate {
@@ -335,6 +411,67 @@ fn lower_modal<'a>(
             left: accessibility,
             op: TokenType::And,
             right: lowered_operand,
+        });
+        expr_arena.alloc(LogicExpr::Quantifier {
+            kind: QuantifierKind::Existential,
+            variable: target_world,
+            body: conjunction,
+            island_id: 0,
+        })
+    }
+}
+
+/// Lower a unary LTL temporal operator into Kripke world quantification.
+///
+/// `is_universal`: true for G/X (∀w'), false for F (∃w')
+fn lower_temporal_unary<'a>(
+    body: &'a LogicExpr<'a>,
+    ctx: &mut KripkeContext,
+    expr_arena: &'a Arena<LogicExpr<'a>>,
+    term_arena: &'a Arena<Term<'a>>,
+    interner: &mut Interner,
+    predicate_name: &str,
+    is_universal: bool,
+) -> &'a LogicExpr<'a> {
+    let source_world = ctx.current_world;
+    let target_world = ctx.fresh_world(interner);
+
+    // Lower body with new current world
+    let old_world = ctx.current_world;
+    ctx.current_world = target_world;
+    let lowered_body = lower_expr(body, ctx, expr_arena, term_arena, interner);
+    ctx.current_world = old_world;
+
+    // Create temporal accessibility predicate
+    let access_name = interner.intern(predicate_name);
+    let accessibility = expr_arena.alloc(LogicExpr::Predicate {
+        name: access_name,
+        args: term_arena.alloc_slice([
+            Term::Variable(source_world),
+            Term::Variable(target_world),
+        ]),
+        world: None,
+    });
+
+    if is_universal {
+        // G/X: ∀w'(Accessible_Temporal(w, w') → φ(w'))
+        let implication = expr_arena.alloc(LogicExpr::BinaryOp {
+            left: accessibility,
+            op: TokenType::If,
+            right: lowered_body,
+        });
+        expr_arena.alloc(LogicExpr::Quantifier {
+            kind: QuantifierKind::Universal,
+            variable: target_world,
+            body: implication,
+            island_id: 0,
+        })
+    } else {
+        // F: ∃w'(Reachable_Temporal(w, w') ∧ φ(w'))
+        let conjunction = expr_arena.alloc(LogicExpr::BinaryOp {
+            left: accessibility,
+            op: TokenType::And,
+            right: lowered_body,
         });
         expr_arena.alloc(LogicExpr::Quantifier {
             kind: QuantifierKind::Existential,

@@ -16,7 +16,8 @@
 use std::fmt;
 
 use crate::ast::{
-    AspectOperator, LogicExpr, NounPhrase, QuantifierKind, TemporalOperator, VoiceOperator, Term,
+    AspectOperator, BinaryTemporalOp, LogicExpr, NounPhrase, QuantifierKind, TemporalOperator,
+    VoiceOperator, Term,
 };
 use logicaffeine_base::{Interner, Symbol};
 use crate::token::TokenType;
@@ -188,6 +189,7 @@ impl<'a> DisplayWith for LogicExpr<'a> {
                     (crate::ast::ModalDomain::Alethic, false) => "◇",
                     (crate::ast::ModalDomain::Deontic, true) => "O",
                     (crate::ast::ModalDomain::Deontic, false) => "P",
+                    (crate::ast::ModalDomain::Temporal, _) => "Temporal",
                 };
                 write!(f, "{}({})", op, operand.with(interner))
             }
@@ -195,6 +197,9 @@ impl<'a> DisplayWith for LogicExpr<'a> {
                 let op = match operator {
                     TemporalOperator::Past => "P",
                     TemporalOperator::Future => "F",
+                    TemporalOperator::Always => "G",
+                    TemporalOperator::Eventually => "F",
+                    TemporalOperator::Next => "X",
                 };
                 write!(f, "{}({})", op, body.with(interner))
             }
@@ -333,6 +338,14 @@ impl<'a> DisplayWith for LogicExpr<'a> {
                 write!(f, ") ∧ ")?;
                 body.fmt_with(interner, f)?;
                 write!(f, ")")
+            }
+            LogicExpr::TemporalBinary { operator, left, right } => {
+                let op = match operator {
+                    BinaryTemporalOp::Until => "U",
+                    BinaryTemporalOp::Release => "R",
+                    BinaryTemporalOp::WeakUntil => "W",
+                };
+                write!(f, "({} {} {})", left.with(interner), op, right.with(interner))
             }
         }
     }

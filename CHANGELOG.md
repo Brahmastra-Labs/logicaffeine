@@ -4,6 +4,19 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.9.10] - 2026-03-30
+
+### Added
+- **Hardware verification pipeline** — new `codegen_sva` module for generating SystemVerilog Assertions (SVA) from FOL specifications, with complete lexicon-to-assertion translation.
+- **Knowledge graph semantics** — `knowledge_graph.rs` module for extracting structured knowledge graphs from parsed specifications, enabling semantic analysis and equivalence checking.
+- **Hardware verification test suites** — 16 new test files (`phase_hw_*.rs`) covering SVA codegen, roundtrip, temporal logic, Z3 equivalence, Futamura projection application, and end-to-end pipeline testing.
+- **PE infrastructure improvements** — expanded Futamura projection test suite from 513 to 543 tests with additional coverage.
+
+### Changed
+- **Proof engine enhancements** — updates to `oracle.rs` and `unify.rs` for improved reasoning.
+- **Language infrastructure** — lexicon expansion, parser improvements, and semantic analysis updates across the language crate.
+- **LSP hover improvements** — enhanced hover information in `hover.rs`.
+
 ## [0.9.9] - 2026-03-29
 
 ### Added

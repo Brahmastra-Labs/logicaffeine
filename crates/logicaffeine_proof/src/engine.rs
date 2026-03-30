@@ -2085,6 +2085,11 @@ impl BackwardChainer {
                 operator: operator.clone(),
                 body: Box::new(self.simplify_definite_description_conjunction(body)),
             },
+            ProofExpr::TemporalBinary { operator, left, right } => ProofExpr::TemporalBinary {
+                operator: operator.clone(),
+                left: Box::new(self.simplify_definite_description_conjunction(left)),
+                right: Box::new(self.simplify_definite_description_conjunction(right)),
+            },
             _ => expr.clone(),
         }
     }

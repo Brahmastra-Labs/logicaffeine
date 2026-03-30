@@ -10,8 +10,8 @@
 //! The conversion functions take an [`Interner`] reference to resolve symbols.
 
 use crate::ast::{
-    AspectOperator, LogicExpr, ModalVector, NounPhrase, QuantifierKind, TemporalOperator, VoiceOperator, Term,
-    ThematicRole,
+    AspectOperator, BinaryTemporalOp, LogicExpr, ModalVector, NounPhrase, QuantifierKind,
+    TemporalOperator, VoiceOperator, Term, ThematicRole,
 };
 use logicaffeine_base::Interner;
 use crate::lexicon::Definiteness;
@@ -92,6 +92,11 @@ pub enum ExprView<'a> {
     Temporal {
         operator: TemporalOperator,
         body: Box<ExprView<'a>>,
+    },
+    TemporalBinary {
+        operator: BinaryTemporalOp,
+        left: Box<ExprView<'a>>,
+        right: Box<ExprView<'a>>,
     },
     Aspectual {
         operator: AspectOperator,
@@ -305,6 +310,11 @@ impl<'a, 'b> Resolve<'a> for LogicExpr<'b> {
             LogicExpr::Temporal { operator, body } => ExprView::Temporal {
                 operator: *operator,
                 body: Box::new(body.resolve(interner)),
+            },
+            LogicExpr::TemporalBinary { operator, left, right } => ExprView::TemporalBinary {
+                operator: *operator,
+                left: Box::new(left.resolve(interner)),
+                right: Box::new(right.resolve(interner)),
             },
             LogicExpr::Aspectual { operator, body } => ExprView::Aspectual {
                 operator: *operator,

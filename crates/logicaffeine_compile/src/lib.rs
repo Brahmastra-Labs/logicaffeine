@@ -120,6 +120,9 @@ pub mod codegen;
 #[cfg(feature = "codegen")]
 pub mod codegen_c;
 
+// SVA/PSL code generation for hardware verification
+pub mod codegen_sva;
+
 // Compilation pipeline
 pub mod compile;
 pub use compile::{CompileOutput, CrateDependency, compile_program_full, compile_to_rust};

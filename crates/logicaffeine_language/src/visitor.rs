@@ -83,6 +83,11 @@ pub fn walk_expr<'a, V: Visitor<'a>>(v: &mut V, expr: &'a LogicExpr<'a>) {
             v.visit_expr(body);
         }
 
+        LogicExpr::TemporalBinary { left, right, .. } => {
+            v.visit_expr(left);
+            v.visit_expr(right);
+        }
+
         LogicExpr::Aspectual { body, .. } => {
             v.visit_expr(body);
         }

@@ -13,7 +13,8 @@
 //! parsed expressions to the format expected by the proof search engine.
 
 use crate::ast::logic::{
-    LogicExpr, ModalDomain, ModalFlavor, QuantifierKind, TemporalOperator, Term, ThematicRole,
+    BinaryTemporalOp, LogicExpr, ModalDomain, ModalFlavor, QuantifierKind, TemporalOperator, Term,
+    ThematicRole,
 };
 use crate::intern::Interner;
 use crate::lexicon::get_canonical_noun;
@@ -123,6 +124,7 @@ pub fn logic_expr_to_proof_expr<'a>(expr: &LogicExpr<'a>, interner: &Interner) -
             let domain = match vector.domain {
                 ModalDomain::Alethic => "Alethic",
                 ModalDomain::Deontic => "Deontic",
+                ModalDomain::Temporal => "Temporal",
             };
             let flavor = match vector.flavor {
                 ModalFlavor::Root => "Root",
@@ -142,12 +144,21 @@ pub fn logic_expr_to_proof_expr<'a>(expr: &LogicExpr<'a>, interner: &Interner) -
             let op_name = match operator {
                 TemporalOperator::Past => "Past",
                 TemporalOperator::Future => "Future",
+                TemporalOperator::Always => "Always",
+                TemporalOperator::Eventually => "Eventually",
+                TemporalOperator::Next => "Next",
             };
             ProofExpr::Temporal {
                 operator: op_name.to_string(),
                 body: body_expr,
             }
         }
+
+        LogicExpr::TemporalBinary { operator, left, right } => ProofExpr::TemporalBinary {
+            operator: format!("{:?}", operator),
+            left: Box::new(logic_expr_to_proof_expr(left, interner)),
+            right: Box::new(logic_expr_to_proof_expr(right, interner)),
+        },
 
         // --- Lambda Calculus ---
         LogicExpr::Lambda { variable, body } => ProofExpr::Lambda {

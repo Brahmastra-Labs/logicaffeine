@@ -62,6 +62,31 @@ pub fn get_articles_by_tag(tag: &str) -> Vec<&'static Article> {
 /// All news articles
 static ARTICLES: &[Article] = &[
     Article {
+        slug: "release-0-9-10-hardware-verification",
+        title: "v0.9.10 — Hardware Verification Pipeline",
+        date: "2026-03-30",
+        summary: "New SVA codegen module for generating SystemVerilog Assertions from FOL specifications, knowledge graph semantics, and 16 new hardware verification test suites.",
+        content: r#"
+## Hardware Verification via Futamura Projections
+
+This release introduces the hardware verification pipeline — generating SystemVerilog Assertions (SVA) directly from natural language specifications through the existing FOL transpilation and Futamura projection infrastructure.
+
+### SVA Codegen
+
+The new `codegen_sva` module translates first-order logic specifications into SystemVerilog Assertions, enabling formal verification of hardware designs from natural language requirements.
+
+### Knowledge Graph Semantics
+
+A new `knowledge_graph.rs` module extracts structured knowledge graphs from parsed specifications, providing semantic analysis and equivalence checking capabilities for hardware verification workflows.
+
+### Test Coverage
+
+16 new test files cover the full pipeline: lexicon integration, SVA translation, temporal logic, roundtrip verification, Z3 equivalence checking, and end-to-end hardware verification through Futamura projections.
+"#,
+        tags: &["release", "hardware-verification", "sva", "knowledge-graph"],
+        author: "LOGICAFFEINE Team",
+    },
+    Article {
         slug: "release-0-9-9-futamura-validated",
         title: "v0.9.9 — All 3 Futamura Projections Validated",
         date: "2026-03-29",

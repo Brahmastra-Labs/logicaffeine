@@ -1304,7 +1304,11 @@
     { "lemma": "Yell", "class": "Activity", "regular": true },
     { "lemma": "Yield", "class": "Achievement", "regular": true },
     { "lemma": "Zip", "class": "Achievement", "forms": { "past": "zipped", "gerund": "zipping" } },
-    { "lemma": "Zone", "class": "Activity", "regular": true }
+    { "lemma": "Zone", "class": "Activity", "regular": true },
+    { "lemma": "Toggle", "class": "Achievement", "regular": true },
+    { "lemma": "Propagate", "class": "Activity", "regular": true },
+    { "lemma": "Acknowledge", "class": "Achievement", "regular": true },
+    { "lemma": "Stabilize", "class": "Achievement", "regular": true }
   ],
   "nouns": [
     { "lemma": "Man", "forms": { "plural": "men" }, "features": ["Masculine"], "sort": "Human" },
@@ -1400,7 +1404,7 @@
     { "lemma": "Actress", "features": ["Feminine"], "sort": "Human" },
     { "lemma": "Waitress", "features": ["Feminine"], "sort": "Human" },
     { "lemma": "Ring" }, { "lemma": "Thing" }, { "lemma": "Spring" }, { "lemma": "String" },
-    { "lemma": "Swing" }, { "lemma": "Wing" }, { "lemma": "Bus" }, { "lemma": "Gas" },
+    { "lemma": "Swing" }, { "lemma": "Wing" }, { "lemma": "Bus", "forms": { "plural": "buses" }, "sort": "Signal" }, { "lemma": "Gas" },
     { "lemma": "Focus" }, { "lemma": "Campus" }, { "lemma": "Status" }, { "lemma": "Bonus" },
     { "lemma": "Set", "forms": { "plural": "sets" } },
     { "lemma": "Cardinality" },
@@ -1597,7 +1601,7 @@
     { "lemma": "Iron", "sort": "Physical" }, { "lemma": "Steel", "sort": "Physical" }, { "lemma": "Copper", "sort": "Physical" },
     { "lemma": "Wood", "sort": "Physical" }, { "lemma": "Plastic", "sort": "Physical" }, { "lemma": "Paper", "features": ["Neuter"], "sort": "Physical" }, { "lemma": "Trophy", "features": ["Neuter"], "sort": "Physical" },
     { "lemma": "Cloth", "sort": "Physical" }, { "lemma": "Fabric", "sort": "Physical" }, { "lemma": "Thread", "sort": "Physical" },
-    { "lemma": "Rope", "sort": "Physical" }, { "lemma": "Wire", "sort": "Physical" }, { "lemma": "Tube", "sort": "Physical" },
+    { "lemma": "Rope", "sort": "Physical" }, { "lemma": "Wire", "sort": "Signal" }, { "lemma": "Tube", "sort": "Physical" },
     { "lemma": "Pipe", "sort": "Physical" }, { "lemma": "Hole", "sort": "Physical" }, { "lemma": "Gap", "sort": "Physical" },
     { "lemma": "Crack", "sort": "Physical" }, { "lemma": "Break", "sort": "Physical" }, { "lemma": "Cut", "sort": "Physical" },
     { "lemma": "Spot", "sort": "Physical" }, { "lemma": "Stain", "sort": "Physical" },
@@ -1663,7 +1667,7 @@
     { "lemma": "Attempt", "sort": "Abstract" }, { "lemma": "Trial", "sort": "Abstract" }, { "lemma": "Challenge", "sort": "Abstract" },
     { "lemma": "Difficulty", "sort": "Abstract" }, { "lemma": "Trouble", "sort": "Abstract" }, { "lemma": "Danger", "sort": "Abstract" },
     { "lemma": "Risk", "sort": "Abstract" }, { "lemma": "Threat", "sort": "Abstract" }, { "lemma": "Warning", "sort": "Abstract" },
-    { "lemma": "Signal", "sort": "Abstract" }, { "lemma": "Sign", "sort": "Physical" }, { "lemma": "Symbol", "sort": "Abstract" },
+    { "lemma": "Signal", "sort": "Signal" }, { "lemma": "Sign", "sort": "Physical" }, { "lemma": "Symbol", "sort": "Abstract" },
     { "lemma": "Image", "sort": "Abstract" }, { "lemma": "Picture", "sort": "Physical" }, { "lemma": "Photo", "sort": "Physical" },
     { "lemma": "Painting", "sort": "Physical" }, { "lemma": "Drawing", "sort": "Physical" }, { "lemma": "Sculpture", "sort": "Physical" },
     { "lemma": "Statue", "sort": "Physical" }, { "lemma": "Monument", "sort": "Physical" }, { "lemma": "Memorial", "sort": "Physical" },
@@ -1761,7 +1765,10 @@
     { "lemma": "Frances", "features": ["Proper", "Feminine"], "sort": "Human" },
     { "lemma": "Ann", "features": ["Proper", "Feminine"], "sort": "Human" },
     { "lemma": "Joyce", "features": ["Proper", "Feminine"], "sort": "Human" },
-    { "lemma": "Diane", "features": ["Proper", "Feminine"], "sort": "Human" }
+    { "lemma": "Diane", "features": ["Proper", "Feminine"], "sort": "Human" },
+    { "lemma": "Clock", "sort": "Signal" },
+    { "lemma": "Latch", "sort": "Signal" },
+    { "lemma": "Register", "sort": "Signal" }
   ],
   "adjectives": [
     { "lemma": "Red", "regular": true, "features": ["Intersective"] },
@@ -2148,7 +2155,7 @@
     "suddenly", "gradually", "immediately", "finally", "eventually",
     "really", "truly", "certainly", "probably", "possibly",
     "always", "never", "often", "sometimes", "rarely", "usually",
-    "please"
+    "next", "please"
   ],
   "scopal_adverbs": [
     "almost", "nearly", "barely", "hardly", "just",

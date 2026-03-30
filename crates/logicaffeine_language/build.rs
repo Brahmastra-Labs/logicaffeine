@@ -1346,6 +1346,7 @@ fn generate_lookup_sort(file: &mut fs::File, nouns: &[NounDefinition]) {
                 "Event" => "crate::lexicon::Sort::Event",
                 "Celestial" => "crate::lexicon::Sort::Celestial",
                 "Value" => "crate::lexicon::Sort::Value",
+                "Signal" => "crate::lexicon::Sort::Signal",
                 "Group" => "crate::lexicon::Sort::Group",
                 _ => continue,
             };

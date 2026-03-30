@@ -103,6 +103,10 @@ pub enum BlockType {
     Policy,
     /// `## Requires` - External crate dependency declarations.
     Requires,
+    /// `## Hardware` - Signal declarations for hardware verification.
+    Hardware,
+    /// `## Property` - Temporal assertions for hardware verification.
+    Property,
     /// `## No` - Optimization annotation (followed by Memo, TCO, Peephole, Borrow, or Optimize).
     No,
 }

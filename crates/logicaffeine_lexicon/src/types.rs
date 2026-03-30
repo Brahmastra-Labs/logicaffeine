@@ -110,6 +110,8 @@ pub enum Sort {
     Celestial,
     /// Numeric or monetary amounts.
     Value,
+    /// Hardware signals, wires, clocks, and buses.
+    Signal,
     /// Collections of individuals.
     Group,
 }

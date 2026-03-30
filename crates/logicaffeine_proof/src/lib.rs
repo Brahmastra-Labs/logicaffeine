@@ -179,10 +179,17 @@ pub enum ProofExpr {
 
     // --- Temporal Logic ---
 
-    /// Temporal operator: Past(P) or Future(P)
+    /// Temporal operator: Past(P), Future(P), Always(P), Eventually(P), Next(P)
     Temporal {
         operator: String,
         body: Box<ProofExpr>,
+    },
+
+    /// Binary temporal operator: Until(P,Q), Release(P,Q), WeakUntil(P,Q)
+    TemporalBinary {
+        operator: String,
+        left: Box<ProofExpr>,
+        right: Box<ProofExpr>,
     },
 
     // --- Lambda Calculus (CIC extension) ---
@@ -304,6 +311,9 @@ impl fmt::Display for ProofExpr {
                 write!(f, "□[{}/{}/{}]{}", domain, force, flavor, body)
             }
             ProofExpr::Temporal { operator, body } => write!(f, "{}({})", operator, body),
+            ProofExpr::TemporalBinary { operator, left, right } => {
+                write!(f, "TemporalBinary({}, {}, {})", operator, left, right)
+            }
             ProofExpr::Lambda { variable, body } => write!(f, "λ{}.{}", variable, body),
             ProofExpr::App(func, arg) => write!(f, "({} {})", func, arg),
             ProofExpr::NeoEvent { event_var, verb, roles } => {
@@ -425,6 +435,21 @@ pub enum InferenceRule {
 
     /// Logic: t1 < t2, t2 < t3 ⊢ t1 < t3
     TemporalTransitivity,
+
+    /// Logic: P(s₀), ∀s(P(s) → P(next(s))) ⊢ G(P)
+    /// Standard k-induction for hardware safety properties.
+    TemporalInduction,
+
+    /// Logic: G(P) ⊢ P ∧ X(G(P))
+    /// Fixpoint unfolding of Always.
+    TemporalUnfolding,
+
+    /// Logic: P(w) ⊢ F(P) for witness world w
+    /// Prove Eventually by exhibiting a reachable witness.
+    EventualityProgress,
+
+    /// Logic: Induction on trace length for P U Q
+    UntilInduction,
 
     // --- Peano / Inductive Reasoning (CIC seed) ---
 

@@ -663,16 +663,22 @@
 ## To decompileFunc (f: CFunc) -> Text:
     Let nl be chr(10).
     Inspect f:
-        When CFuncDef (fname, fparams, fbody):
+        When CFuncDef (fname, fparams, fparamTypes, freturnType, fbody):
             Let mutable header be "## To {fname}".
             Let mutable first be true.
+            Let mutable pidx be 1.
+            Let ptLen be length of fparamTypes.
             Repeat for p in fparams:
+                Let ptype be "Any".
+                If pidx is at most ptLen:
+                    Set ptype to item pidx of fparamTypes.
                 If first:
-                    Set header to "{header} ({p}: Any)".
+                    Set header to "{header} ({p}: {ptype})".
                     Set first to false.
                 Otherwise:
-                    Set header to "{header} and ({p}: Any)".
-            Set header to "{header} -> Any:".
+                    Set header to "{header} and ({p}: {ptype})".
+                Set pidx to pidx + 1.
+            Set header to "{header} -> {freturnType}:".
             Let bodyStr be decompileBlock(fbody, 1).
             Return "{header}{nl}{bodyStr}{nl}".
         Otherwise:

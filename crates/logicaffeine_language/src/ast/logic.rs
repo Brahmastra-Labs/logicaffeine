@@ -157,16 +157,36 @@ pub enum UnaryOpKind {
 // Temporal & Aspect Operators (Arthur Prior's Tense Logic)
 // ═══════════════════════════════════════════════════════════════════
 
-/// Prior-style tense logic operators.
+/// Temporal logic operators.
 ///
-/// Based on Arthur Prior's tense logic where P ("it was the case that")
-/// and F ("it will be the case that") are modal operators over time.
+/// Prior-style tense operators (Past, Future) for linguistic temporality.
+/// Pnueli-style LTL operators (Always, Eventually, Next) for hardware verification.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TemporalOperator {
     /// Past tense: P(φ) — "it was the case that φ".
     Past,
     /// Future tense: F(φ) — "it will be the case that φ".
     Future,
+    /// Always/Globally: G(φ) — φ holds at every future state.
+    Always,
+    /// Eventually/Finally: F(φ) — φ holds at some future state.
+    Eventually,
+    /// Next: X(φ) — φ holds at the immediate next state.
+    Next,
+}
+
+/// Binary temporal operators (LTL).
+///
+/// These require two operands and express relationships between
+/// properties over time in hardware state machines.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BinaryTemporalOp {
+    /// φ U ψ — φ holds until ψ becomes true.
+    Until,
+    /// φ R ψ — dual of Until: ψ holds until φ releases it (or forever).
+    Release,
+    /// φ W ψ — weak until: φ holds until ψ, or φ holds forever.
+    WeakUntil,
 }
 
 // ═══════════════════════════════════════════════════════════════════
@@ -340,6 +360,9 @@ pub enum ModalDomain {
     /// Deontic modality: obligation and permission.
     /// "It is obligatory that P" = P holds in all deontically ideal worlds.
     Deontic,
+    /// Temporal modality: hardware state transitions.
+    /// Accessibility = next-state relation (clock-cycle transitions).
+    Temporal,
 }
 
 /// Modal flavor affecting scope interpretation.
@@ -465,10 +488,17 @@ pub enum LogicExpr<'a> {
         operand: &'a LogicExpr<'a>,
     },
 
-    /// Tense operator: PAST(φ) or FUTURE(φ).
+    /// Tense/temporal operator: PAST(φ), FUTURE(φ), ALWAYS(φ), EVENTUALLY(φ), NEXT(φ).
     Temporal {
         operator: TemporalOperator,
         body: &'a LogicExpr<'a>,
+    },
+
+    /// Binary temporal operator: φ UNTIL ψ, φ RELEASE ψ, φ WEAKUNTIL ψ.
+    TemporalBinary {
+        operator: BinaryTemporalOp,
+        left: &'a LogicExpr<'a>,
+        right: &'a LogicExpr<'a>,
     },
 
     /// Aspect operator: PROG(φ), PERF(φ), HAB(φ), ITER(φ).

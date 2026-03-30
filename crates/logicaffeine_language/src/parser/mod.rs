@@ -739,7 +739,8 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                     BlockType::Main | BlockType::Function => ParserMode::Imperative,
                     BlockType::Theorem | BlockType::Definition | BlockType::Proof |
                     BlockType::Example | BlockType::Logic | BlockType::Note | BlockType::TypeDef |
-                    BlockType::Policy | BlockType::Requires => ParserMode::Declarative,
+                    BlockType::Policy | BlockType::Requires |
+                    BlockType::Hardware | BlockType::Property => ParserMode::Declarative,
                     BlockType::No => self.mode, // Annotation — keep current mode
                 };
                 self.current += 1;
@@ -1181,6 +1182,14 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                         // Phase 50: Policy definitions are handled by DiscoveryPass
                         // Skip content until next block header
                         in_definition_block = true;  // Reuse flag to skip content
+                        self.mode = ParserMode::Declarative;
+                        self.advance();
+                        continue;
+                    }
+                    BlockType::Hardware | BlockType::Property => {
+                        // Hardware signal declarations and temporal property assertions
+                        // Skip content until next block header
+                        in_definition_block = true;
                         self.mode = ParserMode::Declarative;
                         self.advance();
                         continue;

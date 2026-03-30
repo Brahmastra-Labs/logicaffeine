@@ -135,7 +135,7 @@ pub use session::Session;
 
 // Compile API re-exports
 pub use compile::{
-    compile, compile_simple, compile_kripke, compile_with_options,
+    compile, compile_simple, compile_kripke, compile_kripke_with, compile_with_options,
     compile_with_world_state, compile_with_world_state_options,
     compile_with_discourse, compile_with_world_state_interner_options,
     compile_all_scopes, compile_all_scopes_with_options,

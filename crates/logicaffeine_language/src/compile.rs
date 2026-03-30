@@ -61,6 +61,51 @@ pub fn compile_kripke(input: &str) -> Result<String, ParseError> {
     })
 }
 
+/// Compile to Kripke-lowered FOL and pass the AST to a callback.
+///
+/// The callback receives the Kripke-lowered LogicExpr and the Interner
+/// for symbol resolution. This avoids lifetime issues with arena-allocated ASTs.
+pub fn compile_kripke_with<F, R>(input: &str, f: F) -> Result<R, ParseError>
+where
+    F: FnOnce(&crate::ast::logic::LogicExpr<'_>, &Interner) -> R,
+{
+    let mut interner = Interner::new();
+    let mut lexer = Lexer::new(input, &mut interner);
+    let tokens = lexer.tokenize();
+
+    let mwe_trie = mwe::build_mwe_trie();
+    let tokens = mwe::apply_mwe_pipeline(tokens, &mwe_trie, &mut interner);
+
+    let type_registry = {
+        let mut discovery = analysis::DiscoveryPass::new(&tokens, &mut interner);
+        discovery.run()
+    };
+
+    let expr_arena = Arena::new();
+    let term_arena = Arena::new();
+    let np_arena = Arena::new();
+    let sym_arena = Arena::new();
+    let role_arena = Arena::new();
+    let pp_arena = Arena::new();
+
+    let ctx = AstContext::new(
+        &expr_arena,
+        &term_arena,
+        &np_arena,
+        &sym_arena,
+        &role_arena,
+        &pp_arena,
+    );
+
+    let mut world_state = drs::WorldState::new();
+    let mut parser = Parser::new(tokens, &mut world_state, &mut interner, ctx, type_registry);
+    let ast = parser.parse()?;
+    let ast = semantics::apply_axioms(ast, ctx.exprs, ctx.terms, &mut interner);
+    let ast = semantics::apply_kripke_lowering(ast, ctx.exprs, ctx.terms, &mut interner);
+
+    Ok(f(ast, &interner))
+}
+
 /// Compile natural language input to first-order logic with specified options.
 pub fn compile_with_options(input: &str, options: CompileOptions) -> Result<String, ParseError> {
     let mut interner = Interner::new();

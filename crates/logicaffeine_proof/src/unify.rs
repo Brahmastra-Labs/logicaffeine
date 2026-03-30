@@ -218,6 +218,11 @@ pub fn beta_reduce(expr: &ProofExpr) -> ProofExpr {
             operator: operator.clone(),
             body: Box::new(beta_reduce(body)),
         },
+        ProofExpr::TemporalBinary { operator, left, right } => ProofExpr::TemporalBinary {
+            operator: operator.clone(),
+            left: Box::new(beta_reduce(left)),
+            right: Box::new(beta_reduce(right)),
+        },
 
         // Reduce inside Ctor arguments
         ProofExpr::Ctor { name, args } => ProofExpr::Ctor {
@@ -369,6 +374,12 @@ fn substitute_expr_for_var(body: &ProofExpr, var: &str, replacement: &ProofExpr)
         ProofExpr::Temporal { operator, body: inner } => ProofExpr::Temporal {
             operator: operator.clone(),
             body: Box::new(substitute_expr_for_var(inner, var, replacement)),
+        },
+
+        ProofExpr::TemporalBinary { operator, left, right } => ProofExpr::TemporalBinary {
+            operator: operator.clone(),
+            left: Box::new(substitute_expr_for_var(left, var, replacement)),
+            right: Box::new(substitute_expr_for_var(right, var, replacement)),
         },
 
         ProofExpr::NeoEvent { event_var, verb, roles } => {
@@ -963,6 +974,22 @@ fn unify_exprs_with_subst(
             unify_exprs_with_subst(b1, b2, subst)
         }
 
+        // Binary temporal operators: Until(P,Q), Release(P,Q)
+        // Same operator required, then unify both children
+        (
+            ProofExpr::TemporalBinary { operator: op1, left: l1, right: r1 },
+            ProofExpr::TemporalBinary { operator: op2, left: l2, right: r2 },
+        ) => {
+            if op1 != op2 {
+                return Err(ProofError::ExprUnificationFailed {
+                    left: e1.clone(),
+                    right: e2.clone(),
+                });
+            }
+            unify_exprs_with_subst(l1, l2, subst)?;
+            unify_exprs_with_subst(r1, r2, subst)
+        }
+
         // Anything else fails
         _ => Err(ProofError::ExprUnificationFailed {
             left: e1.clone(),
@@ -1054,6 +1081,11 @@ pub fn apply_subst_to_expr(expr: &ProofExpr, subst: &Substitution) -> ProofExpr 
         ProofExpr::Temporal { operator, body } => ProofExpr::Temporal {
             operator: operator.clone(),
             body: Box::new(apply_subst_to_expr(body, subst)),
+        },
+        ProofExpr::TemporalBinary { operator, left, right } => ProofExpr::TemporalBinary {
+            operator: operator.clone(),
+            left: Box::new(apply_subst_to_expr(left, subst)),
+            right: Box::new(apply_subst_to_expr(right, subst)),
         },
         ProofExpr::Lambda { variable, body } => {
             // If the variable is being renamed (maps to a Variable), update the binder

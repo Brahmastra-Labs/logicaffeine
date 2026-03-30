@@ -280,6 +280,15 @@
         Otherwise:
             Return true.
 
+## To hasKnownTag (e: CExpr) -> Bool:
+    Inspect e:
+        When CNewVariant (tag, names, vals):
+            Return true.
+        When CNew (typeName, fieldNames, fieldExprs):
+            Return true.
+        Otherwise:
+            Return false.
+
 ## To allStatic (args: Seq of CExpr) -> Bool:
     Repeat for a in args:
         Let s be isStatic(a).
@@ -657,7 +666,7 @@
                 Let fn2 be "{fn1}".
                 Let func be item fn2 of funcs.
                 Inspect func:
-                    When CFuncDef (fname, params, body):
+                    When CFuncDef (fname, params, fnParamTypes, fnReturnType, body):
                         Let callEnv be a new Map of Text to CVal.
                         Let childSEnv be a new Map of Text to CExpr.
                         Let mutable pidx be 1.
@@ -713,7 +722,7 @@
                 Let fn4 be "{fn1}".
                 Let func2 be item fn4 of funcs.
                 Inspect func2:
-                    When CFuncDef (fname, params, body):
+                    When CFuncDef (fname, params, fnParamTypes, fnReturnType, body):
                         Let callEnv be a new Map of Text to CVal.
                         Let childSEnv be a new Map of Text to CExpr.
                         Let dynParams be a new Seq of Text.
@@ -741,7 +750,8 @@
                         Repeat for dp in dynParams:
                             Let dpCopy be "{dp}".
                             Push dpCopy to phDynParams.
-                        Let placeholderFunc be a new CFuncDef with name sk4 and params phDynParams and body placeholderBody.
+                        Let phPT be a new Seq of Text.
+                        Let placeholderFunc be a new CFuncDef with name sk4 and params phDynParams and paramTypes phPT and returnType "Any" and body placeholderBody.
                         Let sk5 be "{specKeyStr}".
                         Set item sk5 of funcs to placeholderFunc.
                         Let childState be peStateWithEnvDepthStatic(state, callEnv, depth - 1, childSEnv).
@@ -753,7 +763,8 @@
                         Repeat for dp in dynParams:
                             Let dpCopy be "{dp}".
                             Push dpCopy to spDynParams.
-                        Let specFunc be a new CFuncDef with name sk6 and params spDynParams and body peBody.
+                        Let spPT be a new Seq of Text.
+                        Let specFunc be a new CFuncDef with name sk6 and params spDynParams and paramTypes spPT and returnType "Any" and body peBody.
                         Let sk7 be "{specKeyStr}".
                         Set item sk7 of funcs to specFunc.
                         Inspect bodyResult:
@@ -771,6 +782,55 @@
                     Otherwise:
                         Let fn5 be "{fn1}".
                         Return a new CCall with name fn5 and args peArgs.
+            Let mutable hasStructArg be false.
+            Repeat for pa in peArgs:
+                If hasKnownTag(pa):
+                    Set hasStructArg to true.
+            If hasStructArg:
+                Let structKey be "struct_{fn1}".
+                Let osCheck be peOnStack(state).
+                Let mutable structSeen be false.
+                Repeat for osK in osCheck:
+                    If osK equals structKey:
+                        Set structSeen to true.
+                If not structSeen:
+                    Let fn6 be "{fn1}".
+                    If funcs contains fn6:
+                        Let func3 be item fn6 of funcs.
+                        Inspect func3:
+                            When CFuncDef (fname3, params3, fnPT3, fnRT3, body3):
+                                Let callEnv3 be a new Map of Text to CVal.
+                                Let childSEnv3 be a new Map of Text to CExpr.
+                                Let mutable pidx3 be 1.
+                                Repeat for p3 in params3:
+                                    Let argExpr3 be item pidx3 of peArgs.
+                                    Let pk31 be "{p3}".
+                                    Set item pk31 of callEnv3 to a new VNothing.
+                                    Let cpSafe3 be isCopyPropSafe(argExpr3).
+                                    If cpSafe3:
+                                        Let pk32 be "{p3}".
+                                        Set item pk32 of childSEnv3 to (copy of argExpr3).
+                                    Set pidx3 to pidx3 + 1.
+                                Let childOs3 be copy of osCheck.
+                                Let structKeyCopy be "{structKey}".
+                                Push structKeyCopy to childOs3.
+                                Let childState3 be peStateWithEnvDepthStatic(state, callEnv3, depth - 1, childSEnv3).
+                                Inspect childState3:
+                                    When PEStateR (ce, cf, cd, cse, csr, cos):
+                                        Set childState3 to a new PEStateR with env ce and funcs cf and depth cd and staticEnv cse and specResults csr and onStack childOs3.
+                                Let peBody3 be peBlock(body3, childState3).
+                                Let rawResult3 be extractReturn(peBody3).
+                                Let bodyResult3 be validateExtractReturn(rawResult3, peBody3).
+                                Inspect bodyResult3:
+                                    When CVar (brName3):
+                                        If brName3 equals "__no_return__":
+                                            Return a new CCall with name fnName and args peArgs.
+                                    Otherwise:
+                                        Let skip3 be true.
+                                Return bodyResult3.
+                            Otherwise:
+                                Let fn7 be "{fn1}".
+                                Return a new CCall with name fn7 and args peArgs.
             Return a new CCall with name fn1 and args peArgs.
         When CIndex (collExpr, idxExpr):
             Let peColl be peExpr(collExpr, state).
@@ -1316,79 +1376,105 @@
                 Push (a new CEnumDef with name edName and variants edVariants) to blockResult.
             When CInspect (inspTarget, inspArms):
                 Let peTarget be peExpr(inspTarget, state).
-                Let targetStatic be isStatic(peTarget).
-                If targetStatic:
-                    Inspect peTarget:
-                        When CNewVariant (nvTag, nvNames, nvVals):
-                            Repeat for arm in inspArms:
-                                Inspect arm:
-                                    When CWhen (wName, wBindings, wBody):
-                                        If wName equals nvTag:
-                                            Let mutable bidx be 1.
-                                            Repeat for b in wBindings:
-                                                Let bval be item bidx of nvVals.
+                Let mutable inspDispatched be false.
+                Inspect peTarget:
+                    When CNewVariant (nvTag, nvNames, nvVals):
+                        Repeat for arm in inspArms:
+                            Inspect arm:
+                                When CWhen (wName, wBindings, wBody):
+                                    If wName equals nvTag:
+                                        Let mutable bidx be 1.
+                                        Repeat for b in wBindings:
+                                            Let bval be item bidx of nvVals.
+                                            Let bvalStatic be isStatic(bval).
+                                            If bvalStatic:
                                                 Let b2 be "{b}".
                                                 Let bvalCopy be copy of bval.
                                                 Let sEnvI be peStaticEnv(state).
                                                 Set item b2 of sEnvI to bvalCopy.
                                                 Set item b of env to exprToVal(bval).
-                                                Set bidx to bidx + 1.
-                                            Let matchedBody be peBlock(wBody, state).
-                                            Repeat for ms in matchedBody:
-                                                Push ms to blockResult.
-                                            Return blockResult.
-                                    Otherwise:
-                                        Let skip be true.
+                                            Otherwise:
+                                                Let b3 be "{b}".
+                                                Set item b3 of env to a new VNothing.
+                                                Let b4 be "{b}".
+                                                Let bvalCopy2 be copy of bval.
+                                                Let sEnvI2 be peStaticEnv(state).
+                                                Set item b4 of sEnvI2 to bvalCopy2.
+                                                Push (a new CLet with name b and expr bval) to blockResult.
+                                            Set bidx to bidx + 1.
+                                        Let matchedBody be peBlock(wBody, state).
+                                        Repeat for ms in matchedBody:
+                                            Push ms to blockResult.
+                                        Set inspDispatched to true.
+                                        Return blockResult.
+                                Otherwise:
+                                    Let skip be true.
+                        If not inspDispatched:
                             Repeat for arm in inspArms:
                                 Inspect arm:
                                     When COtherwise (oBody):
                                         Let otherwiseBody be peBlock(oBody, state).
                                         Repeat for os in otherwiseBody:
                                             Push os to blockResult.
+                                        Set inspDispatched to true.
                                         Return blockResult.
                                     Otherwise:
                                         Let skip be true.
-                        When CNew (cnTypeName, cnFieldNames, cnFieldVals):
-                            Repeat for arm in inspArms:
-                                Inspect arm:
-                                    When CWhen (wName, wBindings, wBody):
-                                        If wName equals cnTypeName:
-                                            Let mutable bidx be 1.
-                                            Repeat for b in wBindings:
-                                                Let bval be item bidx of cnFieldVals.
+                    When CNew (cnTypeName, cnFieldNames, cnFieldVals):
+                        Repeat for arm in inspArms:
+                            Inspect arm:
+                                When CWhen (wName, wBindings, wBody):
+                                    If wName equals cnTypeName:
+                                        Let mutable bidx be 1.
+                                        Repeat for b in wBindings:
+                                            Let bval be item bidx of cnFieldVals.
+                                            Let bvalStatic be isStatic(bval).
+                                            If bvalStatic:
                                                 Let b2 be "{b}".
                                                 Let bvalCopy be copy of bval.
                                                 Let sEnvI be peStaticEnv(state).
                                                 Set item b2 of sEnvI to bvalCopy.
                                                 Set item b of env to exprToVal(bval).
-                                                Set bidx to bidx + 1.
-                                            Let matchedBody be peBlock(wBody, state).
-                                            Repeat for ms in matchedBody:
-                                                Push ms to blockResult.
-                                            Return blockResult.
-                                    Otherwise:
-                                        Let skip be true.
+                                            Otherwise:
+                                                Let b3 be "{b}".
+                                                Set item b3 of env to a new VNothing.
+                                                Let b4 be "{b}".
+                                                Let bvalCopy2 be copy of bval.
+                                                Let sEnvI2 be peStaticEnv(state).
+                                                Set item b4 of sEnvI2 to bvalCopy2.
+                                                Push (a new CLet with name b and expr bval) to blockResult.
+                                            Set bidx to bidx + 1.
+                                        Let matchedBody be peBlock(wBody, state).
+                                        Repeat for ms in matchedBody:
+                                            Push ms to blockResult.
+                                        Set inspDispatched to true.
+                                        Return blockResult.
+                                Otherwise:
+                                    Let skip be true.
+                        If not inspDispatched:
                             Repeat for arm in inspArms:
                                 Inspect arm:
                                     When COtherwise (oBody):
                                         Let otherwiseBody be peBlock(oBody, state).
                                         Repeat for os in otherwiseBody:
                                             Push os to blockResult.
+                                        Set inspDispatched to true.
                                         Return blockResult.
                                     Otherwise:
                                         Let skip be true.
-                        Otherwise:
-                            Let skip be true.
-                Let peArms be a new Seq of CMatchArm.
-                Repeat for arm in inspArms:
-                    Inspect arm:
-                        When CWhen (wName, wBindings, wBody):
-                            Let peBody be peBlock(wBody, state).
-                            Push (a new CWhen with variantName wName and bindings wBindings and body peBody) to peArms.
-                        When COtherwise (oBody):
-                            Let peBody be peBlock(oBody, state).
-                            Push (a new COtherwise with body peBody) to peArms.
-                Push (a new CInspect with target peTarget and arms peArms) to blockResult.
+                    Otherwise:
+                        Let skip be true.
+                If not inspDispatched:
+                    Let peArms be a new Seq of CMatchArm.
+                    Repeat for arm in inspArms:
+                        Inspect arm:
+                            When CWhen (wName, wBindings, wBody):
+                                Let peBody be peBlock(wBody, state).
+                                Push (a new CWhen with variantName wName and bindings wBindings and body peBody) to peArms.
+                            When COtherwise (oBody):
+                                Let peBody be peBlock(oBody, state).
+                                Push (a new COtherwise with body peBody) to peArms.
+                    Push (a new CInspect with target peTarget and arms peArms) to blockResult.
             When CRuntimeAssert (raCond, raMsg):
                 Let peRaCond be peExpr(raCond, state).
                 Let peRaMsg be peExpr(raMsg, state).

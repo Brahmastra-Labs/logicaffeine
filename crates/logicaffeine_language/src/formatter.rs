@@ -12,7 +12,7 @@
 
 use std::fmt::Write;
 
-use crate::ast::{AspectOperator, ModalDomain, QuantifierKind, TemporalOperator, Term, VoiceOperator};
+use crate::ast::{AspectOperator, BinaryTemporalOp, ModalDomain, QuantifierKind, TemporalOperator, Term, VoiceOperator};
 use logicaffeine_base::Interner;
 use crate::registry::SymbolRegistry;
 use crate::token::TokenType;
@@ -84,6 +84,7 @@ pub trait LogicFormatter {
             ModalDomain::Alethic => self.necessity(),
             ModalDomain::Deontic if force <= 0.5 => "P",
             ModalDomain::Deontic => "O",
+            ModalDomain::Temporal => "Temporal",
         };
         format!("{}_{{{:.1}}} {}", sym, force, body)
     }
@@ -96,12 +97,25 @@ pub trait LogicFormatter {
         let sym = match op {
             TemporalOperator::Past => self.past(),
             TemporalOperator::Future => self.future(),
+            TemporalOperator::Always => "G",
+            TemporalOperator::Eventually => "F",
+            TemporalOperator::Next => "X",
         };
         format!("{}({})", sym, body)
     }
 
     fn past(&self) -> &'static str;
     fn future(&self) -> &'static str;
+
+    // Binary temporal operators
+    fn temporal_binary(&self, op: &BinaryTemporalOp, left: &str, right: &str) -> String {
+        let sym = match op {
+            BinaryTemporalOp::Until => "U",
+            BinaryTemporalOp::Release => "R",
+            BinaryTemporalOp::WeakUntil => "W",
+        };
+        format!("({} {} {})", left, sym, right)
+    }
 
     // Aspectual operators
     fn aspectual(&self, op: &AspectOperator, body: &str) -> String {

@@ -1299,11 +1299,11 @@ pub fn encode_program_source(source: &str) -> Result<String, ParseError> {
     );
     let stmts = parser.parse_program()?;
 
-    let mut functions: Vec<(String, Vec<String>, Vec<&Stmt>)> = Vec::new();
+    let mut functions: Vec<(String, Vec<String>, Vec<String>, String, Vec<&Stmt>)> = Vec::new();
     let mut main_stmts: Vec<&Stmt> = Vec::new();
 
     for stmt in &stmts {
-        if let Stmt::FunctionDef { name, params, body, is_native, .. } = stmt {
+        if let Stmt::FunctionDef { name, params, body, return_type, is_native, .. } = stmt {
             if *is_native {
                 continue; // Skip native function declarations — they have no encodable body
             }
@@ -1312,8 +1312,15 @@ pub fn encode_program_source(source: &str) -> Result<String, ParseError> {
                 .iter()
                 .map(|(name, _)| interner.resolve(*name).to_string())
                 .collect();
+            let param_types: Vec<String> = params
+                .iter()
+                .map(|(_, ty)| decompile_type_expr(ty, &interner))
+                .collect();
+            let ret_type = return_type
+                .map(|rt| decompile_type_expr(rt, &interner))
+                .unwrap_or_else(|| "Nothing".to_string());
             let body_stmts: Vec<&Stmt> = body.iter().collect();
-            functions.push((fn_name, param_names, body_stmts));
+            functions.push((fn_name, param_names, param_types, ret_type, body_stmts));
         } else {
             main_stmts.push(stmt);
         }
@@ -1325,7 +1332,7 @@ pub fn encode_program_source(source: &str) -> Result<String, ParseError> {
     // Build the funcMap directly (Map of Text to CFunc) with fixed name
     output.push_str("Let encodedFuncMap be a new Map of Text to CFunc.\n");
 
-    for (fn_name, params, body) in &functions {
+    for (fn_name, params, param_types, ret_type, body) in &functions {
         let body_var = encode_stmt_list_src(body, &mut counter, &mut output, &interner, &variant_constructors);
 
         let params_var = format!("params_{}", counter);
@@ -1335,11 +1342,18 @@ pub fn encode_program_source(source: &str) -> Result<String, ParseError> {
             output.push_str(&format!("Push \"{}\" to {}.\n", p, params_var));
         }
 
+        let param_types_var = format!("paramTypes_{}", counter);
+        counter += 1;
+        output.push_str(&format!("Let {} be a new Seq of Text.\n", param_types_var));
+        for pt in param_types {
+            output.push_str(&format!("Push \"{}\" to {}.\n", pt, param_types_var));
+        }
+
         let func_var = format!("func_{}", counter);
         counter += 1;
         output.push_str(&format!(
-            "Let {} be a new CFuncDef with name \"{}\" and params {} and body {}.\n",
-            func_var, fn_name, params_var, body_var
+            "Let {} be a new CFuncDef with name \"{}\" and params {} and paramTypes {} and returnType \"{}\" and body {}.\n",
+            func_var, fn_name, params_var, param_types_var, ret_type, body_var
         ));
         output.push_str(&format!(
             "Set item \"{}\" of encodedFuncMap to {}.\n",
@@ -1409,19 +1423,26 @@ pub fn encode_program_source_compact(source: &str) -> Result<String, ParseError>
     );
     let stmts = parser.parse_program()?;
 
-    let mut functions: Vec<(String, Vec<String>, Vec<&Stmt>)> = Vec::new();
+    let mut functions: Vec<(String, Vec<String>, Vec<String>, String, Vec<&Stmt>)> = Vec::new();
     let mut main_stmts: Vec<&Stmt> = Vec::new();
 
     for stmt in &stmts {
-        if let Stmt::FunctionDef { name, params, body, is_native, .. } = stmt {
+        if let Stmt::FunctionDef { name, params, body, return_type, is_native, .. } = stmt {
             if *is_native { continue; }
             let fn_name = interner.resolve(*name).to_string();
             let param_names: Vec<String> = params
                 .iter()
                 .map(|(name, _)| interner.resolve(*name).to_string())
                 .collect();
+            let param_types: Vec<String> = params
+                .iter()
+                .map(|(_, ty)| decompile_type_expr(ty, &interner))
+                .collect();
+            let ret_type = return_type
+                .map(|rt| decompile_type_expr(rt, &interner))
+                .unwrap_or_else(|| "Nothing".to_string());
             let body_stmts: Vec<&Stmt> = body.iter().collect();
-            functions.push((fn_name, param_names, body_stmts));
+            functions.push((fn_name, param_names, param_types, ret_type, body_stmts));
         } else {
             main_stmts.push(stmt);
         }
@@ -1432,7 +1453,7 @@ pub fn encode_program_source_compact(source: &str) -> Result<String, ParseError>
 
     output.push_str("Let encodedFuncMap be a new Map of Text to CFunc.\n");
 
-    for (fn_name, params, body) in &functions {
+    for (fn_name, params, param_types, ret_type, body) in &functions {
         let body_var = encode_stmt_list_compact(body, &mut counter, &mut output, &interner, &variant_constructors);
 
         let params_var = format!("params_{}", counter);
@@ -1442,11 +1463,18 @@ pub fn encode_program_source_compact(source: &str) -> Result<String, ParseError>
             output.push_str(&format!("Push \"{}\" to {}.\n", p, params_var));
         }
 
+        let param_types_var = format!("paramTypes_{}", counter);
+        counter += 1;
+        output.push_str(&format!("Let {} be a new Seq of Text.\n", param_types_var));
+        for pt in param_types {
+            output.push_str(&format!("Push \"{}\" to {}.\n", pt, param_types_var));
+        }
+
         let func_var = format!("func_{}", counter);
         counter += 1;
         output.push_str(&format!(
-            "Let {} be a new CFuncDef with name \"{}\" and params {} and body {}.\n",
-            func_var, fn_name, params_var, body_var
+            "Let {} be a new CFuncDef with name \"{}\" and params {} and paramTypes {} and returnType \"{}\" and body {}.\n",
+            func_var, fn_name, params_var, param_types_var, ret_type, body_var
         ));
         output.push_str(&format!(
             "Set item \"{}\" of encodedFuncMap to {}.\n",
@@ -4052,7 +4080,7 @@ const CORE_TYPES_FOR_PE: &str = r#"
     A COtherwise with body Seq of CStmt.
 
 ## A CFunc is one of:
-    A CFuncDef with name Text and params Seq of Text and body Seq of CStmt.
+    A CFuncDef with name Text and params Seq of Text and paramTypes Seq of Text and returnType Text and body Seq of CStmt.
 
 ## A CProgram is one of:
     A CProg with funcs Seq of CFunc and main Seq of CStmt.
@@ -4412,23 +4440,31 @@ pub fn run_genuine_p3_on_target(program: &str, core_types: &str, interpreter: &s
     run_logos_source(&combined)
 }
 
-/// Genuine Futamura Projection 2 via self-application: PE(pe_source, pe_mini(targetExpr))
+/// Genuine Futamura Projection 2 via self-application: PE(pe_source, pe_mini(targetStmts))
 ///
-/// The outer PE (pe_source) specializes pe_mini's expression evaluator with known
-/// state (empty env, empty funcs, depth 200). The result contains specialized
-/// peExprM_ functions with all PE overhead removed (The Trick).
+/// The outer PE (pe_source) specializes pe_mini's FULL BLOCK evaluator with known
+/// state (empty env, empty funcs, depth 200). targetStmts is a free/dynamic variable;
+/// state is fully static. The PE produces a specialized peBlockM_ function that IS
+/// the compiler — handling all CStmt variants with specialized expression processing.
 ///
-/// Block-level compilation uses the original pe_mini source — the specialization
-/// operates at the expression level because the PE cannot specialize across the
-/// dynamic iteration in peBlockM.
+/// This eliminates the need for a Rust-generated block wrapper: the PE naturally
+/// produces block-level dispatch through specialization of peBlockM.
 pub fn projection2_source_real(_core_types: &str, _interpreter: &str) -> Result<GenuineProjectionResult, String> {
     let pe_mini = pe_mini_source_text();
     let pe = pe_source_text();
     let decompile = decompile_source_text();
 
-    // Build pe_mini program with peExprM as entry — expression-level specialization
+    // Build pe_mini program with peBlockM as entry — FULL block-level specialization.
+    // targetStmts = free/dynamic variable (program's main block).
+    // targetFuncs = free/dynamic variable (program's function definitions).
+    // env = static (empty — programs start with no bindings).
+    // depth = static (200 — PE eliminates depth checks).
+    // targetStmts is a free/dynamic variable. State is fully static (empty env,
+    // empty funcs, depth 200). The PE specializes pe_mini's dispatch code completely.
+    // The resulting compiler handles function definitions at USE time via the state
+    // parameter provided by the test harness.
     let program = format!(
-        "{}\n{}\n## Main\n    Let env be a new Map of Text to CVal.\n    Let funcs be a new Map of Text to CFunc.\n    Let state be makePeState(env, funcs, 200).\n    Let result be peExprM(targetExpr, state).\n    Inspect result:\n        When CInt (v):\n            Show v.\n        Otherwise:\n            Show \"dynamic\".\n",
+        "{}\n{}\n## Main\n    Let env be a new Map of Text to CVal.\n    Let funcs be a new Map of Text to CFunc.\n    Let state be makePeState(env, funcs, 200).\n    Let result be peBlockM(targetStmts, state).\n    Show \"done\".\n",
         CORE_TYPES_FOR_PE, pe_mini
     );
 
@@ -4460,7 +4496,7 @@ pub fn projection2_source_real(_core_types: &str, _interpreter: &str) -> Result<
                 If specFuncs contains fkStr2:
                     Let fdef be item fkStr2 of specFuncs.
                     Inspect fdef:
-                        When CFuncDef (fn0, ps0, body0):
+                        When CFuncDef (fn0, ps0, pt0, rt0, body0):
                             Let children be collectCallNames(body0).
                             Repeat for child in children:
                                 Let childStr be "{child}".
@@ -4486,8 +4522,10 @@ pub fn projection2_source_real(_core_types: &str, _interpreter: &str) -> Result<
 
     let result = run_logos_source(&combined)?;
 
-    // The decompiler outputs `Any` for parameter/return types since type info is lost
-    // during encoding. Fix specialized function signatures to use correct types.
+    // The decompiler now emits types from CFunc's paramTypes/returnType fields for
+    // functions that carry type info. PE-generated specializations may still use "Any"
+    // for types that couldn't be propagated through specialization. Apply type fixup
+    // as a safety net for any remaining "Any" types in specialized function signatures.
     let result = fix_decompiled_types(&result, &[
         ("peExprM_", "(e: CExpr) -> CExpr:"),
         ("peBlockM_", "(stmts: Seq of CStmt) -> Seq of CStmt:"),
@@ -4512,9 +4550,11 @@ pub fn projection2_source_real(_core_types: &str, _interpreter: &str) -> Result<
         ("peStateWithEnvDepthStaticM_", "(st: PEMiniState) and (newEnv: Map of Text to CVal) and (d: Int) and (newSe: Map of Text to CExpr) -> PEMiniState:"),
     ]);
 
-    let (_block_entry, expr_entry) = discover_entry_points(&result, "peBlockM_", "peExprM_");
-    let expr_fn = expr_entry.as_ref()
-        .ok_or_else(|| "Genuine P2: no peExprM_ entry found in residual".to_string())?;
+    // Discover the PE-generated block entry point — this IS the compiler.
+    let (block_entry, expr_entry) = discover_entry_points(&result, "peBlockM_", "peExprM_");
+    if block_entry.is_empty() {
+        return Err("Genuine P2: no peBlockM_ entry found in residual".to_string());
+    }
 
     // Strip the ## Main block from the residual — we only need the specialized function
     // definitions. The test harness provides its own ## Main.
@@ -4525,13 +4565,18 @@ pub fn projection2_source_real(_core_types: &str, _interpreter: &str) -> Result<
     // Include the original pe_mini source so these helpers are available.
     let pe_mini_helpers = pe_mini_source_text();
 
-    // Generate block wrapper that delegates to the genuine specialized expr function
-    let wrapper = generate_block_wrapper(expr_fn, "compileBlock");
+    // No Rust-generated block wrapper needed — the PE produced a specialized peBlockM_
+    // function that handles all CStmt variants with specialized expression processing.
+    // Generate a thin alias for backward compatibility.
+    let alias = format!(
+        "\n## To compileBlock (stmts: Seq of CStmt) -> Seq of CStmt:\n    Return {}(stmts).\n",
+        block_entry
+    );
 
-    // Combine: pe_mini helpers first (authoritative), then specialized functions, then wrapper.
+    // Combine: pe_mini helpers first (authoritative), then specialized functions, then alias.
     // Deduplicate: if the decompiled residual redefines a pe_mini function (unspecialized),
     // the dedup removes the second definition, keeping the original pe_mini version.
-    let combined = format!("{}\n{}\n{}", pe_mini_helpers, func_defs_only, wrapper);
+    let combined = format!("{}\n{}\n{}", pe_mini_helpers, func_defs_only, alias);
     let full_source = deduplicate_functions(&combined);
 
     Ok(GenuineProjectionResult {
@@ -4541,13 +4586,13 @@ pub fn projection2_source_real(_core_types: &str, _interpreter: &str) -> Result<
     })
 }
 
-/// Run genuine PE(pe_source, pe_mini(targetExpr)) and return the specialized
+/// Run genuine PE(pe_source, pe_mini(targetStmts)) and return the specialized
 /// compiler residual as LOGOS source code.
 ///
 /// This is the actual Futamura Projection 2: the outer PE (pe_source) specializes
-/// pe_mini's peExprM with known state (empty env, empty funcs, depth 200).
-/// The result is a specialized compiler function that takes a target CExpr and
-/// compiles it with pe_mini's dispatch logic partially evaluated away.
+/// pe_mini's peBlockM with known state (empty env, empty funcs, depth 200).
+/// The result is a specialized compiler function that takes target statements and
+/// compiles them with pe_mini's dispatch logic partially evaluated away.
 ///
 /// Returns the decompiled LOGOS source of the genuine P2 residual, including
 /// specialized function definitions extracted from peFuncs.
@@ -4556,9 +4601,9 @@ pub fn genuine_projection2_residual() -> Result<String, String> {
     let pe = pe_source_text();
     let decompile = decompile_source_text();
 
-    // Build pe_mini program with a free variable target
+    // Build pe_mini program with peBlockM as entry — full block-level specialization
     let program = format!(
-        "{}\n{}\n## Main\n    Let env be a new Map of Text to CVal.\n    Let funcs be a new Map of Text to CFunc.\n    Let state be makePeState(env, funcs, 200).\n    Let result be peExprM(targetExpr, state).\n    Inspect result:\n        When CInt (v):\n            Show v.\n        Otherwise:\n            Show \"dynamic\".\n",
+        "{}\n{}\n## Main\n    Let env be a new Map of Text to CVal.\n    Let funcs be a new Map of Text to CFunc.\n    Let state be makePeState(env, funcs, 200).\n    Let result be peBlockM(targetStmts, state).\n    Show \"done\".\n",
         CORE_TYPES_FOR_PE, pe_mini
     );
 
@@ -4610,9 +4655,9 @@ pub fn genuine_projection3_residual() -> Result<String, String> {
         .replace("specResults", "memoCache")
         .replace("onStack", "callGuard");
 
-    // Build pe_bti program with a free variable target
+    // Build pe_bti program with peBlockB as entry — full block-level specialization
     let program = format!(
-        "{}\n{}\n## Main\n    Let env be a new Map of Text to CVal.\n    Let funcs be a new Map of Text to CFunc.\n    Let state be makePeState(env, funcs, 200).\n    Let result be peExprB(targetExpr, state).\n    Inspect result:\n        When CInt (v):\n            Show v.\n        Otherwise:\n            Show \"dynamic\".\n",
+        "{}\n{}\n## Main\n    Let env be a new Map of Text to CVal.\n    Let funcs be a new Map of Text to CFunc.\n    Let state be makePeState(env, funcs, 200).\n    Let result be peBlockB(targetStmts, state).\n    Show \"done\".\n",
         bti_types, pe_bti
     );
 
@@ -4646,12 +4691,12 @@ pub fn genuine_projection3_residual() -> Result<String, String> {
 
 /// Genuine Futamura Projection 3 via self-application: PE(pe_source, pe_bti(targetStmts))
 ///
-/// The outer PE (pe_source) specializes pe_bti (a full PE with memoization,
-/// structurally identical to pe_source with renamed entry points) with known
-/// state (empty env, empty funcs, depth 200). This is genuinely PE(PE, PE).
+/// The outer PE (pe_source) specializes pe_bti's FULL BLOCK evaluator (a full PE with
+/// memoization, structurally identical to pe_source with renamed entry points) with
+/// known state (empty env, empty funcs, depth 200). This is genuinely PE(PE, PE).
 ///
-/// The result is a specialized cogen: a program generator that takes a target
-/// program and produces a compiler for it.
+/// The result is a specialized cogen: the PE naturally produces block-level dispatch
+/// through specialization of peBlockB, eliminating the need for a Rust-generated wrapper.
 pub fn projection3_source_real(_core_types: &str) -> Result<GenuineProjectionResult, String> {
     let pe_bti = pe_bti_source_text();
     let pe = pe_source_text();
@@ -4662,9 +4707,9 @@ pub fn projection3_source_real(_core_types: &str) -> Result<GenuineProjectionRes
         .replace("specResults", "memoCache")
         .replace("onStack", "callGuard");
 
-    // Build pe_bti program with peExprB as entry — expression-level specialization
+    // Build pe_bti program with peBlockB as entry — FULL block-level specialization.
     let program = format!(
-        "{}\n{}\n## Main\n    Let env be a new Map of Text to CVal.\n    Let funcs be a new Map of Text to CFunc.\n    Let state be makePeState(env, funcs, 200).\n    Let result be peExprB(targetExpr, state).\n    Inspect result:\n        When CInt (v):\n            Show v.\n        Otherwise:\n            Show \"dynamic\".\n",
+        "{}\n{}\n## Main\n    Let env be a new Map of Text to CVal.\n    Let funcs be a new Map of Text to CFunc.\n    Let state be makePeState(env, funcs, 200).\n    Let result be peBlockB(targetStmts, state).\n    Show \"done\".\n",
         bti_types, pe_bti
     );
 
@@ -4694,7 +4739,7 @@ pub fn projection3_source_real(_core_types: &str) -> Result<GenuineProjectionRes
                 If specFuncs contains fkStr2:
                     Let fdef be item fkStr2 of specFuncs.
                     Inspect fdef:
-                        When CFuncDef (fn0, ps0, body0):
+                        When CFuncDef (fn0, ps0, pt0, rt0, body0):
                             Let children be collectCallNames(body0).
                             Repeat for child in children:
                                 Let childStr be "{child}".
@@ -4721,6 +4766,7 @@ pub fn projection3_source_real(_core_types: &str) -> Result<GenuineProjectionRes
     let result = run_logos_source(&combined)?;
 
     // Fix decompiled types for pe_bti specialized functions (B suffix)
+    // Fix decompiled types for pe_bti specialized functions (B suffix)
     let result = fix_decompiled_types(&result, &[
         ("peExprB_", "(e: CExpr) -> CExpr:"),
         ("peBlockB_", "(stmts: Seq of CStmt) -> Seq of CStmt:"),
@@ -4739,9 +4785,11 @@ pub fn projection3_source_real(_core_types: &str) -> Result<GenuineProjectionRes
         ("collectSetVars_", "(stmts: Seq of CStmt) -> Seq of Text:"),
     ]);
 
-    let (_block_entry, expr_entry) = discover_entry_points(&result, "peBlockB_", "peExprB_");
-    let expr_fn = expr_entry.as_ref()
-        .ok_or_else(|| "Genuine P3: no peExprB_ entry found in residual".to_string())?;
+    // Discover the PE-generated block entry point — this IS the cogen.
+    let (block_entry, expr_entry) = discover_entry_points(&result, "peBlockB_", "peExprB_");
+    if block_entry.is_empty() {
+        return Err("Genuine P3: no peBlockB_ entry found in residual".to_string());
+    }
 
     // Strip the ## Main block — we only need the specialized function definitions
     let func_defs_only = strip_main_block(&result);
@@ -4749,9 +4797,13 @@ pub fn projection3_source_real(_core_types: &str) -> Result<GenuineProjectionRes
     // Include pe_bti helpers (unspecialized functions called by specialized ones)
     let pe_bti_helpers = pe_bti_source_text();
 
-    // Generate block wrapper that delegates to the genuine specialized expr function
-    let wrapper = generate_block_wrapper(expr_fn, "cogenBlock");
-    let combined = format!("{}\n{}\n{}", pe_bti_helpers, func_defs_only, wrapper);
+    // No Rust-generated block wrapper needed — the PE produced a specialized peBlockB_
+    // function. Generate a thin alias for backward compatibility.
+    let alias = format!(
+        "\n## To cogenBlock (stmts: Seq of CStmt) -> Seq of CStmt:\n    Return {}(stmts).\n",
+        block_entry
+    );
+    let combined = format!("{}\n{}\n{}", pe_bti_helpers, func_defs_only, alias);
     let full_source = deduplicate_functions(&combined);
 
     Ok(GenuineProjectionResult {
@@ -4838,10 +4890,9 @@ fn extract_main_block(source: &str) -> String {
 }
 
 /// Fix decompiled function signatures: replace `(param: Any) -> Any:` with correct types.
-/// The decompiler loses type information during encoding, so specialized functions
-/// get `Any` types. This restores the correct types based on function name prefixes.
+/// PE-generated specializations still use "Any" for types the PE couldn't propagate.
+/// This restores correct types based on function name prefixes.
 fn fix_decompiled_types(source: &str, type_map: &[(&str, &str)]) -> String {
-    // First pass: fix function signatures (Any → correct types)
     let mut result = String::with_capacity(source.len());
     for line in source.lines() {
         let trimmed = line.trim();
@@ -4864,162 +4915,12 @@ fn fix_decompiled_types(source: &str, type_map: &[(&str, &str)]) -> String {
             result.push('\n');
         }
     }
-    // Second pass: fix `Any` in collection constructors and parameter types in function bodies.
-    // The decompiler uses `Any` because CNewSeq/CNewSet lose element type info.
-    // In the PE-specialized context, sequences always hold CExpr and sets hold CExpr.
     let result = result
         .replace("Seq of Any", "Seq of CExpr")
         .replace("Set of Any", "Set of CExpr")
         .replace(": Any)", ": CExpr)")
         .replace("-> Any:", "-> CExpr:");
-
     result
-}
-
-/// Generate a LOGOS block-level wrapper that iterates statements and delegates
-/// expression processing to a genuine specialized peExprM_/peExprB_ function.
-///
-/// The wrapper handles all 54 CStmt variants, applying `expr_entry` to every
-/// CExpr sub-field and recursing `wrapper_name` into every nested Seq of CStmt.
-fn generate_block_wrapper(expr_entry: &str, wrapper_name: &str) -> String {
-    format!(r#"
-## To {wrapper_name} (stmts: Seq of CStmt) -> Seq of CStmt:
-    Let result be a new Seq of CStmt.
-    Repeat for s in stmts:
-        Inspect s:
-            When CLet (name, expr):
-                Push (a new CLet with name name and expr {expr_entry}(expr)) to result.
-            When CSet (name, expr):
-                Push (a new CSet with name name and expr {expr_entry}(expr)) to result.
-            When CIf (cond, thenBlock, elseBlock):
-                Push (a new CIf with cond {expr_entry}(cond) and thenBlock {wrapper_name}(thenBlock) and elseBlock {wrapper_name}(elseBlock)) to result.
-            When CWhile (cond, body):
-                Push (a new CWhile with cond {expr_entry}(cond) and body {wrapper_name}(body)) to result.
-            When CReturn (expr):
-                Push (a new CReturn with expr {expr_entry}(expr)) to result.
-            When CShow (expr):
-                Push (a new CShow with expr {expr_entry}(expr)) to result.
-            When CCallS (name, args):
-                Let newArgs be a new Seq of CExpr.
-                Repeat for a in args:
-                    Push {expr_entry}(a) to newArgs.
-                Push (a new CCallS with name name and args newArgs) to result.
-            When CPush (expr, target):
-                Push (a new CPush with expr {expr_entry}(expr) and target target) to result.
-            When CSetIdx (target, idx, val):
-                Push (a new CSetIdx with target target and idx {expr_entry}(idx) and val {expr_entry}(val)) to result.
-            When CMapSet (target, key, val):
-                Push (a new CMapSet with target target and key {expr_entry}(key) and val {expr_entry}(val)) to result.
-            When CPop (target):
-                Push (a new CPop with target target) to result.
-            When CRepeat (repVar, coll, body):
-                Push (a new CRepeat with var repVar and coll {expr_entry}(coll) and body {wrapper_name}(body)) to result.
-            When CRepeatRange (rrVar, start, end, body):
-                Push (a new CRepeatRange with var rrVar and start {expr_entry}(start) and end {expr_entry}(end) and body {wrapper_name}(body)) to result.
-            When CBreak:
-                Push a new CBreak to result.
-            When CAdd (elem, target):
-                Push (a new CAdd with elem {expr_entry}(elem) and target target) to result.
-            When CRemove (elem, target):
-                Push (a new CRemove with elem {expr_entry}(elem) and target target) to result.
-            When CSetField (target, field, val):
-                Push (a new CSetField with target target and field field and val {expr_entry}(val)) to result.
-            When CStructDef (sdName, sdFields):
-                Push (a new CStructDef with name sdName and fieldNames sdFields) to result.
-            When CInspect (target, arms):
-                Let newArms be a new Seq of CMatchArm.
-                Repeat for arm in arms:
-                    Inspect arm:
-                        When CWhen (vn, bindings, body):
-                            Push (a new CWhen with variantName vn and bindings bindings and body {wrapper_name}(body)) to newArms.
-                        When COtherwise (body):
-                            Push (a new COtherwise with body {wrapper_name}(body)) to newArms.
-                Push (a new CInspect with target {expr_entry}(target) and arms newArms) to result.
-            When CEnumDef (edName, edVariants):
-                Push (a new CEnumDef with name edName and variants edVariants) to result.
-            When CRuntimeAssert (raCond, raMsg):
-                Push (a new CRuntimeAssert with cond {expr_entry}(raCond) and msg {expr_entry}(raMsg)) to result.
-            When CGive (giveExpr, giveTarget):
-                Push (a new CGive with expr {expr_entry}(giveExpr) and target giveTarget) to result.
-            When CEscStmt (escCode):
-                Push (a new CEscStmt with code escCode) to result.
-            When CSleep (dur):
-                Push (a new CSleep with duration {expr_entry}(dur)) to result.
-            When CReadConsole (rcTarget):
-                Push (a new CReadConsole with target rcTarget) to result.
-            When CReadFile (rfPath, rfTarget):
-                Push (a new CReadFile with path {expr_entry}(rfPath) and target rfTarget) to result.
-            When CWriteFile (wfPath, wfContent):
-                Push (a new CWriteFile with path {expr_entry}(wfPath) and content {expr_entry}(wfContent)) to result.
-            When CCheck (chkPred, chkMsg):
-                Push (a new CCheck with predicate {expr_entry}(chkPred) and msg {expr_entry}(chkMsg)) to result.
-            When CAssert (assertProp):
-                Push (a new CAssert with proposition {expr_entry}(assertProp)) to result.
-            When CTrust (trustProp, trustJust):
-                Push (a new CTrust with proposition {expr_entry}(trustProp) and justification trustJust) to result.
-            When CRequire (reqDep):
-                Push (a new CRequire with dependency reqDep) to result.
-            When CMerge (mergeTarget, mergeOther):
-                Push (a new CMerge with target mergeTarget and other {expr_entry}(mergeOther)) to result.
-            When CIncrease (incTarget, incAmount):
-                Push (a new CIncrease with target incTarget and amount {expr_entry}(incAmount)) to result.
-            When CDecrease (decTarget, decAmount):
-                Push (a new CDecrease with target decTarget and amount {expr_entry}(decAmount)) to result.
-            When CAppendToSeq (asTarget, asValue):
-                Push (a new CAppendToSeq with target asTarget and value {expr_entry}(asValue)) to result.
-            When CResolve (resTarget):
-                Push (a new CResolve with target resTarget) to result.
-            When CSync (syncTarget, syncChannel):
-                Push (a new CSync with target syncTarget and channel {expr_entry}(syncChannel)) to result.
-            When CMount (mountTarget, mountPath):
-                Push (a new CMount with target mountTarget and path {expr_entry}(mountPath)) to result.
-            When CConcurrent (concBranches):
-                Let newBranches be a new Seq of Seq of CStmt.
-                Repeat for branch in concBranches:
-                    Push {wrapper_name}(branch) to newBranches.
-                Push (a new CConcurrent with branches newBranches) to result.
-            When CParallel (parBranches):
-                Let newBranches be a new Seq of Seq of CStmt.
-                Repeat for branch in parBranches:
-                    Push {wrapper_name}(branch) to newBranches.
-                Push (a new CParallel with branches newBranches) to result.
-            When CLaunchTask (ltBody, ltHandle):
-                Push (a new CLaunchTask with body {wrapper_name}(ltBody) and handle ltHandle) to result.
-            When CStopTask (stHandle):
-                Push (a new CStopTask with handle {expr_entry}(stHandle)) to result.
-            When CSelect (selBranches):
-                Let newBranches be a new Seq of CSelectBranch.
-                Repeat for br in selBranches:
-                    Inspect br:
-                        When CSelectRecv (chan, bvar, body):
-                            Push (a new CSelectRecv with chan chan and var bvar and body {wrapper_name}(body)) to newBranches.
-                        When CSelectTimeout (dur, body):
-                            Push (a new CSelectTimeout with duration {expr_entry}(dur) and body {wrapper_name}(body)) to newBranches.
-                Push (a new CSelect with branches newBranches) to result.
-            When CCreatePipe (cpName, cpCapacity):
-                Push (a new CCreatePipe with name cpName and capacity {expr_entry}(cpCapacity)) to result.
-            When CSendPipe (spPipe, spValue):
-                Push (a new CSendPipe with chan spPipe and value {expr_entry}(spValue)) to result.
-            When CReceivePipe (rpPipe, rpTarget):
-                Push (a new CReceivePipe with chan rpPipe and target rpTarget) to result.
-            When CTrySendPipe (tspPipe, tspValue):
-                Push (a new CTrySendPipe with chan tspPipe and value {expr_entry}(tspValue)) to result.
-            When CTryReceivePipe (trpPipe, trpTarget):
-                Push (a new CTryReceivePipe with chan trpPipe and target trpTarget) to result.
-            When CSpawn (spawnType, spawnTarget):
-                Push (a new CSpawn with agentType spawnType and target spawnTarget) to result.
-            When CSendMessage (smTarget, smMsg):
-                Push (a new CSendMessage with target {expr_entry}(smTarget) and msg {expr_entry}(smMsg)) to result.
-            When CAwaitMessage (amTarget):
-                Push (a new CAwaitMessage with target amTarget) to result.
-            When CListen (listenAddr, listenHandler):
-                Push (a new CListen with addr {expr_entry}(listenAddr) and handler listenHandler) to result.
-            When CConnectTo (connAddr, connTarget):
-                Push (a new CConnectTo with addr {expr_entry}(connAddr) and target connTarget) to result.
-            When CZone (zoneName, zoneKind, zoneBody):
-                Push (a new CZone with name zoneName and kind zoneKind and body {wrapper_name}(zoneBody)) to result.
-    Return result.
-"#, wrapper_name = wrapper_name, expr_entry = expr_entry)
 }
 
 fn replace_word(source: &str, from: &str, to: &str) -> String {

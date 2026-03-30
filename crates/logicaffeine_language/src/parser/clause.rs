@@ -159,6 +159,64 @@ impl<'a, 'ctx, 'int> ClauseParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int> {
             }));
         }
 
+        // Sentence-initial temporal operators for hardware verification:
+        // "Always, P" → Temporal { Always, P }
+        // "Eventually, P" → Temporal { Eventually, P }
+        // "Next, P" → Temporal { Next, P }
+        // "Never P" → Temporal { Always, ¬P }
+        {
+            let temporal_op = match &self.peek().kind {
+                TokenType::Adverb(sym) | TokenType::ScopalAdverb(sym) | TokenType::TemporalAdverb(sym) => {
+                    let resolved = self.interner.resolve(*sym).to_string();
+                    match resolved.as_str() {
+                        "Always" => Some(crate::ast::logic::TemporalOperator::Always),
+                        "Eventually" => Some(crate::ast::logic::TemporalOperator::Eventually),
+                        "Next" => Some(crate::ast::logic::TemporalOperator::Next),
+                        _ => None,
+                    }
+                }
+                // Handle "next" as an adjective token (common fallback)
+                TokenType::Adjective(sym) => {
+                    let resolved = self.interner.resolve(*sym).to_string();
+                    if resolved == "Next" {
+                        Some(crate::ast::logic::TemporalOperator::Next)
+                    } else {
+                        None
+                    }
+                }
+                _ => None,
+            };
+            if let Some(op) = temporal_op {
+                self.advance(); // consume the token
+                // Optionally consume comma: "Always, P"
+                if self.check(&TokenType::Comma) {
+                    self.advance();
+                }
+                let body = self.parse_sentence()?;
+                return Ok(self.ctx.exprs.alloc(LogicExpr::Temporal {
+                    operator: op,
+                    body,
+                }));
+            }
+        }
+        // "Never P" → G(¬P): Always { Not { P } }
+        if self.check(&TokenType::Never) {
+            self.advance(); // consume "Never"
+            // Optionally consume comma
+            if self.check(&TokenType::Comma) {
+                self.advance();
+            }
+            let body = self.parse_sentence()?;
+            let negated = self.ctx.exprs.alloc(LogicExpr::UnaryOp {
+                op: TokenType::Not,
+                operand: body,
+            });
+            return Ok(self.ctx.exprs.alloc(LogicExpr::Temporal {
+                operator: crate::ast::logic::TemporalOperator::Always,
+                body: negated,
+            }));
+        }
+
         self.parse_disjunction()
     }
 

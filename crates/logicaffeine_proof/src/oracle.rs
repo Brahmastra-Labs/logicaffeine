@@ -427,6 +427,12 @@ pub fn proof_expr_to_verify_expr(expr: &ProofExpr) -> Option<VerifyExpr> {
             Some(VerifyExpr::apply(operator, vec![b]))
         }
 
+        ProofExpr::TemporalBinary { operator, left, right } => {
+            let l = proof_expr_to_verify_expr(left)?;
+            let r = proof_expr_to_verify_expr(right)?;
+            Some(VerifyExpr::apply(operator, vec![l, r]))
+        }
+
         // Inductive types - unsupported for now
         ProofExpr::Ctor { .. }
         | ProofExpr::Match { .. }
