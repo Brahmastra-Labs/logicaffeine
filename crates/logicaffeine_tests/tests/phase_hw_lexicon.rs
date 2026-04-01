@@ -54,34 +54,54 @@ fn always_outside_property_block_remains_adverb() {
 // ═══════════════════════════════════════════════════════════════════════════
 
 #[test]
-fn clock_noun_parses() {
+fn clock_noun_parses_and_appears_in_fol() {
     let input = "The clock rises.";
     let result = compile(input);
     assert!(result.is_ok(), "Clock noun should parse: {:?}", result.err());
+    let output = result.unwrap();
+    assert!(
+        output.contains("Clock") || output.contains("clock") || output.contains("Rise"),
+        "FOL output must reference the clock noun or the rise predicate. Got: {}",
+        output
+    );
 }
 
 #[test]
-fn high_adjective_parses() {
+fn high_adjective_parses_and_appears_in_fol() {
     let input = "The signal is high.";
     let result = compile(input);
     assert!(result.is_ok(), "High adjective should parse: {:?}", result.err());
+    let output = result.unwrap();
+    assert!(
+        output.contains("High") || output.contains("high"),
+        "FOL output must contain 'High' predicate from intersective adjective. Got: {}",
+        output
+    );
 }
 
 #[test]
-fn low_adjective_parses() {
+fn low_adjective_parses_and_appears_in_fol() {
     let input = "The signal is low.";
     let result = compile(input);
     assert!(result.is_ok(), "Low adjective should parse: {:?}", result.err());
+    let output = result.unwrap();
+    assert!(
+        output.contains("Low") || output.contains("low"),
+        "FOL output must contain 'Low' predicate from intersective adjective. Got: {}",
+        output
+    );
 }
 
 #[test]
-fn toggle_verb_parses() {
+fn toggle_verb_parses_and_appears_in_fol() {
     let input = "The signal toggles.";
     let result = compile(input);
+    assert!(result.is_ok(), "Toggle verb should parse: {:?}", result.err());
+    let output = result.unwrap();
     assert!(
-        result.is_ok(),
-        "Toggle verb should parse: {:?}",
-        result.err()
+        output.contains("Toggle") || output.contains("toggle"),
+        "FOL output must contain 'Toggle' event predicate. Got: {}",
+        output
     );
 }
 

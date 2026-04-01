@@ -575,6 +575,159 @@ impl VerificationSession {
         solver.pop(1);
         result
     }
+
+    /// Verify a temporal property via bounded model checking.
+    ///
+    /// Unrolls the transition relation `bound` steps and checks if the property
+    /// holds at every unrolled state.
+    ///
+    /// - `initial`: constraint on the initial state (e.g., `s == 0`)
+    /// - `transition`: constraint relating current state to next state
+    /// - `property`: the property to verify at each state
+    /// - `bound`: number of unrolling steps
+    ///
+    /// Returns `Ok(())` if the property holds at all unrolled states,
+    /// or an error with counterexample if a violation is found.
+    pub fn verify_temporal(
+        &self,
+        initial: &VerifyExpr,
+        transition: &VerifyExpr,
+        property: &VerifyExpr,
+        bound: u32,
+    ) -> VerificationResult {
+        let mut cfg = Config::new();
+        cfg.set_param_value("timeout", "10000");
+        let ctx = Context::new(&cfg);
+        let solver = Solver::new(&ctx);
+
+        // Declare state variables for each step: s_0, s_1, ..., s_bound
+        let mut step_vars: HashMap<String, VerifyType> = self.vars.clone();
+
+        // For each step, create renamed variables and assert constraints
+        for step in 0..=bound {
+            let suffix = format!("_{}", step);
+
+            // Substitute "s" → "s_0", "s" → "s_1", etc. in expressions
+            let step_initial = rename_var_in_expr(initial, "s", &format!("s{}", suffix));
+            let step_property = rename_var_in_expr(property, "s", &format!("s{}", suffix));
+
+            step_vars.insert(format!("s{}", suffix), VerifyType::Int);
+
+            let encoder = Encoder::new(&ctx, &step_vars);
+
+            // Assert initial condition at step 0
+            if step == 0 {
+                let init_ast = encoder.encode(&step_initial);
+                if let Some(b) = init_ast.as_bool() {
+                    solver.assert(&b);
+                }
+            }
+
+            // Assert transition between consecutive steps
+            if step < bound {
+                let next_suffix = format!("_{}", step + 1);
+                let step_trans = rename_var_in_expr(
+                    &rename_var_in_expr(transition, "s", &format!("s{}", suffix)),
+                    "s_next",
+                    &format!("s{}", next_suffix),
+                );
+                let trans_ast = encoder.encode(&step_trans);
+                if let Some(b) = trans_ast.as_bool() {
+                    solver.assert(&b);
+                }
+            }
+
+            // Check if property can be violated at this step
+            let prop_ast = encoder.encode(&step_property);
+            if let Some(b) = prop_ast.as_bool() {
+                solver.push();
+                solver.assert(&b.not());
+                if solver.check() == SatResult::Sat {
+                    solver.pop(1);
+                    return Err(VerificationError::contradiction(
+                        &format!("Property violated at step {}", step),
+                        None,
+                    ));
+                }
+                solver.pop(1);
+            }
+        }
+
+        Ok(())
+    }
+}
+
+/// Rename a variable in a VerifyExpr (simple textual substitution).
+/// Recursively traverses ALL variants — no silent drops.
+pub fn rename_var_in_expr(expr: &VerifyExpr, from: &str, to: &str) -> VerifyExpr {
+    use crate::ir::BitVecOp;
+    let r = |e: &VerifyExpr| rename_var_in_expr(e, from, to);
+    match expr {
+        // Leaf: variable — rename if matches
+        VerifyExpr::Var(name) => {
+            if name == from { VerifyExpr::Var(to.to_string()) } else { expr.clone() }
+        }
+        // Leaves: literals — no variables to rename
+        VerifyExpr::Int(_) | VerifyExpr::Bool(_) | VerifyExpr::BitVecConst { .. } => expr.clone(),
+
+        // Binary: recurse both sides
+        VerifyExpr::Binary { op, left, right } => VerifyExpr::Binary {
+            op: *op,
+            left: Box::new(r(left)),
+            right: Box::new(r(right)),
+        },
+        VerifyExpr::Not(inner) => VerifyExpr::Not(Box::new(r(inner))),
+        VerifyExpr::Iff(l, ri) => VerifyExpr::Iff(Box::new(r(l)), Box::new(r(ri))),
+
+        // Quantifiers: recurse body (bound vars are separate names, won't collide)
+        VerifyExpr::ForAll { vars, body } => VerifyExpr::ForAll {
+            vars: vars.clone(),
+            body: Box::new(r(body)),
+        },
+        VerifyExpr::Exists { vars, body } => VerifyExpr::Exists {
+            vars: vars.clone(),
+            body: Box::new(r(body)),
+        },
+
+        // Apply: recurse all args
+        VerifyExpr::Apply { name, args } => VerifyExpr::Apply {
+            name: name.clone(),
+            args: args.iter().map(|a| r(a)).collect(),
+        },
+
+        // Bitvector: recurse operands
+        VerifyExpr::BitVecBinary { op, left, right } => VerifyExpr::BitVecBinary {
+            op: *op,
+            left: Box::new(r(left)),
+            right: Box::new(r(right)),
+        },
+        VerifyExpr::BitVecExtract { high, low, operand } => VerifyExpr::BitVecExtract {
+            high: *high, low: *low,
+            operand: Box::new(r(operand)),
+        },
+        VerifyExpr::BitVecConcat(l, ri) => VerifyExpr::BitVecConcat(Box::new(r(l)), Box::new(r(ri))),
+
+        // Array: recurse all sub-expressions
+        VerifyExpr::Select { array, index } => VerifyExpr::Select {
+            array: Box::new(r(array)),
+            index: Box::new(r(index)),
+        },
+        VerifyExpr::Store { array, index, value } => VerifyExpr::Store {
+            array: Box::new(r(array)),
+            index: Box::new(r(index)),
+            value: Box::new(r(value)),
+        },
+
+        // Temporal BMC: recurse sub-expressions
+        VerifyExpr::AtState { state, expr: e } => VerifyExpr::AtState {
+            state: Box::new(r(state)),
+            expr: Box::new(r(e)),
+        },
+        VerifyExpr::Transition { from: f, to: t } => VerifyExpr::Transition {
+            from: Box::new(r(f)),
+            to: Box::new(r(t)),
+        },
+    }
 }
 
 impl Default for VerificationSession {
@@ -600,13 +753,22 @@ impl<'ctx> Encoder<'ctx> {
             VerifyExpr::Bool(b) => Dynamic::from_ast(&Bool::from_bool(self.ctx, *b)),
 
             VerifyExpr::Var(name) => {
-                let ty = self.vars.get(name).copied().unwrap_or(VerifyType::Int);
+                let ty = self.vars.get(name).cloned().unwrap_or(VerifyType::Int);
                 match ty {
                     VerifyType::Int => Dynamic::from_ast(&Int::new_const(self.ctx, name.as_str())),
                     VerifyType::Bool => Dynamic::from_ast(&Bool::new_const(self.ctx, name.as_str())),
                     VerifyType::Object => {
                         // For Object types, use Int as a placeholder
                         Dynamic::from_ast(&Int::new_const(self.ctx, name.as_str()))
+                    }
+                    VerifyType::BitVector(width) => {
+                        Dynamic::from_ast(&z3::ast::BV::new_const(self.ctx, name.as_str(), width))
+                    }
+                    VerifyType::Array(ref idx_ty, ref elem_ty) => {
+                        let idx_sort = self.type_to_sort(idx_ty);
+                        let elem_sort = self.type_to_sort(elem_ty);
+                        let arr_sort = z3::Sort::array(self.ctx, &idx_sort, &elem_sort);
+                        Dynamic::from_ast(&z3::ast::Array::new_const(self.ctx, name.as_str(), &idx_sort, &elem_sort))
                     }
                 }
             }
@@ -637,6 +799,105 @@ impl<'ctx> Encoder<'ctx> {
 
             VerifyExpr::Exists { vars: _, body } => {
                 self.encode(body)
+            }
+
+            // ---- Bitvector operations ----
+
+            VerifyExpr::BitVecConst { width, value } => {
+                Dynamic::from_ast(&z3::ast::BV::from_u64(self.ctx, *value, *width))
+            }
+
+            VerifyExpr::BitVecBinary { op, left, right } => {
+                let l = self.encode(left);
+                let r = self.encode(right);
+                self.encode_bv_binary(op, l, r)
+            }
+
+            VerifyExpr::BitVecExtract { high, low, operand } => {
+                let bv = self.encode(operand);
+                if let Some(bv) = bv.as_bv() {
+                    Dynamic::from_ast(&bv.extract(*high, *low))
+                } else {
+                    bv
+                }
+            }
+
+            VerifyExpr::BitVecConcat(left, right) => {
+                let l = self.encode(left);
+                let r = self.encode(right);
+                if let (Some(lb), Some(rb)) = (l.as_bv(), r.as_bv()) {
+                    Dynamic::from_ast(&lb.concat(&rb))
+                } else {
+                    l
+                }
+            }
+
+            // ---- Array theory ----
+
+            VerifyExpr::Select { array, index } => {
+                let a = self.encode(array);
+                let i = self.encode(index);
+                if let Some(arr) = a.as_array() {
+                    Dynamic::from_ast(&arr.select(&i))
+                } else {
+                    a
+                }
+            }
+
+            VerifyExpr::Store { array, index, value } => {
+                let a = self.encode(array);
+                let i = self.encode(index);
+                let v = self.encode(value);
+                if let Some(arr) = a.as_array() {
+                    Dynamic::from_ast(&arr.store(&i, &v))
+                } else {
+                    a
+                }
+            }
+
+            // ---- Temporal (BMC) ----
+
+            VerifyExpr::AtState { state: _, expr } => {
+                // For now, just encode the expression (state context handled by variable naming)
+                self.encode(expr)
+            }
+
+            VerifyExpr::Transition { from, to } => {
+                // Encode as conjunction of from and to constraints
+                let f = self.encode(from);
+                let t = self.encode(to);
+                if let (Some(fb), Some(tb)) = (f.as_bool(), t.as_bool()) {
+                    Dynamic::from_ast(&Bool::and(self.ctx, &[&fb, &tb]))
+                } else {
+                    f
+                }
+            }
+
+            // ---- Biconditional ----
+
+            VerifyExpr::Iff(left, right) => {
+                let l = self.encode(left);
+                let r = self.encode(right);
+                if let (Some(lb), Some(rb)) = (l.as_bool(), r.as_bool()) {
+                    Dynamic::from_ast(&lb.iff(&rb))
+                } else {
+                    // Fallback: encode as (l → r) ∧ (r → l) at value level
+                    Dynamic::from_ast(&l._eq(&r))
+                }
+            }
+        }
+    }
+
+    fn type_to_sort(&self, ty: &VerifyType) -> z3::Sort<'ctx> {
+        match ty {
+            VerifyType::Int => z3::Sort::int(self.ctx),
+            VerifyType::Bool => z3::Sort::bool(self.ctx),
+            VerifyType::Object => z3::Sort::int(self.ctx),
+            VerifyType::BitVector(width) => z3::Sort::bitvector(self.ctx, *width),
+            VerifyType::Array(idx, elem) => {
+                let idx_sort = self.type_to_sort(idx);
+                let elem_sort = self.type_to_sort(elem);
+                z3::Sort::array(self.ctx, &idx_sort, &elem_sort)
             }
         }
     }
@@ -729,6 +990,31 @@ impl<'ctx> Encoder<'ctx> {
                     Dynamic::from_ast(&Bool::from_bool(self.ctx, true))
                 }
             }
+        }
+    }
+
+    fn encode_bv_binary(&self, op: &crate::ir::BitVecOp, l: Dynamic<'ctx>, r: Dynamic<'ctx>) -> Dynamic<'ctx> {
+        use crate::ir::BitVecOp;
+        if let (Some(lb), Some(rb)) = (l.as_bv(), r.as_bv()) {
+            match op {
+                BitVecOp::And => Dynamic::from_ast(&lb.bvand(&rb)),
+                BitVecOp::Or => Dynamic::from_ast(&lb.bvor(&rb)),
+                BitVecOp::Xor => Dynamic::from_ast(&lb.bvxor(&rb)),
+                BitVecOp::Not => Dynamic::from_ast(&lb.bvnot()),
+                BitVecOp::Shl => Dynamic::from_ast(&lb.bvshl(&rb)),
+                BitVecOp::Shr => Dynamic::from_ast(&lb.bvlshr(&rb)),
+                BitVecOp::AShr => Dynamic::from_ast(&lb.bvashr(&rb)),
+                BitVecOp::Add => Dynamic::from_ast(&lb.bvadd(&rb)),
+                BitVecOp::Sub => Dynamic::from_ast(&lb.bvsub(&rb)),
+                BitVecOp::Mul => Dynamic::from_ast(&lb.bvmul(&rb)),
+                BitVecOp::ULt => Dynamic::from_ast(&lb.bvult(&rb)),
+                BitVecOp::SLt => Dynamic::from_ast(&lb.bvslt(&rb)),
+                BitVecOp::ULe => Dynamic::from_ast(&lb.bvule(&rb)),
+                BitVecOp::SLe => Dynamic::from_ast(&lb.bvsle(&rb)),
+                BitVecOp::Eq => Dynamic::from_ast(&lb._eq(&rb)),
+            }
+        } else {
+            l
         }
     }
 

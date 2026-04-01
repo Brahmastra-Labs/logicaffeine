@@ -6,7 +6,7 @@
 use logicaffeine_compile::codegen_sva::hw_pipeline::{
     compile_hw_spec, emit_hw_sva, translate_sva_to_bounded,
     translate_spec_to_bounded, check_structural_equivalence,
-    check_bounded_equivalence, EquivalenceResult, HwError,
+    check_bounded_equivalence, extract_kg, EquivalenceResult, HwError,
 };
 use logicaffeine_compile::codegen_sva::sva_model::{
     parse_sva, sva_expr_to_string, sva_exprs_structurally_equivalent,
@@ -189,14 +189,304 @@ fn e2e_axi_multi_property_sva_generation() {
 // ═══════════════════════════════════════════════════════════════════════════
 
 #[test]
-fn e2e_invalid_sva_returns_error() {
+fn e2e_invalid_sva_returns_parse_error() {
     let result = translate_sva_to_bounded("|||bad|||", 5);
-    assert!(result.is_err());
+    match result {
+        Ok(_) => panic!("Invalid SVA should produce an error"),
+        Err(e) => {
+            let msg = format!("{}", e);
+            assert!(msg.len() > 5,
+                "SVA error message must be substantive. Got: {}", msg);
+        }
+    }
 }
 
 #[test]
-fn e2e_invalid_spec_returns_error() {
-    // Use a syntactically invalid sentence that won't panic but will fail to parse
+fn e2e_invalid_spec_returns_parse_error() {
     let result = compile_hw_spec("Every.");
-    assert!(result.is_err(), "Incomplete sentence should error");
+    match result {
+        Ok(_) => panic!("Incomplete sentence should error"),
+        Err(e) => {
+            let msg = format!("{}", e);
+            assert!(msg.len() > 5,
+                "Spec error message must be substantive. Got: {}", msg);
+        }
+    }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// KNOWLEDGE GRAPH EXTRACTION API
+// ═══════════════════════════════════════════════════════════════════════════
+
+#[test]
+fn extract_kg_one_call_api_works() {
+    let kg = extract_kg("Always, every dog runs.").unwrap();
+    assert!(!kg.properties.is_empty(),
+        "KG should have at least one property. Got: {:?}", kg);
+    let json = kg.to_json();
+    assert!(json.contains("safety"),
+        "Always → safety property. JSON: {}", json);
+}
+
+#[test]
+fn extract_kg_liveness_property() {
+    let kg = extract_kg("Eventually, John runs.").unwrap();
+    let json = kg.to_json();
+    assert!(json.contains("liveness"),
+        "Eventually → liveness property. JSON: {}", json);
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// ALEXANDER DEMO: THE PIPELINE THAT NOBODY ELSE HAS
+// ═══════════════════════════════════════════════════════════════════════════
+
+#[test]
+fn demo_stage1_english_to_fol_produces_kripke_lowered_temporal() {
+    let fol = compile_hw_spec("Always, every signal is valid.").unwrap();
+    assert!(fol.contains("Accessible_Temporal"),
+        "Stage 1: Must produce Kripke-lowered temporal FOL. Got: {}", fol);
+}
+
+#[test]
+fn demo_stage2_fol_to_knowledge_graph_extracts_structure() {
+    let kg = extract_kg("Always, every signal is valid.").unwrap();
+    let json = kg.to_json();
+    assert!(json.contains("signals"), "Stage 2: KG JSON must have signals. JSON: {}", json);
+    assert!(json.contains("properties"), "Stage 2: KG JSON must have properties. JSON: {}", json);
+    assert!(json.contains("safety"), "Stage 2: Always → safety. JSON: {}", json);
+}
+
+#[test]
+fn demo_stage3_sva_parses_and_roundtrips() {
+    use logicaffeine_compile::codegen_sva::sva_model::{parse_sva, sva_expr_to_string, sva_exprs_structurally_equivalent};
+    let sva = "req |-> ##[1:5] ack";
+    let parsed = parse_sva(sva).unwrap();
+    let rendered = sva_expr_to_string(&parsed);
+    let reparsed = parse_sva(&rendered).unwrap();
+    assert!(sva_exprs_structurally_equivalent(&parsed, &reparsed),
+        "Stage 3: SVA must roundtrip. {} → {} → must match", sva, rendered);
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Z3 PIPELINE — FULL SEMANTIC EQUIVALENCE
+// ═══════════════════════════════════════════════════════════════════════════
+
+#[cfg(feature = "verification")]
+mod z3_pipeline {
+    use logicaffeine_compile::codegen_sva::hw_pipeline::check_z3_equivalence;
+    use logicaffeine_verify::equivalence::EquivalenceResult;
+
+    #[test]
+    fn z3_pipeline_different_properties_not_equivalent() {
+        // English spec about dogs running ≢ mutex SVA (completely different properties)
+        let result = check_z3_equivalence(
+            "Always, every dog runs.",
+            "!(grant_a && grant_b)",
+            3,
+        ).unwrap();
+        assert!(matches!(result, EquivalenceResult::NotEquivalent { .. }),
+            "Different properties must not be equivalent. Got: {:?}", result);
+    }
+
+    #[test]
+    fn z3_pipeline_error_on_invalid_sva() {
+        let result = check_z3_equivalence(
+            "Always, every dog runs.",
+            "|||invalid|||",
+            3,
+        );
+        assert!(result.is_err(), "Invalid SVA should produce an error");
+    }
+
+    #[test]
+    fn z3_pipeline_error_on_invalid_spec() {
+        let result = check_z3_equivalence(
+            "Every.",
+            "req |-> ack",
+            3,
+        );
+        assert!(result.is_err(), "Invalid spec should produce an error");
+    }
+
+    #[test]
+    fn z3_pipeline_self_equivalence() {
+        // Same SVA property translated from same spec → must be equivalent to itself
+        use logicaffeine_compile::codegen_sva::sva_to_verify::bounded_to_verify;
+        use logicaffeine_compile::codegen_sva::hw_pipeline::translate_sva_to_bounded;
+        use logicaffeine_verify::equivalence::check_equivalence;
+
+        let sva = "!(grant_a && grant_b)";
+        let result_a = translate_sva_to_bounded(sva, 3).unwrap();
+        let result_b = translate_sva_to_bounded(sva, 3).unwrap();
+        let verify_a = bounded_to_verify(&result_a.expr);
+        let verify_b = bounded_to_verify(&result_b.expr);
+        let equiv = check_equivalence(
+            &verify_a, &verify_b,
+            &["grant_a".into(), "grant_b".into()], 3,
+        );
+        assert!(matches!(equiv, EquivalenceResult::Equivalent),
+            "Same property must be equivalent to itself. Got: {:?}", equiv);
+    }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// PROTOCOL PATTERNS — Real-World SVA Through Full Pipeline
+// ═══════════════════════════════════════════════════════════════════════════
+
+#[test]
+fn e2e_axi_read_channel_multi_property() {
+    // AXI read channel: ARVALID/ARREADY handshake, then RVALID/RREADY data
+    let properties = vec![
+        ("Read Address Handshake", "ARVALID |-> s_eventually(ARREADY)"),
+        ("Read Data Follows Address", "(ARVALID && ARREADY) |-> s_eventually(RVALID)"),
+        ("Read Response Complete", "(RVALID && RREADY) |-> s_eventually(RLAST)"),
+    ];
+
+    for (name, body) in &properties {
+        let sva = emit_hw_sva(name, "clk", body, SvaAssertionKind::Assert);
+        assert!(sva.contains("assert property"), "AXI property '{}' missing assert", name);
+        assert!(sva.contains("@(posedge clk)"), "AXI property '{}' missing clock", name);
+
+        // Parse roundtrip
+        let parsed = parse_sva(body).unwrap();
+        let emitted = sva_expr_to_string(&parsed);
+        let reparsed = parse_sva(&emitted).unwrap();
+        assert!(sva_exprs_structurally_equivalent(&parsed, &reparsed),
+            "Roundtrip failed for AXI property '{}'", name);
+
+        // Bounded translation
+        let bounded = translate_sva_to_bounded(body, 5);
+        assert!(bounded.is_ok(), "Bounded translation failed for AXI property '{}': {:?}", name, bounded.err());
+    }
+}
+
+#[test]
+fn e2e_spi_protocol_properties() {
+    let properties = vec![
+        ("SPI Chip Select", "$rose(ss) |-> ##[1:3] $rose(sclk)"),
+        ("SPI MOSI Stable", "sclk |-> $stable(mosi)"),
+        ("SPI Transfer Complete", "$rose(ss) |-> s_eventually($fell(ss))"),
+    ];
+
+    for (name, body) in &properties {
+        let parsed = parse_sva(body);
+        assert!(parsed.is_ok(), "SPI property '{}' failed to parse: {:?}", name, parsed.err());
+
+        let bounded = translate_sva_to_bounded(body, 8);
+        assert!(bounded.is_ok(), "SPI property '{}' failed bounded translation: {:?}", name, bounded.err());
+    }
+}
+
+#[test]
+fn e2e_arbiter_fairness_properties() {
+    let properties = vec![
+        ("Arbiter Mutex", "!(grant_0 && grant_1) && !(grant_0 && grant_2) && !(grant_1 && grant_2)"),
+        ("Request 0 Liveness", "req_0 |-> s_eventually(grant_0)"),
+        ("Request 1 Liveness", "req_1 |-> s_eventually(grant_1)"),
+        ("Request 2 Liveness", "req_2 |-> s_eventually(grant_2)"),
+    ];
+
+    for (name, body) in &properties {
+        let parsed = parse_sva(body);
+        assert!(parsed.is_ok(), "Arbiter property '{}' failed to parse: {:?}", name, parsed.err());
+
+        let sva = emit_hw_sva(name, "clk", body,
+            if name.contains("Mutex") { SvaAssertionKind::Assert } else { SvaAssertionKind::Cover });
+        assert!(!sva.is_empty(), "SVA emission empty for '{}'", name);
+
+        let bounded = translate_sva_to_bounded(body, 10);
+        assert!(bounded.is_ok(), "Arbiter property '{}' failed bounded: {:?}", name, bounded.err());
+    }
+}
+
+#[test]
+fn e2e_reset_aware_properties() {
+    let properties = vec![
+        ("Reset Handshake", "disable iff (reset) $rose(req) |-> ##[1:5] ack"),
+        ("Reset Data Integrity", "disable iff (reset) valid |=> $stable(data)"),
+    ];
+
+    for (name, body) in &properties {
+        let parsed = parse_sva(body);
+        assert!(parsed.is_ok(), "Reset property '{}' failed to parse: {:?}", name, parsed.err());
+
+        let bounded = translate_sva_to_bounded(body, 5);
+        assert!(bounded.is_ok(), "Reset property '{}' failed bounded: {:?}", name, bounded.err());
+    }
+}
+
+#[test]
+fn e2e_i2c_protocol_pattern() {
+    let properties = vec![
+        ("I2C Start", "$fell(sda) && scl |-> s_eventually($rose(scl))"),
+        ("I2C Ack", "scl |-> $stable(sda)"),
+    ];
+
+    for (name, body) in &properties {
+        let parsed = parse_sva(body);
+        assert!(parsed.is_ok(), "I2C property '{}' failed to parse: {:?}", name, parsed.err());
+    }
+}
+
+#[test]
+fn e2e_fifo_overflow_protection() {
+    // FIFO: if full, writes are blocked; reads always succeed if not empty
+    let properties = vec![
+        ("No Write When Full", "full |-> !wr_en"),
+        ("Read When Not Empty", "(!empty && rd_en) |-> s_eventually(rd_valid)"),
+        ("Full Empty Mutex", "!(full && empty)"),
+    ];
+
+    for (name, body) in &properties {
+        let parsed = parse_sva(body);
+        assert!(parsed.is_ok(), "FIFO property '{}' failed to parse: {:?}", name, parsed.err());
+
+        let bounded = translate_sva_to_bounded(body, 5);
+        assert!(bounded.is_ok(), "FIFO property '{}' failed bounded: {:?}", name, bounded.err());
+    }
+}
+
+#[test]
+fn e2e_kg_multi_signal_protocol() {
+    // Extract KG from a multi-predicate temporal spec
+    let kg = extract_kg("Always, if every dog runs then some cat sleeps.").unwrap();
+    let json = kg.to_json();
+    // Must be valid JSON with expected structure
+    assert!(json.contains("signals") || json.contains("properties"),
+        "KG JSON must contain structural fields. Got: {}", json);
+}
+
+#[test]
+fn e2e_kg_safety_and_liveness_coexist() {
+    // Same spec can generate both safety and liveness properties
+    let kg_safety = extract_kg("Always, every dog runs.").unwrap();
+    let kg_liveness = extract_kg("Eventually, John runs.").unwrap();
+
+    let safety_props: Vec<_> = kg_safety.properties.iter()
+        .filter(|p| p.property_type == "safety")
+        .collect();
+    let liveness_props: Vec<_> = kg_liveness.properties.iter()
+        .filter(|p| p.property_type == "liveness")
+        .collect();
+
+    assert!(!safety_props.is_empty(), "Should have safety properties");
+    assert!(!liveness_props.is_empty(), "Should have liveness properties");
+}
+
+#[test]
+fn e2e_structural_equiv_commutative_and() {
+    // a && b should be structurally different from b && a (structural, not semantic)
+    let result = check_structural_equivalence("req && ack", "ack && req").unwrap();
+    // Structural equivalence is exact match — order matters
+    assert!(!result, "Structural equiv should be order-sensitive");
+}
+
+#[test]
+fn e2e_bounded_equiv_at_different_bounds() {
+    let sva_3 = translate_sva_to_bounded("req |-> ack", 3).unwrap();
+    let sva_5 = translate_sva_to_bounded("req |-> ack", 5).unwrap();
+    // Same property at different bounds produces different conjunction depths
+    let leaves_3 = logicaffeine_compile::codegen_sva::sva_to_verify::count_and_leaves(&sva_3.expr);
+    let leaves_5 = logicaffeine_compile::codegen_sva::sva_to_verify::count_and_leaves(&sva_5.expr);
+    assert!(leaves_5 > leaves_3, "Bound 5 should have more leaves than bound 3");
 }

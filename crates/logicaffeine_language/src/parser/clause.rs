@@ -1089,6 +1089,25 @@ impl<'a, 'ctx, 'int> ClauseParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int> {
             }
         }
 
+        // Handle binary temporal connectives (lowest precedence temporal)
+        // "P until Q" → TemporalBinary { Until, P, Q }
+        // "P release Q" → TemporalBinary { Release, P, Q }
+        // "P weak-until Q" → TemporalBinary { WeakUntil, P, Q }
+        if self.check(&TokenType::Until) || self.check(&TokenType::Release) || self.check(&TokenType::WeakUntil) {
+            let op = match self.peek().kind {
+                TokenType::Release => crate::ast::logic::BinaryTemporalOp::Release,
+                TokenType::WeakUntil => crate::ast::logic::BinaryTemporalOp::WeakUntil,
+                _ => crate::ast::logic::BinaryTemporalOp::Until,
+            };
+            self.advance();
+            let right = self.parse_conjunction()?;
+            expr = self.ctx.exprs.alloc(LogicExpr::TemporalBinary {
+                operator: op,
+                left: expr,
+                right,
+            });
+        }
+
         Ok(expr)
     }
 

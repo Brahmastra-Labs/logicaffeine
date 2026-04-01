@@ -46,12 +46,14 @@
 //! Verification requires Pro, Premium, Lifetime, or Enterprise plan.
 //! License keys are Stripe subscription IDs (`sub_*` format).
 
+pub mod equivalence;
 pub mod error;
 pub mod ir;
 pub mod license;
 pub mod solver;
 
+pub use equivalence::{check_equivalence, EquivalenceResult, Trace, CycleState};
 pub use error::{VerificationError, VerificationErrorKind, VerificationResult};
-pub use ir::{VerifyExpr, VerifyOp, VerifyType};
+pub use ir::{BitVecOp, VerifyExpr, VerifyOp, VerifyType};
 pub use license::{LicensePlan, LicenseValidator};
-pub use solver::{Verifier, VerificationSession};
+pub use solver::{rename_var_in_expr, Verifier, VerificationSession};

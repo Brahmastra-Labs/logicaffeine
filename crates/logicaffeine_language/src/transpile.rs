@@ -460,7 +460,7 @@ impl<'a> LogicExpr<'a> {
 
                 // For conditionals (If), check if there are suppress_existential events
                 // that need universal quantification (DRS semantics for generic conditionals)
-                if matches!(op, TokenType::If) {
+                if matches!(op, TokenType::If | TokenType::Implies) {
                     let events = collect_suppress_existential_events(self);
                     if !events.is_empty() {
                         // Wrap with universal quantifiers for each event variable

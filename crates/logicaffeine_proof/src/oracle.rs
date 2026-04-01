@@ -178,7 +178,7 @@ pub fn try_oracle(
 
     // Declare all inferred variables
     for (name, ty) in types.variables.iter() {
-        session.declare(name, *ty);
+        session.declare(name, ty.clone());
     }
 
     // Add context assumptions

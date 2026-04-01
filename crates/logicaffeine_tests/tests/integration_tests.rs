@@ -167,7 +167,7 @@ fn all_produces_universal_quantifier() {
         ExprView::Quantifier { kind, variable, body } => {
             assert_eq!(kind, QuantifierKind::Universal);
             assert_eq!(variable, "x");
-            assert!(matches!(*body, ExprView::BinaryOp { op: TokenType::If, .. }));
+            assert!(matches!(*body, ExprView::BinaryOp { op: TokenType::Implies, .. }));
         }
         _ => panic!("Expected Quantifier(Universal), got {:?}", view),
     }
@@ -190,7 +190,7 @@ fn no_produces_universal_with_negation() {
     match view {
         ExprView::Quantifier { kind: QuantifierKind::Universal, body, .. } => {
             match *body {
-                ExprView::BinaryOp { op: TokenType::If, right, .. } => {
+                ExprView::BinaryOp { op: TokenType::Implies, right, .. } => {
                     assert!(
                         matches!(*right, ExprView::UnaryOp { op: TokenType::Not, .. }),
                         "Consequent should be negated"

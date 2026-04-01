@@ -1,6 +1,6 @@
 [package]
 name = "logicaffeine-compile"
-version = "0.9.10"
+version = "0.9.11"
 edition.workspace = true
 authors.workspace = true
 repository.workspace = true
@@ -16,14 +16,16 @@ readme = "README.md"
 default = ["codegen"]
 codegen = []
 interpreter-only = []
+verification = []
 
 [dependencies]
-logicaffeine-base = { version = "0.9.10", path = "../logicaffeine_base" }
-logicaffeine-language = { version = "0.9.10", path = "../logicaffeine_language" }
-logicaffeine-kernel = { version = "0.9.10", path = "../logicaffeine_kernel" }
-logicaffeine-data = { version = "0.9.10", path = "../logicaffeine_data" }
-logicaffeine-system = { version = "0.9.10", path = "../logicaffeine_system", features = ["persistence"] }
-logicaffeine-proof = { version = "0.9.10", path = "../logicaffeine_proof" }
+logicaffeine-base = { version = "0.9.11", path = "../logicaffeine_base" }
+logicaffeine-language = { version = "0.9.11", path = "../logicaffeine_language" }
+logicaffeine-kernel = { version = "0.9.11", path = "../logicaffeine_kernel" }
+logicaffeine-data = { version = "0.9.11", path = "../logicaffeine_data" }
+logicaffeine-system = { version = "0.9.11", path = "../logicaffeine_system", features = ["persistence"] }
+logicaffeine-proof = { version = "0.9.11", path = "../logicaffeine_proof" }
+logicaffeine-verify = { version = "0.9.11", path = "../logicaffeine_verify" }
 
 # Runtime dependencies
 async-recursion = "1.1"

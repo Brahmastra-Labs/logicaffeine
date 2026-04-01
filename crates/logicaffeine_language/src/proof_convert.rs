@@ -104,7 +104,7 @@ pub fn logic_expr_to_proof_expr<'a>(expr: &LogicExpr<'a>, interner: &Interner) -
             match op {
                 TokenType::And => ProofExpr::And(l, r),
                 TokenType::Or => ProofExpr::Or(l, r),
-                TokenType::If | TokenType::Then => ProofExpr::Implies(l, r),
+                TokenType::If | TokenType::Implies | TokenType::Then => ProofExpr::Implies(l, r),
                 TokenType::Iff => ProofExpr::Iff(l, r),
                 _ => ProofExpr::Unsupported(format!("Binary operator {:?}", op)),
             }

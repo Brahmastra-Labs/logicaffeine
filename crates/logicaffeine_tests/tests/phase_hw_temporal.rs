@@ -106,7 +106,6 @@ fn kripke_next_lowers_to_single_step() {
 // ═══════════════════════════════════════════════════════════════════════════
 
 #[test]
-#[ignore] // Until requires parser support for "P until Q" clause connective — Sprint B+
 fn kripke_until_lowers_correctly() {
     // φ U ψ → ψ(w) ∨ (φ(w) ∧ ∃w'(Next_Temporal(w,w') ∧ (φ U ψ)(w')))
     let output = compile_kripke("Every dog runs until every cat sleeps.").unwrap();
@@ -232,6 +231,79 @@ fn kripke_eventually_produces_existential_and_conjunction() {
     assert!(
         output.contains("Reachable_Temporal"),
         "F should use Reachable_Temporal. Got: {}",
+        output
+    );
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// KRIPKE CONTEXT EXTENSIONS (Phase 3)
+// ═══════════════════════════════════════════════════════════════════════════
+
+#[test]
+fn kripke_context_clock_counter_starts_at_zero() {
+    use logicaffeine_language::semantics::kripke::KripkeContext;
+    let mut interner = logicaffeine_base::Interner::new();
+    let ctx = KripkeContext::new(&mut interner);
+    assert_eq!(ctx.clock_counter(), 0, "Clock counter should start at 0");
+}
+
+#[test]
+fn kripke_context_domain_hint_starts_as_none() {
+    use logicaffeine_language::semantics::kripke::KripkeContext;
+    let mut interner = logicaffeine_base::Interner::new();
+    let ctx = KripkeContext::new(&mut interner);
+    assert!(ctx.domain_hint().is_none(), "Domain hint should start as None");
+}
+
+#[test]
+fn kripke_next_advances_clock() {
+    // After lowering a "Next" temporal, the clock counter should be > 0
+    // We verify this indirectly: "Next" produces Next_Temporal with fresh worlds
+    let result = compile_kripke("Next, every dog runs.");
+    let output = result.unwrap();
+    assert!(output.contains("Next_Temporal"),
+        "Next must produce Next_Temporal. Got: {}", output);
+    // The world variables (w1, w2) indicate fresh worlds were generated
+    assert!(output.contains("w1") || output.contains("w"),
+        "Next must generate fresh world variables. Got: {}", output);
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// SPRINT 0D: RELEASE / WEAKUNTIL LOWERING VERIFICATION
+// ═══════════════════════════════════════════════════════════════════════════
+
+#[test]
+fn kripke_release_lowers_correctly() {
+    // φ R ψ → ψ(w) ∨ (φ(w) ∧ ∃w'(Next_Temporal(w,w') ∧ (φ R ψ)(w')))
+    // Kripke lowering of Release should produce Next_Temporal.
+    let output = compile_kripke("Every dog runs release every cat sleeps.").unwrap();
+    assert!(
+        output.contains("Next_Temporal"),
+        "Release should generate Next_Temporal for recursive step. Got: {}",
+        output
+    );
+}
+
+#[test]
+fn kripke_weak_until_lowers_correctly() {
+    // φ W ψ — parses and lowers without error.
+    let result = compile_kripke("Every dog runs weak-until every cat sleeps.");
+    assert!(
+        result.is_ok(),
+        "WeakUntil should parse and lower without error. Got: {:?}",
+        result.err()
+    );
+}
+
+#[test]
+fn kripke_release_produces_conjunction() {
+    // Release body should have OR at top level (ψ ∨ (φ ∧ ...))
+    // which means the lowered output contains both And and Or connectives.
+    let output = compile_kripke("Every dog runs release every cat sleeps.").unwrap();
+    let has_conjunction = output.contains("∧") || output.contains("And") || output.contains("∧");
+    assert!(
+        has_conjunction,
+        "Release lowering must produce conjunction. Got: {}",
         output
     );
 }

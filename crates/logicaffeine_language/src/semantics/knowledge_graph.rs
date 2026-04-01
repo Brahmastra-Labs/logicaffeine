@@ -179,23 +179,47 @@ impl Default for HwKnowledgeGraph {
 /// - Signals: predicates that appear with world arguments
 /// - Properties: temporal patterns (∀w' Accessible_Temporal → ...) → safety, (∃w' Reachable → ...) → liveness
 /// - Edges: implication between predicates → Triggers, negated conjunction → Constrains
+///
+/// Signal roles are inferred from structural position:
+/// - Antecedent-only → Input
+/// - Consequent-only → Output
+/// - Both positions → Internal
+/// - Name contains "clk"/"clock" → Clock (overrides position)
 pub fn extract_from_kripke_ast<'a>(
     expr: &'a crate::ast::logic::LogicExpr<'a>,
     interner: &crate::Interner,
 ) -> HwKnowledgeGraph {
     use crate::ast::logic::{LogicExpr, QuantifierKind};
-    use std::collections::HashSet;
+    use std::collections::{HashSet, HashMap};
 
     let mut kg = HwKnowledgeGraph::new();
     let mut seen_signals: HashSet<String> = HashSet::new();
+    // Track signal positions for role inference
+    let mut antecedent_signals: HashSet<String> = HashSet::new();
+    let mut consequent_signals: HashSet<String> = HashSet::new();
+    // Track predicate names for property naming
+    let mut predicate_names: Vec<String> = Vec::new();
+
+    /// Position context for signal role inference.
+    #[derive(Clone, Copy, PartialEq)]
+    enum Position {
+        Neutral,
+        Antecedent,
+        Consequent,
+    }
 
     fn walk<'a>(
         expr: &'a LogicExpr<'a>,
         interner: &crate::Interner,
         kg: &mut HwKnowledgeGraph,
         seen: &mut HashSet<String>,
+        antecedent: &mut HashSet<String>,
+        consequent: &mut HashSet<String>,
+        pred_names: &mut Vec<String>,
         in_safety: bool,
         in_liveness: bool,
+        position: Position,
+        impl_depth: u32,
     ) {
         match expr {
             LogicExpr::Predicate { name, args, world } => {
@@ -208,17 +232,39 @@ pub fn extract_from_kripke_ast<'a>(
                     return;
                 }
 
-                // Predicates with world args are signals
+                // Collect predicate names for property naming
+                if !pred_name.starts_with('w') {
+                    pred_names.push(pred_name.clone());
+                }
+
+                // Predicates with world args are signals.
+                // Use both the predicate name and non-world arguments as signal names.
                 if world.is_some() {
+                    // The predicate name itself is a useful signal identifier
+                    let pred_lower = pred_name.to_lowercase();
+                    if !pred_lower.is_empty() {
+                        seen.insert(pred_name.clone());
+                        match position {
+                            Position::Antecedent => { antecedent.insert(pred_name.clone()); }
+                            Position::Consequent => { consequent.insert(pred_name.clone()); }
+                            Position::Neutral => {}
+                        }
+                    }
+
                     for arg in args.iter() {
                         if let crate::ast::logic::Term::Constant(sym)
                             | crate::ast::logic::Term::Variable(sym) = arg
                         {
                             let arg_name = interner.resolve(*sym).to_string();
-                            // Skip world variables (w0, w1, ...)
-                            if !arg_name.starts_with('w') || arg_name.len() > 3 {
-                                if seen.insert(arg_name.clone()) {
-                                    kg.add_signal(&arg_name, 1, SignalRole::Internal);
+                            // Skip world variables (w0, w1, ...) and single-letter bound vars
+                            if (!arg_name.starts_with('w') || arg_name.len() > 3)
+                                && arg_name.len() > 1
+                            {
+                                seen.insert(arg_name.clone());
+                                match position {
+                                    Position::Antecedent => { antecedent.insert(arg_name); }
+                                    Position::Consequent => { consequent.insert(arg_name); }
+                                    Position::Neutral => {}
                                 }
                             }
                         }
@@ -230,23 +276,31 @@ pub fn extract_from_kripke_ast<'a>(
             LogicExpr::Quantifier { kind: QuantifierKind::Universal, variable, body, .. } => {
                 let var_name = interner.resolve(*variable).to_string();
                 let is_temporal_world = var_name.starts_with('w');
-                walk(body, interner, kg, seen, in_safety || is_temporal_world, in_liveness);
+                walk(body, interner, kg, seen, antecedent, consequent, pred_names,
+                     in_safety || is_temporal_world, in_liveness, position, impl_depth);
             }
 
             // Existential quantifier with temporal reachability → liveness property
             LogicExpr::Quantifier { kind: QuantifierKind::Existential, variable, body, .. } => {
                 let var_name = interner.resolve(*variable).to_string();
                 let is_temporal_world = var_name.starts_with('w');
-                walk(body, interner, kg, seen, in_safety, in_liveness || is_temporal_world);
+                walk(body, interner, kg, seen, antecedent, consequent, pred_names,
+                     in_safety, in_liveness || is_temporal_world, position, impl_depth);
             }
 
             // Binary connectives: walk both sides
             LogicExpr::BinaryOp { left, right, op } => {
-                walk(left, interner, kg, seen, in_safety, in_liveness);
-                walk(right, interner, kg, seen, in_safety, in_liveness);
-
-                // Implication between predicates → Triggers edge
+                // TokenType::If = user-written conditional (provenance tag).
+                // TokenType::Implies = compiler-generated restriction/accessibility.
+                // Only user conditionals determine antecedent/consequent roles.
                 if matches!(op, crate::token::TokenType::If) {
+                    // User's explicit if...then — sets signal positions
+                    walk(left, interner, kg, seen, antecedent, consequent, pred_names,
+                         in_safety, in_liveness, Position::Antecedent, impl_depth);
+                    walk(right, interner, kg, seen, antecedent, consequent, pred_names,
+                         in_safety, in_liveness, Position::Consequent, impl_depth);
+
+                    // Triggers edge
                     if let (Some(left_sig), Some(right_sig)) =
                         (extract_signal_name(left, interner), extract_signal_name(right, interner))
                     {
@@ -254,12 +308,19 @@ pub fn extract_from_kripke_ast<'a>(
                             kg.add_edge(&left_sig, &right_sig, KgRelation::Triggers, None);
                         }
                     }
+                } else {
+                    // Compiler-generated Implies or other connectives — preserve position
+                    walk(left, interner, kg, seen, antecedent, consequent, pred_names,
+                         in_safety, in_liveness, position, impl_depth);
+                    walk(right, interner, kg, seen, antecedent, consequent, pred_names,
+                         in_safety, in_liveness, position, impl_depth);
                 }
             }
 
             // Negation
             LogicExpr::UnaryOp { operand, .. } => {
-                walk(operand, interner, kg, seen, in_safety, in_liveness);
+                walk(operand, interner, kg, seen, antecedent, consequent, pred_names,
+                     in_safety, in_liveness, position, impl_depth);
 
                 // Not(And(P, Q)) → Constrains edge (mutex pattern)
                 if let LogicExpr::BinaryOp { left, right, op: crate::token::TokenType::And } = operand {
@@ -275,39 +336,76 @@ pub fn extract_from_kripke_ast<'a>(
 
             // Temporal operators
             LogicExpr::Temporal { body, .. } => {
-                walk(body, interner, kg, seen, in_safety, in_liveness);
+                walk(body, interner, kg, seen, antecedent, consequent, pred_names,
+                     in_safety, in_liveness, position, impl_depth);
             }
 
             LogicExpr::TemporalBinary { left, right, .. } => {
-                walk(left, interner, kg, seen, in_safety, in_liveness);
-                walk(right, interner, kg, seen, in_safety, in_liveness);
+                walk(left, interner, kg, seen, antecedent, consequent, pred_names,
+                     in_safety, in_liveness, position, impl_depth);
+                walk(right, interner, kg, seen, antecedent, consequent, pred_names,
+                     in_safety, in_liveness, position, impl_depth);
             }
 
             // Modal operators
             LogicExpr::Modal { operand, .. } => {
-                walk(operand, interner, kg, seen, in_safety, in_liveness);
+                walk(operand, interner, kg, seen, antecedent, consequent, pred_names,
+                     in_safety, in_liveness, position, impl_depth);
             }
 
             _ => {}
         }
     }
 
-    walk(expr, interner, &mut kg, &mut seen_signals, false, false);
+    walk(expr, interner, &mut kg, &mut seen_signals,
+         &mut antecedent_signals, &mut consequent_signals, &mut predicate_names,
+         false, false, Position::Neutral, 0);
 
-    // Determine property type from the top-level structure
+    // Assign roles based on position inference
+    for sig_name in &seen_signals {
+        let in_ante = antecedent_signals.contains(sig_name);
+        let in_cons = consequent_signals.contains(sig_name);
+        let name_lower = sig_name.to_lowercase();
+
+        let role = if name_lower.contains("clk") || name_lower.contains("clock") {
+            SignalRole::Clock
+        } else if in_ante && !in_cons {
+            SignalRole::Input
+        } else if in_cons && !in_ante {
+            SignalRole::Output
+        } else {
+            SignalRole::Internal
+        };
+
+        kg.add_signal(sig_name, 1, role);
+    }
+
+    // Determine property type and name from the top-level structure
+    // Use predicate names for descriptive property naming
+    let prop_name = predicate_names.iter()
+        .find(|n| {
+            let lower = n.to_lowercase();
+            !lower.contains("accessible") && !lower.contains("reachable")
+                && !lower.contains("next_temporal") && lower != "and" && lower != "or"
+        })
+        .cloned();
+
     match expr {
         LogicExpr::Temporal { operator: crate::ast::logic::TemporalOperator::Always, .. } => {
-            kg.add_property("Safety", "safety", "G(...)");
+            let name = prop_name.unwrap_or_else(|| "Safety".to_string());
+            kg.add_property(name, "safety", "G(...)");
         }
         LogicExpr::Temporal { operator: crate::ast::logic::TemporalOperator::Eventually, .. } => {
-            kg.add_property("Liveness", "liveness", "F(...)");
+            let name = prop_name.unwrap_or_else(|| "Liveness".to_string());
+            kg.add_property(name, "liveness", "F(...)");
         }
         LogicExpr::Quantifier { kind: QuantifierKind::Universal, .. } => {
-            // Kripke-lowered G produces ∀w'(...)
-            kg.add_property("Safety", "safety", "G(...)");
+            let name = prop_name.unwrap_or_else(|| "Safety".to_string());
+            kg.add_property(name, "safety", "G(...)");
         }
         LogicExpr::Quantifier { kind: QuantifierKind::Existential, .. } => {
-            kg.add_property("Liveness", "liveness", "F(...)");
+            let name = prop_name.unwrap_or_else(|| "Liveness".to_string());
+            kg.add_property(name, "liveness", "F(...)");
         }
         _ => {}
     }

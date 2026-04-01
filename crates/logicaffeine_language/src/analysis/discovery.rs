@@ -1012,6 +1012,12 @@ impl<'a> DiscoveryPass<'a> {
                 self.advance();
                 Some(sym)
             }
+            // Accept Adverb as identifier (for field names like "next")
+            TokenType::Adverb(_) => {
+                let sym = t.lexeme;
+                self.advance();
+                Some(sym)
+            }
             // Phase 47: Accept Performative as type name (for agent messages like "Command")
             TokenType::Performative(s) => {
                 let sym = *s;

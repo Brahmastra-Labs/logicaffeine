@@ -8,7 +8,7 @@
 //! These transformations enrich the logical representation with inferred content.
 
 mod axioms;
-mod kripke;
+pub mod kripke;
 pub mod knowledge_graph;
 
 pub use axioms::apply_axioms;

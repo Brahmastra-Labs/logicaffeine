@@ -1,6 +1,6 @@
 [package]
 name = "logicaffeine-tests"
-version = "0.9.10"
+version = "0.9.11"
 edition = "2021"
 publish = false
 
@@ -9,7 +9,7 @@ path = "src/lib.rs"
 
 [features]
 default = []
-verification = []
+verification = ["logicaffeine-compile/verification", "logicaffeine-proof/verification"]
 ffi-link-tests = []
 web-tests = ["dep:logicaffeine-web"]
 
@@ -25,6 +25,7 @@ logicaffeine-proof = { path = "../logicaffeine_proof" }
 logicaffeine-data = { path = "../logicaffeine_data" }
 logicaffeine-system = { path = "../logicaffeine_system", features = ["full"] }
 logicaffeine-lexicon = { path = "../logicaffeine_lexicon" }
+logicaffeine-verify = { path = "../logicaffeine_verify" }
 tempfile = "3"
 futures = "0.3"
 tokio = { version = "1", features = ["rt-multi-thread", "macros"] }

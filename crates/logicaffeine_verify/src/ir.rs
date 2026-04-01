@@ -34,7 +34,7 @@
 /// | `Int` | `IntSort` | Numeric constraints, bounds checking |
 /// | `Bool` | `BoolSort` | Logical propositions |
 /// | `Object` | Uninterpreted | Entities (people, objects, propositions) |
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum VerifyType {
     /// Integer type, maps to Z3 `IntSort`.
     Int,
@@ -42,6 +42,10 @@ pub enum VerifyType {
     Bool,
     /// Opaque object type for entities, maps to an uninterpreted sort.
     Object,
+    /// Fixed-width bitvector, maps to Z3 `BitVecSort(n)`.
+    BitVector(u32),
+    /// Array type (index → element), maps to Z3 `ArraySort`.
+    Array(Box<VerifyType>, Box<VerifyType>),
 }
 
 /// Binary operations in the verification IR.
@@ -86,6 +90,41 @@ pub enum VerifyOp {
     Or,
     /// Material implication.
     Implies,
+}
+
+/// Bitvector operations for hardware verification.
+///
+/// These map directly to Z3's bitvector theory operations.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BitVecOp {
+    // ---- Bitwise ----
+    And,
+    Or,
+    Xor,
+    Not,
+
+    // ---- Shift ----
+    Shl,
+    Shr,
+    /// Arithmetic shift right (sign-extending).
+    AShr,
+
+    // ---- Arithmetic ----
+    Add,
+    Sub,
+    Mul,
+
+    // ---- Comparison ----
+    /// Unsigned less than.
+    ULt,
+    /// Signed less than.
+    SLt,
+    /// Unsigned less than or equal.
+    ULe,
+    /// Signed less than or equal.
+    SLe,
+    /// Bitvector equality.
+    Eq,
 }
 
 /// Expression AST for verification.
@@ -137,6 +176,62 @@ pub enum VerifyExpr {
         name: String,
         args: Vec<VerifyExpr>,
     },
+
+    // ---- Bitvector operations (hardware verification) ----
+
+    /// Bitvector constant with explicit width.
+    BitVecConst { width: u32, value: u64 },
+
+    /// Bitvector binary operation.
+    BitVecBinary {
+        op: BitVecOp,
+        left: Box<VerifyExpr>,
+        right: Box<VerifyExpr>,
+    },
+
+    /// Bitvector bit extraction: operand[high:low].
+    BitVecExtract {
+        high: u32,
+        low: u32,
+        operand: Box<VerifyExpr>,
+    },
+
+    /// Bitvector concatenation.
+    BitVecConcat(Box<VerifyExpr>, Box<VerifyExpr>),
+
+    // ---- Temporal (BMC encoding) ----
+
+    /// Expression evaluated at a specific state (for BMC unrolling).
+    AtState {
+        state: Box<VerifyExpr>,
+        expr: Box<VerifyExpr>,
+    },
+
+    /// State transition relation: from → to.
+    Transition {
+        from: Box<VerifyExpr>,
+        to: Box<VerifyExpr>,
+    },
+
+    // ---- Array theory ----
+
+    /// Array select: array[index].
+    Select {
+        array: Box<VerifyExpr>,
+        index: Box<VerifyExpr>,
+    },
+
+    /// Array store: array[index] := value.
+    Store {
+        array: Box<VerifyExpr>,
+        index: Box<VerifyExpr>,
+        value: Box<VerifyExpr>,
+    },
+
+    // ---- Biconditional (equivalence checking) ----
+
+    /// Biconditional: left ↔ right. Used for Z3 equivalence queries.
+    Iff(Box<VerifyExpr>, Box<VerifyExpr>),
 }
 
 impl VerifyExpr {
@@ -428,6 +523,27 @@ impl VerifyExpr {
     /// ```
     pub fn implies(left: VerifyExpr, right: VerifyExpr) -> Self {
         Self::binary(VerifyOp::Implies, left, right)
+    }
+
+    // ---- Bitvector convenience constructors ----
+
+    /// Create a bitvector constant.
+    pub fn bv_const(width: u32, value: u64) -> Self {
+        VerifyExpr::BitVecConst { width, value }
+    }
+
+    /// Create a bitvector binary operation.
+    pub fn bv_binary(op: BitVecOp, left: VerifyExpr, right: VerifyExpr) -> Self {
+        VerifyExpr::BitVecBinary {
+            op,
+            left: Box::new(left),
+            right: Box::new(right),
+        }
+    }
+
+    /// Biconditional: `left ↔ right`.
+    pub fn iff(left: VerifyExpr, right: VerifyExpr) -> Self {
+        VerifyExpr::Iff(Box::new(left), Box::new(right))
     }
 }
 

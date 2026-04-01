@@ -120,7 +120,8 @@ impl<'a> FolTranslator<'a> {
                     logicaffeine_language::token::TokenType::Or => {
                         BoundedExpr::Or(Box::new(l), Box::new(r))
                     }
-                    logicaffeine_language::token::TokenType::If => {
+                    logicaffeine_language::token::TokenType::If
+                    | logicaffeine_language::token::TokenType::Implies => {
                         BoundedExpr::Implies(Box::new(l), Box::new(r))
                     }
                     _ => {
@@ -167,11 +168,29 @@ impl<'a> FolTranslator<'a> {
                 }
             }
 
-            // Binary temporal (Until)
-            LogicExpr::TemporalBinary { operator: _, left, right } => {
+            // Binary temporal operators — each has distinct bounded semantics
+            LogicExpr::TemporalBinary { operator, left, right } => {
                 let l = self.translate(left);
                 let r = self.translate(right);
-                BoundedExpr::Or(Box::new(r), Box::new(l))
+                match operator {
+                    BinaryTemporalOp::Until => {
+                        // φ U ψ: ψ holds now, OR (φ holds now AND φ U ψ holds next)
+                        // Bounded unrolling: Q ∨ (P ∧ (Q' ∨ (P' ∧ Q'')))
+                        // At depth 0: just Or(Q, P) as base case
+                        self.unroll_until(&l, &r, 0)
+                    }
+                    BinaryTemporalOp::Release => {
+                        // φ R ψ: dual of Until — ψ must hold, AND (φ releases OR continue)
+                        // Bounded: Q ∧ (P ∨ (Q' ∧ (P' ∨ Q'')))
+                        self.unroll_release(&l, &r, 0)
+                    }
+                    BinaryTemporalOp::WeakUntil => {
+                        // φ W ψ: (φ U ψ) ∨ G(φ) — Until, or φ holds forever
+                        let until = self.unroll_until(&l, &r, 0);
+                        let always = self.unroll_always(&l, 0);
+                        BoundedExpr::Or(Box::new(until), Box::new(always))
+                    }
+                }
             }
 
             // Identity/equality
@@ -193,6 +212,55 @@ impl<'a> FolTranslator<'a> {
         super::sva_to_verify::TranslateResult {
             expr: expr_result,
             declarations,
+        }
+    }
+
+    /// Unroll φ U ψ (Until) to bounded depth.
+    /// φ U ψ ≡ ψ ∨ (φ ∧ X(φ U ψ))
+    /// Bounded: at max depth, just return ψ (ψ must eventually hold).
+    fn unroll_until(&self, phi: &BoundedExpr, psi: &BoundedExpr, depth: u32) -> BoundedExpr {
+        if depth >= self.bound {
+            // Base case at bound: ψ must hold
+            psi.clone()
+        } else {
+            // ψ ∨ (φ ∧ unroll(depth+1))
+            let rest = self.unroll_until(phi, psi, depth + 1);
+            BoundedExpr::Or(
+                Box::new(psi.clone()),
+                Box::new(BoundedExpr::And(
+                    Box::new(phi.clone()),
+                    Box::new(rest),
+                )),
+            )
+        }
+    }
+
+    /// Unroll φ R ψ (Release) to bounded depth.
+    /// φ R ψ ≡ ψ ∧ (φ ∨ X(φ R ψ))   (dual of Until)
+    /// Bounded: at max depth, just return ψ (ψ must still hold).
+    fn unroll_release(&self, phi: &BoundedExpr, psi: &BoundedExpr, depth: u32) -> BoundedExpr {
+        if depth >= self.bound {
+            psi.clone()
+        } else {
+            // ψ ∧ (φ ∨ unroll(depth+1))
+            let rest = self.unroll_release(phi, psi, depth + 1);
+            BoundedExpr::And(
+                Box::new(psi.clone()),
+                Box::new(BoundedExpr::Or(
+                    Box::new(phi.clone()),
+                    Box::new(rest),
+                )),
+            )
+        }
+    }
+
+    /// Unroll G(φ) (Always) to bounded depth — conjunction at all remaining steps.
+    fn unroll_always(&self, phi: &BoundedExpr, depth: u32) -> BoundedExpr {
+        if depth >= self.bound {
+            phi.clone()
+        } else {
+            let rest = self.unroll_always(phi, depth + 1);
+            BoundedExpr::And(Box::new(phi.clone()), Box::new(rest))
         }
     }
 

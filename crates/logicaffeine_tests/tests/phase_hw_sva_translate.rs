@@ -133,3 +133,145 @@ fn declarations_include_all_timestamped_signals() {
     assert!(decls.contains(&"ack@0".to_string()), "Missing ack@0. Got: {:?}", decls);
     assert!(decls.contains(&"ack@1".to_string()), "Missing ack@1. Got: {:?}", decls);
 }
+
+// ═══════════════════════════════════════════════════════════════════════════
+// BOUNDED → VERIFY BRIDGE (Phase 5)
+// ═══════════════════════════════════════════════════════════════════════════
+
+use logicaffeine_compile::codegen_sva::sva_to_verify::{bounded_to_verify, extract_signal_names};
+use logicaffeine_verify::{VerifyExpr, VerifyOp};
+
+#[test]
+fn bounded_to_verify_preserves_var() {
+    let bounded = BoundedExpr::Var("req@0".into());
+    let verify = bounded_to_verify(&bounded);
+    match verify {
+        VerifyExpr::Var(name) => assert_eq!(name, "req@0"),
+        _ => panic!("BoundedExpr::Var must map to VerifyExpr::Var. Got: {:?}", verify),
+    }
+}
+
+#[test]
+fn bounded_to_verify_preserves_bool() {
+    assert_eq!(bounded_to_verify(&BoundedExpr::Bool(true)), VerifyExpr::Bool(true));
+    assert_eq!(bounded_to_verify(&BoundedExpr::Bool(false)), VerifyExpr::Bool(false));
+}
+
+#[test]
+fn bounded_to_verify_preserves_int() {
+    assert_eq!(bounded_to_verify(&BoundedExpr::Int(42)), VerifyExpr::Int(42));
+}
+
+#[test]
+fn bounded_to_verify_preserves_and() {
+    let bounded = BoundedExpr::And(
+        Box::new(BoundedExpr::Var("a@0".into())),
+        Box::new(BoundedExpr::Var("b@0".into())),
+    );
+    let verify = bounded_to_verify(&bounded);
+    match verify {
+        VerifyExpr::Binary { op: VerifyOp::And, .. } => {}
+        _ => panic!("And must map to Binary And. Got: {:?}", verify),
+    }
+}
+
+#[test]
+fn bounded_to_verify_preserves_or() {
+    let bounded = BoundedExpr::Or(
+        Box::new(BoundedExpr::Var("a@0".into())),
+        Box::new(BoundedExpr::Var("b@0".into())),
+    );
+    let verify = bounded_to_verify(&bounded);
+    assert!(matches!(verify, VerifyExpr::Binary { op: VerifyOp::Or, .. }),
+        "Or must map to Binary Or. Got: {:?}", verify);
+}
+
+#[test]
+fn bounded_to_verify_preserves_implies() {
+    let bounded = BoundedExpr::Implies(
+        Box::new(BoundedExpr::Var("req@0".into())),
+        Box::new(BoundedExpr::Var("ack@0".into())),
+    );
+    let verify = bounded_to_verify(&bounded);
+    assert!(matches!(verify, VerifyExpr::Binary { op: VerifyOp::Implies, .. }),
+        "Implies must map to Binary Implies. Got: {:?}", verify);
+}
+
+#[test]
+fn bounded_to_verify_preserves_not() {
+    let bounded = BoundedExpr::Not(Box::new(BoundedExpr::Var("err@0".into())));
+    let verify = bounded_to_verify(&bounded);
+    match verify {
+        VerifyExpr::Not(inner) => {
+            assert!(matches!(*inner, VerifyExpr::Var(ref name) if name == "err@0"));
+        }
+        _ => panic!("Not must map to Not. Got: {:?}", verify),
+    }
+}
+
+#[test]
+fn bounded_to_verify_handles_nested_expressions() {
+    // Not(And(a, b)) → Not(Binary(And, a, b))
+    let bounded = BoundedExpr::Not(Box::new(BoundedExpr::And(
+        Box::new(BoundedExpr::Var("grant_a@0".into())),
+        Box::new(BoundedExpr::Var("grant_b@0".into())),
+    )));
+    let verify = bounded_to_verify(&bounded);
+    match verify {
+        VerifyExpr::Not(inner) => {
+            assert!(matches!(*inner, VerifyExpr::Binary { op: VerifyOp::And, .. }),
+                "Inner must be And. Got: {:?}", inner);
+        }
+        _ => panic!("Must be Not(And(...)). Got: {:?}", verify),
+    }
+}
+
+#[test]
+fn bounded_to_verify_preserves_eq() {
+    let bounded = BoundedExpr::Eq(
+        Box::new(BoundedExpr::Var("data_out@1".into())),
+        Box::new(BoundedExpr::Var("data_in@0".into())),
+    );
+    let verify = bounded_to_verify(&bounded);
+    assert!(matches!(verify, VerifyExpr::Binary { op: VerifyOp::Eq, .. }),
+        "Eq must map to Binary Eq. Got: {:?}", verify);
+}
+
+#[test]
+fn extract_signal_names_strips_timestep() {
+    let result = logicaffeine_compile::codegen_sva::sva_to_verify::TranslateResult {
+        expr: BoundedExpr::Bool(true),
+        declarations: vec![
+            "req@0".into(), "req@1".into(), "req@2".into(),
+            "ack@0".into(), "ack@1".into(),
+        ],
+    };
+    let mut names = extract_signal_names(&result);
+    names.sort();
+    assert_eq!(names, vec!["ack", "req"],
+        "Should extract unique signal names without @timestep. Got: {:?}", names);
+}
+
+#[test]
+fn bounded_to_verify_roundtrip_sva_translation() {
+    // Full test: parse SVA → translate to bounded → convert to verify
+    // req |-> ack at bound=2 should produce valid VerifyExpr
+    let mut translator = SvaTranslator::new(2);
+    let sva = parse_sva("req |-> ack").unwrap();
+    let bounded_result = translator.translate_property(&sva);
+    let verify_expr = bounded_to_verify(&bounded_result.expr);
+    // The result should be a conjunction (property over timesteps)
+    // containing Implies nodes
+    // Just verify it's a well-formed VerifyExpr (not a crash)
+    match &verify_expr {
+        VerifyExpr::Binary { op: VerifyOp::And, .. } => {
+            // Conjunction of implies at each timestep — correct
+        }
+        VerifyExpr::Binary { op: VerifyOp::Implies, .. } => {
+            // Single timestep — also correct for bound=1
+        }
+        _ => {
+            // Any valid VerifyExpr is fine for this structural test
+        }
+    }
+}

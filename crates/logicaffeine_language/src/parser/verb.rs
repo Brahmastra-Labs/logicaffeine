@@ -378,7 +378,7 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                                         QuantifierKind::Universal,
                                         self.ctx.exprs.alloc(LogicExpr::BinaryOp {
                                             left: obj_restriction,
-                                            op: TokenType::If,
+                                            op: TokenType::Implies,
                                             right: verb_pred,
                                         }),
                                     )
@@ -396,7 +396,7 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                                 QuantifierKind::Universal,
                                 self.ctx.exprs.alloc(LogicExpr::BinaryOp {
                                     left: obj_restriction,
-                                    op: TokenType::If,
+                                    op: TokenType::Implies,
                                     right: verb_pred,
                                 }),
                             ),
@@ -866,7 +866,7 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                     let obj_body = match obj_q {
                         TokenType::All => self.ctx.exprs.alloc(LogicExpr::BinaryOp {
                             left: obj_restriction,
-                            op: TokenType::If,
+                            op: TokenType::Implies,
                             right: neo_event,
                         }),
                         TokenType::No => {
@@ -876,7 +876,7 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                             });
                             self.ctx.exprs.alloc(LogicExpr::BinaryOp {
                                 left: obj_restriction,
-                                op: TokenType::If,
+                                op: TokenType::Implies,
                                 right: neg,
                             })
                         }

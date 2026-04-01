@@ -723,6 +723,9 @@ fn generate_lookup_keyword(file: &mut fs::File, keywords: &HashMap<String, Strin
             "In" => "crate::token::TokenType::In",
             "From" => "crate::token::TokenType::From",
             "Respectively" => "crate::token::TokenType::Respectively",
+            "Until" => "crate::token::TokenType::Until",
+            "Release" => "crate::token::TokenType::Release",
+            "WeakUntil" => "crate::token::TokenType::WeakUntil",
             _ => continue,
         };
         writeln!(file, "        \"{}\" => Some({}),", word, token_expr).unwrap();

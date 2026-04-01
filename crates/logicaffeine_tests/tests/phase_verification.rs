@@ -5,7 +5,7 @@
 
 #![cfg(feature = "verification")]
 
-use logos_verification::{LicensePlan, Verifier};
+use logicaffeine_verify::{LicensePlan, Verifier};
 
 #[test]
 fn test_verifier_tautology() {

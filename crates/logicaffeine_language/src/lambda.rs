@@ -497,7 +497,7 @@ fn extract_scopal_elements<'a>(
     match expr {
         LogicExpr::Quantifier { kind, variable, body, island_id } => {
             if let LogicExpr::BinaryOp { left, op, right } = body {
-                if matches!(op, TokenType::If | TokenType::And) {
+                if matches!(op, TokenType::If | TokenType::Implies | TokenType::And) {
                     // Check if right side has a negation at the top level
                     if let LogicExpr::UnaryOp { op: TokenType::Not, operand } = right {
                         // Pattern: ∀x(R(x) → ¬P(x)) or ∃x(R(x) ∧ ¬P(x))
@@ -550,7 +550,7 @@ fn rebuild_with_scopal_elements<'a>(
         match elem {
             ScopalElement::Quantifier(q) => {
                 let connective = match q.kind {
-                    QuantifierKind::Universal => TokenType::If,
+                    QuantifierKind::Universal => TokenType::Implies,
                     _ => TokenType::And,
                 };
 
@@ -588,7 +588,7 @@ fn extract_quantifiers<'a>(
     match expr {
         LogicExpr::Quantifier { kind, variable, body, island_id } => {
             if let LogicExpr::BinaryOp { left, op, right } = body {
-                if matches!(op, TokenType::If | TokenType::And) {
+                if matches!(op, TokenType::If | TokenType::Implies | TokenType::And) {
                     quantifiers.push(QuantifierInfo {
                         kind: *kind,
                         variable: *variable,
@@ -619,7 +619,7 @@ fn rebuild_with_scope_order<'a>(
 
     for q in quantifiers.iter().rev() {
         let connective = match q.kind {
-            QuantifierKind::Universal => TokenType::If,
+            QuantifierKind::Universal => TokenType::Implies,
             _ => TokenType::And,
         };
 
@@ -678,7 +678,7 @@ pub fn lift_quantifier<'a>(
     });
 
     let connective = match kind {
-        QuantifierKind::Universal => TokenType::If,
+        QuantifierKind::Universal => TokenType::Implies,
         _ => TokenType::And,
     };
 
@@ -1387,7 +1387,7 @@ mod tests {
         });
         let body = expr_arena.alloc(LogicExpr::BinaryOp {
             left,
-            op: TokenType::If,
+            op: TokenType::Implies,
             right,
         });
         let expr = expr_arena.alloc(LogicExpr::Quantifier {
@@ -1618,7 +1618,7 @@ mod tests {
 
         let outer = expr_arena.alloc(LogicExpr::BinaryOp {
             left: man_x,
-            op: TokenType::If,
+            op: TokenType::Implies,
             right: inner_q,
         });
         let expr = expr_arena.alloc(LogicExpr::Quantifier {
@@ -1693,7 +1693,7 @@ mod tests {
 
         let outer = expr_arena.alloc(LogicExpr::BinaryOp {
             left: man_x,
-            op: TokenType::If,
+            op: TokenType::Implies,
             right: q_y,
         });
         let expr = expr_arena.alloc(LogicExpr::Quantifier {
@@ -1751,7 +1751,7 @@ mod tests {
 
         let outer = expr_arena.alloc(LogicExpr::BinaryOp {
             left: man_x,
-            op: TokenType::If,
+            op: TokenType::Implies,
             right: inner_q,
         });
         let expr = expr_arena.alloc(LogicExpr::Quantifier {
@@ -1811,7 +1811,7 @@ mod tests {
 
         let outer = expr_arena.alloc(LogicExpr::BinaryOp {
             left: man_x,
-            op: TokenType::If,
+            op: TokenType::Implies,
             right: inner_q,
         });
         let expr = expr_arena.alloc(LogicExpr::Quantifier {
@@ -1871,7 +1871,7 @@ mod tests {
 
         let outer = expr_arena.alloc(LogicExpr::BinaryOp {
             left: man_x,
-            op: TokenType::If,
+            op: TokenType::Implies,
             right: inner_q,
         });
         let expr = expr_arena.alloc(LogicExpr::Quantifier {
@@ -1936,7 +1936,7 @@ mod tests {
         let expr = expr_arena.alloc(LogicExpr::Quantifier {
             kind: QuantifierKind::Universal,
             variable: x,
-            body: expr_arena.alloc(LogicExpr::BinaryOp { left: t, op: TokenType::If, right: q_y }),
+            body: expr_arena.alloc(LogicExpr::BinaryOp { left: t, op: TokenType::Implies, right: q_y }),
             island_id: 0,
         });
 

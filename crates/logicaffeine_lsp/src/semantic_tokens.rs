@@ -98,7 +98,9 @@ fn classify_token_inner(kind: &TokenType, depth: usize) -> (Option<u32>, u32) {
 
         // Logical connectives → operator
         TokenType::And | TokenType::Or | TokenType::Not
-        | TokenType::If | TokenType::Then | TokenType::Iff | TokenType::Because => {
+        | TokenType::If | TokenType::Then | TokenType::Iff | TokenType::Because
+        | TokenType::Until | TokenType::Release | TokenType::WeakUntil
+        | TokenType::Implies => {
             (Some(6), 0) // operator
         }
 

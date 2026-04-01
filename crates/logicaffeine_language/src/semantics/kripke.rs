@@ -9,10 +9,21 @@ use crate::ast::{LogicExpr, ModalDomain, ModalVector, NeoEventData, QuantifierKi
 use logicaffeine_base::{Interner, Symbol};
 use crate::token::TokenType;
 
-/// Context for tracking world variables during Kripke lowering
+/// Context for tracking world variables during Kripke lowering.
+///
+/// For hardware verification, `clock_counter` tracks discrete timesteps
+/// and `domain_hint` disambiguates temporal vs modal lowering when
+/// the context is ambiguous.
 pub struct KripkeContext {
     world_counter: u32,
     current_world: Symbol,
+    /// Discrete timestep counter for hardware clock cycles.
+    /// Incremented when generating Next_Temporal worlds.
+    clock_counter: u32,
+    /// Hint for the current modal domain being lowered.
+    /// Set to `Some(Temporal)` when processing temporal operators,
+    /// enabling domain-aware disambiguation.
+    domain_hint: Option<ModalDomain>,
 }
 
 impl KripkeContext {
@@ -20,12 +31,39 @@ impl KripkeContext {
         Self {
             world_counter: 0,
             current_world: interner.intern("w0"),
+            clock_counter: 0,
+            domain_hint: None,
         }
     }
 
     pub fn fresh_world(&mut self, interner: &mut Interner) -> Symbol {
         self.world_counter += 1;
         interner.intern(&format!("w{}", self.world_counter))
+    }
+
+    /// Get the current clock counter value (discrete timestep).
+    pub fn clock_counter(&self) -> u32 {
+        self.clock_counter
+    }
+
+    /// Get the current domain hint.
+    pub fn domain_hint(&self) -> Option<ModalDomain> {
+        self.domain_hint
+    }
+
+    /// Advance the clock counter by one tick (for Next_Temporal).
+    fn tick_clock(&mut self) {
+        self.clock_counter += 1;
+    }
+
+    /// Set the domain hint for the current lowering context.
+    fn set_domain_hint(&mut self, domain: ModalDomain) {
+        self.domain_hint = Some(domain);
+    }
+
+    /// Clear the domain hint.
+    fn clear_domain_hint(&mut self) {
+        self.domain_hint = None;
     }
 }
 
@@ -118,7 +156,9 @@ fn lower_expr<'a>(
 
         LogicExpr::Temporal { operator, body } => {
             use crate::ast::logic::TemporalOperator;
-            match operator {
+            // Set domain hint for temporal lowering
+            ctx.set_domain_hint(ModalDomain::Temporal);
+            let result = match operator {
                 // LTL operators → Kripke world quantification
                 TemporalOperator::Always => {
                     // G(φ) → ∀w'(Accessible_Temporal(w, w') → φ(w'))
@@ -136,6 +176,7 @@ fn lower_expr<'a>(
                 }
                 TemporalOperator::Next => {
                     // X(φ) → ∀w'(Next_Temporal(w, w') → φ(w'))
+                    ctx.tick_clock();
                     lower_temporal_unary(
                         body, ctx, expr_arena, term_arena, interner,
                         "Next_Temporal", true,
@@ -149,7 +190,9 @@ fn lower_expr<'a>(
                         body: new_body,
                     })
                 }
-            }
+            };
+            ctx.clear_domain_hint();
+            result
         }
 
         LogicExpr::TemporalBinary { operator, left, right } => {
@@ -396,7 +439,7 @@ fn lower_modal<'a>(
         // Necessity (Box): ForAll w'(Accessible(w, w') -> P(w'))
         let implication = expr_arena.alloc(LogicExpr::BinaryOp {
             left: accessibility,
-            op: TokenType::If,
+            op: TokenType::Implies,
             right: lowered_operand,
         });
         expr_arena.alloc(LogicExpr::Quantifier {
@@ -457,7 +500,7 @@ fn lower_temporal_unary<'a>(
         // G/X: ∀w'(Accessible_Temporal(w, w') → φ(w'))
         let implication = expr_arena.alloc(LogicExpr::BinaryOp {
             left: accessibility,
-            op: TokenType::If,
+            op: TokenType::Implies,
             right: lowered_body,
         });
         expr_arena.alloc(LogicExpr::Quantifier {

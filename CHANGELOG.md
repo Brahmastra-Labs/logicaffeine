@@ -4,6 +4,24 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.9.11] - 2026-03-31
+
+### Added
+- **Bitvector theory** — `BitVector(n)` and `Array(idx, elem)` types in the verification IR, with full `BitVecOp` enum (bitwise, shift, arithmetic, comparison) and Z3 encoding support.
+- **Bounded model checking** — `verify_temporal()` method for unrolling transition relations and checking temporal properties at each step with counterexample generation.
+- **Equivalence checking** — new `equivalence.rs` module in `logicaffeine_verify` for structural and semantic equivalence of verification expressions.
+- **SVA model expansion** — `Repetition`, `SAlways`, `Stable`, `Changed`, `DisableIff`, `Nexttime`, and `IfElse` expression variants in the SVA model, with full parsing and emission support.
+- **SVA surface tests** — new `phase_hw_sva_surface.rs` test suite (601 lines) for SVA parsing and rendering coverage.
+- **Z3 equivalence tests** — major expansion of `phase_hw_z3_equiv.rs` with 512 new lines of bitvector and equivalence verification tests.
+- **Knowledge graph expansion** — enhanced entity and relation extraction with 146 new lines in `knowledge_graph.rs`.
+- **Kripke model updates** — extended Kripke structure support for temporal reasoning (53 new lines).
+
+### Changed
+- **Parser improvements** — expanded quantifier handling, clause parsing, and verb recognition for hardware specification sentences.
+- **FOL-to-verify translation** — richer mapping from first-order logic to verification IR, supporting bitvector and array expressions.
+- **SVA-to-verify pipeline** — enhanced translation from SVA model to verification IR with support for new temporal operators.
+- **Verification solver** — extended Z3 encoding for bitvector operations, array select/store, and temporal unrolling.
+
 ## [0.9.10] - 2026-03-30
 
 ### Added

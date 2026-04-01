@@ -72,12 +72,16 @@ fn filter_kripke_nested_modals_still_work() {
 fn filter_rejects_incomplete_sentence() {
     let result = compile("Every.");
     assert!(result.is_err(), "Incomplete sentence should be rejected");
+    let err_msg = format!("{:?}", result.unwrap_err());
+    assert!(!err_msg.contains("panic"), "Should be a parse error, not a panic: {}", err_msg);
 }
 
 #[test]
 fn filter_rejects_bare_quantifier() {
     let result = compile("Every and some.");
     assert!(result.is_err(), "Bare quantifiers without nouns should fail");
+    let err_msg = format!("{:?}", result.unwrap_err());
+    assert!(!err_msg.contains("panic"), "Should be a parse error, not a panic: {}", err_msg);
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -95,4 +99,46 @@ fn filter_hardware_block_type_exists() {
 fn filter_temporal_domain_exists() {
     use logicaffeine_language::ast::logic::ModalDomain;
     let _temporal = ModalDomain::Temporal;
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// SUBSTANTIVE QUANTIFIER STRUCTURE TESTS (not just is_ok/is_err)
+// ═══════════════════════════════════════════════════════════════════════════
+
+#[test]
+fn filter_kripke_always_generates_correct_quantifier_structure() {
+    // "Always" must produce BOTH universal quantifier AND temporal accessibility
+    // AND an implication: ∀w'(Accessible_Temporal(w,w') → P(w'))
+    let result = compile_kripke("Always, every dog runs.").unwrap();
+    assert!(result.contains("Accessible_Temporal"),
+        "Must have temporal accessibility. Got: {}", result);
+    assert!(result.contains("∀") || result.contains("ForAll"),
+        "Must have universal quantifier. Got: {}", result);
+    assert!(result.contains("→") || result.contains("Implies") || result.contains("If"),
+        "Always must generate implication: Accessible → P. Got: {}", result);
+}
+
+#[test]
+fn filter_kripke_eventually_generates_correct_quantifier_structure() {
+    // "Eventually" must produce existential quantifier AND temporal reachability
+    // AND a conjunction: ∃w'(Reachable_Temporal(w,w') ∧ P(w'))
+    let result = compile_kripke("Eventually, John runs.").unwrap();
+    assert!(result.contains("Reachable_Temporal"),
+        "Must have reachable accessibility. Got: {}", result);
+    assert!(result.contains("∃") || result.contains("Exists"),
+        "Must have existential quantifier. Got: {}", result);
+    assert!(result.contains("∧") || result.contains("And"),
+        "Eventually must generate conjunction: Reachable ∧ P. Got: {}", result);
+}
+
+#[test]
+fn filter_rejects_incomplete_sentence_with_useful_error() {
+    // Verify the error is meaningful, not a panic or empty string
+    let result = compile("Every.");
+    assert!(result.is_err());
+    let err_msg = format!("{:?}", result.unwrap_err());
+    assert!(err_msg.len() > 5,
+        "Error message should be substantive, not empty. Got: {}", err_msg);
+    assert!(!err_msg.contains("panic"),
+        "Should be a parse error, not a panic. Got: {}", err_msg);
 }

@@ -242,6 +242,10 @@ impl<'a> VerificationPass<'a> {
                     | BinaryOpKind::Modulo => VerifyType::Int,
                     // Concat produces a string (Object type)
                     BinaryOpKind::Concat => VerifyType::Object,
+                    // Bitwise operations produce Int
+                    BinaryOpKind::BitXor
+                    | BinaryOpKind::Shl
+                    | BinaryOpKind::Shr => VerifyType::Int,
                 }
             }
             // Default to Int for other expressions
@@ -406,8 +410,9 @@ impl<'a> VerificationPass<'a> {
                     BinaryOpKind::LtEq => VerifyOp::Lte,
                     BinaryOpKind::And => VerifyOp::And,
                     BinaryOpKind::Or => VerifyOp::Or,
-                    // Modulo and Concat not directly supported in verification IR
-                    BinaryOpKind::Modulo | BinaryOpKind::Concat => return None,
+                    // Modulo, Concat, and bitwise ops not directly supported in verification IR
+                    BinaryOpKind::Modulo | BinaryOpKind::Concat
+                    | BinaryOpKind::BitXor | BinaryOpKind::Shl | BinaryOpKind::Shr => return None,
                 };
                 Some(VerifyExpr::binary(verify_op, l, r))
             }
@@ -461,8 +466,9 @@ impl<'a> VerificationPass<'a> {
                     BinaryOpKind::LtEq => VerifyOp::Lte,
                     BinaryOpKind::And => VerifyOp::And,
                     BinaryOpKind::Or => VerifyOp::Or,
-                    // Modulo and Concat not directly supported in verification IR
-                    BinaryOpKind::Modulo | BinaryOpKind::Concat => return None,
+                    // Modulo, Concat, and bitwise ops not directly supported in verification IR
+                    BinaryOpKind::Modulo | BinaryOpKind::Concat
+                    | BinaryOpKind::BitXor | BinaryOpKind::Shl | BinaryOpKind::Shr => return None,
                 };
                 Some(VerifyExpr::binary(verify_op, l, r))
             }
@@ -477,21 +483,7 @@ impl<'a> VerificationPass<'a> {
             }
 
             // Unsupported expressions
-            Expr::Index { .. }
-            | Expr::Slice { .. }
-            | Expr::Copy { .. }
-            | Expr::Length { .. }
-            | Expr::List(_)
-            | Expr::Range { .. }
-            | Expr::FieldAccess { .. }
-            | Expr::New { .. }
-            | Expr::NewVariant { .. }
-            | Expr::Contains { .. }
-            | Expr::Union { .. }
-            | Expr::Intersection { .. }
-            | Expr::ManifestOf { .. }
-            | Expr::ChunkAt { .. }
-            | Expr::Tuple(_) => None,
+            _ => None,
         }
     }
 
@@ -547,7 +539,7 @@ impl<'a> VerificationPass<'a> {
                 let verify_op = match op {
                     TokenType::And => VerifyOp::And,
                     TokenType::Or => VerifyOp::Or,
-                    TokenType::If | TokenType::Then => VerifyOp::Implies,
+                    TokenType::If | TokenType::Implies | TokenType::Then => VerifyOp::Implies,
                     TokenType::Iff => VerifyOp::Eq, // Biconditional is boolean equality
                     _ => VerifyOp::And, // Fallback
                 };
@@ -570,6 +562,9 @@ impl<'a> VerificationPass<'a> {
                     ModalDomain::Deontic => {
                         if vector.force > 0.5 { "Obligatory" } else { "Permissible" }
                     }
+                    ModalDomain::Temporal => {
+                        if vector.force > 0.5 { "Always" } else { "Eventually" }
+                    }
                 };
                 VerifyExpr::apply(op_name, vec![self.map_logic_expr(operand)])
             }
@@ -579,8 +574,24 @@ impl<'a> VerificationPass<'a> {
                 let op_name = match operator {
                     TemporalOperator::Past => "Past",
                     TemporalOperator::Future => "Future",
+                    TemporalOperator::Always => "Always",
+                    TemporalOperator::Eventually => "Eventually",
+                    TemporalOperator::Next => "Next",
                 };
                 VerifyExpr::apply(op_name, vec![self.map_logic_expr(body)])
+            }
+
+            // Binary temporal operators (Until, Release, WeakUntil)
+            LogicExpr::TemporalBinary { operator, left, right } => {
+                let op_name = match operator {
+                    logicaffeine_language::ast::logic::BinaryTemporalOp::Until => "Until",
+                    logicaffeine_language::ast::logic::BinaryTemporalOp::Release => "Release",
+                    logicaffeine_language::ast::logic::BinaryTemporalOp::WeakUntil => "WeakUntil",
+                };
+                VerifyExpr::apply(op_name, vec![
+                    self.map_logic_expr(left),
+                    self.map_logic_expr(right),
+                ])
             }
 
             // Smart Mapping: Aspectual operators become uninterpreted functions

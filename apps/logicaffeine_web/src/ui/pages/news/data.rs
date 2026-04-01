@@ -62,6 +62,35 @@ pub fn get_articles_by_tag(tag: &str) -> Vec<&'static Article> {
 /// All news articles
 static ARTICLES: &[Article] = &[
     Article {
+        slug: "release-0-9-11-bitvector-bmc",
+        title: "v0.9.11 — Bitvector Theory & Bounded Model Checking",
+        date: "2026-03-31",
+        summary: "Bitvector and array types in the verification IR, bounded model checking for temporal properties, equivalence checking module, and expanded SVA model with seven new temporal operators.",
+        content: r#"
+## Bitvector Theory & Bounded Model Checking
+
+This release deepens the hardware verification pipeline with bitvector-level reasoning and temporal verification.
+
+### Bitvector & Array Types
+
+The verification IR now supports `BitVector(n)` and `Array(idx, elem)` types with a full `BitVecOp` enum covering bitwise, shift, arithmetic, and comparison operations — all directly encodable to Z3's bitvector theory.
+
+### Bounded Model Checking
+
+A new `verify_temporal()` method unrolls transition relations over bounded steps, checking temporal properties at each state and producing counterexamples on violation.
+
+### SVA Model Expansion
+
+Seven new SVA expression variants — `Repetition`, `SAlways`, `Stable`, `Changed`, `DisableIff`, `Nexttime`, and `IfElse` — with parsing and emission support for richer assertion coverage.
+
+### Equivalence Checking
+
+A new `equivalence.rs` module provides structural and semantic equivalence checking for verification expressions.
+"#,
+        tags: &["release", "hardware-verification", "bitvector", "model-checking"],
+        author: "LOGICAFFEINE Team",
+    },
+    Article {
         slug: "release-0-9-10-hardware-verification",
         title: "v0.9.10 — Hardware Verification Pipeline",
         date: "2026-03-30",

@@ -147,6 +147,17 @@ pub enum TokenType {
     Not,
     Iff,
     Because,
+    /// Temporal binary connective: "P until Q"
+    Until,
+    /// Temporal binary connective: "P release Q" (dual of Until)
+    Release,
+    /// Temporal binary connective: "P weak-until Q" (Until or Always)
+    WeakUntil,
+    /// Compiler-generated implication (e.g., quantifier restrictions from Kripke lowering).
+    /// Distinguished from `If` which represents user-written conditionals.
+    /// This separation gives downstream passes (KG extraction, SVA synthesis)
+    /// irrefutable provenance: `If` = user intent, `Implies` = compiler glue.
+    Implies,
 
     // Modal Operators
     Must,

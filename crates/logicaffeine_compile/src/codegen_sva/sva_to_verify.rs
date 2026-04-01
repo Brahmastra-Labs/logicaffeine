@@ -91,7 +91,10 @@ impl SvaTranslator {
                 if t >= *n {
                     self.translate(inner, t - n)
                 } else {
-                    BoundedExpr::Bool(false) // no prior state available
+                    // No prior state available — return current value (vacuous identity)
+                    // This ensures $stable(sig) ≡ sig == $past(sig,1) at t=0:
+                    // $stable@0 = true, $past(sig,1)@0 = sig@0, so sig@0 == sig@0 = true ✓
+                    self.translate(inner, t)
                 }
             }
 
@@ -164,6 +167,118 @@ impl SvaTranslator {
                 }
                 result.unwrap_or(BoundedExpr::Bool(false))
             }
+
+            SvaExpr::Stable(inner) => {
+                // $stable(sig) → sig@t == sig@(t-1)
+                // At t=0, no previous state → vacuously stable
+                if t == 0 {
+                    BoundedExpr::Bool(true)
+                } else {
+                    let current = self.translate(inner, t);
+                    let previous = self.translate(inner, t - 1);
+                    BoundedExpr::Eq(Box::new(current), Box::new(previous))
+                }
+            }
+
+            SvaExpr::Changed(inner) => {
+                // $changed(sig) → !(sig@t == sig@(t-1))
+                // At t=0, no previous state → vacuously not changed
+                if t == 0 {
+                    BoundedExpr::Bool(false)
+                } else {
+                    let current = self.translate(inner, t);
+                    let previous = self.translate(inner, t - 1);
+                    BoundedExpr::Not(Box::new(BoundedExpr::Eq(
+                        Box::new(current),
+                        Box::new(previous),
+                    )))
+                }
+            }
+
+            SvaExpr::Nexttime(inner, n) => {
+                // nexttime[N](body) → body@(t+N)
+                self.translate(inner, t + n)
+            }
+
+            SvaExpr::DisableIff { condition, body } => {
+                // disable iff (cond) body → ¬cond@t → body@t
+                // When disable condition is active, property is vacuously true
+                let cond = self.translate(condition, t);
+                let prop = self.translate(body, t);
+                BoundedExpr::Implies(
+                    Box::new(BoundedExpr::Not(Box::new(cond))),
+                    Box::new(prop),
+                )
+            }
+
+            SvaExpr::Repetition { body, min, max } => {
+                let effective_max = match max {
+                    Some(m) => *m,
+                    None => (*min).max(1) + self.bound,
+                };
+                if *min == effective_max {
+                    // Exact repetition [*N]: body@t ∧ body@{t+1} ∧ ... ∧ body@{t+N-1}
+                    let mut result: Option<BoundedExpr> = None;
+                    for offset in 0..*min {
+                        let b = self.translate(body, t + offset);
+                        result = Some(match result {
+                            None => b,
+                            Some(acc) => BoundedExpr::And(Box::new(acc), Box::new(b)),
+                        });
+                    }
+                    result.unwrap_or(BoundedExpr::Bool(true))
+                } else {
+                    // Range repetition [*min:max]: ∨ over lengths, each a conjunction
+                    let mut outer: Option<BoundedExpr> = None;
+                    for len in *min..=effective_max {
+                        if len > self.bound + t {
+                            break;
+                        }
+                        let mut inner_conj: Option<BoundedExpr> = None;
+                        for offset in 0..len {
+                            let b = self.translate(body, t + offset);
+                            inner_conj = Some(match inner_conj {
+                                None => b,
+                                Some(acc) => BoundedExpr::And(Box::new(acc), Box::new(b)),
+                            });
+                        }
+                        let conj = inner_conj.unwrap_or(BoundedExpr::Bool(true));
+                        outer = Some(match outer {
+                            None => conj,
+                            Some(acc) => BoundedExpr::Or(Box::new(acc), Box::new(conj)),
+                        });
+                    }
+                    outer.unwrap_or(BoundedExpr::Bool(false))
+                }
+            }
+
+            SvaExpr::SAlways(inner) => {
+                // s_always(body) at t → body@t ∧ body@{t+1} ∧ ... ∧ body@{bound-1}
+                let remaining = if self.bound > t { self.bound - t } else { 1 };
+                let mut result: Option<BoundedExpr> = None;
+                for offset in 0..remaining {
+                    let b = self.translate(inner, t + offset);
+                    result = Some(match result {
+                        None => b,
+                        Some(acc) => BoundedExpr::And(Box::new(acc), Box::new(b)),
+                    });
+                }
+                result.unwrap_or(BoundedExpr::Bool(true))
+            }
+
+            SvaExpr::IfElse { condition, then_expr, else_expr } => {
+                // if (C) P else Q → (C@t → P@t) ∧ (¬C@t → Q@t)
+                let c = self.translate(condition, t);
+                let p = self.translate(then_expr, t);
+                let q = self.translate(else_expr, t);
+                BoundedExpr::And(
+                    Box::new(BoundedExpr::Implies(Box::new(c.clone()), Box::new(p))),
+                    Box::new(BoundedExpr::Implies(
+                        Box::new(BoundedExpr::Not(Box::new(c))),
+                        Box::new(q),
+                    )),
+                )
+            }
         }
     }
 
@@ -201,4 +316,53 @@ pub fn count_and_leaves(e: &BoundedExpr) -> usize {
         BoundedExpr::And(left, right) => count_and_leaves(left) + count_and_leaves(right),
         _ => 1,
     }
+}
+
+/// Translate a BoundedExpr (timestep-unrolled) into a VerifyExpr (Z3-ready).
+///
+/// This is the bridge from the compile crate to the verify crate.
+/// Both SVA and FOL translate to BoundedExpr first; this function makes
+/// them consumable by the Z3 solver for semantic equivalence checking.
+pub fn bounded_to_verify(expr: &BoundedExpr) -> logicaffeine_verify::VerifyExpr {
+    use logicaffeine_verify::{VerifyExpr, VerifyOp};
+    match expr {
+        BoundedExpr::Var(name) => VerifyExpr::Var(name.clone()),
+        BoundedExpr::Bool(b) => VerifyExpr::Bool(*b),
+        BoundedExpr::Int(i) => VerifyExpr::Int(*i),
+        BoundedExpr::And(l, r) => VerifyExpr::binary(
+            VerifyOp::And,
+            bounded_to_verify(l),
+            bounded_to_verify(r),
+        ),
+        BoundedExpr::Or(l, r) => VerifyExpr::binary(
+            VerifyOp::Or,
+            bounded_to_verify(l),
+            bounded_to_verify(r),
+        ),
+        BoundedExpr::Not(e) => VerifyExpr::not(bounded_to_verify(e)),
+        BoundedExpr::Implies(l, r) => VerifyExpr::binary(
+            VerifyOp::Implies,
+            bounded_to_verify(l),
+            bounded_to_verify(r),
+        ),
+        BoundedExpr::Eq(l, r) => VerifyExpr::binary(
+            VerifyOp::Eq,
+            bounded_to_verify(l),
+            bounded_to_verify(r),
+        ),
+    }
+}
+
+/// Extract signal names from a BoundedExpr by collecting all Var names
+/// and stripping the @timestep suffix.
+pub fn extract_signal_names(result: &TranslateResult) -> Vec<String> {
+    let mut signals: HashSet<String> = HashSet::new();
+    for decl in &result.declarations {
+        if let Some(at_pos) = decl.find('@') {
+            signals.insert(decl[..at_pos].to_string());
+        } else {
+            signals.insert(decl.clone());
+        }
+    }
+    signals.into_iter().collect()
 }

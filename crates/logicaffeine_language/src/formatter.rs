@@ -46,7 +46,7 @@ pub trait LogicFormatter {
         match op {
             TokenType::And => format!("({} {} {})", left, self.and(), right),
             TokenType::Or => format!("({} {} {})", left, self.or(), right),
-            TokenType::If => format!("({} {} {})", left, self.implies(), right),
+            TokenType::If | TokenType::Implies => format!("({} {} {})", left, self.implies(), right),
             TokenType::Iff => format!("({} {} {})", left, self.iff(), right),
             _ => String::new(),
         }
@@ -557,7 +557,7 @@ impl LogicFormatter for RustFormatter {
     // Override binary_op for implication desugaring: A → B = !A || B
     fn binary_op(&self, op: &TokenType, left: &str, right: &str) -> String {
         match op {
-            TokenType::If | TokenType::Then => format!("(!({}) || ({}))", left, right),
+            TokenType::If | TokenType::Implies | TokenType::Then => format!("(!({}) || ({}))", left, right),
             TokenType::And => format!("({} && {})", left, right),
             TokenType::Or => format!("({} || {})", left, right),
             TokenType::Iff => format!("({} == {})", left, right),
