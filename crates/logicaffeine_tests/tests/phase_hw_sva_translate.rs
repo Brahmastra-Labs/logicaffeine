@@ -138,9 +138,13 @@ fn declarations_include_all_timestamped_signals() {
 // BOUNDED → VERIFY BRIDGE (Phase 5)
 // ═══════════════════════════════════════════════════════════════════════════
 
-use logicaffeine_compile::codegen_sva::sva_to_verify::{bounded_to_verify, extract_signal_names};
+#[cfg(feature = "verification")]
+use logicaffeine_compile::codegen_sva::sva_to_verify::bounded_to_verify;
+use logicaffeine_compile::codegen_sva::sva_to_verify::extract_signal_names;
+#[cfg(feature = "verification")]
 use logicaffeine_verify::{VerifyExpr, VerifyOp};
 
+#[cfg(feature = "verification")]
 #[test]
 fn bounded_to_verify_preserves_var() {
     let bounded = BoundedExpr::Var("req@0".into());
@@ -151,17 +155,20 @@ fn bounded_to_verify_preserves_var() {
     }
 }
 
+#[cfg(feature = "verification")]
 #[test]
 fn bounded_to_verify_preserves_bool() {
     assert_eq!(bounded_to_verify(&BoundedExpr::Bool(true)), VerifyExpr::Bool(true));
     assert_eq!(bounded_to_verify(&BoundedExpr::Bool(false)), VerifyExpr::Bool(false));
 }
 
+#[cfg(feature = "verification")]
 #[test]
 fn bounded_to_verify_preserves_int() {
     assert_eq!(bounded_to_verify(&BoundedExpr::Int(42)), VerifyExpr::Int(42));
 }
 
+#[cfg(feature = "verification")]
 #[test]
 fn bounded_to_verify_preserves_and() {
     let bounded = BoundedExpr::And(
@@ -175,6 +182,7 @@ fn bounded_to_verify_preserves_and() {
     }
 }
 
+#[cfg(feature = "verification")]
 #[test]
 fn bounded_to_verify_preserves_or() {
     let bounded = BoundedExpr::Or(
@@ -186,6 +194,7 @@ fn bounded_to_verify_preserves_or() {
         "Or must map to Binary Or. Got: {:?}", verify);
 }
 
+#[cfg(feature = "verification")]
 #[test]
 fn bounded_to_verify_preserves_implies() {
     let bounded = BoundedExpr::Implies(
@@ -197,6 +206,7 @@ fn bounded_to_verify_preserves_implies() {
         "Implies must map to Binary Implies. Got: {:?}", verify);
 }
 
+#[cfg(feature = "verification")]
 #[test]
 fn bounded_to_verify_preserves_not() {
     let bounded = BoundedExpr::Not(Box::new(BoundedExpr::Var("err@0".into())));
@@ -209,6 +219,7 @@ fn bounded_to_verify_preserves_not() {
     }
 }
 
+#[cfg(feature = "verification")]
 #[test]
 fn bounded_to_verify_handles_nested_expressions() {
     // Not(And(a, b)) → Not(Binary(And, a, b))
@@ -226,6 +237,7 @@ fn bounded_to_verify_handles_nested_expressions() {
     }
 }
 
+#[cfg(feature = "verification")]
 #[test]
 fn bounded_to_verify_preserves_eq() {
     let bounded = BoundedExpr::Eq(
@@ -252,6 +264,7 @@ fn extract_signal_names_strips_timestep() {
         "Should extract unique signal names without @timestep. Got: {:?}", names);
 }
 
+#[cfg(feature = "verification")]
 #[test]
 fn bounded_to_verify_roundtrip_sva_translation() {
     // Full test: parse SVA → translate to bounded → convert to verify

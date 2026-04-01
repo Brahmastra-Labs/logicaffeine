@@ -1,13 +1,12 @@
 //! Sprint C: Verification IR Extensions — Bitvectors & BMC
 //!
-//! Tests for hardware verification features. Tests that need Z3 are gated
-//! behind the `verification` feature flag.
+//! Tests for hardware verification features. Requires the `verification` feature.
 //!
-//! Run WITHOUT Z3: cargo test --test phase_hw_verify -- --skip e2e
-//! Run WITH Z3:    cargo test --features verification --test phase_hw_verify -- --skip e2e
+//! Run: cargo test --features verification --test phase_hw_verify -- --skip e2e
+
+#![cfg(feature = "verification")]
 
 use logicaffeine_verify::{BitVecOp, VerifyExpr, VerifyOp, VerifyType};
-#[cfg(feature = "verification")]
 use logicaffeine_verify::VerificationSession;
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -71,7 +70,6 @@ Otherwise:
 // ═══════════════════════════════════════════════════════════════════════════
 
 #[test]
-#[cfg(feature = "verification")]
 fn z3_refinement_valid_after_hw_changes() {
     use logicaffeine_compile::compile::compile_to_rust_verified;
     let source = "## Main\nLet x: Int where it > 0 be 10.";
@@ -80,7 +78,6 @@ fn z3_refinement_valid_after_hw_changes() {
 }
 
 #[test]
-#[cfg(feature = "verification")]
 fn z3_refinement_invalid_after_hw_changes() {
     use logicaffeine_compile::compile::compile_to_rust_verified;
     let source = "## Main\nLet x: Int where it > 0 be -5.";
@@ -89,7 +86,6 @@ fn z3_refinement_invalid_after_hw_changes() {
 }
 
 #[test]
-#[cfg(feature = "verification")]
 fn z3_mutex_valid() {
     use logicaffeine_compile::compile::compile_to_rust_verified;
     let source = r#"## Main
@@ -103,7 +99,6 @@ Show sum.
 }
 
 #[test]
-#[cfg(feature = "verification")]
 fn z3_mutex_violation() {
     use logicaffeine_compile::compile::compile_to_rust_verified;
     let source = r#"## Main
@@ -210,7 +205,6 @@ fn select_store_expr_variants_exist() {
 // ═══════════════════════════════════════════════════════════════════════════
 
 #[test]
-#[cfg(feature = "verification")]
 fn z3_bitvector_declaration_and_assumption_works() {
     let mut session = VerificationSession::new();
     session.declare("sig", VerifyType::BitVector(8));
@@ -221,7 +215,6 @@ fn z3_bitvector_declaration_and_assumption_works() {
 }
 
 #[test]
-#[cfg(feature = "verification")]
 fn z3_iff_encoding_works() {
     use logicaffeine_verify::{VerificationSession, VerifyExpr};
     let session = VerificationSession::new();
@@ -232,7 +225,6 @@ fn z3_iff_encoding_works() {
 }
 
 #[test]
-#[cfg(feature = "verification")]
 fn z3_iff_detects_inequivalence() {
     use logicaffeine_verify::{VerificationSession, VerifyExpr};
     let session = VerificationSession::new();
@@ -243,7 +235,6 @@ fn z3_iff_detects_inequivalence() {
 }
 
 #[test]
-#[cfg(feature = "verification")]
 fn z3_bmc_verify_temporal_safety_holds() {
     use logicaffeine_verify::{VerificationSession, VerifyExpr, VerifyOp};
     let session = VerificationSession::new();
@@ -260,7 +251,6 @@ fn z3_bmc_verify_temporal_safety_holds() {
 }
 
 #[test]
-#[cfg(feature = "verification")]
 fn z3_bmc_catches_violation() {
     use logicaffeine_verify::{VerificationSession, VerifyExpr, VerifyOp};
     let session = VerificationSession::new();

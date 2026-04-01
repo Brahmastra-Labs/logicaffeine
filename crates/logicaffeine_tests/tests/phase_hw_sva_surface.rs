@@ -17,8 +17,10 @@ use logicaffeine_compile::codegen_sva::sva_model::{
 };
 use logicaffeine_compile::codegen_sva::sva_to_verify::{
     BoundedExpr, SvaTranslator, count_and_leaves, count_or_leaves,
-    bounded_to_verify, extract_signal_names,
+    extract_signal_names,
 };
+#[cfg(feature = "verification")]
+use logicaffeine_compile::codegen_sva::sva_to_verify::bounded_to_verify;
 
 // ============================================================================
 // SECTION 1: $stable and $changed — System Functions
@@ -565,6 +567,7 @@ fn translate_property_disable_iff_guards_every_timestep() {
 // SECTION 10: Bounded → VerifyExpr Bridge for New Constructs
 // ============================================================================
 
+#[cfg(feature = "verification")]
 #[test]
 fn stable_bounded_to_verify_produces_eq() {
     let expr = parse_sva("$stable(sig)").unwrap();
@@ -580,6 +583,7 @@ fn stable_bounded_to_verify_produces_eq() {
     ));
 }
 
+#[cfg(feature = "verification")]
 #[test]
 fn changed_bounded_to_verify_produces_not_eq() {
     let expr = parse_sva("$changed(sig)").unwrap();
@@ -590,6 +594,7 @@ fn changed_bounded_to_verify_produces_not_eq() {
     assert!(matches!(verify, logicaffeine_verify::VerifyExpr::Not(_)));
 }
 
+#[cfg(feature = "verification")]
 #[test]
 fn nexttime_bounded_to_verify_produces_var_at_next() {
     let expr = parse_sva("nexttime(valid)").unwrap();
