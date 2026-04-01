@@ -323,6 +323,7 @@ pub fn count_and_leaves(e: &BoundedExpr) -> usize {
 /// This is the bridge from the compile crate to the verify crate.
 /// Both SVA and FOL translate to BoundedExpr first; this function makes
 /// them consumable by the Z3 solver for semantic equivalence checking.
+#[cfg(feature = "verification")]
 pub fn bounded_to_verify(expr: &BoundedExpr) -> logicaffeine_verify::VerifyExpr {
     use logicaffeine_verify::{VerifyExpr, VerifyOp};
     match expr {
