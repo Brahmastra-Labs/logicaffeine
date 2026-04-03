@@ -46,7 +46,7 @@ pub enum Route {
     #[route("/")]
     Landing {},
 
-    /// Subscription plans and pricing at `/pricing`.
+    /// Contact and licensing at `/pricing`.
     #[route("/pricing")]
     Pricing {},
 

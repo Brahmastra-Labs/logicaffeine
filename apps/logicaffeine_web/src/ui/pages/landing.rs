@@ -1621,7 +1621,7 @@ pub fn Landing() -> Element {
         organization_schema(),
         website_schema(),
         faq_schema(&[
-            ("Is it really free?", "Yes — free for individuals. Teams and commercial use should use the licensing options on the Pricing page."),
+            ("Is it really free?", "Yes — free for individuals, universities, and teams under 25 people. For commercial licensing, contact us."),
             ("Do I need to know logic already?", "No. Start in Learn. The system introduces concepts progressively and uses examples to teach scope, quantifiers, and structure."),
             ("Is this an AI that guesses?", "The goal is the opposite: to force explicit structure. When language is ambiguous, the tutor prompts clarifying questions."),
             ("Where do I begin?", "If you want speed, open Studio. If you want mastery, Start Learning and follow the lessons."),
@@ -1773,7 +1773,7 @@ pub fn Landing() -> Element {
                             div { class: "hero-ctas",
                                 Link { to: Route::Learn {}, class: "btn btn-primary", "Start Learning" }
                                 Link { to: Route::Studio {}, class: "btn", "Open Studio" }
-                                Link { to: Route::Pricing {}, class: "btn btn-ghost", "See Pricing" }
+                                Link { to: Route::Pricing {}, class: "btn btn-ghost", "Contact Us" }
                             }
 
                             p { class: "microcopy",
@@ -2474,7 +2474,7 @@ pub fn Landing() -> Element {
                     div { class: "grid2",
                         div { class: "faq-item",
                             div { class: "faq-q", "Is it really free?" }
-                            div { class: "faq-a", "Yes — free for individuals. Teams and commercial use should use the licensing options on the Pricing page." }
+                            div { class: "faq-a", "Yes — free for individuals, universities, and teams under 25 people. For commercial licensing, contact us." }
                         }
                         div { class: "faq-item",
                             div { class: "faq-q", "Do I need to know logic already?" }
@@ -2513,7 +2513,7 @@ pub fn Landing() -> Element {
                         }
                         div { class: "hero-ctas",
                             Link { to: Route::Learn {}, class: "btn btn-primary", "Start Learning" }
-                            Link { to: Route::Pricing {}, class: "btn btn-ghost", "View Licenses" }
+                            Link { to: Route::Pricing {}, class: "btn btn-ghost", "Contact Us" }
                         }
                     }
                 }

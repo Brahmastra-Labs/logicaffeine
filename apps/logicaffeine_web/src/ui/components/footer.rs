@@ -373,7 +373,7 @@ pub fn Footer(
                         h4 { class: "footer-section-title", "Resources" }
                         nav { class: "footer-section-links",
                             Link { to: "/roadmap", class: "footer-link", "Roadmap" }
-                            Link { to: "/pricing", class: "footer-link", "Pricing" }
+                            Link { to: "/pricing", class: "footer-link", "Contact" }
                             Link { to: "/news", class: "footer-link", "News" }
                             a {
                                 href: "https://github.com/Brahmastra-Labs/logicaffeine",

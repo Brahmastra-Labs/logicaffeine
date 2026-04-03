@@ -548,7 +548,7 @@ pub fn MainNav(
                         Link {
                             to: Route::Pricing {},
                             class: if active == ActivePage::Pricing { "main-nav-link active" } else { "main-nav-link" },
-                            "Pricing"
+                            "Contact"
                         }
                         Link {
                             to: Route::News {},
@@ -745,7 +745,7 @@ pub fn MainNav(
                     span { class: "mobile-nav-link-icon",
                         Icon { variant: IconVariant::Diamond, size: IconSize::Medium }
                     }
-                    "Pricing"
+                    "Contact"
                 }
                 Link {
                     to: Route::News {},

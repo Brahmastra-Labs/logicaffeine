@@ -1,14 +1,7 @@
-//! Commercial licensing and pricing page.
+//! Contact and licensing page.
 //!
-//! Displays subscription tiers, pricing information, and handles license
-//! management. Features include:
-//!
-//! - Free tier for individuals and small teams (<25 employees)
-//! - Paid tiers: Supporter, Pro, Premium, Enterprise
-//! - Lifetime license option
-//! - Active license status display
-//! - Stripe integration for payments
-//! - License key management
+//! Displays product features, licensing information, and contact details.
+//! No pricing is shown — interested parties are directed to reach out.
 //!
 //! # Route
 //!
@@ -19,8 +12,7 @@ use crate::ui::router::Route;
 use crate::ui::components::main_nav::{MainNav, ActivePage};
 use crate::ui::components::footer::Footer;
 use crate::ui::components::icon::{Icon, IconVariant, IconSize};
-use crate::ui::state::LicenseState;
-use crate::ui::seo::{JsonLdMultiple, PageHead, organization_schema, product_schema, breadcrumb_schema, BreadcrumbItem, pages as seo_pages};
+use crate::ui::seo::{JsonLdMultiple, PageHead, organization_schema, contact_schema, breadcrumb_schema, BreadcrumbItem, pages as seo_pages};
 
 const PRICING_STYLE: &str = r#"
 * { box-sizing: border-box; }
@@ -100,503 +92,6 @@ a { color: inherit; }
   color: var(--text-secondary);
   font-size: var(--font-body-lg);
   line-height: 1.65;
-}
-
-.pricing-tiers {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
-  gap: var(--spacing-xl);
-  width: 100%;
-  margin-bottom: 40px;
-}
-
-.tier-card {
-  position: relative;
-  background: rgba(255,255,255,0.04);
-  border: 1px solid rgba(255,255,255,0.10);
-  border-radius: var(--radius-xl);
-  padding: var(--spacing-xxl);
-  display: flex;
-  flex-direction: column;
-  backdrop-filter: blur(18px);
-  transition: transform 0.18s ease, border-color 0.18s ease, background 0.18s ease;
-  overflow: hidden;
-  animation: fadeInUp 0.6s ease both;
-}
-
-.tier-card:nth-child(1) { animation-delay: 0.1s; }
-.tier-card:nth-child(2) { animation-delay: 0.15s; }
-.tier-card:nth-child(3) { animation-delay: 0.2s; }
-.tier-card:nth-child(4) { animation-delay: 0.25s; }
-.tier-card:nth-child(5) { animation-delay: 0.3s; }
-
-.tier-card::before {
-  content: "";
-  position: absolute;
-  inset: 0;
-  border-radius: var(--radius-xl);
-  background: linear-gradient(135deg, rgba(var(--accent-primary-rgb),0.12), rgba(var(--accent-secondary-rgb),0.12));
-  opacity: 0;
-  transition: opacity 0.3s ease;
-  pointer-events: none;
-}
-
-.tier-card:hover {
-  transform: translateY(-3px);
-  border-color: rgba(var(--accent-secondary-rgb),0.28);
-  background: rgba(255,255,255,0.06);
-}
-
-.tier-card:hover::before {
-  opacity: 1;
-}
-
-.tier-card.supporter {
-  border-color: rgba(var(--accent-secondary-rgb),0.35);
-  background: linear-gradient(135deg, rgba(var(--accent-secondary-rgb),0.08) 0%, rgba(var(--accent-primary-rgb),0.06) 100%);
-}
-
-.tier-card.disabled {
-  opacity: 0.4;
-  pointer-events: none;
-  filter: grayscale(0.5);
-}
-
-.tier-card.disabled:hover {
-  transform: none;
-  border-color: rgba(255,255,255,0.10);
-  background: rgba(255,255,255,0.04);
-}
-
-.tier-card.disabled::before {
-  display: none;
-}
-
-.tier-card.disabled .btn-primary,
-.tier-card.disabled .btn-secondary,
-.tier-card.disabled .btn-contact {
-  background: rgba(255,255,255,0.08);
-  cursor: not-allowed;
-  box-shadow: none;
-}
-
-.free-license-banner {
-  position: relative;
-  background: rgba(255,255,255,0.04);
-  border: 1px solid rgba(255,255,255,0.10);
-  border-radius: var(--radius-xl);
-  padding: var(--spacing-xxl);
-  margin-bottom: 40px;
-  width: 100%;
-  text-align: center;
-  backdrop-filter: blur(18px);
-  animation: fadeInUp 0.6s ease 0.05s both;
-}
-
-.free-license-banner.disabled {
-  opacity: 0.4;
-  pointer-events: none;
-  filter: grayscale(0.5);
-}
-
-.free-license-banner h2 {
-  color: var(--text-primary);
-  font-size: var(--font-heading-lg);
-  margin-bottom: var(--spacing-md);
-  font-weight: 700;
-}
-
-.free-license-banner p {
-  color: var(--text-secondary);
-  margin-bottom: var(--spacing-xl);
-  line-height: 1.65;
-}
-
-.free-license-banner .btn-free {
-  display: inline-block;
-  background: linear-gradient(135deg, var(--accent-primary), var(--accent-secondary));
-  color: #060814;
-  padding: var(--spacing-md) var(--spacing-xxl);
-  border-radius: var(--radius-lg);
-  font-size: var(--font-body-md);
-  font-weight: 650;
-  text-decoration: none;
-  transition: all 0.2s ease;
-  box-shadow: 0 18px 40px rgba(var(--accent-primary-rgb),0.18);
-}
-
-.free-license-banner .btn-free:hover {
-  transform: translateY(-2px);
-  box-shadow: 0 6px 20px rgba(var(--accent-primary-rgb),0.4);
-}
-
-.tier-badge {
-  display: inline-block;
-  background: linear-gradient(135deg, var(--accent-primary), var(--accent-secondary));
-  color: #060814;
-  font-size: var(--font-caption-md);
-  font-weight: 700;
-  padding: 5px var(--spacing-md);
-  border-radius: var(--radius-full);
-  margin-bottom: var(--spacing-lg);
-  align-self: flex-start;
-  text-transform: uppercase;
-  letter-spacing: 0.5px;
-}
-
-.early-access-badge {
-  display: inline-block;
-  background: linear-gradient(135deg, var(--color-success), #16a34a);
-  color: #060814;
-  font-size: var(--font-caption-sm);
-  font-weight: 700;
-  padding: var(--spacing-xs) 10px;
-  border-radius: var(--radius-full);
-  margin-bottom: var(--spacing-md);
-  align-self: flex-start;
-  text-transform: uppercase;
-  letter-spacing: 0.5px;
-}
-
-.coming-soon-badge {
-  display: inline-block;
-  background: rgba(255,255,255,0.12);
-  color: var(--text-secondary);
-  font-size: var(--font-caption-sm);
-  font-weight: 700;
-  padding: var(--spacing-xs) 10px;
-  border-radius: var(--radius-full);
-  margin-bottom: var(--spacing-md);
-  align-self: flex-start;
-  text-transform: uppercase;
-  letter-spacing: 0.5px;
-}
-
-.tier-name {
-  color: var(--text-primary);
-  font-size: var(--font-heading-lg);
-  font-weight: 700;
-  margin-bottom: var(--spacing-sm);
-}
-
-.tier-revenue {
-  color: var(--text-secondary);
-  font-size: var(--font-caption-lg);
-  margin-bottom: var(--spacing-xl);
-}
-
-.tier-price {
-  margin-bottom: var(--spacing-sm);
-}
-
-.tier-price .amount {
-  color: var(--text-primary);
-  font-size: var(--font-display-md);
-  font-weight: 800;
-}
-
-.tier-price .period {
-  color: var(--text-secondary);
-  font-size: var(--font-body-md);
-}
-
-.tier-annual {
-  color: var(--accent-secondary);
-  font-size: var(--font-caption-lg);
-  margin-bottom: var(--spacing-xl);
-}
-
-.tier-features {
-  list-style: none;
-  padding: 0;
-  margin: 0 0 var(--spacing-xl) 0;
-  flex-grow: 1;
-}
-
-.tier-features li {
-  color: var(--text-secondary);
-  font-size: var(--font-caption-lg);
-  padding: var(--spacing-sm) 0;
-  padding-left: var(--spacing-xl);
-  position: relative;
-  line-height: 1.5;
-}
-
-.tier-features li::before {
-  content: "✓";
-  position: absolute;
-  left: 0;
-  color: var(--accent-secondary);
-}
-
-.tier-buttons {
-  display: flex;
-  flex-direction: column;
-  gap: var(--spacing-md);
-}
-
-.btn-primary {
-  display: block;
-  background: linear-gradient(135deg, var(--accent-primary), var(--accent-secondary));
-  color: #060814;
-  padding: var(--spacing-md) var(--spacing-xl);
-  border-radius: var(--radius-lg);
-  font-size: var(--font-body-md);
-  font-weight: 650;
-  text-decoration: none;
-  text-align: center;
-  transition: all 0.2s ease;
-  box-shadow: 0 18px 40px rgba(var(--accent-primary-rgb),0.18);
-}
-
-.btn-primary:hover {
-  transform: translateY(-2px);
-  box-shadow: 0 6px 20px rgba(var(--accent-primary-rgb),0.4);
-}
-
-.btn-secondary {
-  display: block;
-  background: rgba(255,255,255,0.05);
-  color: var(--accent-secondary);
-  padding: var(--spacing-md) var(--spacing-xl);
-  border: 1px solid rgba(var(--accent-secondary-rgb),0.3);
-  border-radius: var(--radius-lg);
-  font-size: var(--font-caption-lg);
-  font-weight: 600;
-  text-decoration: none;
-  text-align: center;
-  transition: all 0.2s ease;
-}
-
-.btn-secondary:hover {
-  background: rgba(var(--accent-secondary-rgb),0.1);
-  border-color: rgba(var(--accent-secondary-rgb),0.5);
-}
-
-.btn-contact {
-  display: block;
-  background: rgba(255,255,255,0.06);
-  color: var(--text-primary);
-  padding: var(--spacing-md) var(--spacing-xl);
-  border-radius: var(--radius-lg);
-  border: 1px solid rgba(255,255,255,0.10);
-  font-size: var(--font-body-md);
-  font-weight: 600;
-  text-decoration: none;
-  text-align: center;
-  transition: all 0.2s ease;
-}
-
-.btn-contact:hover {
-  background: rgba(255,255,255,0.10);
-  border-color: rgba(255,255,255,0.14);
-}
-
-.lifetime-section {
-  position: relative;
-  background: linear-gradient(135deg, rgba(var(--accent-secondary-rgb),0.12) 0%, rgba(var(--accent-primary-rgb),0.08) 100%);
-  border: 1px solid rgba(var(--accent-secondary-rgb),0.3);
-  border-radius: var(--radius-xl);
-  padding: 40px;
-  text-align: center;
-  width: 100%;
-  margin-bottom: 40px;
-  backdrop-filter: blur(18px);
-  animation: fadeInUp 0.6s ease 0.1s both;
-  overflow: hidden;
-}
-
-.lifetime-section::before {
-  content: "";
-  position: absolute;
-  inset: 0;
-  background: radial-gradient(600px 300px at 50% 0%, rgba(var(--accent-secondary-rgb),0.15), transparent 70%);
-  pointer-events: none;
-}
-
-.lifetime-section h2 {
-  position: relative;
-  color: var(--text-primary);
-  font-size: var(--font-heading-lg);
-  font-weight: 700;
-  margin-bottom: var(--spacing-md);
-}
-
-.lifetime-section .price {
-  position: relative;
-  color: var(--accent-secondary);
-  font-size: 42px;
-  font-weight: 800;
-  margin-bottom: var(--spacing-sm);
-}
-
-.lifetime-section .subtext {
-  position: relative;
-  color: var(--text-secondary);
-  font-size: var(--font-caption-lg);
-  margin-bottom: var(--spacing-xl);
-}
-
-.license-section {
-  background: rgba(255,255,255,0.04);
-  border: 1px solid rgba(255,255,255,0.10);
-  border-radius: var(--radius-xl);
-  padding: 40px;
-  margin-bottom: 40px;
-  width: 100%;
-  backdrop-filter: blur(18px);
-  animation: fadeInUp 0.6s ease 0.35s both;
-}
-
-.license-section h2 {
-  color: var(--text-primary);
-  font-size: var(--font-heading-lg);
-  font-weight: 700;
-  margin-bottom: var(--spacing-xl);
-}
-
-.license-section h3 {
-  color: var(--accent-secondary);
-  font-size: var(--font-body-lg);
-  font-weight: 600;
-  margin: var(--spacing-xl) 0 var(--spacing-md) 0;
-}
-
-.license-section p {
-  color: var(--text-secondary);
-  line-height: 1.8;
-  margin-bottom: var(--spacing-lg);
-}
-
-.license-section ul {
-  color: var(--text-secondary);
-  line-height: 1.8;
-  margin-left: var(--spacing-xl);
-  margin-bottom: var(--spacing-lg);
-}
-
-.license-section li {
-  margin-bottom: var(--spacing-sm);
-}
-
-.manage-section {
-  background: rgba(255,255,255,0.03);
-  border: 1px solid rgba(255,255,255,0.10);
-  border-radius: var(--radius-xl);
-  padding: var(--spacing-xxl);
-  text-align: center;
-  width: 100%;
-  margin-bottom: 40px;
-  backdrop-filter: blur(18px);
-  animation: fadeInUp 0.6s ease 0.3s both;
-}
-
-.manage-section p {
-  color: var(--text-secondary);
-  margin-bottom: var(--spacing-lg);
-  line-height: 1.65;
-}
-
-.contact-section {
-  background: linear-gradient(135deg, rgba(var(--accent-primary-rgb),0.08) 0%, rgba(var(--accent-secondary-rgb),0.08) 100%);
-  border: 1px solid rgba(var(--accent-secondary-rgb),0.25);
-  border-radius: var(--radius-xl);
-  padding: 40px;
-  text-align: center;
-  width: 100%;
-  backdrop-filter: blur(18px);
-  animation: fadeInUp 0.6s ease 0.4s both;
-}
-
-.contact-section h2 {
-  color: var(--text-primary);
-  font-size: var(--font-heading-lg);
-  font-weight: 700;
-  margin-bottom: var(--spacing-lg);
-}
-
-.contact-section p {
-  color: var(--text-secondary);
-  margin-bottom: var(--spacing-xl);
-  line-height: 1.65;
-}
-
-.contact-links {
-  display: flex;
-  gap: var(--spacing-lg);
-  justify-content: center;
-  flex-wrap: wrap;
-}
-
-.contact-email {
-  display: inline-block;
-  background: linear-gradient(135deg, var(--accent-primary), var(--accent-secondary));
-  color: #060814;
-  padding: var(--spacing-md) var(--spacing-xxl);
-  border-radius: var(--radius-lg);
-  font-size: var(--font-body-md);
-  font-weight: 650;
-  text-decoration: none;
-  transition: all 0.2s ease;
-  box-shadow: 0 18px 40px rgba(var(--accent-primary-rgb),0.18);
-}
-
-.contact-email:hover {
-  transform: translateY(-2px);
-  box-shadow: 0 6px 20px rgba(var(--accent-primary-rgb),0.4);
-}
-
-.back-link {
-  background: rgba(255,255,255,0.05);
-  border: 1px solid rgba(255,255,255,0.10);
-  border-radius: var(--radius-lg);
-  padding: var(--spacing-md) var(--spacing-xl);
-  color: var(--text-secondary);
-  font-size: var(--font-body-sm);
-  font-weight: 600;
-  cursor: pointer;
-  transition: all 0.2s ease;
-}
-
-.back-link:hover {
-  background: rgba(255,255,255,0.08);
-  color: var(--text-primary);
-  border-color: rgba(255,255,255,0.14);
-}
-
-.pricing-footer-links {
-  display: flex;
-  gap: var(--spacing-md);
-  align-items: center;
-  margin-top: 40px;
-}
-
-.github-btn {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: var(--spacing-sm);
-  background: rgba(255,255,255,0.05);
-  border: 1px solid rgba(255,255,255,0.10);
-  border-radius: var(--radius-lg);
-  padding: var(--spacing-md) var(--spacing-xl);
-  color: var(--text-secondary);
-  font-size: var(--font-body-sm);
-  font-weight: 600;
-  text-decoration: none;
-  transition: all 0.2s ease;
-}
-
-.github-btn:hover {
-  background: rgba(255,255,255,0.08);
-  color: var(--text-primary);
-  border-color: rgba(255,255,255,0.14);
-}
-
-.github-btn svg {
-  width: 18px;
-  height: 18px;
-  fill: currentColor;
 }
 
 .features-showcase {
@@ -698,12 +193,195 @@ a { color: inherit; }
   color: var(--accent-secondary);
 }
 
+.license-section {
+  background: rgba(255,255,255,0.04);
+  border: 1px solid rgba(255,255,255,0.10);
+  border-radius: var(--radius-xl);
+  padding: 40px;
+  margin-bottom: 40px;
+  width: 100%;
+  backdrop-filter: blur(18px);
+  animation: fadeInUp 0.6s ease 0.15s both;
+}
+
+.license-section h2 {
+  color: var(--text-primary);
+  font-size: var(--font-heading-lg);
+  font-weight: 700;
+  margin-bottom: var(--spacing-xl);
+}
+
+.license-section h3 {
+  color: var(--accent-secondary);
+  font-size: var(--font-body-lg);
+  font-weight: 600;
+  margin: var(--spacing-xl) 0 var(--spacing-md) 0;
+}
+
+.license-section p {
+  color: var(--text-secondary);
+  line-height: 1.8;
+  margin-bottom: var(--spacing-lg);
+}
+
+.license-section ul {
+  color: var(--text-secondary);
+  line-height: 1.8;
+  margin-left: var(--spacing-xl);
+  margin-bottom: var(--spacing-lg);
+}
+
+.license-section li {
+  margin-bottom: var(--spacing-sm);
+}
+
+.contact-section {
+  background: linear-gradient(135deg, rgba(var(--accent-primary-rgb),0.08) 0%, rgba(var(--accent-secondary-rgb),0.08) 100%);
+  border: 1px solid rgba(var(--accent-secondary-rgb),0.25);
+  border-radius: var(--radius-xl);
+  padding: 40px;
+  text-align: center;
+  width: 100%;
+  backdrop-filter: blur(18px);
+  animation: fadeInUp 0.6s ease 0.2s both;
+}
+
+.contact-section h2 {
+  color: var(--text-primary);
+  font-size: var(--font-heading-lg);
+  font-weight: 700;
+  margin-bottom: var(--spacing-lg);
+}
+
+.contact-section p {
+  color: var(--text-secondary);
+  margin-bottom: var(--spacing-xl);
+  line-height: 1.65;
+}
+
+.contact-links {
+  display: flex;
+  gap: var(--spacing-lg);
+  justify-content: center;
+  flex-wrap: wrap;
+}
+
+.contact-email {
+  display: inline-block;
+  background: linear-gradient(135deg, var(--accent-primary), var(--accent-secondary));
+  color: #060814;
+  padding: var(--spacing-md) var(--spacing-xxl);
+  border-radius: var(--radius-lg);
+  font-size: var(--font-body-md);
+  font-weight: 650;
+  text-decoration: none;
+  transition: all 0.2s ease;
+  box-shadow: 0 18px 40px rgba(var(--accent-primary-rgb),0.18);
+}
+
+.contact-email:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 6px 20px rgba(var(--accent-primary-rgb),0.4);
+}
+
+.email-display {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--spacing-md);
+  margin-top: var(--spacing-lg);
+}
+
+.email-text {
+  color: var(--text-secondary);
+  font-size: var(--font-body-md);
+  font-family: var(--font-mono, monospace);
+  user-select: all;
+}
+
+.copy-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+  background: rgba(255,255,255,0.06);
+  border: 1px solid rgba(255,255,255,0.12);
+  border-radius: var(--radius-md);
+  padding: var(--spacing-sm) var(--spacing-md);
+  color: var(--text-secondary);
+  font-size: var(--font-caption-lg);
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.copy-btn:hover {
+  background: rgba(255,255,255,0.10);
+  color: var(--text-primary);
+  border-color: rgba(255,255,255,0.18);
+}
+
+.copy-btn.copied {
+  background: rgba(34,197,94,0.15);
+  border-color: rgba(34,197,94,0.4);
+  color: var(--color-success);
+}
+
+.back-link {
+  background: rgba(255,255,255,0.05);
+  border: 1px solid rgba(255,255,255,0.10);
+  border-radius: var(--radius-lg);
+  padding: var(--spacing-md) var(--spacing-xl);
+  color: var(--text-secondary);
+  font-size: var(--font-body-sm);
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.back-link:hover {
+  background: rgba(255,255,255,0.08);
+  color: var(--text-primary);
+  border-color: rgba(255,255,255,0.14);
+}
+
+.pricing-footer-links {
+  display: flex;
+  gap: var(--spacing-md);
+  align-items: center;
+  margin-top: 40px;
+}
+
+.github-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--spacing-sm);
+  background: rgba(255,255,255,0.05);
+  border: 1px solid rgba(255,255,255,0.10);
+  border-radius: var(--radius-lg);
+  padding: var(--spacing-md) var(--spacing-xl);
+  color: var(--text-secondary);
+  font-size: var(--font-body-sm);
+  font-weight: 600;
+  text-decoration: none;
+  transition: all 0.2s ease;
+}
+
+.github-btn:hover {
+  background: rgba(255,255,255,0.08);
+  color: var(--text-primary);
+  border-color: rgba(255,255,255,0.14);
+}
+
+.github-btn svg {
+  width: 18px;
+  height: 18px;
+  fill: currentColor;
+}
+
 @media (max-width: 700px) {
   .pricing-header h1 {
     font-size: var(--font-display-md);
-  }
-  .pricing-tiers {
-    grid-template-columns: 1fr;
   }
   .features-grid {
     grid-template-columns: 1fr;
@@ -713,79 +391,34 @@ a { color: inherit; }
 @media (prefers-reduced-motion: reduce) {
   * { transition: none !important; animation: none !important; }
 }
-
-.active-license-banner {
-  position: relative;
-  background: linear-gradient(135deg, rgba(34,197,94,0.15) 0%, rgba(96,165,250,0.10) 100%);
-  border: 2px solid rgba(34,197,94,0.5);
-  border-radius: var(--radius-xl);
-  padding: var(--spacing-xxl);
-  margin-bottom: 40px;
-  width: 100%;
-  text-align: center;
-  backdrop-filter: blur(18px);
-  animation: fadeInUp 0.6s ease both;
-}
-
-.active-license-banner h2 {
-  color: var(--color-success);
-  font-size: var(--font-heading-lg);
-  margin-bottom: var(--spacing-md);
-  font-weight: 700;
-}
-
-.active-license-banner .plan-badge {
-  display: inline-block;
-  background: linear-gradient(135deg, var(--color-success), #16a34a);
-  color: #060814;
-  font-size: var(--font-body-md);
-  font-weight: 700;
-  padding: var(--spacing-sm) var(--spacing-lg);
-  border-radius: var(--radius-full);
-  margin-bottom: var(--spacing-lg);
-  text-transform: uppercase;
-}
-
-.active-license-banner p {
-  color: var(--text-secondary);
-  margin-bottom: var(--spacing-xl);
-  line-height: 1.65;
-}
 "#;
 
-const STRIPE_FREE_LICENSE: &str = "https://buy.stripe.com/9B63cx77ZgB5cKu40Ue3e06";
-const STRIPE_SUPPORTER_MONTHLY: &str = "https://buy.stripe.com/5kQbJ33VN5Wr25Q8hae3e05";
-const STRIPE_PRO_MONTHLY: &str = "https://buy.stripe.com/eVq00lgIzckPbGqcxqe3e03";
-const STRIPE_PRO_ANNUAL: &str = "https://buy.stripe.com/4gM3cxakb0C76m69lee3e04";
-const STRIPE_PREMIUM_MONTHLY: &str = "https://buy.stripe.com/dRm4gB9g73OjfWG2WQe3e01";
-const STRIPE_PREMIUM_ANNUAL: &str = "https://buy.stripe.com/5kQ9AVcsjfx1h0K54Ye3e02";
-const STRIPE_LIFETIME: &str = "https://buy.stripe.com/8x200l3VN98D7qa1SMe3e00";
-const STRIPE_CUSTOMER_PORTAL: &str = "https://billing.stripe.com/p/login/8x200l3VN98D7qa1SMe3e00";
+fn copy_to_clipboard(text: &str) {
+    if let Some(window) = web_sys::window() {
+        let clipboard = window.navigator().clipboard();
+        let _ = clipboard.write_text(text);
+    }
+}
+
+const EMAIL: &str = "tristen@brahmastra-labs.com";
 
 #[component]
 pub fn Pricing() -> Element {
-    let license_state = use_context::<LicenseState>();
-    let has_license = license_state.has_license();
-    let plan = license_state.plan.read().clone();
+    let mut copied = use_signal(|| false);
 
-    let plan_name = match plan {
-        crate::ui::state::LicensePlan::None => "None",
-        crate::ui::state::LicensePlan::Free => "Free",
-        crate::ui::state::LicensePlan::Supporter => "Supporter",
-        crate::ui::state::LicensePlan::Pro => "Pro",
-        crate::ui::state::LicensePlan::Premium => "Premium",
-        crate::ui::state::LicensePlan::Lifetime => "Lifetime",
-        crate::ui::state::LicensePlan::Enterprise => "Enterprise",
+    let on_copy = move |_| {
+        copy_to_clipboard(EMAIL);
+        copied.set(true);
     };
 
     let breadcrumbs = vec![
         BreadcrumbItem { name: "Home", path: "/" },
-        BreadcrumbItem { name: "Pricing", path: "/pricing" },
+        BreadcrumbItem { name: "Contact", path: "/pricing" },
     ];
 
     let schemas = vec![
         organization_schema(),
-        product_schema(),
+        contact_schema(),
         breadcrumb_schema(&breadcrumbs),
     ];
 
@@ -803,46 +436,69 @@ pub fn Pricing() -> Element {
             div { class: "bg-orb orb2" }
             div { class: "bg-orb orb3" }
 
-            MainNav { active: ActivePage::Pricing, subtitle: Some("Plans & pricing") }
+            MainNav { active: ActivePage::Pricing, subtitle: Some("Contact") }
 
             div { class: "pricing-container",
-                if has_license {
-                    div { class: "active-license-banner",
-                        h2 { "Active License" }
-                        span { class: "plan-badge", "{plan_name}" }
-                        p { "Thank you for supporting LOGOS! Manage your subscription below." }
+                div { class: "pricing-header",
+                    h1 { "Contact Us" }
+                    p { "Free for individuals, educational institutions, and teams under 25 people." }
+                    p { "For commercial licensing, partnerships, or enterprise needs \u{2014} get in touch." }
+                }
+
+                div { class: "contact-section",
+                    h2 { "Let\u{2019}s Talk" }
+                    p { "Interested in LOGOS for your organization? Reach out and we\u{2019}ll get back to you." }
+                    div { class: "contact-links",
                         a {
-                            class: "btn-primary",
-                            href: STRIPE_CUSTOMER_PORTAL,
-                            target: "_blank",
-                            "Manage Subscription"
+                            class: "contact-email",
+                            href: "mailto:tristen@brahmastra-labs.com",
+                            "Send Email"
+                        }
+                    }
+                    div { class: "email-display",
+                        span { class: "email-text", "{EMAIL}" }
+                        button {
+                            class: if *copied.read() { "copy-btn copied" } else { "copy-btn" },
+                            onclick: on_copy,
+                            if *copied.read() { "Copied!" } else { "Copy" }
                         }
                     }
                 }
 
-                div { class: "pricing-header",
-                    h1 { "Commercial Licensing" }
-                    p { "Business Source License — free for individuals and small teams" }
-                }
+                div { class: "license-section",
+                    h2 { "Business Source License" }
 
-                div { class: "free-license-banner disabled",
-                    h2 { "Free for Small Teams" }
                     p {
-                        "Individuals and organizations with fewer than 25 employees can use LOGOS at no cost. "
-                        "Get a free license to track your usage and unlock all features."
+                        "LOGOS is released under the Business Source License 1.1. The source code is "
+                        "publicly available, and the software is free to use for individuals and small teams."
                     }
-                    a {
-                        class: "btn-free",
-                        href: STRIPE_FREE_LICENSE,
-                        target: "_blank",
-                        "Get Free License"
+
+                    h3 { "Free Use" }
+                    p { "You may use LOGOS at no cost if you are:" }
+                    ul {
+                        li { "An individual" }
+                        li { "A university or educational institution" }
+                        li { "An organization with fewer than 25 employees" }
+                    }
+
+                    h3 { "Commercial License Required" }
+                    p {
+                        "If your organization has 25 or more employees and you wish to use "
+                        "LOGOS as a Logic Service, a commercial license is required. "
+                        "Contact us to discuss licensing options for your organization."
+                    }
+
+                    h3 { "Open Source Transition" }
+                    p {
+                        "On December 24, 2029, LOGOS will transition to the MIT License, "
+                        "making it fully open source."
                     }
                 }
 
                 div { class: "features-showcase",
                     div { class: "features-showcase-header",
-                        h2 { "Everything in LOGOS" }
-                        p { "One language for code, logic, math, and distributed systems" }
+                        h2 { "What You Get" }
+                        p { "One language for code, logic, math, hardware verification, and distributed systems" }
                     }
                     div { class: "features-grid",
 
@@ -898,6 +554,23 @@ pub fn Pricing() -> Element {
                             div { class: "feature-group-header",
                                 div {
                                     class: "feature-group-icon",
+                                    style: "background: rgba(245,158,11,0.15);",
+                                    Icon { variant: IconVariant::Beaker, size: IconSize::Large, color: "#f59e0b" }
+                                }
+                                h3 { "Hardware Verification & SVA" }
+                            }
+                            ul { class: "feature-group-list",
+                                li { "English specs to SystemVerilog Assertions" }
+                                li { "FOL-to-SVA synthesis via Futamura projections" }
+                                li { "Bounded model checking and CEGAR refinement" }
+                                li { "AXI4, APB, and handshake protocol templates" }
+                            }
+                        }
+
+                        div { class: "feature-group",
+                            div { class: "feature-group-header",
+                                div {
+                                    class: "feature-group-icon",
                                     style: "background: rgba(251,191,36,0.15);",
                                     Icon { variant: IconVariant::Sparkles, size: IconSize::Large, color: "#fbbf24" }
                                 }
@@ -944,231 +617,6 @@ pub fn Pricing() -> Element {
                     }
                 }
 
-                div { class: "lifetime-section",
-                    span { class: "early-access-badge", "Early Access Pricing" }
-                    h2 { "Lifetime License" }
-                    div { class: "price", "$50/seat" }
-                    div { class: "subtext", "One-time payment. Permanent license with Z3 Static Verification." }
-                    a {
-                        class: "btn-primary",
-                        href: STRIPE_LIFETIME,
-                        target: "_blank",
-                        "Buy Lifetime License"
-                    }
-                }
-
-                div { class: "pricing-tiers",
-                    div { class: "tier-card supporter",
-                        span { class: "early-access-badge", "Early Access Pricing" }
-                        div { class: "tier-name", "Supporter" }
-                        div { class: "tier-revenue", "For individuals and hobbyists" }
-                        div { class: "tier-price",
-                            span { class: "amount", "$5" }
-                            span { class: "period", " /month" }
-                        }
-                        div { class: "tier-annual", "Optional - personal use is free" }
-                        ul { class: "tier-features",
-                            li { "Support LOGOS development" }
-                            li { "Personal/hobbyist use" }
-                            li { "Core feature access" }
-                        }
-                        div { class: "tier-buttons",
-                            a {
-                                class: "btn-primary",
-                                href: STRIPE_SUPPORTER_MONTHLY,
-                                target: "_blank",
-                                "Become a Supporter"
-                            }
-                        }
-                    }
-
-                    div { class: "tier-card disabled",
-                        span { class: "coming-soon-badge", "Coming Soon" }
-                        div { class: "tier-name", "Pro" }
-                        div { class: "tier-revenue", "For organizations with 25-100 employees" }
-                        div { class: "tier-price",
-                            span { class: "amount", "$25" }
-                            span { class: "period", " /seat/month" }
-                        }
-                        div { class: "tier-annual", "or $240/seat/year (save 20%)" }
-                        ul { class: "tier-features",
-                            li { "Commercial use license" }
-                            li { "Z3 Static Verification" }
-                            li { "Full feature access" }
-                            li { "Regular updates" }
-                        }
-                        div { class: "tier-buttons",
-                            a {
-                                class: "btn-primary",
-                                href: STRIPE_PRO_MONTHLY,
-                                target: "_blank",
-                                "Subscribe Monthly"
-                            }
-                            a {
-                                class: "btn-secondary",
-                                href: STRIPE_PRO_ANNUAL,
-                                target: "_blank",
-                                "Subscribe Annually"
-                            }
-                        }
-                    }
-
-                    div { class: "tier-card disabled",
-                        span { class: "coming-soon-badge", "Coming Soon" }
-                        div { class: "tier-name", "Premium" }
-                        div { class: "tier-revenue", "For organizations with 100-500 employees" }
-                        div { class: "tier-price",
-                            span { class: "amount", "$50" }
-                            span { class: "period", " /seat/month" }
-                        }
-                        div { class: "tier-annual", "or $480/seat/year (save 20%)" }
-                        ul { class: "tier-features",
-                            li { "Everything in Pro" }
-                            li { "Early access to new features" }
-                            li { "Custom integrations" }
-                        }
-                        div { class: "tier-buttons",
-                            a {
-                                class: "btn-primary",
-                                href: STRIPE_PREMIUM_MONTHLY,
-                                target: "_blank",
-                                "Subscribe Monthly"
-                            }
-                            a {
-                                class: "btn-secondary",
-                                href: STRIPE_PREMIUM_ANNUAL,
-                                target: "_blank",
-                                "Subscribe Annually"
-                            }
-                        }
-                    }
-
-                    div { class: "tier-card disabled",
-                        span { class: "coming-soon-badge", "Coming Soon" }
-                        div { class: "tier-name", "Enterprise" }
-                        div { class: "tier-revenue", "For organizations with 500+ employees" }
-                        div { class: "tier-price",
-                            span { class: "amount", "Custom" }
-                        }
-                        div { class: "tier-annual", "Tailored to your needs" }
-                        ul { class: "tier-features",
-                            li { "Everything in Premium" }
-                            li { "On-premise deployment options" }
-                            li { "Volume discounts" }
-                        }
-                        div { class: "tier-buttons",
-                            a {
-                                class: "btn-contact",
-                                href: "mailto:tristen@brahmastra-labs.com",
-                                "Contact Sales"
-                            }
-                        }
-                    }
-
-                    div { class: "tier-card disabled",
-                        span { class: "coming-soon-badge", "Coming Soon" }
-                        div { class: "tier-name", "Support Plans" }
-                        div { class: "tier-revenue", "Technical support available separately" }
-                        div { class: "tier-price",
-                            span { class: "amount", "Custom" }
-                        }
-                        div { class: "tier-annual", "Tailored to your needs" }
-                        ul { class: "tier-features",
-                            li { "Priority email support" }
-                            li { "Dedicated support" }
-                            li { "Custom SLAs" }
-                            li { "Training and onboarding" }
-                        }
-                        div { class: "tier-buttons",
-                            a {
-                                class: "btn-contact",
-                                href: "mailto:tristen@brahmastra-labs.com",
-                                "Contact for Pricing"
-                            }
-                        }
-                    }
-
-                    div { class: "tier-card disabled",
-                        span { class: "coming-soon-badge", "Coming Soon" }
-                        div { class: "tier-name", "Semantic Tokenizer" }
-                        div { class: "tier-revenue", "For AI model training" }
-                        div { class: "tier-price",
-                            span { class: "amount", "Custom" }
-                        }
-                        div { class: "tier-annual", "Contact us for pricing" }
-                        ul { class: "tier-features",
-                            li { "License for AI model training" }
-                            li { "Commercial training data rights" }
-                            li { "Custom volume pricing" }
-                        }
-                        div { class: "tier-buttons",
-                            a {
-                                class: "btn-contact",
-                                href: "mailto:tristen@brahmastra-labs.com",
-                                "Contact for Pricing"
-                            }
-                        }
-                    }
-                }
-
-                if !has_license {
-                    div { class: "manage-section",
-                        p { "Already purchased a license? Access your subscription to update payment methods, view invoices, or download receipts." }
-                        a {
-                            class: "btn-secondary",
-                            href: STRIPE_CUSTOMER_PORTAL,
-                            target: "_blank",
-                            "Manage Existing Subscription"
-                        }
-                    }
-                }
-
-                div { class: "license-section",
-                    h2 { "Business Source License" }
-
-                    p {
-                        "LOGOS is released under the Business Source License 1.1. The source code is "
-                        "publicly available, and the software is free to use for individuals and small teams."
-                    }
-
-                    h3 { "Free Use" }
-                    p { "You may use LOGOS at no cost if you are:" }
-                    ul {
-                        li { "An individual" }
-                        li { "An organization with fewer than 25 employees" }
-                    }
-
-                    h3 { "Commercial License Required" }
-                    p {
-                        "If your organization has 25 or more employees and you wish to use "
-                        "LOGOS as a Logic Service, a commercial license is required. Select a tier above "
-                        "based on your organization's size."
-                    }
-
-                    h3 { "Open Source Transition" }
-                    p {
-                        "On December 24, 2029, LOGOS will transition to the MIT License, "
-                        "making it fully open source."
-                    }
-                }
-
-                div { class: "contact-section",
-                    h2 { "Get in Touch" }
-                    p { "Questions about licensing, support contracts, or enterprise needs?" }
-                    div { class: "contact-links",
-                        a {
-                            class: "contact-email",
-                            href: "mailto:tristen@brahmastra-labs.com",
-                            "Enterprise Sales"
-                        }
-                        a {
-                            class: "contact-email",
-                            href: "mailto:tristen@brahmastra-labs.com",
-                            "Support Inquiries"
-                        }
-                    }
-                }
-
                 div { class: "pricing-footer-links",
                     a {
                         href: "https://github.com/Brahmastra-Labs/logicaffeine",
@@ -1186,7 +634,7 @@ pub fn Pricing() -> Element {
                     Link {
                         class: "back-link",
                         to: Route::Landing {},
-                        "← Back"
+                        "\u{2190} Back"
                     }
                 }
             }

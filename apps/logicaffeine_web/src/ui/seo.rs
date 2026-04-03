@@ -199,35 +199,20 @@ pub fn tech_article_schema(title: &str, description: &str, path: &str) -> String
     )
 }
 
-/// Generate Product schema (for Pricing page)
-pub fn product_schema() -> String {
+/// Generate ContactPage schema (for Contact page)
+pub fn contact_schema() -> String {
     format!(
         r#"{{
   "@context": "https://schema.org",
-  "@type": "Product",
-  "name": "LOGICAFFEINE Pro",
-  "description": "Professional subscription for advanced First-Order Logic tools with Z3 verification",
+  "@type": "ContactPage",
+  "name": "Contact {ORG_NAME}",
+  "description": "Get in touch about commercial licensing, partnerships, or enterprise needs. Free for individuals, universities, and teams under 25.",
   "url": "{BASE_URL}/pricing",
-  "brand": {{
+  "publisher": {{
     "@type": "Organization",
-    "name": "{ORG_NAME}"
-  }},
-  "offers": [
-    {{
-      "@type": "Offer",
-      "name": "Pro Monthly",
-      "price": "9.99",
-      "priceCurrency": "USD",
-      "availability": "https://schema.org/InStock"
-    }},
-    {{
-      "@type": "Offer",
-      "name": "Pro Yearly",
-      "price": "99.99",
-      "priceCurrency": "USD",
-      "availability": "https://schema.org/InStock"
-    }}
-  ]
+    "name": "{ORG_NAME}",
+    "url": "{BASE_URL}"
+  }}
 }}"#
     )
 }
@@ -390,8 +375,8 @@ pub mod pages {
     };
 
     pub const PRICING: PageMeta = PageMeta {
-        title: "Pricing | LOGICAFFEINE",
-        description: "Choose the right plan for your logic needs. Free tier available with premium features for professionals.",
+        title: "Contact | LOGICAFFEINE",
+        description: "Get in touch about commercial licensing, partnerships, or enterprise needs. Free for individuals, universities, and teams under 25.",
         canonical_path: "/pricing",
         og_image: Some("/assets/OG-photo.png"),
     };
