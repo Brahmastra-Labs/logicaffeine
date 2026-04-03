@@ -848,6 +848,52 @@ impl<'a, 'ctx, 'int> QuantifierParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int
             return Ok(result);
         }
 
+        // Handle do-support: "every X does not hold" → ¬Hold(x)
+        if self.check(&TokenType::Does) || self.check(&TokenType::Do) {
+            self.advance(); // consume "does"/"do"
+            let negative = self.match_token(&[TokenType::Not]);
+            // The verb after "does not" becomes the predicate
+            let verb_sym = self.consume_verb();
+            let predicate_expr = self.ctx.exprs.alloc(LogicExpr::Predicate {
+                name: verb_sym,
+                args: self.ctx.terms.alloc_slice([Term::Variable(var_name)]),
+                world: None,
+            });
+            let final_predicate = if negative {
+                self.ctx.exprs.alloc(LogicExpr::UnaryOp {
+                    op: TokenType::Not,
+                    operand: predicate_expr,
+                })
+            } else {
+                predicate_expr
+            };
+
+            let body = match quantifier_token {
+                TokenType::All => self.ctx.exprs.alloc(LogicExpr::BinaryOp {
+                    left: subject_pred,
+                    op: TokenType::Implies,
+                    right: final_predicate,
+                }),
+                _ => self.ctx.exprs.alloc(LogicExpr::BinaryOp {
+                    left: subject_pred,
+                    op: TokenType::And,
+                    right: final_predicate,
+                }),
+            };
+
+            let result = self.ctx.exprs.alloc(LogicExpr::Quantifier {
+                kind: match quantifier_token {
+                    TokenType::All => QuantifierKind::Universal,
+                    _ => QuantifierKind::Existential,
+                },
+                variable: var_name,
+                body: body,
+                island_id: self.current_island,
+            });
+            self.in_negative_quantifier = was_in_negative_quantifier;
+            return Ok(result);
+        }
+
         self.consume_copula()?;
 
         let negative = self.match_token(&[TokenType::Not]);

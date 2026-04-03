@@ -27,6 +27,16 @@ pub enum BoundedExpr {
     Implies(Box<BoundedExpr>, Box<BoundedExpr>),
     /// Equality: a == b
     Eq(Box<BoundedExpr>, Box<BoundedExpr>),
+    /// Less than: a < b
+    Lt(Box<BoundedExpr>, Box<BoundedExpr>),
+    /// Greater than: a > b
+    Gt(Box<BoundedExpr>, Box<BoundedExpr>),
+    /// Less than or equal: a <= b
+    Lte(Box<BoundedExpr>, Box<BoundedExpr>),
+    /// Greater than or equal: a >= b
+    Gte(Box<BoundedExpr>, Box<BoundedExpr>),
+    /// Unsupported construct (fail closed, not silently true)
+    Unsupported(String),
 }
 
 /// Result of translating an SVA expression to bounded verification IR.
@@ -38,7 +48,7 @@ pub struct TranslateResult {
 /// Translator that converts SvaExpr to bounded timestep verification IR.
 pub struct SvaTranslator {
     pub bound: u32,
-    declarations: HashSet<String>,
+    pub(crate) declarations: HashSet<String>,
 }
 
 impl SvaTranslator {
@@ -279,6 +289,135 @@ impl SvaTranslator {
                     )),
                 )
             }
+
+            // ── IEEE 1800 Extended (Sprint 1B) ──
+
+            SvaExpr::NotEq(left, right) => {
+                // a != b → ¬(a == b) at timestep t
+                let l = self.translate(left, t);
+                let r = self.translate(right, t);
+                BoundedExpr::Not(Box::new(BoundedExpr::Eq(Box::new(l), Box::new(r))))
+            }
+
+            SvaExpr::LessThan(left, right) => {
+                let l = self.translate(left, t);
+                let r = self.translate(right, t);
+                BoundedExpr::Lt(Box::new(l), Box::new(r))
+            }
+
+            SvaExpr::GreaterThan(left, right) => {
+                let l = self.translate(left, t);
+                let r = self.translate(right, t);
+                BoundedExpr::Gt(Box::new(l), Box::new(r))
+            }
+
+            SvaExpr::LessEqual(left, right) => {
+                let l = self.translate(left, t);
+                let r = self.translate(right, t);
+                BoundedExpr::Lte(Box::new(l), Box::new(r))
+            }
+
+            SvaExpr::GreaterEqual(left, right) => {
+                let l = self.translate(left, t);
+                let r = self.translate(right, t);
+                BoundedExpr::Gte(Box::new(l), Box::new(r))
+            }
+
+            SvaExpr::Ternary { condition, then_expr, else_expr } => {
+                // cond ? a : b → (cond@t ∧ a@t) ∨ (¬cond@t ∧ b@t)
+                let c = self.translate(condition, t);
+                let a = self.translate(then_expr, t);
+                let b = self.translate(else_expr, t);
+                BoundedExpr::Or(
+                    Box::new(BoundedExpr::And(Box::new(c.clone()), Box::new(a))),
+                    Box::new(BoundedExpr::And(
+                        Box::new(BoundedExpr::Not(Box::new(c))),
+                        Box::new(b),
+                    )),
+                )
+            }
+
+            SvaExpr::Throughout { signal, sequence } => {
+                // sig throughout seq → sig holds at every timestep during seq's span
+                // Determine sequence span by examining the sequence structure
+                let span = self.sequence_span(sequence);
+                let mut result: Option<BoundedExpr> = None;
+                // Conjoin signal at every timestep in [t, t+span]
+                for offset in 0..=span {
+                    let s = self.translate(signal, t + offset);
+                    result = Some(match result {
+                        None => s,
+                        Some(acc) => BoundedExpr::And(Box::new(acc), Box::new(s)),
+                    });
+                }
+                // Also conjoin the sequence itself at t
+                let seq = self.translate(sequence, t);
+                let sig_conj = result.unwrap_or(BoundedExpr::Bool(true));
+                BoundedExpr::And(Box::new(sig_conj), Box::new(seq))
+            }
+
+            SvaExpr::Within { inner, outer } => {
+                // seq1 within seq2 → inner completes within outer's span
+                // Translate outer across its span, inner at each possible start
+                let outer_span = self.sequence_span(outer);
+                let mut result: Option<BoundedExpr> = None;
+                // Outer must hold across its span
+                for offset in 0..=outer_span {
+                    let o = self.translate(outer, t + offset);
+                    result = Some(match result {
+                        None => o,
+                        Some(acc) => BoundedExpr::And(Box::new(acc), Box::new(o)),
+                    });
+                }
+                // Inner starts somewhere within the outer span
+                let inner_at_t = self.translate(inner, t);
+                let outer_conj = result.unwrap_or(BoundedExpr::Bool(true));
+                BoundedExpr::And(Box::new(outer_conj), Box::new(inner_at_t))
+            }
+
+            SvaExpr::FirstMatch(inner) => {
+                // first_match(seq) → first matching instance of sequence
+                self.translate(inner, t)
+            }
+
+            SvaExpr::Intersect { left, right } => {
+                // seq1 intersect seq2 → both complete, conjoin at each timestep
+                let span = self.sequence_span(left).max(self.sequence_span(right));
+                let mut result: Option<BoundedExpr> = None;
+                for offset in 0..=span {
+                    let l = self.translate(left, t + offset);
+                    let r = self.translate(right, t + offset);
+                    let both = BoundedExpr::And(Box::new(l), Box::new(r));
+                    result = Some(match result {
+                        None => both,
+                        Some(acc) => BoundedExpr::And(Box::new(acc), Box::new(both)),
+                    });
+                }
+                result.unwrap_or(BoundedExpr::Bool(true))
+            }
+        }
+    }
+
+    /// Estimate the timestep span of a sequence expression (how many cycles it covers).
+    fn sequence_span(&self, expr: &SvaExpr) -> u32 {
+        match expr {
+            SvaExpr::Delay { min, max, body } => {
+                let delay_span = max.unwrap_or(*min);
+                delay_span + self.sequence_span(body)
+            }
+            SvaExpr::Repetition { min, max, body } => {
+                let rep_count = max.unwrap_or(*min);
+                rep_count * self.sequence_span(body).max(1)
+            }
+            SvaExpr::And(l, r) | SvaExpr::Or(l, r) => {
+                self.sequence_span(l).max(self.sequence_span(r))
+            }
+            SvaExpr::Implication { antecedent, consequent, overlapping } => {
+                let ante_span = self.sequence_span(antecedent);
+                let cons_span = self.sequence_span(consequent);
+                ante_span + cons_span + if *overlapping { 0 } else { 1 }
+            }
+            _ => 1, // atomic signal = 1 cycle
         }
     }
 
@@ -318,6 +457,22 @@ pub fn count_and_leaves(e: &BoundedExpr) -> usize {
     }
 }
 
+/// Collect all signal names from declarations in a BoundedExpr tree.
+fn collect_vars_from_bounded(expr: &BoundedExpr, vars: &mut std::collections::HashSet<String>) {
+    match expr {
+        BoundedExpr::Var(name) => { vars.insert(name.clone()); }
+        BoundedExpr::And(l, r) | BoundedExpr::Or(l, r)
+        | BoundedExpr::Implies(l, r) | BoundedExpr::Eq(l, r)
+        | BoundedExpr::Lt(l, r) | BoundedExpr::Gt(l, r)
+        | BoundedExpr::Lte(l, r) | BoundedExpr::Gte(l, r) => {
+            collect_vars_from_bounded(l, vars);
+            collect_vars_from_bounded(r, vars);
+        }
+        BoundedExpr::Not(inner) => collect_vars_from_bounded(inner, vars),
+        BoundedExpr::Bool(_) | BoundedExpr::Int(_) | BoundedExpr::Unsupported(_) => {}
+    }
+}
+
 /// Translate a BoundedExpr (timestep-unrolled) into a VerifyExpr (Z3-ready).
 ///
 /// This is the bridge from the compile crate to the verify crate.
@@ -351,6 +506,27 @@ pub fn bounded_to_verify(expr: &BoundedExpr) -> logicaffeine_verify::VerifyExpr 
             bounded_to_verify(l),
             bounded_to_verify(r),
         ),
+        BoundedExpr::Lt(l, r) => VerifyExpr::binary(
+            VerifyOp::Lt,
+            bounded_to_verify(l),
+            bounded_to_verify(r),
+        ),
+        BoundedExpr::Gt(l, r) => VerifyExpr::binary(
+            VerifyOp::Gt,
+            bounded_to_verify(l),
+            bounded_to_verify(r),
+        ),
+        BoundedExpr::Lte(l, r) => VerifyExpr::binary(
+            VerifyOp::Lte,
+            bounded_to_verify(l),
+            bounded_to_verify(r),
+        ),
+        BoundedExpr::Gte(l, r) => VerifyExpr::binary(
+            VerifyOp::Gte,
+            bounded_to_verify(l),
+            bounded_to_verify(r),
+        ),
+        BoundedExpr::Unsupported(_) => VerifyExpr::Bool(false),
     }
 }
 

@@ -1393,7 +1393,21 @@ impl<'a, 'ctx, 'int> LogicVerbParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int>
             };
             self.advance(); // consume the copula
 
-            // Parse the predicate nominative (e.g., "men" in "are men")
+            // Check for negation: "are not valid", "are not both valid"
+            let is_negated = self.check(&TokenType::Not);
+            if is_negated {
+                self.advance(); // consume "not"
+            }
+
+            // Check for "both" modifier: "are not both valid"
+            // "both" scopes negation over the conjunction: ¬(P(A) ∧ P(B))
+            // Without "both": negation distributes: ¬P(A) ∧ ¬P(B)
+            let has_both = self.check(&TokenType::Both);
+            if has_both {
+                self.advance(); // consume "both"
+            }
+
+            // Parse the predicate (e.g., "men" in "are men", "valid" in "are valid")
             if !self.check_content_word() && !self.check_article() {
                 self.current = saved_pos;
                 return Ok(None);
@@ -1419,6 +1433,16 @@ impl<'a, 'ctx, 'int> LogicVerbParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int>
                 conjuncts.push(pred_expr);
             }
 
+            if is_negated && !has_both {
+                // "are not valid" → ¬P(s1) ∧ ¬P(s2) (negation distributes)
+                for conjunct in &mut conjuncts {
+                    *conjunct = self.ctx.exprs.alloc(LogicExpr::UnaryOp {
+                        op: TokenType::Not,
+                        operand: *conjunct,
+                    });
+                }
+            }
+
             // Fold conjuncts into binary conjunction tree
             let mut result = conjuncts[0];
             for conjunct in &conjuncts[1..] {
@@ -1426,6 +1450,14 @@ impl<'a, 'ctx, 'int> LogicVerbParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int>
                     left: result,
                     op: TokenType::And,
                     right: *conjunct,
+                });
+            }
+
+            // "are not both valid" → ¬(P(s1) ∧ P(s2)) (negation over conjunction)
+            if is_negated && has_both {
+                result = self.ctx.exprs.alloc(LogicExpr::UnaryOp {
+                    op: TokenType::Not,
+                    operand: result,
                 });
             }
 

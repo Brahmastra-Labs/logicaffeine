@@ -1771,7 +1771,12 @@
     { "lemma": "Diane", "features": ["Proper", "Feminine"], "sort": "Human" },
     { "lemma": "Clock", "sort": "Signal" },
     { "lemma": "Latch", "sort": "Signal" },
-    { "lemma": "Register", "sort": "Signal" }
+    { "lemma": "Register", "sort": "Signal" },
+    { "lemma": "Request", "sort": "Signal" },
+    { "lemma": "Grant", "sort": "Signal" },
+    { "lemma": "Acknowledgment", "sort": "Signal" },
+    { "lemma": "Response", "sort": "Signal" },
+    { "lemma": "Done", "sort": "Signal" }
   ],
   "adjectives": [
     { "lemma": "Red", "regular": true, "features": ["Intersective"] },

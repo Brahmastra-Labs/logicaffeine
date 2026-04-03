@@ -7,6 +7,22 @@ pub mod sva_model;
 pub mod sva_to_verify;
 pub mod fol_to_verify;
 pub mod hw_pipeline;
+pub mod rtl_extract;
+pub mod fol_to_sva;
+pub mod coverage;
+pub mod sufficiency;
+pub mod rtl_kg;
+pub mod synthesis_refine;
+pub mod protocols;
+
+#[cfg(feature = "verification")]
+pub mod waveform;
+#[cfg(feature = "verification")]
+pub mod decompose;
+#[cfg(feature = "verification")]
+pub mod invariants;
+#[cfg(feature = "verification")]
+pub mod spec_health;
 
 /// Assertion type — determines the SVA wrapper.
 #[derive(Debug, Clone, PartialEq, Eq)]

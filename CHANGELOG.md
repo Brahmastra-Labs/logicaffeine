@@ -4,6 +4,33 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.9.12] - 2026-04-02
+
+### Added
+- **FOL-to-SVA synthesis** — pattern-matching translation from first-order logic to SystemVerilog Assertions via Kripke-lowered structures, mapping quantified temporal patterns to `s_eventually`, `nexttime`, and temporal implications.
+- **Coverage analysis** — signal, property, edge, and temporal coverage metrics measuring how well SVA properties cover the specification knowledge graph.
+- **Sufficiency analysis** — pre-verification checks detecting lonely signals, unconstrained outputs, and missing handshake patterns.
+- **Spec health checking** — self-consistency analysis of English specifications through the FOL-to-VerifyExpr-to-Z3 pipeline, detecting contradictions, vacuity, and redundancy.
+- **Property decomposition** — hierarchical decomposition of conjunctive properties into independently verifiable sub-properties.
+- **CEGAR synthesis refinement** — counterexample-guided refinement loop classifying SVA divergence as too-strong or too-weak with transformation strategies.
+- **RTL extraction** — Verilog declaration parser extracting module structure (ports, signals, parameters, clock detection).
+- **RTL knowledge graph** — converts RTL modules to hardware knowledge graphs and links spec KGs to RTL KGs via signal name matching.
+- **Waveform rendering** — renders Z3 counterexamples to VCD (Value Change Dump) format for waveform viewer inspection.
+- **Invariant discovery** — automatic candidate invariant generation from KG structure (mutex, handshake, pipeline patterns) with Z3 verification.
+- **Protocol templates** — pre-verified parameterizable SVA properties for standard protocols (AXI4, APB, handshake) with English specification mappings.
+- **Consistency checking** — multi-property consistency verification with minimal unsatisfiable subset extraction and vacuity/redundancy detection.
+- **Hardware verification test suites** — 18 new test files covering coverage, decomposition, CEGAR, RTL extraction, RTL KG, protocols, spec health, sufficiency, synthesis refinement, waveform, invariants, consistency, signal bridge, SVA IEEE1800, ontology, and advanced/e2e Z3 verification.
+
+### Changed
+- **Hardware pipeline** — expanded end-to-end pipeline with coverage, sufficiency, decomposition, and CEGAR integration.
+- **SVA model** — extended with coverage and decomposition support types.
+- **FOL-to-verify translation** — richer mapping supporting the new analysis modules.
+- **SVA-to-verify pipeline** — enhanced translation with consistency and invariant checking hooks.
+- **Equivalence checking** — extended for consistency and cross-property analysis.
+- **Knowledge graph** — expanded entity and relation extraction for RTL-spec linking.
+- **Parser improvements** — expanded verb recognition and clause parsing for hardware specification sentences.
+- **Lexicon expansion** — additional vocabulary for hardware verification domains.
+
 ## [0.9.11] - 2026-03-31
 
 ### Added

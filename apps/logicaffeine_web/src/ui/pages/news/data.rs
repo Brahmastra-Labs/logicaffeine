@@ -62,6 +62,43 @@ pub fn get_articles_by_tag(tag: &str) -> Vec<&'static Article> {
 /// All news articles
 static ARTICLES: &[Article] = &[
     Article {
+        slug: "release-0-9-12-full-verification-pipeline",
+        title: "v0.9.12 — Full Hardware Verification Pipeline",
+        date: "2026-04-02",
+        summary: "FOL-to-SVA synthesis, coverage and sufficiency analysis, CEGAR refinement, RTL extraction and knowledge graph linking, protocol templates, waveform rendering, invariant discovery, and consistency checking.",
+        content: r#"
+## Full Hardware Verification Pipeline
+
+This release completes the hardware verification pipeline from English specifications through RTL linking to formal equivalence checking.
+
+### FOL-to-SVA Synthesis
+
+Pattern-matching translation from first-order logic to SystemVerilog Assertions via Kripke-lowered structures, mapping quantified temporal patterns directly to SVA temporal operators.
+
+### Specification Analysis
+
+Three new analysis modules assess specification quality before verification: **coverage analysis** measures how well SVA properties cover the spec knowledge graph, **sufficiency analysis** detects lonely signals and missing handshake patterns, and **spec health checking** catches contradictions and vacuity through the Z3 pipeline.
+
+### RTL Integration
+
+A Verilog declaration parser extracts module structure (ports, signals, parameters, clock detection), and the RTL knowledge graph links spec-level and RTL-level signal names for automated property binding.
+
+### CEGAR Refinement & Decomposition
+
+Counterexample-guided refinement classifies SVA divergence and suggests transformations. Hierarchical property decomposition enables independent verification of sub-properties.
+
+### Protocol Templates & Invariant Discovery
+
+Pre-verified parameterizable SVA properties for AXI4, APB, and handshake protocols. Automatic candidate invariant generation from knowledge graph structure with Z3 verification.
+
+### Waveform & Consistency
+
+Z3 counterexamples render to VCD format for waveform viewer inspection. Multi-property consistency checking with minimal unsatisfiable subset extraction.
+"#,
+        tags: &["release", "hardware-verification", "sva", "formal-verification"],
+        author: "LOGICAFFEINE Team",
+    },
+    Article {
         slug: "release-0-9-11-bitvector-bmc",
         title: "v0.9.11 — Bitvector Theory & Bounded Model Checking",
         date: "2026-03-31",

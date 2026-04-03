@@ -490,3 +490,50 @@ fn e2e_bounded_equiv_at_different_bounds() {
     let leaves_5 = logicaffeine_compile::codegen_sva::sva_to_verify::count_and_leaves(&sva_5.expr);
     assert!(leaves_5 > leaves_3, "Bound 5 should have more leaves than bound 3");
 }
+
+// ═══════════════════════════════════════════════════════════════════════════
+// SPRINT B: Unsupported constructs must NOT silently become true
+// ═══════════════════════════════════════════════════════════════════════════
+
+#[cfg(feature = "verification")]
+mod z3_unsupported {
+    use logicaffeine_verify::ir::{VerifyExpr, BitVecOp};
+    use logicaffeine_verify::equivalence::{check_equivalence, EquivalenceResult};
+
+    #[test]
+    fn z3_bitvector_not_silently_equivalent_to_true() {
+        let bv = VerifyExpr::BitVecBinary {
+            op: BitVecOp::And,
+            left: Box::new(VerifyExpr::BitVecConst { value: 0xFF, width: 8 }),
+            right: Box::new(VerifyExpr::BitVecConst { value: 0x0F, width: 8 }),
+        };
+        let trivial = VerifyExpr::Bool(true);
+        let result = check_equivalence(&bv, &trivial, &[], 1);
+        assert!(!matches!(result, EquivalenceResult::Equivalent),
+            "Bitvector op MUST NOT be silently equivalent to true — got Equivalent");
+    }
+
+    #[test]
+    fn z3_array_select_not_silently_equivalent_to_true() {
+        let sel = VerifyExpr::Select {
+            array: Box::new(VerifyExpr::Var("mem".into())),
+            index: Box::new(VerifyExpr::Int(0)),
+        };
+        let trivial = VerifyExpr::Bool(true);
+        let result = check_equivalence(&sel, &trivial, &[], 1);
+        assert!(!matches!(result, EquivalenceResult::Equivalent),
+            "Array Select MUST NOT be silently equivalent to true — got Equivalent");
+    }
+
+    #[test]
+    fn z3_transition_not_silently_equivalent_to_true() {
+        let trans = VerifyExpr::Transition {
+            from: Box::new(VerifyExpr::Var("s0".into())),
+            to: Box::new(VerifyExpr::Var("s1".into())),
+        };
+        let trivial = VerifyExpr::Bool(true);
+        let result = check_equivalence(&trans, &trivial, &[], 1);
+        assert!(!matches!(result, EquivalenceResult::Equivalent),
+            "Transition MUST NOT be silently equivalent to true — got Equivalent");
+    }
+}

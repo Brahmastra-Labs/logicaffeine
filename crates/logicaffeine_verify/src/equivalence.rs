@@ -149,6 +149,16 @@ pub fn extract_signals(expr: &VerifyExpr) -> Vec<String> {
     signals.into_iter().collect()
 }
 
+/// Collect all variable names referenced in a VerifyExpr (public API).
+pub fn collect_vars_pub(expr: &VerifyExpr, vars: &mut HashSet<String>) {
+    collect_vars(expr, vars);
+}
+
+/// Collect integer-typed variable names from a VerifyExpr (public API).
+pub fn collect_int_vars_pub<'ctx>(expr: &VerifyExpr, int_vars: &mut HashMap<String, Int<'ctx>>, ctx: &'ctx Context) {
+    collect_int_vars(expr, int_vars, ctx);
+}
+
 /// Collect all variable names referenced in a VerifyExpr.
 fn collect_vars(expr: &VerifyExpr, vars: &mut HashSet<String>) {
     match expr {
@@ -269,13 +279,22 @@ fn expr_is_integer(expr: &VerifyExpr) -> bool {
 }
 
 /// Encoder that handles both Bool and Int Z3 expressions for equivalence checking.
-struct EquivEncoder<'ctx> {
+pub struct EquivEncoder<'ctx> {
     ctx: &'ctx Context,
     bool_vars: &'ctx HashMap<String, Bool<'ctx>>,
     int_vars: &'ctx HashMap<String, Int<'ctx>>,
 }
 
 impl<'ctx> EquivEncoder<'ctx> {
+    /// Create an encoder with only boolean variables (no integer variables).
+    pub fn new_from_bool_vars(ctx: &'ctx Context, bool_vars: &'ctx HashMap<String, Bool<'ctx>>, empty_int_vars: &'ctx HashMap<String, Int<'ctx>>) -> Self {
+        Self {
+            ctx,
+            bool_vars,
+            int_vars: empty_int_vars,
+        }
+    }
+
     /// Encode as a Dynamic Z3 expression (may be Bool or Int).
     fn encode(&self, expr: &VerifyExpr) -> Dynamic<'ctx> {
         match expr {
@@ -419,18 +438,20 @@ impl<'ctx> EquivEncoder<'ctx> {
             VerifyExpr::ForAll { body, .. } => self.encode(body),
             VerifyExpr::Exists { body, .. } => self.encode(body),
 
-            // Bitvector, Array, AtState, Transition: not handled in equivalence checking
-            _ => Dynamic::from_ast(&Bool::from_bool(self.ctx, true)),
+            // Bitvector, Array, AtState, Transition: fail closed (false, not true)
+            // Unsupported constructs must NOT silently become equivalent to anything.
+            _ => Dynamic::from_ast(&Bool::from_bool(self.ctx, false)),
         }
     }
 
     /// Encode as a Z3 Bool, coercing if necessary.
-    fn encode_as_bool(&self, expr: &VerifyExpr) -> Bool<'ctx> {
+    pub fn encode_as_bool(&self, expr: &VerifyExpr) -> Bool<'ctx> {
         let dyn_expr = self.encode(expr);
         dyn_expr.as_bool().unwrap_or_else(|| {
             // If we got an Int or other type, it can't be directly used as Bool.
-            // This shouldn't happen for well-formed equivalence queries.
-            Bool::from_bool(self.ctx, true)
+            // Fail closed: false, not true. Unsupported constructs must NOT
+            // silently become equivalent to anything (Sprint 0A consistency).
+            Bool::from_bool(self.ctx, false)
         })
     }
 }

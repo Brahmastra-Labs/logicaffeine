@@ -1105,6 +1105,17 @@ impl<'a> Lexer<'a> {
         self.words.get(self.pos + offset).map(|w| w.word.as_str())
     }
 
+    /// Check if the previous word is a determiner (every, each, some, all, any, no, the, a, an).
+    fn prev_token_is_determiner(&self) -> bool {
+        if self.pos == 0 { return false; }
+        if let Some(prev) = self.words.get(self.pos - 1) {
+            matches!(prev.word.to_lowercase().as_str(),
+                "every" | "each" | "some" | "all" | "any" | "no" | "the" | "a" | "an")
+        } else {
+            false
+        }
+    }
+
     fn peek_sequence(&self, expected: &[&str]) -> bool {
         for (i, &exp) in expected.iter().enumerate() {
             match self.peek_word(i + 1) {
@@ -2289,19 +2300,34 @@ impl<'a> Lexer<'a> {
         }
 
         if lexicon::is_performative(&lower) {
-            let sym = self.interner.intern(&Self::capitalize(&lower));
-            return TokenType::Performative(sym);
+            // If the word is also a common noun AND follows a determiner,
+            // don't force performative reading.
+            // "every request holds" → request is a noun, not a performative verb.
+            // "I promise to come" → promise IS a performative verb.
+            let after_determiner = self.prev_token_is_determiner();
+            if !lexicon::is_common_noun(&lower) || !after_determiner {
+                let sym = self.interner.intern(&Self::capitalize(&lower));
+                return TokenType::Performative(sym);
+            }
+            // Fall through to noun/verb disambiguation below
         }
 
         if lexicon::is_base_verb_early(&lower) {
-            let sym = self.interner.intern(&Self::capitalize(&lower));
-            let class = lexicon::lookup_verb_class(&lower);
-            return TokenType::Verb {
-                lemma: sym,
-                time: Time::Present,
-                aspect: Aspect::Simple,
-                class,
-            };
+            // If the word is also a common noun AND follows a determiner,
+            // don't force verb reading.
+            // "every grant holds" → grant is a noun, not a verb.
+            let after_determiner = self.prev_token_is_determiner();
+            if !lexicon::is_common_noun(&lower) || !after_determiner {
+                let sym = self.interner.intern(&Self::capitalize(&lower));
+                let class = lexicon::lookup_verb_class(&lower);
+                return TokenType::Verb {
+                    lemma: sym,
+                    time: Time::Present,
+                    aspect: Aspect::Simple,
+                    class,
+                };
+            }
+            // Fall through to noun/verb disambiguation below
         }
 
         // Check for gerunds/progressive verbs BEFORE ProperName check

@@ -69,6 +69,12 @@ pub fn compile_kripke_with<F, R>(input: &str, f: F) -> Result<R, ParseError>
 where
     F: FnOnce(&crate::ast::logic::LogicExpr<'_>, &Interner) -> R,
 {
+    if input.trim().is_empty() {
+        return Err(ParseError {
+            kind: crate::error::ParseErrorKind::Custom("Empty input".to_string()),
+            span: crate::token::Span { start: 0, end: 0 },
+        });
+    }
     let mut interner = Interner::new();
     let mut lexer = Lexer::new(input, &mut interner);
     let tokens = lexer.tokenize();
@@ -108,6 +114,12 @@ where
 
 /// Compile natural language input to first-order logic with specified options.
 pub fn compile_with_options(input: &str, options: CompileOptions) -> Result<String, ParseError> {
+    if input.trim().is_empty() {
+        return Err(ParseError {
+            kind: crate::error::ParseErrorKind::Custom("Empty input".to_string()),
+            span: crate::token::Span { start: 0, end: 0 },
+        });
+    }
     let mut interner = Interner::new();
     let mut lexer = Lexer::new(input, &mut interner);
     let tokens = lexer.tokenize();

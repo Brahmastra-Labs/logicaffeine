@@ -47,12 +47,19 @@
 //! License keys are Stripe subscription IDs (`sub_*` format).
 
 pub mod equivalence;
+pub mod consistency;
 pub mod error;
 pub mod ir;
 pub mod license;
 pub mod solver;
 
 pub use equivalence::{check_equivalence, EquivalenceResult, Trace, CycleState};
+pub use consistency::{
+    check_consistency, check_spec_consistency,
+    ConsistencyResult, ConsistencyReport, ConsistencyConfig,
+    LabeledFormula, SatisfiabilityResult,
+    VacuityFinding, RedundancyFinding, PairwiseConflict,
+};
 pub use error::{VerificationError, VerificationErrorKind, VerificationResult};
 pub use ir::{BitVecOp, VerifyExpr, VerifyOp, VerifyType};
 pub use license::{LicensePlan, LicenseValidator};
