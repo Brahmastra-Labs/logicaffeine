@@ -13,8 +13,8 @@ members = [
     "apps/logicaffeine_cli",
     "apps/logicaffeine_web",
     "crates/logicaffeine_lsp",
+    "crates/logicaffeine_verify",
 ]
-exclude = ["crates/logicaffeine_verify"]
 
 [workspace.package]
 authors = ["Tristen Harr <tristen@brahmastra-labs.com>"]
