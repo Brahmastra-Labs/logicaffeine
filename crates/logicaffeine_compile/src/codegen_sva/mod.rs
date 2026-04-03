@@ -14,9 +14,16 @@ pub mod sufficiency;
 pub mod rtl_kg;
 pub mod synthesis_refine;
 pub mod protocols;
+pub mod verify_to_kernel;
+pub mod ci;
+pub mod power;
+pub mod cdc;
+pub mod verified_compiler;
 
 #[cfg(feature = "verification")]
 pub mod waveform;
+#[cfg(feature = "verification")]
+pub mod testgen;
 #[cfg(feature = "verification")]
 pub mod decompose;
 #[cfg(feature = "verification")]

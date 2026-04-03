@@ -3,7 +3,7 @@
 //! When Z3 finds a spec-SVA divergence, renders the counterexample
 //! as VCD (Value Change Dump) or ASCII timing diagrams.
 
-use logicaffeine_verify::equivalence::{Trace, CycleState};
+use logicaffeine_verify::equivalence::{Trace, CycleState, SignalValue};
 use std::collections::HashMap;
 
 /// Generate a VCD (Value Change Dump) file from a counterexample trace.
@@ -39,8 +39,13 @@ pub fn trace_to_vcd(trace: &Trace, signal_names: &[String]) -> String {
         vcd.push_str(&format!("#{}\n", cycle.cycle));
         for name in signal_names {
             if let Some(&id) = signal_ids.get(name) {
-                let value = cycle.signals.get(name).copied().unwrap_or(false);
-                vcd.push_str(&format!("{}{}\n", if value { '1' } else { '0' }, id));
+                let value = match cycle.signals.get(name) {
+                    Some(SignalValue::Bool(b)) => if *b { '1' } else { '0' },
+                    Some(SignalValue::Int(n)) => if *n != 0 { '1' } else { '0' },
+                    Some(SignalValue::BitVec { value, .. }) => if *value != 0 { '1' } else { '0' },
+                    _ => '0',
+                };
+                vcd.push_str(&format!("{}{}\n", value, id));
             }
         }
     }
@@ -81,8 +86,12 @@ pub fn trace_to_ascii_waveform(trace: &Trace) -> String {
     for sig_name in &all_signals {
         output.push_str(&format!("{:>width$} |", sig_name, width = max_name_len));
         for cycle in &trace.cycles {
-            let value = cycle.signals.get(sig_name).copied().unwrap_or(false);
-            let ch = if value { " ^ " } else { " _ " };
+            let ch = match cycle.signals.get(sig_name) {
+                Some(SignalValue::Bool(b)) => if *b { " ^ " } else { " _ " },
+                Some(SignalValue::Int(n)) => if *n != 0 { " ^ " } else { " _ " },
+                Some(SignalValue::BitVec { value, .. }) => if *value != 0 { " ^ " } else { " _ " },
+                _ => " _ ",
+            };
             output.push_str(&format!("{}|", ch));
         }
         output.push('\n');

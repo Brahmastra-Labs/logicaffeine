@@ -20,6 +20,7 @@
 mod codegen;
 mod collector;
 mod error;
+pub mod verilog;
 
 pub use error::ExtractError;
 

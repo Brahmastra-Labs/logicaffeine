@@ -35,6 +35,7 @@ fn collect_vars_inner(expr: &BoundedExpr, out: &mut HashSet<String>) {
         }
         BoundedExpr::Not(e) => collect_vars_inner(e, out),
         BoundedExpr::Bool(_) | BoundedExpr::Int(_) | BoundedExpr::Unsupported(_) => {}
+        _ => {} // Multi-sorted extensions (SUPERCRUSH S0C)
     }
 }
 

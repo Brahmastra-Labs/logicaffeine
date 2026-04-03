@@ -35,6 +35,10 @@ benchmarks/results/raw/
 # Local cargo config (mold linker — not available in CI)
 .cargo/
 
+# External repos
+AssertionForge/
+Cirq/
+
 # Environment
 .env
 .env.local

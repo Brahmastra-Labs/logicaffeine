@@ -69,7 +69,9 @@ pub fn check_consistency(
 
     // Encode and conjoin all properties
     let empty_int_vars = HashMap::new();
-    let encoder = crate::equivalence::EquivEncoder::new_from_bool_vars(&ctx, &var_map, &empty_int_vars);
+    let empty_bv_vars = HashMap::new();
+    let empty_array_vars = HashMap::new();
+    let encoder = crate::equivalence::EquivEncoder::new(&ctx, &var_map, &empty_int_vars, &empty_bv_vars, &empty_array_vars);
     for prop in props {
         let encoded = encoder.encode_as_bool(prop);
         solver.assert(&encoded);
@@ -231,7 +233,9 @@ pub fn check_spec_consistency(
         crate::equivalence::collect_int_vars_pub(expr, &mut int_vars, &ctx);
     }
 
-    let encoder = crate::equivalence::EquivEncoder::new_from_bool_vars(&ctx, &bool_vars, &int_vars);
+    let empty_bv_vars = HashMap::new();
+    let empty_array_vars = HashMap::new();
+    let encoder = crate::equivalence::EquivEncoder::new(&ctx, &bool_vars, &int_vars, &empty_bv_vars, &empty_array_vars);
 
     // Step 1: Check full conjunction satisfiability
     let solver = Solver::new(&ctx);

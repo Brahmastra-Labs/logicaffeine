@@ -3,7 +3,7 @@
 #![cfg(feature = "verification")]
 
 use logicaffeine_compile::codegen_sva::waveform::{trace_to_vcd, trace_to_ascii_waveform, mark_divergence};
-use logicaffeine_verify::equivalence::{Trace, CycleState};
+use logicaffeine_verify::equivalence::{Trace, CycleState, SignalValue};
 use std::collections::HashMap;
 
 fn make_trace(cycles: Vec<Vec<(&str, bool)>>) -> Trace {
@@ -11,7 +11,7 @@ fn make_trace(cycles: Vec<Vec<(&str, bool)>>) -> Trace {
         cycles: cycles.into_iter().enumerate().map(|(i, sigs)| {
             CycleState {
                 cycle: i,
-                signals: sigs.into_iter().map(|(n, v)| (n.to_string(), v)).collect(),
+                signals: sigs.into_iter().map(|(n, v)| (n.to_string(), SignalValue::Bool(v))).collect(),
             }
         }).collect(),
     }

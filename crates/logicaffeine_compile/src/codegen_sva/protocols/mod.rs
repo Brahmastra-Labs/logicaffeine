@@ -3,6 +3,8 @@
 //! Parameterizable SVA properties for standard hardware protocols.
 //! Each template produces SvaProperty + English spec string.
 
+pub mod riscv;
+
 use super::sva_model::SvaExpr;
 use super::SvaAssertionKind;
 

@@ -29,6 +29,7 @@ impl StandardLibrary {
         Self::register_ex(ctx);
         Self::register_primitives(ctx);
         Self::register_reflection(ctx);
+        Self::register_hardware(ctx);
     }
 
     /// Primitive types and operations.
@@ -846,6 +847,7 @@ impl StandardLibrary {
         Self::register_induction_helpers(ctx);
         Self::register_try_inversion_tactic(ctx);
         Self::register_operator_tactics(ctx);
+        Self::register_hw_tactics(ctx);
     }
 
     /// Univ : Type 0 (representation of universes)
@@ -2185,5 +2187,450 @@ impl StandardLibrary {
                 }),
             },
         );
+    }
+
+    // =========================================================================
+    // HARDWARE TACTICS: try_bitblast, try_tabulate, try_hw_auto
+    // =========================================================================
+
+    fn register_hw_tactics(ctx: &mut Context) {
+        let syntax = Term::Global("Syntax".to_string());
+        let derivation = Term::Global("Derivation".to_string());
+
+        // DBitblastSolve : Syntax -> Derivation
+        ctx.add_constructor(
+            "DBitblastSolve",
+            "Derivation",
+            Term::Pi {
+                param: "_".to_string(),
+                param_type: Box::new(syntax.clone()),
+                body_type: Box::new(derivation.clone()),
+            },
+        );
+
+        // try_bitblast : Syntax -> Derivation
+        ctx.add_declaration(
+            "try_bitblast",
+            Term::Pi {
+                param: "_".to_string(),
+                param_type: Box::new(syntax.clone()),
+                body_type: Box::new(derivation.clone()),
+            },
+        );
+
+        // DTabulateSolve : Syntax -> Derivation
+        ctx.add_constructor(
+            "DTabulateSolve",
+            "Derivation",
+            Term::Pi {
+                param: "_".to_string(),
+                param_type: Box::new(syntax.clone()),
+                body_type: Box::new(derivation.clone()),
+            },
+        );
+
+        // try_tabulate : Syntax -> Derivation
+        ctx.add_declaration(
+            "try_tabulate",
+            Term::Pi {
+                param: "_".to_string(),
+                param_type: Box::new(syntax.clone()),
+                body_type: Box::new(derivation.clone()),
+            },
+        );
+
+        // DHwAutoSolve : Syntax -> Derivation
+        ctx.add_constructor(
+            "DHwAutoSolve",
+            "Derivation",
+            Term::Pi {
+                param: "_".to_string(),
+                param_type: Box::new(syntax.clone()),
+                body_type: Box::new(derivation.clone()),
+            },
+        );
+
+        // try_hw_auto : Syntax -> Derivation
+        ctx.add_declaration(
+            "try_hw_auto",
+            Term::Pi {
+                param: "_".to_string(),
+                param_type: Box::new(syntax.clone()),
+                body_type: Box::new(derivation),
+            },
+        );
+    }
+
+    // =========================================================================
+    // HARDWARE TYPES: Bit, Unit, BVec, gate operations, Circuit, BVec ops
+    // =========================================================================
+
+    /// Register all hardware-related types and operations.
+    fn register_hardware(ctx: &mut Context) {
+        Self::register_bit(ctx);
+        Self::register_hw_unit(ctx);
+        Self::register_bvec(ctx);
+        Self::register_gate_ops(ctx);
+        Self::register_circuit(ctx);
+        Self::register_bvec_ops(ctx);
+    }
+
+    /// Bit : Type 0 — 1-bit logic value
+    /// B0 : Bit — logic low
+    /// B1 : Bit — logic high
+    fn register_bit(ctx: &mut Context) {
+        let bit = Term::Global("Bit".to_string());
+        ctx.add_inductive("Bit", Term::Sort(Universe::Type(0)));
+        ctx.add_constructor("B0", "Bit", bit.clone());
+        ctx.add_constructor("B1", "Bit", bit);
+    }
+
+    /// Unit : Type 0 — trivial type for stateless circuits
+    /// Tt : Unit — sole inhabitant
+    fn register_hw_unit(ctx: &mut Context) {
+        let unit = Term::Global("Unit".to_string());
+        ctx.add_inductive("Unit", Term::Sort(Universe::Type(0)));
+        ctx.add_constructor("Tt", "Unit", unit);
+    }
+
+    /// BVec : Nat -> Type 0 — length-indexed bitvector
+    /// BVNil : BVec Zero
+    /// BVCons : Bit -> Π(n:Nat). BVec n -> BVec (Succ n)
+    fn register_bvec(ctx: &mut Context) {
+        let type0 = Term::Sort(Universe::Type(0));
+        let nat = Term::Global("Nat".to_string());
+        let n = Term::Var("n".to_string());
+
+        // BVec : Nat -> Type 0
+        let bvec_type = Term::Pi {
+            param: "n".to_string(),
+            param_type: Box::new(nat.clone()),
+            body_type: Box::new(type0),
+        };
+        ctx.add_inductive("BVec", bvec_type);
+
+        // BVNil : BVec Zero
+        let bvec_zero = Term::App(
+            Box::new(Term::Global("BVec".to_string())),
+            Box::new(Term::Global("Zero".to_string())),
+        );
+        ctx.add_constructor("BVNil", "BVec", bvec_zero);
+
+        // BVCons : Bit -> Π(n:Nat). BVec n -> BVec (Succ n)
+        let bit = Term::Global("Bit".to_string());
+        let bvec_n = Term::App(
+            Box::new(Term::Global("BVec".to_string())),
+            Box::new(n.clone()),
+        );
+        let bvec_succ_n = Term::App(
+            Box::new(Term::Global("BVec".to_string())),
+            Box::new(Term::App(
+                Box::new(Term::Global("Succ".to_string())),
+                Box::new(n.clone()),
+            )),
+        );
+        let bvcons_type = Term::Pi {
+            param: "_".to_string(),
+            param_type: Box::new(bit),
+            body_type: Box::new(Term::Pi {
+                param: "n".to_string(),
+                param_type: Box::new(nat),
+                body_type: Box::new(Term::Pi {
+                    param: "_".to_string(),
+                    param_type: Box::new(bvec_n),
+                    body_type: Box::new(bvec_succ_n),
+                }),
+            }),
+        };
+        ctx.add_constructor("BVCons", "BVec", bvcons_type);
+    }
+
+    /// Gate operations as transparent definitions (unfold via iota reduction).
+    ///
+    /// bit_and : Bit -> Bit -> Bit — match a: B0 -> B0, B1 -> b
+    /// bit_or  : Bit -> Bit -> Bit — match a: B0 -> b,  B1 -> B1
+    /// bit_not : Bit -> Bit        — match a: B0 -> B1, B1 -> B0
+    /// bit_xor : Bit -> Bit -> Bit — match a: B0 -> bit_not b, B1 -> b
+    /// bit_mux : Bit -> Bit -> Bit -> Bit — match sel: B0 -> else, B1 -> then
+    fn register_gate_ops(ctx: &mut Context) {
+        let bit = Term::Global("Bit".to_string());
+
+        // Bit -> Bit -> Bit
+        let bit2_type = Term::Pi {
+            param: "_".to_string(),
+            param_type: Box::new(bit.clone()),
+            body_type: Box::new(Term::Pi {
+                param: "_".to_string(),
+                param_type: Box::new(bit.clone()),
+                body_type: Box::new(bit.clone()),
+            }),
+        };
+
+        // Bit -> Bit
+        let bit1_type = Term::Pi {
+            param: "_".to_string(),
+            param_type: Box::new(bit.clone()),
+            body_type: Box::new(bit.clone()),
+        };
+
+        // Bit -> Bit -> Bit -> Bit
+        let bit3_type = Term::Pi {
+            param: "_".to_string(),
+            param_type: Box::new(bit.clone()),
+            body_type: Box::new(Term::Pi {
+                param: "_".to_string(),
+                param_type: Box::new(bit.clone()),
+                body_type: Box::new(Term::Pi {
+                    param: "_".to_string(),
+                    param_type: Box::new(bit.clone()),
+                    body_type: Box::new(bit.clone()),
+                }),
+            }),
+        };
+
+        // Motive for match on Bit: λ(_:Bit). Bit
+        let motive = Term::Lambda {
+            param: "_".to_string(),
+            param_type: Box::new(bit.clone()),
+            body: Box::new(bit.clone()),
+        };
+
+        // bit_and := λ(a:Bit). λ(b:Bit). match a return (λ_:Bit. Bit) with [B0, b]
+        let bit_and_body = Term::Lambda {
+            param: "a".to_string(),
+            param_type: Box::new(bit.clone()),
+            body: Box::new(Term::Lambda {
+                param: "b".to_string(),
+                param_type: Box::new(bit.clone()),
+                body: Box::new(Term::Match {
+                    discriminant: Box::new(Term::Var("a".to_string())),
+                    motive: Box::new(motive.clone()),
+                    cases: vec![
+                        Term::Global("B0".to_string()), // B0 case: return B0
+                        Term::Var("b".to_string()),      // B1 case: return b
+                    ],
+                }),
+            }),
+        };
+        ctx.add_definition("bit_and".to_string(), bit2_type.clone(), bit_and_body);
+
+        // bit_or := λ(a:Bit). λ(b:Bit). match a return (λ_:Bit. Bit) with [b, B1]
+        let bit_or_body = Term::Lambda {
+            param: "a".to_string(),
+            param_type: Box::new(bit.clone()),
+            body: Box::new(Term::Lambda {
+                param: "b".to_string(),
+                param_type: Box::new(bit.clone()),
+                body: Box::new(Term::Match {
+                    discriminant: Box::new(Term::Var("a".to_string())),
+                    motive: Box::new(motive.clone()),
+                    cases: vec![
+                        Term::Var("b".to_string()),      // B0 case: return b
+                        Term::Global("B1".to_string()), // B1 case: return B1
+                    ],
+                }),
+            }),
+        };
+        ctx.add_definition("bit_or".to_string(), bit2_type.clone(), bit_or_body);
+
+        // bit_not := λ(a:Bit). match a return (λ_:Bit. Bit) with [B1, B0]
+        let bit_not_body = Term::Lambda {
+            param: "a".to_string(),
+            param_type: Box::new(bit.clone()),
+            body: Box::new(Term::Match {
+                discriminant: Box::new(Term::Var("a".to_string())),
+                motive: Box::new(motive.clone()),
+                cases: vec![
+                    Term::Global("B1".to_string()), // B0 case: return B1
+                    Term::Global("B0".to_string()), // B1 case: return B0
+                ],
+            }),
+        };
+        ctx.add_definition("bit_not".to_string(), bit1_type, bit_not_body);
+
+        // bit_xor := λ(a:Bit). λ(b:Bit). match a return (λ_:Bit. Bit) with [b, bit_not b]
+        // XOR truth table: 0^0=0, 0^1=1, 1^0=1, 1^1=0
+        // When a=B0: result = b (0^0=0, 0^1=1)
+        // When a=B1: result = bit_not b (1^0=1, 1^1=0)
+        let bit_xor_body = Term::Lambda {
+            param: "a".to_string(),
+            param_type: Box::new(bit.clone()),
+            body: Box::new(Term::Lambda {
+                param: "b".to_string(),
+                param_type: Box::new(bit.clone()),
+                body: Box::new(Term::Match {
+                    discriminant: Box::new(Term::Var("a".to_string())),
+                    motive: Box::new(motive.clone()),
+                    cases: vec![
+                        // B0 case: b
+                        Term::Var("b".to_string()),
+                        // B1 case: bit_not b
+                        Term::App(
+                            Box::new(Term::Global("bit_not".to_string())),
+                            Box::new(Term::Var("b".to_string())),
+                        ),
+                    ],
+                }),
+            }),
+        };
+        ctx.add_definition("bit_xor".to_string(), bit2_type, bit_xor_body);
+
+        // bit_mux := λ(sel:Bit). λ(then_v:Bit). λ(else_v:Bit).
+        //            match sel return (λ_:Bit. Bit) with [else_v, then_v]
+        let bit_mux_body = Term::Lambda {
+            param: "sel".to_string(),
+            param_type: Box::new(bit.clone()),
+            body: Box::new(Term::Lambda {
+                param: "then_v".to_string(),
+                param_type: Box::new(bit.clone()),
+                body: Box::new(Term::Lambda {
+                    param: "else_v".to_string(),
+                    param_type: Box::new(bit.clone()),
+                    body: Box::new(Term::Match {
+                        discriminant: Box::new(Term::Var("sel".to_string())),
+                        motive: Box::new(motive),
+                        cases: vec![
+                            Term::Var("else_v".to_string()), // B0 case: else
+                            Term::Var("then_v".to_string()), // B1 case: then
+                        ],
+                    }),
+                }),
+            }),
+        };
+        ctx.add_definition("bit_mux".to_string(), bit3_type, bit_mux_body);
+    }
+
+    /// Circuit : Type 0 -> Type 0 -> Type 0 -> Type 0
+    /// MkCircuit : Π(S:Type 0). Π(I:Type 0). Π(O:Type 0).
+    ///             (S -> I -> S) -> (S -> I -> O) -> S -> Circuit S I O
+    fn register_circuit(ctx: &mut Context) {
+        let type0 = Term::Sort(Universe::Type(0));
+        let s = Term::Var("S".to_string());
+        let i = Term::Var("I".to_string());
+        let o = Term::Var("O".to_string());
+
+        // Circuit : Type 0 -> Type 0 -> Type 0 -> Type 0
+        let circuit_type = Term::Pi {
+            param: "S".to_string(),
+            param_type: Box::new(type0.clone()),
+            body_type: Box::new(Term::Pi {
+                param: "I".to_string(),
+                param_type: Box::new(type0.clone()),
+                body_type: Box::new(Term::Pi {
+                    param: "O".to_string(),
+                    param_type: Box::new(type0.clone()),
+                    body_type: Box::new(type0.clone()),
+                }),
+            }),
+        };
+        ctx.add_inductive("Circuit", circuit_type);
+
+        // Circuit S I O
+        let circuit_s_i_o = Term::App(
+            Box::new(Term::App(
+                Box::new(Term::App(
+                    Box::new(Term::Global("Circuit".to_string())),
+                    Box::new(s.clone()),
+                )),
+                Box::new(i.clone()),
+            )),
+            Box::new(o.clone()),
+        );
+
+        // S -> I -> S (transition function type)
+        let trans_type = Term::Pi {
+            param: "_".to_string(),
+            param_type: Box::new(s.clone()),
+            body_type: Box::new(Term::Pi {
+                param: "_".to_string(),
+                param_type: Box::new(i.clone()),
+                body_type: Box::new(s.clone()),
+            }),
+        };
+
+        // S -> I -> O (output function type)
+        let out_type = Term::Pi {
+            param: "_".to_string(),
+            param_type: Box::new(s.clone()),
+            body_type: Box::new(Term::Pi {
+                param: "_".to_string(),
+                param_type: Box::new(i.clone()),
+                body_type: Box::new(o.clone()),
+            }),
+        };
+
+        // MkCircuit : Π(S:Type0). Π(I:Type0). Π(O:Type0).
+        //             (S->I->S) -> (S->I->O) -> S -> Circuit S I O
+        let mkcircuit_type = Term::Pi {
+            param: "S".to_string(),
+            param_type: Box::new(type0.clone()),
+            body_type: Box::new(Term::Pi {
+                param: "I".to_string(),
+                param_type: Box::new(type0.clone()),
+                body_type: Box::new(Term::Pi {
+                    param: "O".to_string(),
+                    param_type: Box::new(type0),
+                    body_type: Box::new(Term::Pi {
+                        param: "_".to_string(),
+                        param_type: Box::new(trans_type),
+                        body_type: Box::new(Term::Pi {
+                            param: "_".to_string(),
+                            param_type: Box::new(out_type),
+                            body_type: Box::new(Term::Pi {
+                                param: "_".to_string(),
+                                param_type: Box::new(s),
+                                body_type: Box::new(circuit_s_i_o),
+                            }),
+                        }),
+                    }),
+                }),
+            }),
+        };
+        ctx.add_constructor("MkCircuit", "Circuit", mkcircuit_type);
+    }
+
+    /// Bitvector operations as recursive Fix definitions.
+    /// bv_and, bv_or, bv_not, bv_xor : Π(n:Nat). BVec n -> BVec n -> BVec n
+    fn register_bvec_ops(ctx: &mut Context) {
+        let nat = Term::Global("Nat".to_string());
+        let n = Term::Var("n".to_string());
+        let bvec_n = Term::App(
+            Box::new(Term::Global("BVec".to_string())),
+            Box::new(n.clone()),
+        );
+
+        // Π(n:Nat). BVec n -> BVec n -> BVec n
+        let bv_binop_type = Term::Pi {
+            param: "n".to_string(),
+            param_type: Box::new(nat.clone()),
+            body_type: Box::new(Term::Pi {
+                param: "_".to_string(),
+                param_type: Box::new(bvec_n.clone()),
+                body_type: Box::new(Term::Pi {
+                    param: "_".to_string(),
+                    param_type: Box::new(bvec_n.clone()),
+                    body_type: Box::new(bvec_n.clone()),
+                }),
+            }),
+        };
+
+        // Π(n:Nat). BVec n -> BVec n
+        let bv_unop_type = Term::Pi {
+            param: "n".to_string(),
+            param_type: Box::new(nat),
+            body_type: Box::new(Term::Pi {
+                param: "_".to_string(),
+                param_type: Box::new(bvec_n.clone()),
+                body_type: Box::new(bvec_n),
+            }),
+        };
+
+        // For now, register as declarations (axioms with known types).
+        // Full Fix definitions require careful Match construction on BVec
+        // which we'll implement when we need normalization of bv_ ops.
+        ctx.add_declaration("bv_and", bv_binop_type.clone());
+        ctx.add_declaration("bv_or", bv_binop_type.clone());
+        ctx.add_declaration("bv_xor", bv_binop_type);
+        ctx.add_declaration("bv_not", bv_unop_type);
     }
 }

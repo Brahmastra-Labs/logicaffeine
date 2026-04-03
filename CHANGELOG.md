@@ -4,6 +4,39 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.9.13] - 2026-04-03
+
+### Added
+- **Hardware kernel types** — first-class `Bit`, `BitVec`, and `Circuit` types in the formal kernel prelude, enabling kernel-level hardware reasoning.
+- **Bitvector decision procedures** — delta reduction support for bitvector operations in the kernel reduction engine.
+- **Advanced model checking** — IC3, k-induction, and Craig interpolation strategies for unbounded property verification.
+- **Compositional verification** — assume-guarantee reasoning with contract-based decomposition for modular hardware verification.
+- **Clock domain crossing analysis** — CDC verification module detecting synchronization issues across clock boundaries.
+- **Power isolation verification** — power domain analysis ensuring correct isolation and retention behavior.
+- **Security property verification** — information flow and non-interference checking for hardware security properties.
+- **Multi-clock verification** — formal reasoning about synchronization across multiple clock domains.
+- **Synthesis oracle** — Z3-guided synthesis from formal properties to circuit implementations via the kernel type theory.
+- **Test generation** — automatic test case generation from formal specifications.
+- **Incremental verification** — delta-based re-verification avoiding redundant work when specs change.
+- **Parameterized verification** — verification of parameterized designs across all instantiations.
+- **Compiler verification** — formally verified synthesis compiler correctness proofs.
+- **SMT-LIB2 dialect support** — direct SMT-LIB2 output for interoperability with external solvers.
+- **Verilog extraction** — synthesis of Verilog modules from kernel proof terms via Curry-Howard correspondence.
+- **RISC-V protocol templates** — pre-verified SVA property templates for RISC-V bus protocols.
+- **Liveness checking** — liveness property verification with fairness constraints and ranking functions.
+- **Abstraction refinement** — CEGAR-style abstraction with automatic predicate discovery.
+- **Certificate generation** — independently checkable verification certificates for proof portability.
+- **Verification strategy selection** — automatic strategy selection based on property classification.
+- **Type inference for properties** — automatic type inference for verification expressions.
+- **Automata-based reasoning** — Buchi and omega-automata for temporal property verification.
+- **40+ new test suites** — comprehensive coverage for all new verification domains.
+
+### Changed
+- **Pricing removed** — replaced public pricing tiers with contact-based commercial licensing. Free for individuals, teams under 25, and education.
+- **Verify crate publishing** — logicaffeine-verify now publishes to crates.io with fixed cascade.
+- **Equivalence checking** — expanded semantic equivalence with major analysis enhancements.
+- **Test documentation** — comprehensive README expansion covering 60+ test files.
+
 ## [0.9.12] - 2026-04-02
 
 ### Added

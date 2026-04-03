@@ -62,6 +62,49 @@ pub fn get_articles_by_tag(tag: &str) -> Vec<&'static Article> {
 /// All news articles
 static ARTICLES: &[Article] = &[
     Article {
+        slug: "release-0-9-13-hardware-kernel-integration",
+        title: "v0.9.13 — Hardware Kernel Integration",
+        date: "2026-04-03",
+        summary: "First-class hardware types in the formal kernel, 20+ new verification modules including IC3, k-induction, CDC, power, and security analysis, Verilog extraction via Curry-Howard, and 40+ new test suites.",
+        content: r#"
+## Hardware Kernel Integration
+
+This release bridges the formal kernel with the hardware verification pipeline, enabling kernel-level reasoning about hardware designs.
+
+### Hardware Types in the Kernel
+
+First-class `Bit`, `BitVec`, and `Circuit` types are now part of the kernel prelude. Bitvector decision procedures in the reduction engine allow the kernel to evaluate hardware-level operations directly.
+
+### 20+ New Verification Modules
+
+A major expansion of the verification infrastructure:
+
+- **Model checking** — IC3, k-induction, and Craig interpolation for unbounded property verification
+- **Compositional verification** — assume-guarantee reasoning with contract-based decomposition
+- **Domain-specific analysis** — clock domain crossing (CDC), power isolation, and security property verification
+- **Multi-clock domains** — formal reasoning about synchronization across clock boundaries
+- **Synthesis oracle** — Z3-guided synthesis from properties to circuit implementations
+- **Liveness & fairness** — liveness checking with ranking functions and fairness constraints
+- **Abstraction refinement** — CEGAR-style abstraction with automatic predicate discovery
+- **Certificate generation** — independently checkable verification certificates
+- **Automata-based reasoning** — Buchi and omega-automata for temporal properties
+
+### Verilog Extraction
+
+Synthesis of Verilog modules from kernel proof terms via Curry-Howard correspondence — the proof of correctness IS the circuit.
+
+### RISC-V Protocol Support
+
+Pre-verified SVA property templates for RISC-V bus protocols, alongside existing AXI4, APB, UART, SPI, and I2C templates.
+
+### 40+ New Test Suites
+
+Comprehensive test coverage for every new verification domain, from CDC analysis to compiler verification to parameterized systems.
+"#,
+        tags: &["release", "hardware-verification", "kernel", "formal-verification", "synthesis"],
+        author: "LOGICAFFEINE Team",
+    },
+    Article {
         slug: "release-0-9-12-full-verification-pipeline",
         title: "v0.9.12 — Full Hardware Verification Pipeline",
         date: "2026-04-02",

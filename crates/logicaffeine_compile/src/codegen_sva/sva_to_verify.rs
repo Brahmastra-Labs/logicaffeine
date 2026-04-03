@@ -37,6 +37,57 @@ pub enum BoundedExpr {
     Gte(Box<BoundedExpr>, Box<BoundedExpr>),
     /// Unsupported construct (fail closed, not silently true)
     Unsupported(String),
+
+    // ---- Multi-sorted extensions (SUPERCRUSH S0C) ----
+
+    /// Bitvector constant with explicit width
+    BitVecConst { width: u32, value: u64 },
+    /// Bitvector variable with known width
+    BitVecVar(String, u32),
+    /// Bitvector binary operation
+    BitVecBinary { op: BitVecBoundedOp, left: Box<BoundedExpr>, right: Box<BoundedExpr> },
+    /// Bitvector extraction: operand[high:low]
+    BitVecExtract { high: u32, low: u32, operand: Box<BoundedExpr> },
+    /// Bitvector concatenation
+    BitVecConcat(Box<BoundedExpr>, Box<BoundedExpr>),
+    /// Array select: array[index]
+    ArraySelect { array: Box<BoundedExpr>, index: Box<BoundedExpr> },
+    /// Array store: array[index] := value
+    ArrayStore { array: Box<BoundedExpr>, index: Box<BoundedExpr>, value: Box<BoundedExpr> },
+    /// Integer arithmetic binary operation
+    IntBinary { op: ArithBoundedOp, left: Box<BoundedExpr>, right: Box<BoundedExpr> },
+    /// Comparison returning Bool from Int/BV operands
+    Comparison { op: CmpBoundedOp, left: Box<BoundedExpr>, right: Box<BoundedExpr> },
+    /// Universal quantifier
+    ForAll { var: String, sort: BoundedSort, body: Box<BoundedExpr> },
+    /// Existential quantifier
+    Exists { var: String, sort: BoundedSort, body: Box<BoundedExpr> },
+}
+
+/// Bitvector operations in bounded IR.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BitVecBoundedOp {
+    And, Or, Xor, Not, Shl, Shr, AShr, Add, Sub, Mul, ULt, SLt, Eq,
+}
+
+/// Arithmetic operations in bounded IR.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ArithBoundedOp {
+    Add, Sub, Mul, Div,
+}
+
+/// Comparison operations in bounded IR.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CmpBoundedOp {
+    Gt, Lt, Gte, Lte,
+}
+
+/// Sort annotation for bounded quantifiers.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum BoundedSort {
+    Bool,
+    Int,
+    BitVec(u32),
 }
 
 /// Result of translating an SVA expression to bounded verification IR.
@@ -464,12 +515,34 @@ fn collect_vars_from_bounded(expr: &BoundedExpr, vars: &mut std::collections::Ha
         BoundedExpr::And(l, r) | BoundedExpr::Or(l, r)
         | BoundedExpr::Implies(l, r) | BoundedExpr::Eq(l, r)
         | BoundedExpr::Lt(l, r) | BoundedExpr::Gt(l, r)
-        | BoundedExpr::Lte(l, r) | BoundedExpr::Gte(l, r) => {
+        | BoundedExpr::Lte(l, r) | BoundedExpr::Gte(l, r)
+        | BoundedExpr::BitVecConcat(l, r) => {
             collect_vars_from_bounded(l, vars);
             collect_vars_from_bounded(r, vars);
         }
         BoundedExpr::Not(inner) => collect_vars_from_bounded(inner, vars),
-        BoundedExpr::Bool(_) | BoundedExpr::Int(_) | BoundedExpr::Unsupported(_) => {}
+        BoundedExpr::BitVecVar(name, _) => { vars.insert(name.clone()); }
+        BoundedExpr::BitVecBinary { left, right, .. }
+        | BoundedExpr::IntBinary { left, right, .. }
+        | BoundedExpr::Comparison { left, right, .. } => {
+            collect_vars_from_bounded(left, vars);
+            collect_vars_from_bounded(right, vars);
+        }
+        BoundedExpr::BitVecExtract { operand, .. } => collect_vars_from_bounded(operand, vars),
+        BoundedExpr::ArraySelect { array, index } => {
+            collect_vars_from_bounded(array, vars);
+            collect_vars_from_bounded(index, vars);
+        }
+        BoundedExpr::ArrayStore { array, index, value } => {
+            collect_vars_from_bounded(array, vars);
+            collect_vars_from_bounded(index, vars);
+            collect_vars_from_bounded(value, vars);
+        }
+        BoundedExpr::ForAll { body, .. } | BoundedExpr::Exists { body, .. } => {
+            collect_vars_from_bounded(body, vars);
+        }
+        BoundedExpr::Bool(_) | BoundedExpr::Int(_)
+        | BoundedExpr::BitVecConst { .. } | BoundedExpr::Unsupported(_) => {}
     }
 }
 
@@ -527,6 +600,83 @@ pub fn bounded_to_verify(expr: &BoundedExpr) -> logicaffeine_verify::VerifyExpr 
             bounded_to_verify(r),
         ),
         BoundedExpr::Unsupported(_) => VerifyExpr::Bool(false),
+
+        // ---- Multi-sorted extensions ----
+        BoundedExpr::BitVecConst { width, value } => VerifyExpr::bv_const(*width, *value),
+        BoundedExpr::BitVecVar(name, _width) => VerifyExpr::Var(name.clone()),
+        BoundedExpr::BitVecBinary { op, left, right } => {
+            use logicaffeine_verify::BitVecOp;
+            let vop = match op {
+                BitVecBoundedOp::And => BitVecOp::And,
+                BitVecBoundedOp::Or => BitVecOp::Or,
+                BitVecBoundedOp::Xor => BitVecOp::Xor,
+                BitVecBoundedOp::Not => BitVecOp::Not,
+                BitVecBoundedOp::Shl => BitVecOp::Shl,
+                BitVecBoundedOp::Shr => BitVecOp::Shr,
+                BitVecBoundedOp::AShr => BitVecOp::AShr,
+                BitVecBoundedOp::Add => BitVecOp::Add,
+                BitVecBoundedOp::Sub => BitVecOp::Sub,
+                BitVecBoundedOp::Mul => BitVecOp::Mul,
+                BitVecBoundedOp::ULt => BitVecOp::ULt,
+                BitVecBoundedOp::SLt => BitVecOp::SLt,
+                BitVecBoundedOp::Eq => BitVecOp::Eq,
+            };
+            VerifyExpr::bv_binary(vop, bounded_to_verify(left), bounded_to_verify(right))
+        }
+        BoundedExpr::BitVecExtract { high, low, operand } => VerifyExpr::BitVecExtract {
+            high: *high,
+            low: *low,
+            operand: Box::new(bounded_to_verify(operand)),
+        },
+        BoundedExpr::BitVecConcat(l, r) => VerifyExpr::BitVecConcat(
+            Box::new(bounded_to_verify(l)),
+            Box::new(bounded_to_verify(r)),
+        ),
+        BoundedExpr::ArraySelect { array, index } => VerifyExpr::Select {
+            array: Box::new(bounded_to_verify(array)),
+            index: Box::new(bounded_to_verify(index)),
+        },
+        BoundedExpr::ArrayStore { array, index, value } => VerifyExpr::Store {
+            array: Box::new(bounded_to_verify(array)),
+            index: Box::new(bounded_to_verify(index)),
+            value: Box::new(bounded_to_verify(value)),
+        },
+        BoundedExpr::IntBinary { op, left, right } => {
+            let vop = match op {
+                ArithBoundedOp::Add => VerifyOp::Add,
+                ArithBoundedOp::Sub => VerifyOp::Sub,
+                ArithBoundedOp::Mul => VerifyOp::Mul,
+                ArithBoundedOp::Div => VerifyOp::Div,
+            };
+            VerifyExpr::binary(vop, bounded_to_verify(left), bounded_to_verify(right))
+        }
+        BoundedExpr::Comparison { op, left, right } => {
+            let vop = match op {
+                CmpBoundedOp::Gt => VerifyOp::Gt,
+                CmpBoundedOp::Lt => VerifyOp::Lt,
+                CmpBoundedOp::Gte => VerifyOp::Gte,
+                CmpBoundedOp::Lte => VerifyOp::Lte,
+            };
+            VerifyExpr::binary(vop, bounded_to_verify(left), bounded_to_verify(right))
+        }
+        BoundedExpr::ForAll { var, sort, body } => {
+            use logicaffeine_verify::VerifyType;
+            let ty = match sort {
+                BoundedSort::Bool => VerifyType::Bool,
+                BoundedSort::Int => VerifyType::Int,
+                BoundedSort::BitVec(w) => VerifyType::BitVector(*w),
+            };
+            VerifyExpr::forall(vec![(var.clone(), ty)], bounded_to_verify(body))
+        }
+        BoundedExpr::Exists { var, sort, body } => {
+            use logicaffeine_verify::VerifyType;
+            let ty = match sort {
+                BoundedSort::Bool => VerifyType::Bool,
+                BoundedSort::Int => VerifyType::Int,
+                BoundedSort::BitVec(w) => VerifyType::BitVector(*w),
+            };
+            VerifyExpr::exists(vec![(var.clone(), ty)], bounded_to_verify(body))
+        }
     }
 }
 
