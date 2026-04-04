@@ -6,7 +6,7 @@
 #![cfg(feature = "verification")]
 
 use logicaffeine_verify::{
-    check_equivalence, EquivalenceResult, VerifyExpr, VerifyOp, VerifyType,
+    check_equivalence, EquivalenceResult, VerificationSession, VerifyExpr, VerifyOp, VerifyType,
 };
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -227,4 +227,125 @@ fn z3_exists_with_constraint() {
     let result = check_equivalence(&expr, &VerifyExpr::bool(true), &[], 1);
     assert!(matches!(result, EquivalenceResult::Equivalent),
         "exists x. (x>3 AND x<5) should be satisfiable, got: {:?}", result);
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// SOLVER.RS ENCODER PATH — VerificationSession quantifier handling
+// ═══════════════════════════════════════════════════════════════════════════
+// These tests exercise the solver.rs Encoder path via VerificationSession,
+// which is SEPARATE from the equivalence.rs path tested above.
+// The bug: solver.rs:795-802 drops bound variables.
+
+#[test]
+fn solver_forall_assumption_not_vacuous() {
+    // Assume: forall x:Int. x > 0 (which is FALSE — should constrain to unsatisfiable)
+    // Verify: 1 == 1 (trivially true)
+    // If quantifier is properly encoded, the assumption is FALSE so session is unsatisfiable
+    // => verify_with_binding should succeed (vacuous truth from contradiction)
+    // If quantifier drops vars, assumption becomes "x > 0" with free x, which is satisfiable
+    // => verify_with_binding would also succeed but for wrong reason
+    //
+    // Better test: assume forall x. x > 0, then try to verify x <= 0 for a specific x
+    let mut session = VerificationSession::new();
+    session.declare("y", VerifyType::Int);
+    // Assume: forall x. x > 0 — this is FALSE
+    session.assume(&VerifyExpr::forall(
+        vec![("x".into(), VerifyType::Int)],
+        VerifyExpr::gt(VerifyExpr::var("x"), VerifyExpr::int(0)),
+    ));
+    // Under a false assumption, anything should verify (ex falso)
+    // But with the bug, the assumption is just "x > 0" with free x,
+    // which means y can be anything, and verifying y < 0 would FAIL
+    let result = session.verify_with_binding(
+        "y",
+        VerifyType::Int,
+        &VerifyExpr::int(-5),
+        &VerifyExpr::lt(VerifyExpr::var("y"), VerifyExpr::int(0)),
+    );
+    // This should pass: -5 < 0 is true, and the assumption shouldn't interfere
+    assert!(result.is_ok(), "verify_with_binding should handle quantified assumptions: {:?}", result);
+}
+
+#[test]
+fn solver_exists_in_predicate() {
+    // Verify: exists x:Int. x == 5 — should be valid (some x satisfies it)
+    // Through the solver.rs path, if exists drops vars, this becomes just "x == 5"
+    // which is NOT valid (x is free and could be anything)
+    let session = VerificationSession::new();
+    let exists_expr = VerifyExpr::exists(
+        vec![("x".into(), VerifyType::Int)],
+        VerifyExpr::eq(VerifyExpr::var("x"), VerifyExpr::int(5)),
+    );
+    let result = session.verify_with_binding(
+        "dummy",
+        VerifyType::Int,
+        &VerifyExpr::int(0),
+        &exists_expr,
+    );
+    // With proper quantifier encoding: exists x. x==5 is satisfiable/valid
+    // With bug: x==5 with free x is not valid (x could be != 5)
+    assert!(result.is_ok(),
+        "solver should properly encode exists in predicate: {:?}", result);
+}
+
+#[test]
+fn solver_forall_in_predicate_invalid() {
+    // Verify: forall x:Int. x > 0 — should FAIL (it's false, x could be negative)
+    let session = VerificationSession::new();
+    let forall_expr = VerifyExpr::forall(
+        vec![("x".into(), VerifyType::Int)],
+        VerifyExpr::gt(VerifyExpr::var("x"), VerifyExpr::int(0)),
+    );
+    let result = session.verify_with_binding(
+        "dummy",
+        VerifyType::Int,
+        &VerifyExpr::int(0),
+        &forall_expr,
+    );
+    // With proper encoding: forall x. x>0 is NOT valid → should fail
+    // With bug: "x > 0" with free x, and dummy=0, x is undeclared → unpredictable
+    assert!(result.is_err(),
+        "forall x. x>0 should NOT be valid through solver path: {:?}", result);
+}
+
+#[test]
+fn solver_nested_quantifier_valid() {
+    // Verify: forall x:Int. exists y:Int. y > x — valid
+    let session = VerificationSession::new();
+    let expr = VerifyExpr::forall(
+        vec![("x".into(), VerifyType::Int)],
+        VerifyExpr::exists(
+            vec![("y".into(), VerifyType::Int)],
+            VerifyExpr::gt(VerifyExpr::var("y"), VerifyExpr::var("x")),
+        ),
+    );
+    let result = session.verify_with_binding(
+        "dummy",
+        VerifyType::Int,
+        &VerifyExpr::int(0),
+        &expr,
+    );
+    assert!(result.is_ok(),
+        "forall x. exists y. y>x should be valid through solver path: {:?}", result);
+}
+
+#[test]
+fn solver_forall_tautology_valid() {
+    // Verify: forall x:Int. (x > 0 -> x >= 0) — valid tautology
+    let session = VerificationSession::new();
+    let expr = VerifyExpr::forall(
+        vec![("x".into(), VerifyType::Int)],
+        VerifyExpr::implies(
+            VerifyExpr::gt(VerifyExpr::var("x"), VerifyExpr::int(0)),
+            VerifyExpr::gte(VerifyExpr::var("x"), VerifyExpr::int(0)),
+        ),
+    );
+    let result = session.verify_with_binding(
+        "dummy",
+        VerifyType::Int,
+        &VerifyExpr::int(0),
+        &expr,
+    );
+    assert!(result.is_ok(),
+        "forall x. (x>0 -> x>=0) should be valid through solver path: {:?}", result);
 }

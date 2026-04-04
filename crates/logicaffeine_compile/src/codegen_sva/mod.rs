@@ -19,6 +19,8 @@ pub mod ci;
 pub mod power;
 pub mod cdc;
 pub mod verified_compiler;
+pub mod z3_synth;
+pub mod synthesize;
 
 #[cfg(feature = "verification")]
 pub mod waveform;

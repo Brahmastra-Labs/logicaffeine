@@ -2617,20 +2617,257 @@ impl StandardLibrary {
         // Π(n:Nat). BVec n -> BVec n
         let bv_unop_type = Term::Pi {
             param: "n".to_string(),
-            param_type: Box::new(nat),
+            param_type: Box::new(nat.clone()),
             body_type: Box::new(Term::Pi {
                 param: "_".to_string(),
                 param_type: Box::new(bvec_n.clone()),
-                body_type: Box::new(bvec_n),
+                body_type: Box::new(bvec_n.clone()),
             }),
         };
 
-        // For now, register as declarations (axioms with known types).
-        // Full Fix definitions require careful Match construction on BVec
-        // which we'll implement when we need normalization of bv_ ops.
-        ctx.add_declaration("bv_and", bv_binop_type.clone());
-        ctx.add_declaration("bv_or", bv_binop_type.clone());
-        ctx.add_declaration("bv_xor", bv_binop_type);
-        ctx.add_declaration("bv_not", bv_unop_type);
+        // Helper: build BVec m
+        let bvec_of = |m: Term| -> Term {
+            Term::App(Box::new(Term::Global("BVec".to_string())), Box::new(m))
+        };
+
+        // Motive for Match on BVec n: λ(_:BVec n). BVec n
+        // (In practice, the motive parameter is unused, so a simple identity type works)
+        let motive_n = Term::Lambda {
+            param: "_".to_string(),
+            param_type: Box::new(bvec_n.clone()),
+            body: Box::new(bvec_n.clone()),
+        };
+
+        // --- bv_and ---
+        // fix bv_and_rec. λ(n:Nat). λ(v1:BVec n). λ(v2:BVec n).
+        //   match v1 with
+        //   | BVNil => BVNil
+        //   | BVCons => λ(b1:Bit). λ(m:Nat). λ(tail1:BVec m).
+        //       match v2 with
+        //       | BVNil => BVNil
+        //       | BVCons => λ(b2:Bit). λ(_:Nat). λ(tail2:BVec m).
+        //           BVCons (bit_and b1 b2) m (bv_and_rec m tail1 tail2)
+        let bit = Term::Global("Bit".to_string());
+
+        let bv_and_body = Self::make_bvec_binop_fix(
+            "bv_and_rec", "bit_and", &nat, &bvec_n, &bit, &motive_n,
+        );
+        ctx.add_definition("bv_and".to_string(), bv_binop_type.clone(), bv_and_body);
+
+        // --- bv_or ---
+        let bv_or_body = Self::make_bvec_binop_fix(
+            "bv_or_rec", "bit_or", &nat, &bvec_n, &bit, &motive_n,
+        );
+        ctx.add_definition("bv_or".to_string(), bv_binop_type.clone(), bv_or_body);
+
+        // --- bv_xor ---
+        let bv_xor_body = Self::make_bvec_binop_fix(
+            "bv_xor_rec", "bit_xor", &nat, &bvec_n, &bit, &motive_n,
+        );
+        ctx.add_definition("bv_xor".to_string(), bv_binop_type, bv_xor_body);
+
+        // --- bv_not ---
+        // fix bv_not_rec. λ(n:Nat). λ(v:BVec n).
+        //   match v with
+        //   | BVNil => BVNil
+        //   | BVCons => λ(b:Bit). λ(m:Nat). λ(tail:BVec m).
+        //       BVCons (bit_not b) m (bv_not_rec m tail)
+        let bv_not_body = Self::make_bvec_unop_fix(
+            "bv_not_rec", "bit_not", &nat, &bvec_n, &bit, &motive_n,
+        );
+        ctx.add_definition("bv_not".to_string(), bv_unop_type, bv_not_body);
+    }
+
+    /// Build a Fix term for a binary BVec operation (bv_and, bv_or, bv_xor).
+    ///
+    /// Pattern: fix rec. λn. λv1. λv2. match v1 { BVNil => BVNil, BVCons b1 m t1 => match v2 { BVNil => BVNil, BVCons b2 _ t2 => BVCons (bit_op b1 b2) m (rec m t1 t2) } }
+    fn make_bvec_binop_fix(
+        rec_name: &str,
+        bit_op: &str,
+        nat: &Term,
+        bvec_n: &Term,
+        bit: &Term,
+        motive: &Term,
+    ) -> Term {
+        let m_var = Term::Var("m".to_string());
+        let bvec_m = Term::App(Box::new(Term::Global("BVec".to_string())), Box::new(m_var.clone()));
+        let motive_m = Term::Lambda {
+            param: "_".to_string(),
+            param_type: Box::new(bvec_m.clone()),
+            body: Box::new(bvec_m.clone()),
+        };
+
+        // Innermost: BVCons (bit_op b1 b2) m (rec m tail1 tail2)
+        let bit_op_applied = Term::App(
+            Box::new(Term::App(
+                Box::new(Term::Global(bit_op.to_string())),
+                Box::new(Term::Var("b1".to_string())),
+            )),
+            Box::new(Term::Var("b2".to_string())),
+        );
+        let rec_call = Term::App(
+            Box::new(Term::App(
+                Box::new(Term::App(
+                    Box::new(Term::Var(rec_name.to_string())),
+                    Box::new(m_var.clone()),
+                )),
+                Box::new(Term::Var("tail1".to_string())),
+            )),
+            Box::new(Term::Var("tail2".to_string())),
+        );
+        let bvcons_result = Term::App(
+            Box::new(Term::App(
+                Box::new(Term::App(
+                    Box::new(Term::Global("BVCons".to_string())),
+                    Box::new(bit_op_applied),
+                )),
+                Box::new(m_var.clone()),
+            )),
+            Box::new(rec_call),
+        );
+
+        // Inner match on v2 (BVCons case for v1)
+        let inner_bvcons_case = Term::Lambda {
+            param: "b2".to_string(),
+            param_type: Box::new(bit.clone()),
+            body: Box::new(Term::Lambda {
+                param: "_m2".to_string(),
+                param_type: Box::new(nat.clone()),
+                body: Box::new(Term::Lambda {
+                    param: "tail2".to_string(),
+                    param_type: Box::new(bvec_m.clone()),
+                    body: Box::new(bvcons_result),
+                }),
+            }),
+        };
+
+        let inner_match = Term::Match {
+            discriminant: Box::new(Term::Var("v2".to_string())),
+            motive: Box::new(motive_m.clone()),
+            cases: vec![
+                Term::Global("BVNil".to_string()), // BVNil case
+                inner_bvcons_case,                  // BVCons case
+            ],
+        };
+
+        // Outer BVCons case for v1
+        let outer_bvcons_case = Term::Lambda {
+            param: "b1".to_string(),
+            param_type: Box::new(bit.clone()),
+            body: Box::new(Term::Lambda {
+                param: "m".to_string(),
+                param_type: Box::new(nat.clone()),
+                body: Box::new(Term::Lambda {
+                    param: "tail1".to_string(),
+                    param_type: Box::new(bvec_m.clone()),
+                    body: Box::new(inner_match),
+                }),
+            }),
+        };
+
+        // Outer match on v1
+        let outer_match = Term::Match {
+            discriminant: Box::new(Term::Var("v1".to_string())),
+            motive: Box::new(motive.clone()),
+            cases: vec![
+                Term::Global("BVNil".to_string()), // BVNil case
+                outer_bvcons_case,                  // BVCons case
+            ],
+        };
+
+        // Fix + lambdas
+        Term::Fix {
+            name: rec_name.to_string(),
+            body: Box::new(Term::Lambda {
+                param: "n".to_string(),
+                param_type: Box::new(nat.clone()),
+                body: Box::new(Term::Lambda {
+                    param: "v1".to_string(),
+                    param_type: Box::new(bvec_n.clone()),
+                    body: Box::new(Term::Lambda {
+                        param: "v2".to_string(),
+                        param_type: Box::new(bvec_n.clone()),
+                        body: Box::new(outer_match),
+                    }),
+                }),
+            }),
+        }
+    }
+
+    /// Build a Fix term for a unary BVec operation (bv_not).
+    ///
+    /// Pattern: fix rec. λn. λv. match v { BVNil => BVNil, BVCons b m t => BVCons (bit_op b) m (rec m t) }
+    fn make_bvec_unop_fix(
+        rec_name: &str,
+        bit_op: &str,
+        nat: &Term,
+        bvec_n: &Term,
+        bit: &Term,
+        motive: &Term,
+    ) -> Term {
+        let m_var = Term::Var("m".to_string());
+        let bvec_m = Term::App(Box::new(Term::Global("BVec".to_string())), Box::new(m_var.clone()));
+
+        // BVCons (bit_op b) m (rec m tail)
+        let bit_op_applied = Term::App(
+            Box::new(Term::Global(bit_op.to_string())),
+            Box::new(Term::Var("b".to_string())),
+        );
+        let rec_call = Term::App(
+            Box::new(Term::App(
+                Box::new(Term::Var(rec_name.to_string())),
+                Box::new(m_var.clone()),
+            )),
+            Box::new(Term::Var("tail".to_string())),
+        );
+        let bvcons_result = Term::App(
+            Box::new(Term::App(
+                Box::new(Term::App(
+                    Box::new(Term::Global("BVCons".to_string())),
+                    Box::new(bit_op_applied),
+                )),
+                Box::new(m_var.clone()),
+            )),
+            Box::new(rec_call),
+        );
+
+        // BVCons case
+        let bvcons_case = Term::Lambda {
+            param: "b".to_string(),
+            param_type: Box::new(bit.clone()),
+            body: Box::new(Term::Lambda {
+                param: "m".to_string(),
+                param_type: Box::new(nat.clone()),
+                body: Box::new(Term::Lambda {
+                    param: "tail".to_string(),
+                    param_type: Box::new(bvec_m),
+                    body: Box::new(bvcons_result),
+                }),
+            }),
+        };
+
+        // Match on v
+        let match_expr = Term::Match {
+            discriminant: Box::new(Term::Var("v".to_string())),
+            motive: Box::new(motive.clone()),
+            cases: vec![
+                Term::Global("BVNil".to_string()), // BVNil case
+                bvcons_case,                        // BVCons case
+            ],
+        };
+
+        // Fix + lambdas
+        Term::Fix {
+            name: rec_name.to_string(),
+            body: Box::new(Term::Lambda {
+                param: "n".to_string(),
+                param_type: Box::new(nat.clone()),
+                body: Box::new(Term::Lambda {
+                    param: "v".to_string(),
+                    param_type: Box::new(bvec_n.clone()),
+                    body: Box::new(match_expr),
+                }),
+            }),
+        }
     }
 }

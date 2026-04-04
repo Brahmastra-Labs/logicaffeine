@@ -792,13 +792,34 @@ impl<'ctx> Encoder<'ctx> {
                 self.encode_apply(name, args)
             }
 
-            VerifyExpr::ForAll { vars: _, body } => {
-                // Simplified: just encode the body
-                self.encode(body)
+            VerifyExpr::ForAll { vars, body } => {
+                if vars.is_empty() {
+                    return self.encode(body);
+                }
+                let body_encoded = {
+                    let b = self.encode(body);
+                    b.as_bool().unwrap_or_else(|| Bool::from_bool(self.ctx, true))
+                };
+                let bound_consts: Vec<Dynamic<'ctx>> = vars.iter().map(|(name, ty)| {
+                    self.make_quantifier_var(name, ty)
+                }).collect();
+                let bound_refs: Vec<&dyn Ast<'ctx>> = bound_consts.iter().map(|d| d as &dyn Ast<'ctx>).collect();
+                Dynamic::from_ast(&z3::ast::forall_const(self.ctx, &bound_refs, &[], &body_encoded))
             }
 
-            VerifyExpr::Exists { vars: _, body } => {
-                self.encode(body)
+            VerifyExpr::Exists { vars, body } => {
+                if vars.is_empty() {
+                    return self.encode(body);
+                }
+                let body_encoded = {
+                    let b = self.encode(body);
+                    b.as_bool().unwrap_or_else(|| Bool::from_bool(self.ctx, true))
+                };
+                let bound_consts: Vec<Dynamic<'ctx>> = vars.iter().map(|(name, ty)| {
+                    self.make_quantifier_var(name, ty)
+                }).collect();
+                let bound_refs: Vec<&dyn Ast<'ctx>> = bound_consts.iter().map(|d| d as &dyn Ast<'ctx>).collect();
+                Dynamic::from_ast(&z3::ast::exists_const(self.ctx, &bound_refs, &[], &body_encoded))
             }
 
             // ---- Bitvector operations ----
@@ -898,6 +919,20 @@ impl<'ctx> Encoder<'ctx> {
                 let idx_sort = self.type_to_sort(idx);
                 let elem_sort = self.type_to_sort(elem);
                 z3::Sort::array(self.ctx, &idx_sort, &elem_sort)
+            }
+        }
+    }
+
+    fn make_quantifier_var(&self, name: &str, ty: &VerifyType) -> Dynamic<'ctx> {
+        match ty {
+            VerifyType::Int => Dynamic::from_ast(&Int::new_const(self.ctx, name)),
+            VerifyType::Bool => Dynamic::from_ast(&Bool::new_const(self.ctx, name)),
+            VerifyType::BitVector(w) => Dynamic::from_ast(&z3::ast::BV::new_const(self.ctx, name, *w)),
+            VerifyType::Object => Dynamic::from_ast(&Int::new_const(self.ctx, name)),
+            VerifyType::Array(idx, elem) => {
+                let idx_sort = self.type_to_sort(idx);
+                let elem_sort = self.type_to_sort(elem);
+                Dynamic::from_ast(&z3::ast::Array::new_const(self.ctx, name, &idx_sort, &elem_sort))
             }
         }
     }

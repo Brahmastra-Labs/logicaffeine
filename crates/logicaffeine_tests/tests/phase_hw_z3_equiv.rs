@@ -639,4 +639,221 @@ mod z3_semantic {
         assert!(!matches!(result, EquivalenceResult::Equivalent),
             "exists x. (x>0 AND x<0) must NOT equal true. Got: {:?}", result);
     }
+
+    // ═══════════════════════════════════════════════════
+    // SPRINT 0B: EXPANDED QUANTIFIER TESTS (spec delta)
+    // ═══════════════════════════════════════════════════
+
+    #[test]
+    fn z3_forall_valid_implication() {
+        use logicaffeine_verify::ir::VerifyType;
+        // forall x:Int. (x > 0 -> x >= 0) is VALID (equivalent to true)
+        let lhs = VerifyExpr::forall(
+            vec![("x".into(), VerifyType::Int)],
+            VerifyExpr::binary(VerifyOp::Implies,
+                VerifyExpr::binary(VerifyOp::Gt, VerifyExpr::Var("x".into()), VerifyExpr::Int(0)),
+                VerifyExpr::binary(VerifyOp::Gte, VerifyExpr::Var("x".into()), VerifyExpr::Int(0)),
+            ),
+        );
+        let rhs = VerifyExpr::Bool(true);
+        let result = check_equivalence(&lhs, &rhs, &[], 1);
+        assert!(matches!(result, EquivalenceResult::Equivalent),
+            "forall x. (x>0 -> x>=0) should be valid. Got: {:?}", result);
+    }
+
+    #[test]
+    fn z3_forall_invalid_not_equiv_true() {
+        use logicaffeine_verify::ir::VerifyType;
+        // forall x:Int. x > 0 is NOT valid (x could be negative)
+        let lhs = VerifyExpr::forall(
+            vec![("x".into(), VerifyType::Int)],
+            VerifyExpr::binary(VerifyOp::Gt, VerifyExpr::Var("x".into()), VerifyExpr::Int(0)),
+        );
+        let rhs = VerifyExpr::Bool(true);
+        let result = check_equivalence(&lhs, &rhs, &[], 1);
+        assert!(!matches!(result, EquivalenceResult::Equivalent),
+            "forall x. x>0 is NOT valid. Got: {:?}", result);
+    }
+
+    #[test]
+    fn z3_exists_satisfiable() {
+        use logicaffeine_verify::ir::VerifyType;
+        // exists x:Int. x == 5 is true (satisfiable)
+        let lhs = VerifyExpr::exists(
+            vec![("x".into(), VerifyType::Int)],
+            VerifyExpr::binary(VerifyOp::Eq, VerifyExpr::Var("x".into()), VerifyExpr::Int(5)),
+        );
+        let rhs = VerifyExpr::Bool(true);
+        let result = check_equivalence(&lhs, &rhs, &[], 1);
+        assert!(matches!(result, EquivalenceResult::Equivalent),
+            "exists x. x==5 should be satisfiable (equiv to true). Got: {:?}", result);
+    }
+
+    #[test]
+    fn z3_nested_quantifiers() {
+        use logicaffeine_verify::ir::VerifyType;
+        // forall x. exists y. y > x is VALID over integers
+        let lhs = VerifyExpr::forall(
+            vec![("x".into(), VerifyType::Int)],
+            VerifyExpr::exists(
+                vec![("y".into(), VerifyType::Int)],
+                VerifyExpr::binary(VerifyOp::Gt, VerifyExpr::Var("y".into()), VerifyExpr::Var("x".into())),
+            ),
+        );
+        let rhs = VerifyExpr::Bool(true);
+        let result = check_equivalence(&lhs, &rhs, &[], 1);
+        assert!(matches!(result, EquivalenceResult::Equivalent),
+            "forall x. exists y. y>x should be valid. Got: {:?}", result);
+    }
+
+    #[test]
+    fn z3_quantifier_alternation() {
+        use logicaffeine_verify::ir::VerifyType;
+        // forall x. exists y. y == x is valid (pick y = x)
+        let lhs = VerifyExpr::forall(
+            vec![("x".into(), VerifyType::Int)],
+            VerifyExpr::exists(
+                vec![("y".into(), VerifyType::Int)],
+                VerifyExpr::binary(VerifyOp::Eq, VerifyExpr::Var("y".into()), VerifyExpr::Var("x".into())),
+            ),
+        );
+        let rhs = VerifyExpr::Bool(true);
+        let result = check_equivalence(&lhs, &rhs, &[], 1);
+        assert!(matches!(result, EquivalenceResult::Equivalent),
+            "forall x. exists y. y==x should be valid. Got: {:?}", result);
+    }
+
+    #[test]
+    fn z3_empty_quantifier_body_only() {
+        use logicaffeine_verify::ir::VerifyType;
+        // forall (no vars). P ≡ P
+        let body = VerifyExpr::binary(VerifyOp::Gt, VerifyExpr::Var("x".into()), VerifyExpr::Int(0));
+        let lhs = VerifyExpr::forall(vec![], body.clone());
+        let result = check_equivalence(&lhs, &body, &["x".into()], 1);
+        assert!(matches!(result, EquivalenceResult::Equivalent),
+            "forall (no vars). P should equal P. Got: {:?}", result);
+    }
+
+    #[test]
+    fn z3_quantifier_scope_correct() {
+        use logicaffeine_verify::ir::VerifyType;
+        // (forall x. x > 0) AND (y > 0) — second y is free, first x is bound
+        // This is NOT equivalent to true because forall x. x > 0 is false
+        let lhs = VerifyExpr::binary(VerifyOp::And,
+            VerifyExpr::forall(
+                vec![("x".into(), VerifyType::Int)],
+                VerifyExpr::binary(VerifyOp::Gt, VerifyExpr::Var("x".into()), VerifyExpr::Int(0)),
+            ),
+            VerifyExpr::binary(VerifyOp::Gt, VerifyExpr::Var("y".into()), VerifyExpr::Int(0)),
+        );
+        let rhs = VerifyExpr::Bool(true);
+        let result = check_equivalence(&lhs, &rhs, &["y".into()], 1);
+        assert!(!matches!(result, EquivalenceResult::Equivalent),
+            "(forall x. x>0) AND (y>0) is NOT valid. Got: {:?}", result);
+    }
+
+    #[test]
+    fn z3_exists_with_conjunction() {
+        use logicaffeine_verify::ir::VerifyType;
+        // exists x. (x > 3 AND x < 10) ≡ true
+        let lhs = VerifyExpr::exists(
+            vec![("x".into(), VerifyType::Int)],
+            VerifyExpr::binary(VerifyOp::And,
+                VerifyExpr::binary(VerifyOp::Gt, VerifyExpr::Var("x".into()), VerifyExpr::Int(3)),
+                VerifyExpr::binary(VerifyOp::Lt, VerifyExpr::Var("x".into()), VerifyExpr::Int(10)),
+            ),
+        );
+        let rhs = VerifyExpr::Bool(true);
+        let result = check_equivalence(&lhs, &rhs, &[], 1);
+        assert!(matches!(result, EquivalenceResult::Equivalent),
+            "exists x. (x>3 AND x<10) is satisfiable. Got: {:?}", result);
+    }
+
+    #[test]
+    fn z3_forall_with_equality() {
+        use logicaffeine_verify::ir::VerifyType;
+        // forall x. (x == x) is valid (reflexivity)
+        let lhs = VerifyExpr::forall(
+            vec![("x".into(), VerifyType::Int)],
+            VerifyExpr::binary(VerifyOp::Eq, VerifyExpr::Var("x".into()), VerifyExpr::Var("x".into())),
+        );
+        let rhs = VerifyExpr::Bool(true);
+        let result = check_equivalence(&lhs, &rhs, &[], 1);
+        assert!(matches!(result, EquivalenceResult::Equivalent),
+            "forall x. x==x should be valid. Got: {:?}", result);
+    }
+
+    #[test]
+    fn z3_quantifier_with_free_var_interaction() {
+        use logicaffeine_verify::ir::VerifyType;
+        // forall x. (x > y) is NOT valid (depends on y)
+        // It's NOT equivalent to true because if y is very large, no x > y always holds...
+        // Actually forall x:Int. x > y is false for any y (pick x = y - 1).
+        let lhs = VerifyExpr::forall(
+            vec![("x".into(), VerifyType::Int)],
+            VerifyExpr::binary(VerifyOp::Gt, VerifyExpr::Var("x".into()), VerifyExpr::Var("y".into())),
+        );
+        let rhs = VerifyExpr::Bool(true);
+        let result = check_equivalence(&lhs, &rhs, &["y".into()], 1);
+        assert!(!matches!(result, EquivalenceResult::Equivalent),
+            "forall x. x>y is NOT valid. Got: {:?}", result);
+    }
+
+    #[test]
+    fn z3_forall_bool_tautology() {
+        use logicaffeine_verify::ir::VerifyType;
+        // forall p:Bool. (p OR NOT p) is valid (excluded middle)
+        let lhs = VerifyExpr::forall(
+            vec![("p".into(), VerifyType::Bool)],
+            VerifyExpr::binary(VerifyOp::Or,
+                VerifyExpr::Var("p".into()),
+                VerifyExpr::not(VerifyExpr::Var("p".into())),
+            ),
+        );
+        let rhs = VerifyExpr::Bool(true);
+        let result = check_equivalence(&lhs, &rhs, &[], 1);
+        assert!(matches!(result, EquivalenceResult::Equivalent),
+            "forall p. p OR NOT p should be valid. Got: {:?}", result);
+    }
+
+    #[test]
+    fn z3_exists_unsatisfiable() {
+        use logicaffeine_verify::ir::VerifyType;
+        // exists p:Bool. (p AND NOT p) is unsatisfiable ≡ false
+        let lhs = VerifyExpr::exists(
+            vec![("p".into(), VerifyType::Bool)],
+            VerifyExpr::binary(VerifyOp::And,
+                VerifyExpr::Var("p".into()),
+                VerifyExpr::not(VerifyExpr::Var("p".into())),
+            ),
+        );
+        let rhs = VerifyExpr::Bool(false);
+        let result = check_equivalence(&lhs, &rhs, &[], 1);
+        assert!(matches!(result, EquivalenceResult::Equivalent),
+            "exists p. (p AND NOT p) should equal false. Got: {:?}", result);
+    }
+
+    #[test]
+    fn z3_quantifier_in_equivalence_check() {
+        use logicaffeine_verify::ir::VerifyType;
+        // Two equivalent quantified formulas:
+        // forall x. (x + 0 == x) ≡ forall y. (y + 0 == y)
+        let lhs = VerifyExpr::forall(
+            vec![("x".into(), VerifyType::Int)],
+            VerifyExpr::binary(VerifyOp::Eq,
+                VerifyExpr::binary(VerifyOp::Add, VerifyExpr::Var("x".into()), VerifyExpr::Int(0)),
+                VerifyExpr::Var("x".into()),
+            ),
+        );
+        let rhs = VerifyExpr::forall(
+            vec![("y".into(), VerifyType::Int)],
+            VerifyExpr::binary(VerifyOp::Eq,
+                VerifyExpr::binary(VerifyOp::Add, VerifyExpr::Var("y".into()), VerifyExpr::Int(0)),
+                VerifyExpr::Var("y".into()),
+            ),
+        );
+        let result = check_equivalence(&lhs, &rhs, &[], 1);
+        assert!(matches!(result, EquivalenceResult::Equivalent),
+            "forall x. x+0==x should equal forall y. y+0==y. Got: {:?}", result);
+    }
 }

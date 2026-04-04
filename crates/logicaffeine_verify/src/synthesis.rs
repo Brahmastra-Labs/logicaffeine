@@ -8,8 +8,7 @@
 
 use crate::ir::{VerifyExpr, VerifyOp};
 use crate::automata::{ltl_to_buchi, BuchiAutomaton};
-use crate::kinduction;
-use std::collections::HashMap;
+use crate::ic3::check_sat;
 
 /// Signal declaration for synthesis.
 #[derive(Debug, Clone)]
@@ -65,24 +64,22 @@ pub fn synthesize_from_ltl(
         };
     }
 
-    // Check for empty/trivial specs
-    if matches!(spec, VerifyExpr::Bool(true)) || outputs.is_empty() {
+    // Check for tautological or trivially satisfiable specs
+    if is_tautology(spec) || outputs.is_empty() {
         return SynthesisResult::Realizable {
             controller: trivial_controller(inputs, outputs),
         };
     }
 
-    // Build Büchi automaton from spec
-    let buchi = ltl_to_buchi(spec);
-
-    // Attempt synthesis based on automaton structure
-    if buchi.states.len() == 1 {
-        // Single-state automaton → memoryless strategy
-        synthesize_safety(spec, inputs, outputs)
-    } else {
-        // Multi-state → bounded synthesis
-        synthesize_bounded(spec, inputs, outputs, &buchi)
+    // First attempt: memoryless safety strategy via Z3
+    let safety_result = synthesize_safety(spec, inputs, outputs);
+    if matches!(safety_result, SynthesisResult::Realizable { .. }) {
+        return safety_result;
     }
+
+    // Second attempt: bounded-state controller via Büchi automaton
+    let buchi = ltl_to_buchi(spec);
+    synthesize_bounded(spec, inputs, outputs, &buchi)
 }
 
 /// Synthesize a memoryless safety controller.
@@ -149,24 +146,18 @@ fn synthesize_safety(
         }
     }
 
-    // Try: output follows input with response
-    if !inputs.is_empty() && !outputs.is_empty() {
-        // For G(req → ack): set ack = req
-        let resp_assignments: Vec<(String, VerifyExpr)> = vec![
-            (outputs[0].name.clone(), if inputs.is_empty() {
-                VerifyExpr::bool(true)
-            } else {
-                VerifyExpr::var(&inputs[0].name)
-            }),
-        ];
-
+    // Try: all outputs = false
+    let false_assignments: Vec<(String, VerifyExpr)> = outputs.iter()
+        .map(|o| (o.name.clone(), VerifyExpr::bool(false)))
+        .collect();
+    let false_check = substitute_outputs(spec, &false_assignments);
+    if is_tautology(&false_check) {
         transitions.push(CircuitTransition {
             from_state: "s0".into(),
             guard: VerifyExpr::bool(true),
             to_state: "s0".into(),
-            outputs: resp_assignments,
+            outputs: false_assignments,
         });
-
         return SynthesisResult::Realizable {
             controller: Circuit {
                 inputs: inputs.to_vec(),
@@ -176,6 +167,74 @@ fn synthesize_safety(
                 transitions,
             },
         };
+    }
+
+    // Try: each output follows corresponding input (for response patterns)
+    if !inputs.is_empty() && !outputs.is_empty() {
+        let resp_assignments: Vec<(String, VerifyExpr)> = outputs.iter()
+            .enumerate()
+            .map(|(i, o)| {
+                let value = if i < inputs.len() {
+                    VerifyExpr::var(&inputs[i].name)
+                } else {
+                    VerifyExpr::bool(true)
+                };
+                (o.name.clone(), value)
+            })
+            .collect();
+
+        let resp_check = substitute_outputs(spec, &resp_assignments);
+        if is_tautology(&resp_check) {
+            transitions.push(CircuitTransition {
+                from_state: "s0".into(),
+                guard: VerifyExpr::bool(true),
+                to_state: "s0".into(),
+                outputs: resp_assignments,
+            });
+            return SynthesisResult::Realizable {
+                controller: Circuit {
+                    inputs: inputs.to_vec(),
+                    outputs: outputs.to_vec(),
+                    states: vec!["s0".into()],
+                    init: "s0".into(),
+                    transitions,
+                },
+            };
+        }
+    }
+
+    // Try: each output is the negation of corresponding input
+    if !inputs.is_empty() && !outputs.is_empty() {
+        let neg_assignments: Vec<(String, VerifyExpr)> = outputs.iter()
+            .enumerate()
+            .map(|(i, o)| {
+                let value = if i < inputs.len() {
+                    VerifyExpr::not(VerifyExpr::var(&inputs[i].name))
+                } else {
+                    VerifyExpr::bool(false)
+                };
+                (o.name.clone(), value)
+            })
+            .collect();
+
+        let neg_check = substitute_outputs(spec, &neg_assignments);
+        if is_tautology(&neg_check) {
+            transitions.push(CircuitTransition {
+                from_state: "s0".into(),
+                guard: VerifyExpr::bool(true),
+                to_state: "s0".into(),
+                outputs: neg_assignments,
+            });
+            return SynthesisResult::Realizable {
+                controller: Circuit {
+                    inputs: inputs.to_vec(),
+                    outputs: outputs.to_vec(),
+                    states: vec!["s0".into()],
+                    init: "s0".into(),
+                    transitions,
+                },
+            };
+        }
     }
 
     SynthesisResult::Unknown
@@ -188,41 +247,55 @@ fn synthesize_bounded(
     outputs: &[SignalDecl],
     buchi: &BuchiAutomaton,
 ) -> SynthesisResult {
-    // Create a multi-state controller matching the Büchi structure
     let states: Vec<String> = buchi.states.iter()
         .map(|s| format!("s{}", s.id))
         .collect();
 
     let mut transitions = Vec::new();
+    let mut all_valid = true;
+
+    // Candidate strategies for each transition: try all-true first, then all-false
+    let candidate_strategies: Vec<Vec<(String, VerifyExpr)>> = vec![
+        outputs.iter().map(|o| (o.name.clone(), VerifyExpr::bool(true))).collect(),
+        outputs.iter().map(|o| (o.name.clone(), VerifyExpr::bool(false))).collect(),
+    ];
 
     for trans in &buchi.transitions {
-        let output_assignments: Vec<(String, VerifyExpr)> = outputs.iter()
-            .map(|o| {
-                // In accepting states, set outputs to satisfy spec
-                if buchi.accepting.contains(&trans.to) {
-                    (o.name.clone(), VerifyExpr::bool(true))
-                } else {
-                    (o.name.clone(), VerifyExpr::bool(false))
-                }
-            })
-            .collect();
-
-        transitions.push(CircuitTransition {
-            from_state: format!("s{}", trans.from),
-            guard: trans.guard.clone(),
-            to_state: format!("s{}", trans.to),
-            outputs: output_assignments,
-        });
+        let mut found_valid = false;
+        for strategy in &candidate_strategies {
+            let substituted = substitute_outputs(spec, strategy);
+            // Check: guard AND NOT(substituted_spec) should be UNSAT
+            // i.e., under the guard, the strategy must satisfy the spec
+            let check = VerifyExpr::and(trans.guard.clone(), VerifyExpr::not(substituted));
+            if !check_sat(&check) {
+                transitions.push(CircuitTransition {
+                    from_state: format!("s{}", trans.from),
+                    guard: trans.guard.clone(),
+                    to_state: format!("s{}", trans.to),
+                    outputs: strategy.clone(),
+                });
+                found_valid = true;
+                break;
+            }
+        }
+        if !found_valid {
+            all_valid = false;
+            break;
+        }
     }
 
-    SynthesisResult::Realizable {
-        controller: Circuit {
-            inputs: inputs.to_vec(),
-            outputs: outputs.to_vec(),
-            states,
-            init: format!("s{}", buchi.initial),
-            transitions,
-        },
+    if all_valid {
+        SynthesisResult::Realizable {
+            controller: Circuit {
+                inputs: inputs.to_vec(),
+                outputs: outputs.to_vec(),
+                states,
+                init: format!("s{}", buchi.initial),
+                transitions,
+            },
+        }
+    } else {
+        SynthesisResult::Unknown
     }
 }
 
@@ -308,24 +381,11 @@ fn trivial_controller(inputs: &[SignalDecl], outputs: &[SignalDecl]) -> Circuit 
 }
 
 fn is_contradictory(spec: &VerifyExpr) -> bool {
-    // Check for obvious contradictions: p AND NOT p
-    if let VerifyExpr::Binary { op: VerifyOp::And, left, right } = spec {
-        if let VerifyExpr::Not(inner) = right.as_ref() {
-            if left.as_ref() == inner.as_ref() {
-                return true;
-            }
-        }
-        if let VerifyExpr::Not(inner) = left.as_ref() {
-            if right.as_ref() == inner.as_ref() {
-                return true;
-            }
-        }
-    }
-    false
+    !check_sat(spec)
 }
 
 fn is_tautology(expr: &VerifyExpr) -> bool {
-    matches!(expr, VerifyExpr::Bool(true))
+    !check_sat(&VerifyExpr::not(expr.clone()))
 }
 
 fn substitute_outputs(spec: &VerifyExpr, assignments: &[(String, VerifyExpr)]) -> VerifyExpr {

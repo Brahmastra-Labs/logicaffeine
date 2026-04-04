@@ -76,3 +76,44 @@ fn cert_root_matches_claim() {
     let last_step = cert.steps.last().unwrap();
     assert!(!last_step.conclusion.is_empty());
 }
+
+#[test]
+fn cert_rejects_tampered_conclusion() {
+    let mut cert = generate_equivalence_certificate("A", "B", true);
+    // The claim says Equivalent (expects UNSAT), but we tamper the conclusion to say SAT
+    cert.steps[0].conclusion = "SAT: distinguishing assignment found".into();
+    assert!(
+        !verify_certificate(&cert),
+        "Certificate with tampered conclusion (UNSAT->SAT) must be rejected"
+    );
+}
+
+#[test]
+fn cert_rejects_wrong_claim() {
+    let mut cert = generate_equivalence_certificate("A", "B", true);
+    // Certificate was generated for A≡B, tamper claim to A≡C
+    cert.claim = VerifyClaim::Equivalent {
+        description: "A ≡ C".into(),
+    };
+    assert!(
+        !verify_certificate(&cert),
+        "Certificate whose claim was changed from A≡B to A≡C must be rejected"
+    );
+}
+
+#[test]
+fn cert_steps_reference_actual_formulas() {
+    let cert = generate_equivalence_certificate("A", "B", true);
+    let step = &cert.steps[0];
+    assert!(
+        step.formula.is_some(),
+        "Proof steps must contain structured formula references, not just description strings"
+    );
+    let formula = step.formula.as_ref().unwrap();
+    let formula_str = format!("{:?}", formula);
+    assert!(
+        formula_str.contains("Var") && formula_str.contains("A") && formula_str.contains("B"),
+        "Formula must reference the actual signals A and B, got: {}",
+        formula_str
+    );
+}

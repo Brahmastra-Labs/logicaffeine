@@ -11,9 +11,9 @@
 //! If violated → extract lasso-shaped counterexample (prefix + loop).
 
 use crate::ir::VerifyExpr;
-use crate::equivalence::Trace;
+use crate::equivalence::{Trace, CycleState, SignalValue};
 use crate::kinduction;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 /// Result of liveness checking.
 #[derive(Debug)]
@@ -26,7 +26,7 @@ pub enum LivenessResult {
     Unknown,
 }
 
-/// Check a liveness property via reduction to safety.
+/// Check a liveness property via bounded search.
 ///
 /// The property should be the "eventually" part of G(F(property)).
 /// Fairness constraints are additional conditions that must hold infinitely often.
@@ -37,39 +37,27 @@ pub fn check_liveness(
     property: &VerifyExpr,
     max_k: u32,
 ) -> LivenessResult {
-    // Construct the liveness-to-safety reduction:
-    // The safety property is: if we've been in the "frozen" state and
-    // all fairness constraints have been seen, then the property must have been seen.
-    //
-    // Simplified version: use bounded liveness checking.
-    // For bound k, check if there exists a path of length k where the property
-    // never holds (after satisfying all fairness constraints).
-
-    // Simple approach: bounded liveness = F(property) within k steps
-    // G(F(property)) ≈ for every starting point, F(property) within k steps
-    // This is an under-approximation but sound for detecting violations.
-
-    // Phase 1: Check if property can be reached from init within k steps
-    // If init → eventually property within k steps, that's evidence of liveness.
-    // If NOT, then we have a potential lasso.
-
-    // Use k-induction on the "progress" property:
-    // Define seen@t = (property@0 OR property@1 OR ... OR property@t)
-    // Safety property: seen@k = true (property must be seen within k steps)
-
-    // Encode as: NOT(property@0 AND property@1 AND ... AND property@k)
-    // means at least one step has NOT property.
-    // If init + transitions + all steps have NOT property = SAT → liveness fails.
-
-    // Check: can we go k steps from init without seeing property?
     let mut cfg = z3::Config::new();
     cfg.set_param_value("timeout", "30000");
     let ctx = z3::Context::new(&cfg);
 
+    // Collect signal names for trace extraction
+    let mut all_vars = HashSet::new();
+    collect_vars(init, &mut all_vars);
+    collect_vars(transition, &mut all_vars);
+    collect_vars(property, &mut all_vars);
+    for f in fairness {
+        collect_vars(f, &mut all_vars);
+    }
+    let signal_names = extract_signal_names(&all_vars);
+
+    // Check: can we go max_k steps from init without EVER seeing property?
+    // If NOT (UNSAT), then property MUST hold within max_k steps from any init state → Live.
+    // If YES (SAT), we found a finite prefix where property never holds → potential NotLive.
     for k in 1..=max_k {
         let solver = z3::Solver::new(&ctx);
 
-        // Assert init
+        // Assert init at step 0
         let init_0 = kinduction::instantiate_at(init, 0);
         solver.assert(&encode_bool(&ctx, &init_0));
 
@@ -79,10 +67,22 @@ pub fn check_liveness(
             solver.assert(&encode_bool(&ctx, &trans));
         }
 
-        // Assert fairness constraints are eventually met (simplified: at some point)
-        // For now, fairness is not strictly needed for basic liveness checking.
+        // Assert fairness constraints are met somewhere in the trace
+        for fair in fairness {
+            // At least one step satisfies the fairness constraint
+            let mut fair_options: Vec<z3::ast::Bool> = Vec::new();
+            for t in 0..=k {
+                let fair_t = kinduction::instantiate_at(fair, t);
+                fair_options.push(encode_bool(&ctx, &fair_t));
+            }
+            let fair_refs: Vec<&z3::ast::Bool> = fair_options.iter().collect();
+            if !fair_refs.is_empty() {
+                let some_fair = z3::ast::Bool::or(&ctx, &fair_refs);
+                solver.assert(&some_fair);
+            }
+        }
 
-        // Assert property NEVER holds in k steps
+        // Assert property NEVER holds in k+1 steps
         for t in 0..=k {
             let prop_t = kinduction::instantiate_at(property, t);
             solver.assert(&encode_bool(&ctx, &prop_t).not());
@@ -91,14 +91,13 @@ pub fn check_liveness(
         match solver.check() {
             z3::SatResult::Sat => {
                 // Found a path where property never holds for k steps
-                // This is evidence against liveness (but not conclusive for finite k)
                 if k == max_k {
-                    return LivenessResult::NotLive {
-                        trace: Trace { cycles: vec![] },
-                        loop_point: 0,
-                    };
+                    // Extract concrete trace
+                    let trace = extract_liveness_trace(&ctx, &solver, k, &signal_names);
+                    let loop_point = find_loop_point(&trace);
+                    return LivenessResult::NotLive { trace, loop_point };
                 }
-                // Continue to larger k
+                // Continue to larger k for a more conclusive result
             }
             z3::SatResult::Unsat => {
                 // No path of length k avoids the property → liveness holds up to k
@@ -108,10 +107,138 @@ pub fn check_liveness(
         }
     }
 
-    // Exhausted bound without proving liveness
-    LivenessResult::NotLive {
-        trace: Trace { cycles: vec![] },
-        loop_point: 0,
+    // Exhausted bound without proving liveness — find concrete trace
+    let solver = z3::Solver::new(&ctx);
+    let init_0 = kinduction::instantiate_at(init, 0);
+    solver.assert(&encode_bool(&ctx, &init_0));
+    for t in 0..max_k {
+        let trans = kinduction::instantiate_transition(transition, t);
+        solver.assert(&encode_bool(&ctx, &trans));
+    }
+    for t in 0..=max_k {
+        let prop_t = kinduction::instantiate_at(property, t);
+        solver.assert(&encode_bool(&ctx, &prop_t).not());
+    }
+
+    if matches!(solver.check(), z3::SatResult::Sat) {
+        let trace = extract_liveness_trace(&ctx, &solver, max_k, &signal_names);
+        let loop_point = find_loop_point(&trace);
+        LivenessResult::NotLive { trace, loop_point }
+    } else {
+        LivenessResult::Live
+    }
+}
+
+/// Extract signal names from variable set.
+fn extract_signal_names(all_vars: &HashSet<String>) -> Vec<String> {
+    let mut signals = HashSet::new();
+    for v in all_vars {
+        let base = v.replace("@0", "").replace("@t1", "").replace("@t", "");
+        if !base.is_empty() {
+            signals.insert(base);
+        }
+    }
+    signals.into_iter().collect()
+}
+
+/// Extract a concrete trace from a SAT solver model.
+fn extract_liveness_trace(
+    ctx: &z3::Context,
+    solver: &z3::Solver,
+    k: u32,
+    signal_names: &[String],
+) -> Trace {
+    let model = match solver.get_model() {
+        Some(m) => m,
+        None => return Trace { cycles: vec![CycleState { cycle: 0, signals: HashMap::new() }] },
+    };
+
+    let mut cycles = Vec::new();
+    for step in 0..=k {
+        let mut signals = HashMap::new();
+        for sig in signal_names {
+            let var_name = format!("{}@{}", sig, step);
+            let bool_var = z3::ast::Bool::new_const(ctx, var_name.as_str());
+            if let Some(val) = model.eval(&bool_var, true) {
+                if let Some(b) = val.as_bool() {
+                    signals.insert(sig.clone(), SignalValue::Bool(b));
+                    continue;
+                }
+            }
+            let int_var = z3::ast::Int::new_const(ctx, var_name.as_str());
+            if let Some(val) = model.eval(&int_var, true) {
+                if let Some(n) = val.as_i64() {
+                    signals.insert(sig.clone(), SignalValue::Int(n));
+                    continue;
+                }
+            }
+        }
+        if !signals.is_empty() {
+            cycles.push(CycleState { cycle: step as usize, signals });
+        }
+    }
+
+    if cycles.is_empty() {
+        // Fallback: at least provide one cycle with unknown values
+        let mut signals = HashMap::new();
+        for sig in signal_names {
+            signals.insert(sig.clone(), SignalValue::Unknown);
+        }
+        cycles.push(CycleState { cycle: 0, signals });
+    }
+
+    Trace { cycles }
+}
+
+/// Find the loop point in a trace (where the lasso begins).
+fn find_loop_point(trace: &Trace) -> usize {
+    if trace.cycles.len() <= 1 {
+        return 0;
+    }
+    // Look for repeating state pattern — the simplest heuristic
+    // is to look for where the last state matches an earlier state.
+    let last = &trace.cycles[trace.cycles.len() - 1];
+    for (i, cycle) in trace.cycles.iter().enumerate() {
+        if i < trace.cycles.len() - 1 && states_match(&cycle.signals, &last.signals) {
+            return i;
+        }
+    }
+    // Default: loop starts at the midpoint
+    trace.cycles.len() / 2
+}
+
+/// Check if two signal maps represent the same state.
+fn states_match(a: &HashMap<String, SignalValue>, b: &HashMap<String, SignalValue>) -> bool {
+    if a.len() != b.len() { return false; }
+    for (key, val_a) in a {
+        match b.get(key) {
+            Some(val_b) => {
+                let sa = format!("{:?}", val_a);
+                let sb = format!("{:?}", val_b);
+                if sa != sb { return false; }
+            }
+            None => return false,
+        }
+    }
+    true
+}
+
+fn collect_vars(expr: &VerifyExpr, vars: &mut HashSet<String>) {
+    match expr {
+        VerifyExpr::Var(name) => { vars.insert(name.clone()); }
+        VerifyExpr::Binary { left, right, .. } => {
+            collect_vars(left, vars);
+            collect_vars(right, vars);
+        }
+        VerifyExpr::Not(inner) => collect_vars(inner, vars),
+        VerifyExpr::Iff(l, r) => {
+            collect_vars(l, vars);
+            collect_vars(r, vars);
+        }
+        VerifyExpr::ForAll { body, .. } | VerifyExpr::Exists { body, .. } => {
+            collect_vars(body, vars);
+        }
+        _ => {}
     }
 }
 

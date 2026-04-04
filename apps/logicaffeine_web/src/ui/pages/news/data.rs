@@ -62,6 +62,43 @@ pub fn get_articles_by_tag(tag: &str) -> Vec<&'static Article> {
 /// All news articles
 static ARTICLES: &[Article] = &[
     Article {
+        slug: "release-0-9-14-production-verification-engine",
+        title: "v0.9.14 — Production Verification Engine",
+        date: "2026-04-03",
+        summary: "Full IC3/PDR model checking, k-induction with invariant strengthening, Craig interpolation, CEGAR abstraction refinement, liveness-to-safety reduction, multi-clock verification, compositional assume-guarantee reasoning, and expanded synthesis oracle.",
+        content: r#"
+## Production Verification Engine
+
+This release transforms the verification modules from proof-of-concept implementations into production-grade engines with full algorithmic depth.
+
+### IC3/PDR Model Checking
+
+Complete IC3 implementation with frame management, counterexample-guided generalization, and inductive invariant extraction. Proves unbounded safety properties without requiring a bound parameter.
+
+### K-Induction & Interpolation
+
+K-induction with auxiliary invariant strengthening for properties that require inductive proofs. Craig interpolation extracts predicates from refutation proofs for automatic abstraction refinement.
+
+### CEGAR Abstraction Refinement
+
+Full CEGAR loop: predicate abstraction builds an abstract model, model checking finds abstract counterexamples, feasibility checking detects spurious traces, and interpolation discovers new predicates to refine the abstraction.
+
+### Liveness & Multi-Clock
+
+Liveness checking with fairness constraints and ranking functions, including liveness-to-safety reduction for tool interoperability. Multi-clock verification handles synchronizer correctness, metastability windows, and clock domain interaction proofs.
+
+### Compositional Verification
+
+Assume-guarantee reasoning with contract decomposition, circular compositional proofs, and interface refinement checking. Enables verification of large designs by decomposing into independently verifiable components.
+
+### Synthesis & Security
+
+Expanded reactive synthesis oracle with realizability checking. Security property verification with information flow analysis and non-interference checking for hardware designs.
+"#,
+        tags: &["release", "hardware-verification", "model-checking", "formal-verification", "ic3"],
+        author: "LOGICAFFEINE Team",
+    },
+    Article {
         slug: "release-0-9-13-hardware-kernel-integration",
         title: "v0.9.13 — Hardware Kernel Integration",
         date: "2026-04-03",

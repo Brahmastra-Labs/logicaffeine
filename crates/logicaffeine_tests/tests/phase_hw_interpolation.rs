@@ -3,6 +3,7 @@
 #![cfg(feature = "verification")]
 
 use logicaffeine_verify::interpolation::{interpolate, itp_model_check, InterpolationResult};
+use logicaffeine_verify::ic3::check_sat;
 use logicaffeine_verify::{VerifyExpr, VerifyOp};
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -165,4 +166,121 @@ fn itp_mc_compared_to_kinduction() {
     let itp_result = itp_model_check(&init, &transition, &property, 5);
     let is_safe = matches!(itp_result, InterpolationResult::Safe | InterpolationResult::Fixpoint { .. });
     assert!(is_safe, "ITP should agree with k-induction on safety. Got: {:?}", itp_result);
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// RED TESTS — CORNER CUT AUDIT: Real interpolation properties
+// These verify that interpolate() returns a REAL interpolant, not `a.clone()`.
+// ═══════════════════════════════════════════════════════════════════════════
+
+#[test]
+fn interpolant_over_shared_variables_only() {
+    // Craig interpolation theorem: the interpolant I uses ONLY variables
+    // that appear in BOTH A and B (shared variables).
+    //
+    // A = (p AND q), B = (NOT p AND r)
+    // Shared variable: p. Non-shared: q (only in A), r (only in B).
+    // Valid interpolant: p (or NOT NOT p, etc.) — must NOT mention q or r.
+    // Trivial a.clone() = (p AND q) mentions q, which is NOT shared. FAIL.
+    let a = VerifyExpr::and(VerifyExpr::var("p"), VerifyExpr::var("q"));
+    let b = VerifyExpr::and(VerifyExpr::not(VerifyExpr::var("p")), VerifyExpr::var("r"));
+    let result = interpolate(&a, &b);
+    let itp = result.expect("(p AND q) AND (NOT p AND r) is UNSAT, interpolant must exist");
+
+    let itp_str = format!("{:?}", itp);
+    // The interpolant must NOT mention q or r
+    assert!(
+        !itp_str.contains("\"q\""),
+        "Interpolant must use only shared variables (p). Got: {} — contains 'q' which is only in A",
+        itp_str,
+    );
+    assert!(
+        !itp_str.contains("\"r\""),
+        "Interpolant must use only shared variables (p). Got: {} — contains 'r' which is only in B",
+        itp_str,
+    );
+}
+
+#[test]
+fn interpolant_implies_from_a() {
+    // Craig interpolation: A => I must hold.
+    // For a non-trivial case where I != A.
+    let a = VerifyExpr::and(VerifyExpr::var("p"), VerifyExpr::var("q"));
+    let b = VerifyExpr::not(VerifyExpr::var("p"));
+    let result = interpolate(&a, &b);
+    let itp = result.expect("Interpolant must exist");
+
+    // Check A => I: is A AND NOT(I) UNSAT?
+    let check = VerifyExpr::and(a.clone(), VerifyExpr::not(itp.clone()));
+    assert!(
+        !check_sat(&check),
+        "A must imply the interpolant. A = {:?}, I = {:?}",
+        a, itp,
+    );
+}
+
+#[test]
+fn interpolant_contradicts_b() {
+    // Craig interpolation: I AND B must be UNSAT.
+    let a = VerifyExpr::and(VerifyExpr::var("p"), VerifyExpr::var("q"));
+    let b = VerifyExpr::not(VerifyExpr::var("p"));
+    let result = interpolate(&a, &b);
+    let itp = result.expect("Interpolant must exist");
+
+    // Check I AND B is UNSAT
+    let check = VerifyExpr::and(itp.clone(), b.clone());
+    assert!(
+        !check_sat(&check),
+        "Interpolant AND B must be UNSAT. I = {:?}, B = {:?}",
+        itp, b,
+    );
+}
+
+#[test]
+fn interpolant_is_weaker_than_a() {
+    // The interpolant should be a WEAKER formula than A (over-approximation).
+    // If I == A, the interpolant provides no abstraction benefit.
+    // For A = (p AND q AND r), B = NOT(p), the interpolant should be just "p".
+    let a = VerifyExpr::and(
+        VerifyExpr::var("p"),
+        VerifyExpr::and(VerifyExpr::var("q"), VerifyExpr::var("r")),
+    );
+    let b = VerifyExpr::not(VerifyExpr::var("p"));
+    let result = interpolate(&a, &b);
+    let itp = result.expect("Interpolant must exist");
+
+    // I should be satisfiable even when q=false or r=false (weaker than A)
+    let weaker_check = VerifyExpr::and(
+        itp.clone(),
+        VerifyExpr::and(
+            VerifyExpr::var("p"),
+            VerifyExpr::not(VerifyExpr::var("q")),
+        ),
+    );
+    assert!(
+        check_sat(&weaker_check),
+        "Interpolant should be weaker than A — satisfiable with q=false. \
+         If I == A, this fails. I = {:?}", itp,
+    );
+}
+
+#[test]
+fn interpolant_integer_shared_only() {
+    // A = (x > 10 AND y > 0), B = (x < 5)
+    // Shared: x. Non-shared: y (only in A).
+    // Interpolant must mention x but NOT y.
+    let a = VerifyExpr::and(
+        VerifyExpr::gt(VerifyExpr::var("x"), VerifyExpr::int(10)),
+        VerifyExpr::gt(VerifyExpr::var("y"), VerifyExpr::int(0)),
+    );
+    let b = VerifyExpr::lt(VerifyExpr::var("x"), VerifyExpr::int(5));
+    let result = interpolate(&a, &b);
+    let itp = result.expect("Interpolant must exist");
+
+    let itp_str = format!("{:?}", itp);
+    assert!(
+        !itp_str.contains("\"y\""),
+        "Interpolant must only use shared variable x. Got: {} — contains 'y'",
+        itp_str,
+    );
 }

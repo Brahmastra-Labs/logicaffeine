@@ -130,3 +130,93 @@ fn liveness_integer_counter_resets() {
     assert!(matches!(result, LivenessResult::Live),
         "Counter starting at 0 satisfies c==0. Got: {:?}", result);
 }
+
+// ═══════════════════════════════════════════════════════════════════════════
+// RED TESTS — CORNER CUT AUDIT: Real L2S reduction
+// Current impl is bounded BMC, not Biere-Artho-Schuppan reduction.
+// ═══════════════════════════════════════════════════════════════════════════
+
+#[test]
+fn liveness_with_fairness_constraint() {
+    // Fairness constraints are a core part of liveness verification.
+    // System: two processes alternate (toggle between p1 and p2).
+    // Property: p1 always eventually holds.
+    // Fairness: the scheduler is fair (p2 always eventually holds too).
+    // Without fairness, p1 might never get a turn. With fairness, it must.
+    //
+    // init: p1=true, p2=false
+    // transition: p1'=NOT p1, p2'=NOT p2 (toggle)
+    // property: p1 (eventually p1)
+    // fairness: [p2] (p2 is infinitely often true)
+    let init = VerifyExpr::and(
+        VerifyExpr::var("p1@0"),
+        VerifyExpr::not(VerifyExpr::var("p2@0")),
+    );
+    let transition = VerifyExpr::and(
+        VerifyExpr::iff(VerifyExpr::var("p1@t1"), VerifyExpr::not(VerifyExpr::var("p1@t"))),
+        VerifyExpr::iff(VerifyExpr::var("p2@t1"), VerifyExpr::not(VerifyExpr::var("p2@t"))),
+    );
+    let property = VerifyExpr::var("p1@t");
+    let fairness = vec![VerifyExpr::var("p2@t")];
+    let result = check_liveness(&init, &transition, &fairness, &property, 10);
+    // p1 toggles: true, false, true, false, ... — it IS infinitely often true.
+    assert!(matches!(result, LivenessResult::Live),
+        "Toggling p1 should be live (infinitely often true). Got: {:?}", result);
+}
+
+#[test]
+fn liveness_not_live_trace_has_cycles() {
+    // When liveness fails, the trace must show a lasso-shaped counterexample:
+    // a prefix leading to a loop where the property never holds.
+    let init = VerifyExpr::not(VerifyExpr::var("p@0"));
+    let transition = VerifyExpr::iff(VerifyExpr::var("p@t1"), VerifyExpr::var("p@t")); // p stays false
+    let property = VerifyExpr::var("p@t");
+    let result = check_liveness(&init, &transition, &[], &property, 5);
+    match result {
+        LivenessResult::NotLive { trace, loop_point } => {
+            assert!(
+                !trace.cycles.is_empty(),
+                "Liveness counterexample must have concrete trace cycles, not empty"
+            );
+            assert!(
+                loop_point < trace.cycles.len(),
+                "Loop point {} must be within trace (len {})",
+                loop_point, trace.cycles.len(),
+            );
+        }
+        other => panic!("Expected NotLive with trace, got: {:?}", other),
+    }
+}
+
+#[test]
+fn liveness_multiple_fairness_constraints() {
+    // Multiple fairness constraints that interact.
+    // System: three-state round robin (s0→s1→s2→s0)
+    // Property: s0 always eventually holds
+    // Fairness: [s1, s2] (both s1 and s2 are infinitely often true)
+    //
+    // With fair scheduling, s0 must recur.
+    let init = VerifyExpr::and(
+        VerifyExpr::var("s0@0"),
+        VerifyExpr::and(
+            VerifyExpr::not(VerifyExpr::var("s1@0")),
+            VerifyExpr::not(VerifyExpr::var("s2@0")),
+        ),
+    );
+    // Round robin: exactly one active at a time, cycling
+    let transition = VerifyExpr::and(
+        VerifyExpr::iff(VerifyExpr::var("s1@t1"), VerifyExpr::var("s0@t")),
+        VerifyExpr::and(
+            VerifyExpr::iff(VerifyExpr::var("s2@t1"), VerifyExpr::var("s1@t")),
+            VerifyExpr::iff(VerifyExpr::var("s0@t1"), VerifyExpr::var("s2@t")),
+        ),
+    );
+    let property = VerifyExpr::var("s0@t");
+    let fairness = vec![
+        VerifyExpr::var("s1@t"),
+        VerifyExpr::var("s2@t"),
+    ];
+    let result = check_liveness(&init, &transition, &fairness, &property, 10);
+    assert!(matches!(result, LivenessResult::Live),
+        "Round-robin with fair scheduling: s0 recurs. Got: {:?}", result);
+}

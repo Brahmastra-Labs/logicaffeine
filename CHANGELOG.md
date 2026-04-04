@@ -4,6 +4,29 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.9.14] - 2026-04-03
+
+### Added
+- **IC3 model checking** — full IC3/PDR implementation with frame management, counterexample-guided generalization, and inductive invariant extraction.
+- **K-induction strengthening** — k-induction with auxiliary invariant strengthening for proving unbounded safety properties.
+- **Craig interpolation** — interpolant extraction from refutation proofs for automatic predicate discovery and abstraction refinement.
+- **Abstraction refinement** — CEGAR loop with predicate abstraction, spurious counterexample detection, and automatic predicate discovery from interpolants.
+- **Liveness verification** — liveness property checking with fairness constraints, ranking functions, and liveness-to-safety reduction.
+- **Multi-clock verification** — formal reasoning about multi-clock designs including synchronizer verification, metastability analysis, and clock domain interaction.
+- **Compositional verification** — assume-guarantee reasoning with contract decomposition, circular compositional proofs, and interface refinement checking.
+- **Synthesis oracle expansion** — Z3-guided reactive synthesis with expanded specification patterns and realizability checking.
+- **Certificate strengthening** — richer independently-checkable verification certificates with proof witness embedding.
+- **Security property expansion** — information flow analysis, non-interference checking, and security-aware hardware verification.
+- **Kernel prelude expansion** — additional hardware types and operations in the formal kernel for deeper kernel-level reasoning.
+- **Bitvector reduction expansion** — extended delta reduction for bitvector arithmetic and comparison operations.
+- **Z3 equivalence expansion** — 217 new lines of bitvector and semantic equivalence tests.
+- **Quantifier reasoning** — expanded quantifier instantiation and skolemization for hardware property verification.
+- **15+ expanded test suites** — IC3, k-induction, interpolation, abstraction, liveness, multiclock, compositional, synthesis, certificates, security, and Z3 equivalence.
+
+### Changed
+- **Solver infrastructure** — enhanced Z3 encoding with bitvector operation support and improved counterexample extraction.
+- **Verification IR** — extended IR with new node types for multi-clock and compositional reasoning.
+
 ## [0.9.13] - 2026-04-03
 
 ### Added

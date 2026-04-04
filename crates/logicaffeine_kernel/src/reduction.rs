@@ -2699,11 +2699,158 @@ fn is_bit_type(term: &Term) -> bool {
     false
 }
 
-/// Tabulate tactic: prove universally quantified Bit goals by exhaustion.
-/// Currently a stub — will be implemented with full enumeration later.
-fn try_try_tabulate_reduce(_ctx: &Context, _goal: &Term) -> Option<Term> {
-    // TODO: Detect SPi(SName("Bit"), body), enumerate B0/B1, verify each
+/// Substitute SVar(idx) with `replacement` in a Syntax term, shifting de Bruijn
+/// indices under binders (SPi, SLam).
+fn syntax_subst_var(term: &Term, idx: i64, replacement: &Term) -> Term {
+    // Check for SVar n
+    if let Term::App(ctor, inner) = term {
+        if let Term::Global(name) = ctor.as_ref() {
+            if name == "SVar" {
+                if let Term::Lit(Literal::Int(n)) = inner.as_ref() {
+                    if *n == idx {
+                        return replacement.clone();
+                    } else if *n > idx {
+                        // Free variable above the binder — shift down
+                        return make_svar(*n - 1);
+                    } else {
+                        return term.clone();
+                    }
+                }
+            }
+        }
+    }
+
+    // Two-argument constructors: SApp, SLam, SPi
+    if let Term::App(outer, second) = term {
+        if let Term::App(sctor, first) = outer.as_ref() {
+            if let Term::Global(name) = sctor.as_ref() {
+                match name.as_str() {
+                    "SApp" => {
+                        let f = syntax_subst_var(first, idx, replacement);
+                        let x = syntax_subst_var(second, idx, replacement);
+                        return make_sapp(f, x);
+                    }
+                    "SPi" => {
+                        // Under a binder, shift the index
+                        let param_t = syntax_subst_var(first, idx, replacement);
+                        let body = syntax_subst_var(second, idx + 1, replacement);
+                        return make_spi(param_t, body);
+                    }
+                    "SLam" => {
+                        let param_t = syntax_subst_var(first, idx, replacement);
+                        let body = syntax_subst_var(second, idx + 1, replacement);
+                        return make_slam(param_t, body);
+                    }
+                    _ => {}
+                }
+            }
+        }
+    }
+
+    // One-argument constructors that don't bind: SName, SLit, SSort — return as-is
+    term.clone()
+}
+
+/// Tabulate tactic: prove universally quantified Bit goals by exhaustive enumeration.
+///
+/// For a goal of the form SPi(SName("Bit"), body):
+/// 1. Substitute SVar 0 with SName("B0") in body → body_b0
+/// 2. Substitute SVar 0 with SName("B1") in body → body_b1
+/// 3. Recursively verify both substituted bodies
+/// 4. If both succeed, return DTabulateSolve(goal)
+///
+/// Handles nested Pi binders (e.g., Pi(a:Bit). Pi(b:Bit). P(a,b)) by recursion.
+/// Rejects non-Bit quantification.
+fn try_try_tabulate_reduce(ctx: &Context, goal: &Term) -> Option<Term> {
+    let norm_goal = normalize(ctx, goal);
+
+    // Try to extract SPi(param_type, body)
+    if let Some((param_type, body)) = extract_spi(&norm_goal) {
+        // Only handle Bit quantification
+        if !is_bit_type(&param_type) {
+            return Some(make_error_derivation());
+        }
+
+        // Substitute SVar 0 with B0 and B1
+        let body_b0 = syntax_subst_var(&body, 0, &make_sname("B0"));
+        let body_b1 = syntax_subst_var(&body, 0, &make_sname("B1"));
+
+        // Recursively verify both cases
+        let ok_b0 = tabulate_verify_case(ctx, &body_b0);
+        let ok_b1 = tabulate_verify_case(ctx, &body_b1);
+
+        if ok_b0 && ok_b1 {
+            return Some(Term::App(
+                Box::new(Term::Global("DTabulateSolve".to_string())),
+                Box::new(norm_goal),
+            ));
+        }
+
+        return Some(make_error_derivation());
+    }
+
+    // Not a Pi — not a quantified goal
     Some(make_error_derivation())
+}
+
+/// Verify a single case for tabulation. The case is either:
+/// - An Eq(Bit, lhs, rhs) — verify by normalizing both sides
+/// - Another SPi(Bit, ...) — recurse (nested quantification)
+/// - A formula that reduces to SName("True") — trivially true
+fn tabulate_verify_case(ctx: &Context, case: &Term) -> bool {
+    let norm = normalize(ctx, case);
+
+    // If it's another Pi over Bit, recurse
+    if let Some((param_type, _)) = extract_spi(&norm) {
+        if is_bit_type(&param_type) {
+            if let Some(result) = try_try_tabulate_reduce(ctx, &norm) {
+                return !is_error_derivation(&result);
+            }
+        }
+        return false;
+    }
+
+    // Try to verify as an Eq
+    if let Some((type_s, left, right)) = extract_eq_syntax_parts(&norm) {
+        let fuel = 1000;
+        if let (Some(left_eval), Some(right_eval)) = (
+            try_syn_eval_reduce(ctx, fuel, &left),
+            try_syn_eval_reduce(ctx, fuel, &right),
+        ) {
+            return syntax_equal(&left_eval, &right_eval);
+        }
+        // Try evaluating the whole equality — might reduce to True
+        if let Some(full_eval) = try_syn_eval_reduce(ctx, fuel, &norm) {
+            if is_sname_with_value(&full_eval, "True") {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    // Try evaluating the whole formula — might be SName("True")
+    let fuel = 1000;
+    if let Some(eval) = try_syn_eval_reduce(ctx, fuel, &norm) {
+        if is_sname_with_value(&eval, "True") {
+            return true;
+        }
+    }
+
+    false
+}
+
+/// Check if a Syntax term is SName(value)
+fn is_sname_with_value(term: &Term, value: &str) -> bool {
+    if let Term::App(ctor, inner) = term {
+        if let Term::Global(name) = ctor.as_ref() {
+            if name == "SName" {
+                if let Term::Lit(Literal::Text(s)) = inner.as_ref() {
+                    return s == value;
+                }
+            }
+        }
+    }
+    false
 }
 
 /// Verify DBitblastSolve proof by re-evaluating via syn_eval.
@@ -2722,10 +2869,20 @@ fn try_dbitblast_solve_conclude(ctx: &Context, goal: &Term) -> Option<Term> {
     None
 }
 
-/// Verify DTabulateSolve proof.
-fn try_dtabulate_solve_conclude(_ctx: &Context, goal: &Term) -> Option<Term> {
-    // TODO: Re-verify exhaustive enumeration
-    Some(normalize(_ctx, goal))
+/// Verify DTabulateSolve proof by re-running exhaustive enumeration.
+fn try_dtabulate_solve_conclude(ctx: &Context, goal: &Term) -> Option<Term> {
+    let norm_goal = normalize(ctx, goal);
+    // Re-verify: the goal must be a provable Pi-over-Bit
+    if let Some((param_type, _)) = extract_spi(&norm_goal) {
+        if is_bit_type(&param_type) {
+            if let Some(result) = try_try_tabulate_reduce(ctx, &norm_goal) {
+                if !is_error_derivation(&result) {
+                    return Some(norm_goal);
+                }
+            }
+        }
+    }
+    None
 }
 
 /// Verify DHwAutoSolve proof by re-running hw tactic chain.

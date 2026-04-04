@@ -25,6 +25,8 @@
 //!
 //! For example, given `Possible(A) -> Possible(B)` and `Possible(A)`, Z3 deduces `Possible(B)`.
 
+use serde::{Serialize, Deserialize};
+
 /// Type declarations for verification variables.
 ///
 /// Each type maps to a Z3 sort:
@@ -34,7 +36,7 @@
 /// | `Int` | `IntSort` | Numeric constraints, bounds checking |
 /// | `Bool` | `BoolSort` | Logical propositions |
 /// | `Object` | Uninterpreted | Entities (people, objects, propositions) |
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum VerifyType {
     /// Integer type, maps to Z3 `IntSort`.
     Int,
@@ -54,7 +56,7 @@ pub enum VerifyType {
 /// - **Arithmetic**: `Add`, `Sub`, `Mul`, `Div` (Int × Int → Int)
 /// - **Comparison**: `Eq`, `Neq`, `Gt`, `Lt`, `Gte`, `Lte` (Int × Int → Bool)
 /// - **Logic**: `And`, `Or`, `Implies` (Bool × Bool → Bool)
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum VerifyOp {
     // ---- Arithmetic (Int × Int → Int) ----
 
@@ -95,7 +97,7 @@ pub enum VerifyOp {
 /// Bitvector operations for hardware verification.
 ///
 /// These map directly to Z3's bitvector theory operations.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum BitVecOp {
     // ---- Bitwise ----
     And,
@@ -130,7 +132,7 @@ pub enum BitVecOp {
 /// Expression AST for verification.
 ///
 /// This IR is designed to be easily encodable into Z3 ASTs.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum VerifyExpr {
     /// Integer literal
     Int(i64),
