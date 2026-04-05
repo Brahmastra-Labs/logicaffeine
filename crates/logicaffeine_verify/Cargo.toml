@@ -1,6 +1,6 @@
 [package]
 name = "logicaffeine-verify"
-version = "0.9.14"
+version = "0.9.15"
 edition.workspace = true
 authors.workspace = true
 repository.workspace = true

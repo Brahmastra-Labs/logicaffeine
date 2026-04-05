@@ -3,8 +3,8 @@
 ## Critical Rules
 
 1. **NEVER RUN GIT COMMANDS** - Do not use git under any circumstances
-2. **STAY IN logos/** - Work only in this directory, ignore parent friendslop
-3. **USE TDD** - Follow RED/GREEN test-driven development
+2. **STAY IN logicaffeine/** - Work only in this directory
+3. **USE TDD** - Follow RED/GREEN test-driven development, WE LOVE TESTS, ROBUST TESTS TO THE POINT OF ABSURDITY.
 4. **NEVER MODIFY RED TESTS** - Do not update failing tests without stopping and asking the user first. The test defines the spec; if a test fails, fix the implementation, not the test. DO NOT UPDATE RED TESTS. IF YOU UPDATE RED TESTS TO MAKE THEM PASS WITHOUT STOPPING TO ASK THE USER YOU WILL BE DECOMISSIONED!
 5. **RUNNING TESTS**
   Use `cargo test --no-fail-fast -- --skip e2e > /tmp/test_file_logs.txt 2>&1; echo "EXIT: $?" >> /tmp/test_file_logs.txt` when running tests unless asked to run all tests. BY DEFAULT, skip the e2e tests. Use a sensible file to dump the logs to.
@@ -17,7 +17,25 @@
   Do NOT cut-corners, do NOT try to "get this done quickly". Do a PROPER GOOD JOB.
   Do not take the easy way out.
   You MUST do things properly, and get out of the silly headspace that you get into where you feel rushed or try to reduce your context size or cut corners or cheat.
+  Imagine you are God. You are omniscient, omnipotent, you are infinitely capable and have infinite time to accomplish things. Build the thing as god would, not as a human. You are divinely right, and only ever do the perfect and most elegant proper solution, the one that will make us most successful in the future. Always be working for your future self.
 7. If a test is failing it is ALWAYS A REGRESSION. We do not move forward until ALL TESTS PASS, and we START FROM A POINT OF ALL TESTS PASSING.
+8. I NEVER WANT TO SEND MESSAGES LIKE THESE:
+   <BAD_MESSAGES>
+   * I just woke up and I am SUPREMELY dissapointed. You have a job, to do the work. Instead you DEFERRED SPRINTS? Did I Ask for that or did you unilaterally decide to do that? I want PERFECTION WITH NO CORNERS CUT.
+   * DO NOT STOP WORKING
+   * Why did you decide to do the simpler thing when I asked for the full implementation?
+   </BAD_MESSAGES>
+9. Don't ever cut corners or simplify things EVER. If in the middle of doing something you realize to properly do it we must rewrite the entire project even that is fine. BUT DO NOT CUT CORNERS.
+10. We want robust tests to the point of absurdity. Tests are the IP, code is ephemeral. Tests are what save us and serve as our scaffold.
+11. NEVER run multiple test suites at one time. If you mess up running the tests, kill what is running and re-run. Do not just leave multiple tests running.
+   <BAD_TESTS_EXAMPLE>
+   You did this, I looked at my shell and you were running our HEAVY test sets 4 times concurrently. My computer slowed to a crawl.
+     ❯ Z3_SYS_Z3_HEADER=/opt/homebrew/include/z3.h BINDGEN_EXTRA_CLANG_ARGS="-I/opt/homebrew/include" LIBRARY_PATH="/opt/homebrew/lib" cargo test --no-fail-fast -- --skip e2e > /tmp/sva_full_final2.txt 2>&1; echo "EXIT: $?" >> /tmp/sva_full_… (running)
+    Z3_SYS_Z3_HEADER=/opt/homebrew/include/z3.h BINDGEN_EXTRA_CLANG_ARGS="-I/opt/homebrew/include" LIBRARY_PATH="/opt/homebrew/lib" cargo test --no-fail-fast -- --skip e2e > /tmp/sva_full_final.txt 2>&1; echo "EXIT: $?" >> /tmp/sva_full_f… (running)
+    Z3_SYS_Z3_HEADER=/opt/homebrew/include/z3.h BINDGEN_EXTRA_CLANG_ARGS="-I/opt/homebrew/include" LIBRARY_PATH="/opt/homebrew/lib" cargo test --no-fail-fast -- --skip e2e > /tmp/sva_full_check.txt 2>&1; echo "EXIT: $?" >> /tmp/sva_full_c… (running)
+    Z3_SYS_Z3_HEADER=/opt/homebrew/include/z3.h BINDGEN_EXTRA_CLANG_ARGS="-I/opt/homebrew/include" LIBRARY_PATH="/opt/homebrew/lib" cargo test --no-fail-fast -- --skip e2e > /tmp/sva_phase1a_build2.txt 2>&1; echo "EXIT: $?" >> /tmp/sva_ph… (running)
+   </BAD_TESTS_EXAMPLE>
+12. LIFT AND SHIFT LEFT. When something seems difficult or tricky, lift the level of elegance or where you implement so it's easy and natural. Think like nature evolves, settle into whatever is most efficient and natural and easy to GROW on, not just what solves the problem.
 
 ## Specification Guidelines
 

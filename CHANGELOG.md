@@ -4,6 +4,20 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.9.15] - 2026-04-04
+
+### Added
+- **IEEE 1800-2017 SVA expansion** — 40+ new `SvaExpr` variants covering property connectives (`not`, `implies`, `iff`), LTL temporal operators (`always`, `s_always`, `eventually`, `s_eventually`, `until`), sequence composition (`and`, `or`), abort operators (`accept_on`, `reject_on`, `sync_accept_on`, `sync_reject_on`), assertion directives, local variables, endpoint methods, bitwise/reduction operators, part selects, concatenation, complex data types, and let/checker declarations.
+- **Vacuity analysis** — new `sva_vacuity.rs` module implementing IEEE 16.14.8 compliant vacuity checking with 33 rules for nonvacuous evaluation tracking, dead assertion detection, and coverage gap identification.
+- **Bounded verification IR enhancements** — `SequenceMatch` struct with length-tracking for proper composition semantics, `BoundedExpr::Apply` for system function encoding, local variable bindings, and queue timestep support for `const'()` freezing.
+- **System function support** — `$onehot0`, `$onehot`, `$countones`, `$isunknown`, `$sampled`, `$bits`, `$clog2`, `$countbits`, `$isunbounded` with proper bounded verification IR encoding.
+- **Benchmark specifications** — engineering specs for FVEval NL2SVA (300 cases), VERT (20,000 cases), and AssertionBench (101 designs) targeting 100% IEEE 1800-2017 SVA coverage.
+- **SVA coverage analysis** — comprehensive gap analysis documenting 60 remaining features across 21 planned sprints with IEEE section references.
+- **SVA test expansion** — new `phase_hw_sva_coverage.rs` (6,200+ lines) plus major expansions to IEEE 1800, roundtrip, surface, and translate test suites.
+
+### Changed
+- **SVA translation pipeline** — unified delay convention (`None` = unbounded `$`, `Some(n)` = bounded), proper `throughout`/`within` desugaring with length-matching semantics, and enhanced sequence instance resolution with parameter substitution.
+
 ## [0.9.14] - 2026-04-03
 
 ### Added

@@ -62,6 +62,43 @@ pub fn get_articles_by_tag(tag: &str) -> Vec<&'static Article> {
 /// All news articles
 static ARTICLES: &[Article] = &[
     Article {
+        slug: "release-0-9-15-ieee-1800-sva-coverage",
+        title: "v0.9.15 — IEEE 1800-2017 SVA Coverage Expansion",
+        date: "2026-04-04",
+        summary: "40+ new SvaExpr variants for full IEEE 1800-2017 coverage: property connectives, LTL temporal operators, sequence composition, abort operators, assertion directives, local variables, bitwise operators, vacuity analysis, and benchmark specifications for FVEval, VERT, and AssertionBench.",
+        content: r#"
+## IEEE 1800-2017 SVA Coverage Expansion
+
+This release dramatically expands SystemVerilog Assertion coverage toward full IEEE 1800-2017 compliance, adding 40+ new expression variants and a complete vacuity analysis module.
+
+### Property Connectives & LTL Operators
+
+Full property-level temporal logic: `not`, `implies`, `iff` for property connectives, plus `always`, `s_always`, `eventually`, `s_eventually`, and `until` (weak/strong, overlapping/non-overlapping) for LTL temporal reasoning. Bounded and unbounded variants with proper `$` semantics.
+
+### Sequence Composition & Abort Operators
+
+Sequence-level `and`/`or` with correct endpoint semantics, `accept_on`/`reject_on` abort operators with synchronous variants, `followed_by` with overlapping/non-overlapping modes, and `strong`/`weak` sequence qualifiers.
+
+### System Functions & Bitwise Operators
+
+IEEE system functions: `$onehot0`, `$onehot`, `$countones`, `$isunknown`, `$sampled`, `$bits`, `$clog2`, `$countbits`, `$isunbounded`. Full bitwise and reduction operators, bit/part selects, and concatenation for hardware-level signal manipulation.
+
+### Vacuity Analysis
+
+New IEEE 16.14.8 compliant vacuity checking module with 33 rules for nonvacuous evaluation tracking. Detects dead assertions that can never be exercised, preventing false confidence from vacuously true properties.
+
+### Assertion Directives & Advanced Features
+
+Concurrent and immediate assertion directives with deferred timing modes. Local variables in sequences, endpoint methods (`triggered`/`matched`), complex data types with struct field access and enum literals, let declarations, checker declarations, and multi-clock annotations.
+
+### Benchmark Targeting
+
+Engineering specifications for three industry benchmarks: FVEval NL2SVA (300 cases), VERT (20,000 cases), and AssertionBench (101 designs). Comprehensive gap analysis documenting the path to 100% IEEE 1800-2017 SVA coverage across 21 planned sprints.
+"#,
+        tags: &["release", "hardware-verification", "sva", "formal-verification", "ieee-1800"],
+        author: "LOGICAFFEINE Team",
+    },
+    Article {
         slug: "release-0-9-14-production-verification-engine",
         title: "v0.9.14 — Production Verification Engine",
         date: "2026-04-03",

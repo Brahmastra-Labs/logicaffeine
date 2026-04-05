@@ -101,10 +101,11 @@ fn sva_to_string_delay_range() {
 
 #[test]
 fn sva_to_string_delay_exact() {
+    // Exact delay: min == max (unified convention)
     let expr = SvaExpr::Delay {
         body: Box::new(SvaExpr::Signal("ack".into())),
         min: 3,
-        max: None,
+        max: Some(3),
     };
     assert_eq!(sva_expr_to_string(&expr), "##3 ack");
 }
@@ -162,11 +163,12 @@ fn sva_parse_delay_range() {
 
 #[test]
 fn sva_parse_delay_exact() {
+    // Exact delay: min == max (unified convention)
     let expr = parse_sva("##3 ack").unwrap();
     match expr {
         SvaExpr::Delay { min, max, body } => {
             assert_eq!(min, 3);
-            assert!(max.is_none());
+            assert_eq!(max, Some(3), "Exact delay ##3 should have max=Some(3)");
             assert!(matches!(*body, SvaExpr::Signal(ref s) if s == "ack"));
         }
         _ => panic!("Expected Delay, got {:?}", expr),
@@ -186,4 +188,251 @@ fn sva_parse_delay_in_implication() {
         }
         _ => panic!("Expected Implication with Delay consequent, got {:?}", expr),
     }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// IEEE 1800 SYSTEM FUNCTIONS — to_string + roundtrip
+// ═══════════════════════════════════════════════════════════════════════════
+
+#[test]
+fn sva_to_string_onehot0() {
+    let expr = SvaExpr::OneHot0(Box::new(SvaExpr::Signal("grant".into())));
+    assert_eq!(sva_expr_to_string(&expr), "$onehot0(grant)");
+}
+
+#[test]
+fn sva_roundtrip_onehot0() {
+    let input = "$onehot0(grant)";
+    let parsed = parse_sva(input).unwrap();
+    let rendered = sva_expr_to_string(&parsed);
+    let reparsed = parse_sva(&rendered).unwrap();
+    assert!(sva_exprs_structurally_equivalent(&parsed, &reparsed));
+}
+
+#[test]
+fn sva_to_string_onehot() {
+    let expr = SvaExpr::OneHot(Box::new(SvaExpr::Signal("state".into())));
+    assert_eq!(sva_expr_to_string(&expr), "$onehot(state)");
+}
+
+#[test]
+fn sva_roundtrip_onehot() {
+    let input = "$onehot(state)";
+    let parsed = parse_sva(input).unwrap();
+    let rendered = sva_expr_to_string(&parsed);
+    let reparsed = parse_sva(&rendered).unwrap();
+    assert!(sva_exprs_structurally_equivalent(&parsed, &reparsed));
+}
+
+#[test]
+fn sva_to_string_countones() {
+    let expr = SvaExpr::CountOnes(Box::new(SvaExpr::Signal("mask".into())));
+    assert_eq!(sva_expr_to_string(&expr), "$countones(mask)");
+}
+
+#[test]
+fn sva_roundtrip_countones() {
+    let input = "$countones(mask)";
+    let parsed = parse_sva(input).unwrap();
+    let rendered = sva_expr_to_string(&parsed);
+    let reparsed = parse_sva(&rendered).unwrap();
+    assert!(sva_exprs_structurally_equivalent(&parsed, &reparsed));
+}
+
+#[test]
+fn sva_to_string_isunknown() {
+    let expr = SvaExpr::IsUnknown(Box::new(SvaExpr::Signal("data_out".into())));
+    assert_eq!(sva_expr_to_string(&expr), "$isunknown(data_out)");
+}
+
+#[test]
+fn sva_roundtrip_isunknown() {
+    let input = "$isunknown(data_out)";
+    let parsed = parse_sva(input).unwrap();
+    let rendered = sva_expr_to_string(&parsed);
+    let reparsed = parse_sva(&rendered).unwrap();
+    assert!(sva_exprs_structurally_equivalent(&parsed, &reparsed));
+}
+
+#[test]
+fn sva_to_string_sampled() {
+    let expr = SvaExpr::Sampled(Box::new(SvaExpr::Signal("req".into())));
+    assert_eq!(sva_expr_to_string(&expr), "$sampled(req)");
+}
+
+#[test]
+fn sva_roundtrip_sampled() {
+    let input = "$sampled(req)";
+    let parsed = parse_sva(input).unwrap();
+    let rendered = sva_expr_to_string(&parsed);
+    let reparsed = parse_sva(&rendered).unwrap();
+    assert!(sva_exprs_structurally_equivalent(&parsed, &reparsed));
+}
+
+#[test]
+fn sva_to_string_bits() {
+    let expr = SvaExpr::Bits(Box::new(SvaExpr::Signal("data".into())));
+    assert_eq!(sva_expr_to_string(&expr), "$bits(data)");
+}
+
+#[test]
+fn sva_roundtrip_bits() {
+    let input = "$bits(data)";
+    let parsed = parse_sva(input).unwrap();
+    let rendered = sva_expr_to_string(&parsed);
+    let reparsed = parse_sva(&rendered).unwrap();
+    assert!(sva_exprs_structurally_equivalent(&parsed, &reparsed));
+}
+
+#[test]
+fn sva_to_string_clog2() {
+    let expr = SvaExpr::Clog2(Box::new(SvaExpr::Signal("depth".into())));
+    assert_eq!(sva_expr_to_string(&expr), "$clog2(depth)");
+}
+
+#[test]
+fn sva_roundtrip_clog2() {
+    let input = "$clog2(depth)";
+    let parsed = parse_sva(input).unwrap();
+    let rendered = sva_expr_to_string(&parsed);
+    let reparsed = parse_sva(&rendered).unwrap();
+    assert!(sva_exprs_structurally_equivalent(&parsed, &reparsed));
+}
+
+#[test]
+fn sva_roundtrip_clog2_with_constant() {
+    let input = "$clog2(256)";
+    let parsed = parse_sva(input).unwrap();
+    let rendered = sva_expr_to_string(&parsed);
+    let reparsed = parse_sva(&rendered).unwrap();
+    assert!(sva_exprs_structurally_equivalent(&parsed, &reparsed));
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// ADVANCED SEQUENCES — to_string + roundtrip
+// ═══════════════════════════════════════════════════════════════════════════
+
+#[test]
+fn sva_to_string_goto_rep() {
+    let expr = SvaExpr::GotoRepetition {
+        body: Box::new(SvaExpr::Signal("ack".into())),
+        count: 1,
+    };
+    assert_eq!(sva_expr_to_string(&expr), "ack[->1]");
+}
+
+#[test]
+fn sva_to_string_goto_rep_count_3() {
+    let expr = SvaExpr::GotoRepetition {
+        body: Box::new(SvaExpr::Signal("done".into())),
+        count: 3,
+    };
+    assert_eq!(sva_expr_to_string(&expr), "done[->3]");
+}
+
+#[test]
+fn sva_roundtrip_goto_rep() {
+    let input = "ack[->1]";
+    let parsed = parse_sva(input).unwrap();
+    let rendered = sva_expr_to_string(&parsed);
+    let reparsed = parse_sva(&rendered).unwrap();
+    assert!(sva_exprs_structurally_equivalent(&parsed, &reparsed));
+}
+
+#[test]
+fn sva_to_string_nonconsec_exact() {
+    let expr = SvaExpr::NonConsecRepetition {
+        body: Box::new(SvaExpr::Signal("ack".into())),
+        min: 3,
+        max: Some(3),
+    };
+    assert_eq!(sva_expr_to_string(&expr), "ack[=3]");
+}
+
+#[test]
+fn sva_to_string_nonconsec_range() {
+    let expr = SvaExpr::NonConsecRepetition {
+        body: Box::new(SvaExpr::Signal("ack".into())),
+        min: 1,
+        max: Some(3),
+    };
+    assert_eq!(sva_expr_to_string(&expr), "ack[=1:3]");
+}
+
+#[test]
+fn sva_to_string_nonconsec_unbounded() {
+    let expr = SvaExpr::NonConsecRepetition {
+        body: Box::new(SvaExpr::Signal("ack".into())),
+        min: 2,
+        max: None,
+    };
+    assert_eq!(sva_expr_to_string(&expr), "ack[=2:$]");
+}
+
+#[test]
+fn sva_roundtrip_nonconsec_exact() {
+    let input = "ack[=3]";
+    let parsed = parse_sva(input).unwrap();
+    let rendered = sva_expr_to_string(&parsed);
+    let reparsed = parse_sva(&rendered).unwrap();
+    assert!(sva_exprs_structurally_equivalent(&parsed, &reparsed));
+}
+
+#[test]
+fn sva_roundtrip_nonconsec_range() {
+    let input = "ack[=1:3]";
+    let parsed = parse_sva(input).unwrap();
+    let rendered = sva_expr_to_string(&parsed);
+    let reparsed = parse_sva(&rendered).unwrap();
+    assert!(sva_exprs_structurally_equivalent(&parsed, &reparsed));
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// PROPERTY ABORT OPERATORS — to_string + roundtrip
+// ═══════════════════════════════════════════════════════════════════════════
+
+#[test]
+fn sva_to_string_accept_on() {
+    let expr = SvaExpr::AcceptOn {
+        condition: Box::new(SvaExpr::Signal("flush".into())),
+        body: Box::new(SvaExpr::Signal("valid".into())),
+    };
+    assert_eq!(sva_expr_to_string(&expr), "accept_on(flush) valid");
+}
+
+#[test]
+fn sva_roundtrip_accept_on() {
+    let input = "accept_on(flush) req |-> ack";
+    let parsed = parse_sva(input).unwrap();
+    let rendered = sva_expr_to_string(&parsed);
+    let reparsed = parse_sva(&rendered).unwrap();
+    assert!(sva_exprs_structurally_equivalent(&parsed, &reparsed));
+}
+
+#[test]
+fn sva_to_string_reject_on() {
+    let expr = SvaExpr::RejectOn {
+        condition: Box::new(SvaExpr::Signal("error".into())),
+        body: Box::new(SvaExpr::Signal("valid".into())),
+    };
+    assert_eq!(sva_expr_to_string(&expr), "reject_on(error) valid");
+}
+
+#[test]
+fn sva_roundtrip_reject_on() {
+    let input = "reject_on(error) req |-> ack";
+    let parsed = parse_sva(input).unwrap();
+    let rendered = sva_expr_to_string(&parsed);
+    let reparsed = parse_sva(&rendered).unwrap();
+    assert!(sva_exprs_structurally_equivalent(&parsed, &reparsed));
+}
+
+#[test]
+fn sva_roundtrip_accept_on_with_disable_iff() {
+    let input = "accept_on(flush) disable iff (reset) req |-> ack";
+    let parsed = parse_sva(input).unwrap();
+    let rendered = sva_expr_to_string(&parsed);
+    let reparsed = parse_sva(&rendered).unwrap();
+    assert!(sva_exprs_structurally_equivalent(&parsed, &reparsed),
+        "Complex nested roundtrip failed. Rendered: '{}'", rendered);
 }

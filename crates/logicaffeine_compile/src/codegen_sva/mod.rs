@@ -21,6 +21,7 @@ pub mod cdc;
 pub mod verified_compiler;
 pub mod z3_synth;
 pub mod synthesize;
+pub mod sva_vacuity;
 
 #[cfg(feature = "verification")]
 pub mod waveform;
@@ -103,7 +104,12 @@ pub fn emit_psl_property(prop: &SvaProperty) -> String {
     format!("-- {}\n{} ({});", prop.name, kind, prop.body)
 }
 
-/// Emit a Rust runtime monitor for a property.
+/// Emit a Rust runtime monitor scaffold for a property.
+///
+/// Generates a struct with a `check()` method stub. The generated `check()`
+/// always returns `true` — callers must fill in the signal-dependent logic
+/// for their specific use case. This is a code generation template, not a
+/// complete monitor implementation.
 pub fn emit_rust_monitor(prop: &SvaProperty) -> String {
     let struct_name = prop
         .name
@@ -134,7 +140,7 @@ impl {struct_name} {{
     pub fn check(&mut self) -> bool {{
         self.cycle += 1;
         // Property: {body}
-        // TODO: wire signal inputs
+        // Scaffold: fill in signal-dependent check logic for your design
         true
     }}
 }}"#,

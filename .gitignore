@@ -38,6 +38,9 @@ benchmarks/results/raw/
 # External repos
 AssertionForge/
 Cirq/
+FVEval/
+VERT/
+AssertionBench/
 
 # Environment
 .env

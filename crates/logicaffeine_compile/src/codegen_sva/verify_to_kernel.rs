@@ -268,6 +268,17 @@ pub fn encode_bounded_expr(expr: &BoundedExpr) -> Term {
                 }),
             )
         }
+        BoundedExpr::Apply { name, args } => {
+            // Uninterpreted function: encode as nested application f(a1)(a2)...
+            let mut term = Term::Global(name.clone());
+            for arg in args {
+                term = Term::App(
+                    Box::new(term),
+                    Box::new(encode_bounded_expr(arg)),
+                );
+            }
+            term
+        }
     }
 }
 

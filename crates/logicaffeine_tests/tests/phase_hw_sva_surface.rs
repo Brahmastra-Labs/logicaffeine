@@ -13,7 +13,7 @@
 //! - if...else                             — conditional property
 
 use logicaffeine_compile::codegen_sva::sva_model::{
-    parse_sva, sva_expr_to_string, sva_exprs_structurally_equivalent, SvaExpr,
+    parse_sva, sva_expr_to_string, sva_exprs_structurally_equivalent, SvaExpr, ClockEdge,
 };
 use logicaffeine_compile::codegen_sva::sva_to_verify::{
     BoundedExpr, SvaTranslator, count_and_leaves, count_or_leaves,
@@ -198,7 +198,8 @@ fn repetition_to_string_range() {
 fn repetition_to_string_unbounded() {
     let expr = parse_sva("req[*1:$]").unwrap();
     let text = sva_expr_to_string(&expr);
-    assert_eq!(text, "req[*1:$]");
+    // [*1:$] is canonicalized to [+] shorthand (Sprint 4)
+    assert_eq!(text, "req[+]");
 }
 
 #[test]
@@ -247,10 +248,20 @@ fn repetition_in_implication_context() {
 #[test]
 fn parse_disable_iff() {
     let expr = parse_sva("@(posedge clk) disable iff (reset) req |-> ack").unwrap();
-    assert!(matches!(expr, SvaExpr::DisableIff { .. }));
-    if let SvaExpr::DisableIff { condition, body } = &expr {
-        assert!(matches!(condition.as_ref(), SvaExpr::Signal(s) if s == "reset"));
-        assert!(matches!(body.as_ref(), SvaExpr::Implication { .. }));
+    // Clock annotation preserved as Clocked wrapper; body is DisableIff
+    match &expr {
+        SvaExpr::Clocked { clock, edge, body } => {
+            assert_eq!(clock, "clk");
+            assert_eq!(*edge, ClockEdge::Posedge);
+            match body.as_ref() {
+                SvaExpr::DisableIff { condition, body: inner } => {
+                    assert!(matches!(condition.as_ref(), SvaExpr::Signal(s) if s == "reset"));
+                    assert!(matches!(inner.as_ref(), SvaExpr::Implication { .. }));
+                }
+                _ => panic!("Clocked body should be DisableIff. Got: {:?}", body),
+            }
+        }
+        _ => panic!("Expected Clocked. Got: {:?}", expr),
     }
 }
 
@@ -290,17 +301,34 @@ fn translate_disable_iff_guards_with_condition() {
 
 #[test]
 fn parse_negedge_clock_strips_sensitivity() {
-    // Parser should strip @(negedge clk) just like @(posedge clk)
+    // Parser preserves @(negedge clk) as Clocked wrapper
     let expr = parse_sva("@(negedge clk) req |-> ack").unwrap();
-    assert!(matches!(expr, SvaExpr::Implication { .. }));
+    match &expr {
+        SvaExpr::Clocked { clock, edge, body } => {
+            assert_eq!(clock, "clk");
+            assert_eq!(*edge, ClockEdge::Negedge);
+            assert!(matches!(**body, SvaExpr::Implication { .. }),
+                "Clocked body should be Implication. Got: {:?}", body);
+        }
+        _ => panic!("Expected Clocked. Got: {:?}", expr),
+    }
 }
 
 #[test]
 fn parse_negedge_in_complex_expression() {
     let expr = parse_sva("@(negedge sclk) $rose(mosi) |-> ##[1:3] miso").unwrap();
-    assert!(matches!(expr, SvaExpr::Implication { .. }));
-    if let SvaExpr::Implication { consequent, .. } = &expr {
-        assert!(matches!(consequent.as_ref(), SvaExpr::Delay { .. }));
+    match &expr {
+        SvaExpr::Clocked { clock, edge, body } => {
+            assert_eq!(clock, "sclk");
+            assert_eq!(*edge, ClockEdge::Negedge);
+            match body.as_ref() {
+                SvaExpr::Implication { consequent, .. } => {
+                    assert!(matches!(consequent.as_ref(), SvaExpr::Delay { .. }));
+                }
+                _ => panic!("Clocked body should be Implication. Got: {:?}", body),
+            }
+        }
+        _ => panic!("Expected Clocked. Got: {:?}", expr),
     }
 }
 
@@ -509,7 +537,15 @@ fn parse_arbiter_fairness() {
 fn parse_spi_protocol_pattern() {
     // SPI: on negative edge of SCLK, MOSI must be stable
     let expr = parse_sva("@(negedge sclk) !ss |-> $stable(mosi)").unwrap();
-    assert!(matches!(expr, SvaExpr::Implication { .. }));
+    match &expr {
+        SvaExpr::Clocked { clock, edge, body } => {
+            assert_eq!(clock, "sclk");
+            assert_eq!(*edge, ClockEdge::Negedge);
+            assert!(matches!(**body, SvaExpr::Implication { .. }),
+                "Clocked body should be Implication. Got: {:?}", body);
+        }
+        _ => panic!("Expected Clocked. Got: {:?}", expr),
+    }
 }
 
 #[test]

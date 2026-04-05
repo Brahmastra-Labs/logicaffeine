@@ -264,6 +264,61 @@ fn extract_signal_names_strips_timestep() {
         "Should extract unique signal names without @timestep. Got: {:?}", names);
 }
 
+// ═══════════════════════════════════════════════════════════════════════════
+// BOUNDED EXPR APPLY — Foundation for system functions ($onehot0, $bits, etc.)
+// ═══════════════════════════════════════════════════════════════════════════
+
+#[test]
+fn bounded_apply_preserves_name_and_args() {
+    let apply = BoundedExpr::Apply {
+        name: "onehot0".to_string(),
+        args: vec![BoundedExpr::Var("sig@0".into())],
+    };
+    match &apply {
+        BoundedExpr::Apply { name, args } => {
+            assert_eq!(name, "onehot0");
+            assert_eq!(args.len(), 1);
+            assert_eq!(args[0], BoundedExpr::Var("sig@0".into()));
+        }
+        _ => panic!("Expected Apply, got {:?}", apply),
+    }
+}
+
+#[test]
+fn bounded_apply_collects_vars_from_args() {
+    use std::collections::HashSet;
+    let apply = BoundedExpr::Apply {
+        name: "countones".to_string(),
+        args: vec![
+            BoundedExpr::Var("mask@0".into()),
+            BoundedExpr::Var("data@3".into()),
+        ],
+    };
+    let mut vars = HashSet::new();
+    logicaffeine_compile::codegen_sva::sva_to_verify::collect_vars_from_bounded_pub(&apply, &mut vars);
+    assert!(vars.contains("mask@0"), "Should find mask@0 in Apply args. Got: {:?}", vars);
+    assert!(vars.contains("data@3"), "Should find data@3 in Apply args. Got: {:?}", vars);
+}
+
+#[cfg(feature = "verification")]
+#[test]
+fn bounded_apply_bridges_to_verify_apply() {
+    let apply = BoundedExpr::Apply {
+        name: "onehot0".to_string(),
+        args: vec![BoundedExpr::Var("sig@0".into())],
+    };
+    let verify = bounded_to_verify(&apply);
+    match &verify {
+        VerifyExpr::Apply { name, args } => {
+            assert_eq!(name, "onehot0");
+            assert_eq!(args.len(), 1);
+            assert!(matches!(&args[0], VerifyExpr::Var(n) if n == "sig@0"),
+                "Apply arg should be Var(sig@0). Got: {:?}", args[0]);
+        }
+        _ => panic!("BoundedExpr::Apply must map to VerifyExpr::Apply. Got: {:?}", verify),
+    }
+}
+
 #[cfg(feature = "verification")]
 #[test]
 fn bounded_to_verify_roundtrip_sva_translation() {
