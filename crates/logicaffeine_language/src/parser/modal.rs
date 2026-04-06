@@ -82,7 +82,8 @@ impl<'a, 'ctx, 'int> ModalParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int> {
         if self.check(&TokenType::Would) || self.check(&TokenType::Could)
             || self.check(&TokenType::Must) || self.check(&TokenType::Can)
             || self.check(&TokenType::Should) || self.check(&TokenType::May)
-            || self.check(&TokenType::Cannot) || self.check(&TokenType::Might) {
+            || self.check(&TokenType::Cannot) || self.check(&TokenType::Might)
+            || self.check(&TokenType::Shall) {
             let modal_token = self.peek().kind.clone();
             self.advance();
             has_modal = true;
@@ -98,6 +99,12 @@ impl<'a, 'ctx, 'int> ModalParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int> {
         }
 
         if self.check(&TokenType::Not) {
+            self.advance();
+            has_negation = true;
+        }
+
+        // "shall never send" / "must never fail" — treat Never as negation
+        if self.check(&TokenType::Never) && !has_negation {
             self.advance();
             has_negation = true;
         }

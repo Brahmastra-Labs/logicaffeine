@@ -98,6 +98,13 @@ pub enum ParserMode {
     Imperative,
 }
 
+/// Temporal modifier after copula: "is always Y" or "is never Y".
+#[derive(Debug, Clone, Copy)]
+enum CopulaTemporal {
+    Always,
+    Never,
+}
+
 /// Controls scope of negation for lexically negative verbs (lacks, miss).
 /// "user who lacks a key" can mean:
 ///   - Wide:   ¬∃y(Key(y) ∧ Have(x,y)) - "has NO keys" (natural reading)
@@ -7088,6 +7095,21 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                 self.advance(); // consume "not"
             }
 
+            // Check for temporal adverbs after copula: "is always Y", "is never Y"
+            let mut copula_temporal = None;
+            if !is_negated {
+                if self.check(&TokenType::Never) {
+                    self.advance();
+                    copula_temporal = Some(CopulaTemporal::Never);
+                } else if let TokenType::Adverb(sym) | TokenType::ScopalAdverb(sym) | TokenType::TemporalAdverb(sym) = &self.peek().kind {
+                    let resolved = self.interner.resolve(*sym).to_string();
+                    if resolved == "Always" || resolved == "always" {
+                        self.advance();
+                        copula_temporal = Some(CopulaTemporal::Always);
+                    }
+                }
+            }
+
             // Check for Number token (measure phrase) before comparative or adjective
             // "John is 2 inches taller than Mary" or "The rope is 5 meters long"
             if self.check_number() {
@@ -7564,6 +7586,28 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
             } else {
                 predicate
             };
+
+            // Apply temporal wrapper for "is always Y" → G(Y(X)) or "is never Y" → G(¬Y(X))
+            let result = match copula_temporal {
+                Some(CopulaTemporal::Always) => {
+                    self.ctx.exprs.alloc(LogicExpr::Temporal {
+                        operator: TemporalOperator::Always,
+                        body: result,
+                    })
+                }
+                Some(CopulaTemporal::Never) => {
+                    let negated = self.ctx.exprs.alloc(LogicExpr::UnaryOp {
+                        op: TokenType::Not,
+                        operand: predicate,
+                    });
+                    self.ctx.exprs.alloc(LogicExpr::Temporal {
+                        operator: TemporalOperator::Always,
+                        body: negated,
+                    })
+                }
+                None => result,
+            };
+
             return self.wrap_with_definiteness(subject.definiteness, subject.noun, result);
         }
 

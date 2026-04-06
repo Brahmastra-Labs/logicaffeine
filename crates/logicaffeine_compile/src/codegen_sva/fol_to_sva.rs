@@ -132,6 +132,39 @@ fn synthesize_from_ast<'a>(
             synthesize_from_ast(body, interner, clock, fol_signals)
         }
 
+        // Counting quantifiers: AtMost(n), AtLeast(n), Cardinal(n)
+        LogicExpr::Quantifier { kind: QuantifierKind::AtMost(n), body, .. } => {
+            let inner = synthesize_from_ast(body, interner, clock, fol_signals);
+            if *n == 1 {
+                format!("$onehot0({})", inner)
+            } else {
+                format!("($countones({}) <= {})", inner, n)
+            }
+        }
+
+        LogicExpr::Quantifier { kind: QuantifierKind::AtLeast(n), body, .. } => {
+            let inner = synthesize_from_ast(body, interner, clock, fol_signals);
+            if *n == 1 {
+                inner // at least one → signal is high (OR-reduction implicit)
+            } else {
+                format!("($countones({}) >= {})", inner, n)
+            }
+        }
+
+        LogicExpr::Quantifier { kind: QuantifierKind::Cardinal(n), body, .. } => {
+            let inner = synthesize_from_ast(body, interner, clock, fol_signals);
+            if *n == 1 {
+                format!("$onehot({})", inner)
+            } else {
+                format!("($countones({}) == {})", inner, n)
+            }
+        }
+
+        // Other quantifier kinds (Most, Few, Many, Generic) — synthesize body
+        LogicExpr::Quantifier { body, .. } => {
+            synthesize_from_ast(body, interner, clock, fol_signals)
+        }
+
         // User conditional: P → Q (TokenType::If from parser)
         LogicExpr::BinaryOp { left, right, op: TokenType::If } => {
             let ante = synthesize_from_ast(left, interner, clock, fol_signals);
@@ -248,6 +281,81 @@ fn synthesize_from_ast<'a>(
         // Modal: unwrap
         LogicExpr::Modal { operand, .. } => {
             synthesize_from_ast(operand, interner, clock, fol_signals)
+        }
+
+        // Aspectual: HAB(P), PROG(P), PERF(P), ITER(P) → unwrap to body
+        // In hardware context, habitual aspect means "P holds generally"
+        LogicExpr::Aspectual { body, .. } => {
+            synthesize_from_ast(body, interner, clock, fol_signals)
+        }
+
+        // Voice: PASSIVE(P) → unwrap to body
+        LogicExpr::Voice { body, .. } => {
+            synthesize_from_ast(body, interner, clock, fol_signals)
+        }
+
+        // Relation: S-V-O → map verb and subject/object to signal names
+        LogicExpr::Relation(data) => {
+            let verb_name = interner.resolve(data.verb).to_string();
+            let subj_name = interner.resolve(data.subject.noun).to_string();
+            let obj_name = interner.resolve(data.object.noun).to_string();
+            let candidate = format!("{}_{}_", verb_name, subj_name);
+            if let Some(fol_sig) = fol_signals.iter().find(|s| {
+                s.to_lowercase() == candidate.to_lowercase()
+            }) {
+                fol_sig.clone()
+            } else if let Some(fol_sig) = fol_signals.iter().find(|s| {
+                let s_lower = s.to_lowercase();
+                s_lower.contains(&verb_name.to_lowercase())
+                    || s_lower.contains(&subj_name.to_lowercase())
+                    || s_lower.contains(&obj_name.to_lowercase())
+            }) {
+                fol_sig.clone()
+            } else {
+                format!("{}_{}_", verb_name, obj_name).to_lowercase()
+            }
+        }
+
+        // Categorical: Aristotelian A/E/I/O → synthesize subject and predicate
+        LogicExpr::Categorical(data) => {
+            let subj_name = interner.resolve(data.subject.noun).to_string().to_lowercase();
+            let pred_name = interner.resolve(data.predicate.noun).to_string().to_lowercase();
+            if data.copula_negative {
+                format!("({} && !({}))", subj_name, pred_name)
+            } else {
+                format!("(!({}) || ({}))", subj_name, pred_name)
+            }
+        }
+
+        // Scopal: "only X", "always X" as scopal adverb → unwrap to body
+        LogicExpr::Scopal { body, .. } => {
+            synthesize_from_ast(body, interner, clock, fol_signals)
+        }
+
+        // Causal: "effect because cause" → both sides as conjunction
+        LogicExpr::Causal { effect, cause } => {
+            let e = synthesize_from_ast(effect, interner, clock, fol_signals);
+            let c = synthesize_from_ast(cause, interner, clock, fol_signals);
+            format!("({} && {})", c, e)
+        }
+
+        // Atom: bare symbol → treat as signal name
+        LogicExpr::Atom(sym) => {
+            let name = interner.resolve(*sym).to_string();
+            if let Some(fol_sig) = fol_signals.iter().find(|s| {
+                s.to_lowercase() == name.to_lowercase()
+            }) {
+                fol_sig.clone()
+            } else {
+                name.to_lowercase()
+            }
+        }
+
+        // Identity: t1 = t2 → equality check
+        LogicExpr::Identity { left, right } => {
+            let l = term_to_string_helper(left, interner).to_lowercase();
+            let r = term_to_string_helper(right, interner).to_lowercase();
+            format!("({} == {})", l, r)
         }
 
         // Default: fail closed. Unhandled FOL patterns must NOT silently

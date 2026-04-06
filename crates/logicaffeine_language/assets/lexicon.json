@@ -1776,7 +1776,9 @@
     { "lemma": "Grant", "sort": "Signal" },
     { "lemma": "Acknowledgment", "sort": "Signal" },
     { "lemma": "Response", "sort": "Signal" },
-    { "lemma": "Done", "sort": "Signal" }
+    { "lemma": "Done", "sort": "Signal" },
+    { "lemma": "Bit", "sort": "Signal", "features": ["Count"] },
+    { "lemma": "Acknowledge", "sort": "Signal" }
   ],
   "adjectives": [
     { "lemma": "Red", "regular": true, "features": ["Intersective"] },
@@ -2203,7 +2205,7 @@
   ],
   "disambiguation_not_verbs": [
     "ring", "king", "thing", "spring", "string", "swing", "wing", "bring", "sing",
-    "bus", "plus", "gas", "us", "thus", "focus", "campus", "status", "bonus",
+    "bit", "bus", "plus", "gas", "us", "thus", "focus", "campus", "status", "bonus",
     "red", "bed", "led", "shed", "sled", "wed", "ground",
     "tired", "bored", "excited", "interested", "blessed", "wicked",
     "mortal", "happy", "friendly", "loud", "black", "old", "wise", "bald",

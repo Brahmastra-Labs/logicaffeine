@@ -373,3 +373,152 @@ mod z3_synthesis_extended {
         }
     }
 }
+
+// ═══════════════════════════════════════════════════════════════════════════
+// GAP 7: HAB/ASPECTUAL DEGENERATE OUTPUT
+// synthesize_from_ast has no match arm for LogicExpr::Aspectual
+// Sentences: A2, A5, C3, F1, F2, A4, D3, F3, M1
+// ═══════════════════════════════════════════════════════════════════════════
+
+#[test]
+fn gap7_hab_predicate_not_degenerate_zero() {
+    let result = synthesize_sva_from_spec("The enable signal is always active.", "clk");
+    assert!(result.is_ok(), "Should not error on habitual aspect: {:?}", result.err());
+    let sva = result.unwrap();
+    assert!(
+        sva.body != "0",
+        "HAB(...) should not produce degenerate '0'. Got body: {}",
+        sva.body
+    );
+}
+
+#[test]
+fn gap7_hab_periodic_signal() {
+    let result = synthesize_sva_from_spec("The clock signal is periodic.", "clk");
+    assert!(result.is_ok(), "A5: should not error: {:?}", result.err());
+    let sva = result.unwrap();
+    assert!(
+        sva.body != "0",
+        "Generic predicate should not produce degenerate '0'. Got body: {}",
+        sva.body
+    );
+}
+
+#[test]
+fn gap7_hab_arbiter_signals_grant() {
+    let result = synthesize_sva_from_spec(
+        "The arbiter signals grant to the highest-priority requester.", "clk"
+    );
+    assert!(result.is_ok(), "F1: should not error: {:?}", result.err());
+    let sva = result.unwrap();
+    assert!(
+        sva.body != "0",
+        "F1: habitual action should not produce degenerate '0'. Got body: {}",
+        sva.body
+    );
+}
+
+#[test]
+fn gap7_hab_decoder_activates() {
+    let result = synthesize_sva_from_spec(
+        "The decoder activates the corresponding output line.", "clk"
+    );
+    assert!(result.is_ok(), "F2: should not error: {:?}", result.err());
+    let sva = result.unwrap();
+    assert!(
+        sva.body != "0",
+        "F2: habitual action should not produce degenerate '0'. Got body: {}",
+        sva.body
+    );
+}
+
+#[test]
+fn gap7_degenerate_body_not_zero_for_conditional() {
+    let result = synthesize_sva_from_spec(
+        "If reset is asserted, the output is zero.", "clk"
+    ).unwrap();
+    assert!(
+        !result.body.contains("0 |-> 0"),
+        "Implication should not have degenerate '0 |-> 0'. Got body: {}",
+        result.body
+    );
+}
+
+#[test]
+fn gap7_hab_body_is_parseable_sva() {
+    let result = synthesize_sva_from_spec("The enable signal is always active.", "clk").unwrap();
+    if result.body != "0" {
+        let parse_result = parse_sva(&result.body);
+        assert!(
+            parse_result.is_ok(),
+            "HAB-synthesized SVA body should be parseable. Body: '{}', Error: {:?}",
+            result.body, parse_result.err()
+        );
+    }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// GAP 8: COUNTING QUANTIFIER SVA SYNTHESIS
+// Exists<=1, Exists>=1, Exists=1 hit the _ => "0" default
+// Sentences: UART4, H2, H3
+// ═══════════════════════════════════════════════════════════════════════════
+
+#[test]
+fn gap8_at_most_one_not_degenerate() {
+    let result = synthesize_sva_from_spec("At most one arbiter is active.", "clk");
+    assert!(result.is_ok(), "H2: should not error: {:?}", result.err());
+    let sva = result.unwrap();
+    assert!(
+        sva.body != "0",
+        "Exists<=1 should produce valid SVA (e.g. $onehot0), not '0'. Got body: {}",
+        sva.body
+    );
+}
+
+#[test]
+fn gap8_at_least_one_not_degenerate() {
+    let result = synthesize_sva_from_spec("At least one handler is ready.", "clk");
+    assert!(result.is_ok(), "H3: should not error: {:?}", result.err());
+    let sva = result.unwrap();
+    assert!(
+        sva.body != "0",
+        "Exists>=1 should produce valid SVA, not '0'. Got body: {}",
+        sva.body
+    );
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// REGRESSION: EXISTING SVA SYNTHESIS MUST NOT REGRESS
+// ═══════════════════════════════════════════════════════════════════════════
+
+#[test]
+fn regression_sva_always_produces_assert() {
+    let result = synthesize_sva_from_spec("Always, every signal is valid.", "clk").unwrap();
+    assert!(
+        result.sva_text.contains("assert property") || result.sva_text.contains("@(posedge"),
+        "G(P) regression: should produce assert property. Got: {}",
+        result.sva_text
+    );
+}
+
+#[test]
+fn regression_sva_conditional_has_implication() {
+    let result = synthesize_sva_from_spec(
+        "Always, if every dog runs then every cat sleeps.", "clk"
+    ).unwrap();
+    assert!(
+        result.sva_text.contains("|->") || result.sva_text.contains("|=>"),
+        "If-then regression: should produce SVA implication. Got: {}",
+        result.sva_text
+    );
+}
+
+#[test]
+fn regression_sva_eventually_produces_cover_or_s_eventually() {
+    let result = synthesize_sva_from_spec("Eventually, every signal is active.", "clk").unwrap();
+    assert!(
+        result.sva_text.contains("s_eventually") || result.sva_text.contains("cover"),
+        "F(P) regression: should produce s_eventually or cover. Got: {}",
+        result.sva_text
+    );
+}

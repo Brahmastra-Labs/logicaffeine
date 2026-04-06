@@ -117,6 +117,52 @@ impl<'a, 'ctx, 'int> ClauseParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int> {
             }
         }
 
+        // "When X, Y" as temporal subordinator (before wh-question check)
+        // Disambiguate: subordinator has comma-separated clauses, question does not
+        if self.check(&TokenType::When) {
+            let saved = self.current;
+            let mut found_comma = false;
+            for i in (self.current + 1)..self.tokens.len() {
+                match &self.tokens[i].kind {
+                    TokenType::Comma => { found_comma = true; break; }
+                    TokenType::Period => break,
+                    _ => {}
+                }
+            }
+            if found_comma {
+                self.advance(); // consume "When"
+                let condition = self.parse_sentence()?;
+                if self.check(&TokenType::Comma) {
+                    self.advance();
+                }
+                let consequent = self.parse_sentence()?;
+                return Ok(self.ctx.exprs.alloc(LogicExpr::BinaryOp {
+                    left: condition,
+                    op: TokenType::Implies,
+                    right: consequent,
+                }));
+            }
+            self.current = saved;
+        }
+
+        // "Whenever X, Y" → same as "When X, Y"
+        if self.check_content_word() {
+            let word = self.interner.resolve(self.peek().lexeme).to_string();
+            if word == "Whenever" || word == "whenever" {
+                self.advance(); // consume "Whenever"
+                let condition = self.parse_sentence()?;
+                if self.check(&TokenType::Comma) {
+                    self.advance();
+                }
+                let consequent = self.parse_sentence()?;
+                return Ok(self.ctx.exprs.alloc(LogicExpr::BinaryOp {
+                    left: condition,
+                    op: TokenType::Implies,
+                    right: consequent,
+                }));
+            }
+        }
+
         if self.check_wh_word() {
             return self.parse_wh_question();
         }
@@ -217,6 +263,35 @@ impl<'a, 'ctx, 'int> ClauseParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int> {
             }));
         }
 
+        // "After X, Y" → X → Y (temporal sequence)
+        // "Before X, Y" → Y → X
+        if self.check_preposition_is("after") || self.check_preposition_is("After") {
+            self.advance(); // consume "after"
+            let antecedent = self.parse_sentence()?;
+            if self.check(&TokenType::Comma) {
+                self.advance();
+            }
+            let consequent = self.parse_sentence()?;
+            return Ok(self.ctx.exprs.alloc(LogicExpr::BinaryOp {
+                left: antecedent,
+                op: TokenType::Implies,
+                right: consequent,
+            }));
+        }
+        if self.check_preposition_is("before") || self.check_preposition_is("Before") {
+            self.advance(); // consume "before"
+            let first_clause = self.parse_sentence()?;
+            if self.check(&TokenType::Comma) {
+                self.advance();
+            }
+            let second_clause = self.parse_sentence()?;
+            return Ok(self.ctx.exprs.alloc(LogicExpr::BinaryOp {
+                left: second_clause,
+                op: TokenType::Implies,
+                right: first_clause,
+            }));
+        }
+
         self.parse_disjunction()
     }
 
@@ -250,7 +325,18 @@ impl<'a, 'ctx, 'int> ClauseParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int> {
 
         // Enter DRS antecedent box - indefinites here get universal force
         self.drs.enter_box(BoxType::ConditionalAntecedent);
-        let antecedent = self.parse_counterfactual_antecedent()?;
+        let mut antecedent = self.parse_counterfactual_antecedent()?;
+
+        // Handle conjunction of clauses in antecedent: "If X is Y and Z is W, ..."
+        while self.check(&TokenType::And) {
+            self.advance(); // consume "and"
+            let second = self.parse_counterfactual_antecedent()?;
+            antecedent = self.ctx.exprs.alloc(LogicExpr::BinaryOp {
+                left: antecedent,
+                op: TokenType::And,
+                right: second,
+            });
+        }
         self.drs.exit_box();
 
         if self.check(&TokenType::Comma) {
