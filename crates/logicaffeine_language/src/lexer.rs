@@ -1116,6 +1116,14 @@ impl<'a> Lexer<'a> {
         }
     }
 
+    fn next_token_is_copula(&self) -> bool {
+        if let Some(next) = self.peek_word(1) {
+            matches!(next.to_lowercase().as_str(), "is" | "are" | "was" | "were")
+        } else {
+            false
+        }
+    }
+
     fn peek_sequence(&self, expected: &[&str]) -> bool {
         for (i, &exp) in expected.iter().enumerate() {
             match self.peek_word(i + 1) {
@@ -2300,12 +2308,14 @@ impl<'a> Lexer<'a> {
         }
 
         if lexicon::is_performative(&lower) {
-            // If the word is also a common noun AND follows a determiner,
+            // If the word is also a common noun AND follows a determiner or precedes a copula,
             // don't force performative reading.
             // "every request holds" → request is a noun, not a performative verb.
+            // "If request is asserted" → request is a noun (subject before copula).
             // "I promise to come" → promise IS a performative verb.
             let after_determiner = self.prev_token_is_determiner();
-            if !lexicon::is_common_noun(&lower) || !after_determiner {
+            let before_copula = self.next_token_is_copula();
+            if !lexicon::is_common_noun(&lower) || (!after_determiner && !before_copula) {
                 let sym = self.interner.intern(&Self::capitalize(&lower));
                 return TokenType::Performative(sym);
             }
@@ -2313,11 +2323,13 @@ impl<'a> Lexer<'a> {
         }
 
         if lexicon::is_base_verb_early(&lower) {
-            // If the word is also a common noun AND follows a determiner,
+            // If the word is also a common noun AND follows a determiner or precedes a copula,
             // don't force verb reading.
             // "every grant holds" → grant is a noun, not a verb.
+            // "If grant is low" → grant is a noun (subject before copula).
             let after_determiner = self.prev_token_is_determiner();
-            if !lexicon::is_common_noun(&lower) || !after_determiner {
+            let before_copula = self.next_token_is_copula();
+            if !lexicon::is_common_noun(&lower) || (!after_determiner && !before_copula) {
                 let sym = self.interner.intern(&Self::capitalize(&lower));
                 let class = lexicon::lookup_verb_class(&lower);
                 return TokenType::Verb {
