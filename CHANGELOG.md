@@ -4,6 +4,19 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.9.16] - 2026-04-06
+
+### Added
+- **IEEE 1800-2023 SVA upgrade** — 4 sprints (22-25) upgrading from IEEE 1800-2017 to 1800-2023 compliance. 3 new `SvaExpr` variants: `ArrayMap` (IEEE 7.12 array `.map()` with iterator/index arguments), `TypeThis` (IEEE 6.23 `type(this)` construct), `RealConst` (IEEE 5.7.2 real literals). `RandVarType` enum replacing `width: u32` on `RandVar` to support `rand real` / `rand const real` checker variables (IEEE 17.7). Triple-quoted string support in action blocks (IEEE 5.9). New system task recognition: `$timeunit`, `$timeprecision`, `$stacktrace` (IEEE 20.4.1, 20.17). 4-state operator truth table errata audit (IEEE 11.4).
+- **`VerifyType::Real`** — Z3 Real sort threaded through the entire verification pipeline: `ir.rs`, `equivalence.rs`, `kinduction.rs`, `smtlib.rs`, `solver.rs`, `type_infer.rs`. `BoundedSort::Real` in SVA-to-verify translation for checker variable quantification.
+- **95 new SVA tests** — `phase_hw_sva_2023.rs` (1,160 lines) covering all 4 IEEE 1800-2023 upgrade sprints: triple-quoted strings, new system tasks, array map methods, `type(this)`, `rand real` / `rand const real`, and semantic audit cross-feature composition.
+- **Hardware parser gap fixes** — `shall` modal gate, `always`/`never` after copula, `after`/`when` subordinators, `and`-conjunction in conditionals, `bit` as noun, `request`/`grant` disambiguation, counting quantifiers, HAB SVA synthesis patterns.
+- **SVA synthesizer coverage expansion** — new FOL-to-SVA synthesis patterns for counting quantifiers, HAB temporal patterns, and additional property templates.
+- **Cirq v2 implementation plan** — complete rewrite of the quantum backend plan: 17 sprints, 314 tests planned across 13 test files, mirroring the proven SVA backend architecture.
+
+### Changed
+- **CI pipeline** — benchmark workflow no longer double-triggers deploy workflows. Benchmark result commits use `[skip ci]` to prevent cascading re-runs, reducing workflow executions from 12 to 7 per release.
+
 ## [0.9.15] - 2026-04-04
 
 ### Added

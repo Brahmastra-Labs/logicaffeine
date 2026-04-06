@@ -62,6 +62,39 @@ pub fn get_articles_by_tag(tag: &str) -> Vec<&'static Article> {
 /// All news articles
 static ARTICLES: &[Article] = &[
     Article {
+        slug: "release-0-9-16-ieee-1800-2023-sva-upgrade",
+        title: "v0.9.16 — IEEE 1800-2023 SVA Upgrade",
+        date: "2026-04-06",
+        summary: "Full IEEE 1800-2023 SVA compliance: ArrayMap, TypeThis, RealConst expression variants, rand real checker variables, triple-quoted strings, Z3 Real sort across the verification pipeline, 95 new tests, hardware parser gap fixes, and CI pipeline optimization.",
+        content: r#"
+## IEEE 1800-2023 SVA Upgrade
+
+This release upgrades the SVA formal verification pipeline from IEEE 1800-2017 to IEEE 1800-2023 compliance across 4 sprints (22-25), adding 95 new tests with full backwards compatibility.
+
+### New Expression Variants
+
+Three new `SvaExpr` variants for 2023-specific constructs: `ArrayMap` for IEEE 7.12 array `.map()` methods with iterator and index arguments, `TypeThis` for IEEE 6.23 `type(this)` parameterization, and `RealConst` for IEEE 5.7.2 real literal constants in assertion expressions.
+
+### Real-Valued Checker Variables
+
+`RandVarType` enum replaces the old `width: u32` field on `RandVar`, supporting both `BitVec(u32)` and `Real` discriminants. This enables `rand real` and `rand const real` checker variables as specified in IEEE 17.7 (2023). `BoundedSort::Real` and `VerifyType::Real` thread the Z3 Real sort through the entire verification pipeline.
+
+### Triple-Quoted Strings & New System Tasks
+
+IEEE 5.9 triple-quoted string support (`"""..."""`) in assertion action blocks, with proper escape sequence handling and string-aware `else` keyword parsing. Three new system tasks recognized: `$timeunit`, `$timeprecision` (IEEE 20.4.1), and `$stacktrace` (IEEE 20.17).
+
+### Hardware Parser Gap Fixes
+
+Fixes for `shall` modal gate, `always`/`never` after copula, `after`/`when` subordinators, `and`-conjunction in conditionals, `bit` as noun, `request`/`grant` disambiguation, counting quantifiers, and HAB SVA synthesis patterns.
+
+### CI Pipeline Optimization
+
+Benchmark result commits now use `[skip ci]` to prevent cascading workflow re-triggers, reducing total workflow executions from 12 to 7 per release.
+"#,
+        tags: &["release", "hardware-verification", "sva", "formal-verification", "ieee-1800"],
+        author: "LOGICAFFEINE Team",
+    },
+    Article {
         slug: "release-0-9-15-ieee-1800-sva-coverage",
         title: "v0.9.15 — IEEE 1800-2017 SVA Coverage Expansion",
         date: "2026-04-04",

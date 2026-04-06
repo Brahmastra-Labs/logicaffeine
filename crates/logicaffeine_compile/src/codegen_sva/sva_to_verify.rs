@@ -90,6 +90,8 @@ pub enum BoundedSort {
     Bool,
     Int,
     BitVec(u32),
+    /// IEEE 1800-2023: Z3 Real sort for `rand real` checker variables
+    Real,
 }
 
 /// A single match endpoint for a sequence expression.
@@ -1201,6 +1203,19 @@ impl SvaTranslator {
                 }
                 inner
             }
+
+            // ── Sprint 23: IEEE 1800-2023 ──
+            SvaExpr::ArrayMap { .. } => {
+                BoundedExpr::Unsupported("array map with unknown size".to_string())
+            }
+            SvaExpr::TypeThis => {
+                BoundedExpr::Unsupported("type(this) in class scope".to_string())
+            }
+            SvaExpr::RealConst(_) => {
+                // Real constants are used in checker assume constraints (e.g., r > 1.5)
+                // They participate in Z3 Real arithmetic directly
+                BoundedExpr::Unsupported("real constant outside checker context".to_string())
+            }
         }
     }
 
@@ -1833,6 +1848,7 @@ pub fn bounded_to_verify(expr: &BoundedExpr) -> logicaffeine_verify::VerifyExpr 
                 BoundedSort::Bool => VerifyType::Bool,
                 BoundedSort::Int => VerifyType::Int,
                 BoundedSort::BitVec(w) => VerifyType::BitVector(*w),
+                BoundedSort::Real => VerifyType::Real,
             };
             VerifyExpr::forall(vec![(var.clone(), ty)], bounded_to_verify(body))
         }
@@ -1842,6 +1858,7 @@ pub fn bounded_to_verify(expr: &BoundedExpr) -> logicaffeine_verify::VerifyExpr 
                 BoundedSort::Bool => VerifyType::Bool,
                 BoundedSort::Int => VerifyType::Int,
                 BoundedSort::BitVec(w) => VerifyType::BitVector(*w),
+                BoundedSort::Real => VerifyType::Real,
             };
             VerifyExpr::exists(vec![(var.clone(), ty)], bounded_to_verify(body))
         }

@@ -238,6 +238,13 @@ pub enum SvaExpr {
     // ── Multi-Clock (Sprint 12, IEEE 16.13) ──
     /// Clocked expression: `@(posedge clk) body` — preserves clock annotation for multi-clock
     Clocked { clock: String, edge: ClockEdge, body: Box<SvaExpr> },
+    // ── IEEE 1800-2023 Additions (Sprint 23) ──
+    /// Array map method: `A.map(x) with (expr)` (IEEE 7.12, 2023)
+    ArrayMap { array: Box<SvaExpr>, iterator: String, with_expr: Box<SvaExpr> },
+    /// Type operator: `type(this)` (IEEE 6.23, 2023)
+    TypeThis,
+    /// Real literal constant: `1.5`, `1.2E3` (IEEE 5.7.2, 2023)
+    RealConst(f64),
 }
 
 /// Clock edge type
@@ -347,11 +354,20 @@ pub struct CheckerDecl {
     pub assertions: Vec<SvaDirective>,
 }
 
+/// Type discriminant for random variables (IEEE 17.7, extended in 2023)
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum RandVarType {
+    /// Bitvector with width: `rand bit [N-1:0]`
+    BitVec(u32),
+    /// IEEE 754 double: `rand real` (IEEE 1800-2023)
+    Real,
+}
+
 /// Random variable in a checker (IEEE 17.7)
 #[derive(Debug, Clone)]
 pub struct RandVar {
     pub name: String,
-    pub width: u32,
+    pub var_type: RandVarType,
     pub is_const: bool,
 }
 
@@ -561,6 +577,13 @@ fn substitute_signal(expr: &SvaExpr, name: &str, replacement: &SvaExpr) -> SvaEx
             edge: edge.clone(),
             body: sub(body),
         },
+        SvaExpr::ArrayMap { array, iterator, with_expr } => SvaExpr::ArrayMap {
+            array: sub(array),
+            iterator: iterator.clone(),
+            with_expr: sub(with_expr),
+        },
+        SvaExpr::TypeThis => SvaExpr::TypeThis,
+        SvaExpr::RealConst(v) => SvaExpr::RealConst(*v),
     }
 }
 
@@ -671,8 +694,9 @@ pub fn parse_sva_directive(input: &str) -> Result<SvaDirective, SvaParseError> {
     let mut action_fail = None;
     let remaining = after_prop;
     if !remaining.is_empty() {
-        // Look for `else` to separate pass/fail
-        if let Some(else_pos) = remaining.find("else") {
+        // Look for `else` keyword to separate pass/fail, but skip occurrences
+        // inside string literals (both regular "..." and triple-quoted """...""").
+        if let Some(else_pos) = find_else_outside_strings(remaining) {
             let pass_part = remaining[..else_pos].trim();
             let fail_part = remaining[else_pos + 4..].trim();
             if !pass_part.is_empty() {
@@ -1687,6 +1711,58 @@ fn parse_unary(input: &str) -> Result<SvaExpr, SvaParseError> {
     parse_atom(input)
 }
 
+/// Find the `else` keyword in action block text, skipping occurrences inside
+/// string literals (both regular `"..."` and triple-quoted `"""..."""`).
+/// Returns the byte offset of the `else` keyword, or None if not found outside strings.
+fn find_else_outside_strings(input: &str) -> Option<usize> {
+    let bytes = input.as_bytes();
+    let len = bytes.len();
+    let mut i = 0;
+    while i < len {
+        // Check for triple-quoted string: """..."""
+        if i + 2 < len && bytes[i] == b'"' && bytes[i + 1] == b'"' && bytes[i + 2] == b'"' {
+            i += 3; // skip opening """
+            while i < len {
+                if bytes[i] == b'\\' && i + 1 < len {
+                    i += 2; // skip escape sequence
+                } else if i + 2 < len && bytes[i] == b'"' && bytes[i + 1] == b'"' && bytes[i + 2] == b'"' {
+                    i += 3; // skip closing """
+                    break;
+                } else {
+                    i += 1;
+                }
+            }
+            continue;
+        }
+        // Check for regular string: "..."
+        if bytes[i] == b'"' {
+            i += 1; // skip opening "
+            while i < len {
+                if bytes[i] == b'\\' && i + 1 < len {
+                    i += 2; // skip escape sequence
+                } else if bytes[i] == b'"' {
+                    i += 1; // skip closing "
+                    break;
+                } else {
+                    i += 1;
+                }
+            }
+            continue;
+        }
+        // Check for `else` keyword at word boundary
+        if i + 4 <= len && &input[i..i + 4] == "else" {
+            // Verify it's at a word boundary (not part of a larger identifier)
+            let before_ok = i == 0 || !bytes[i - 1].is_ascii_alphanumeric();
+            let after_ok = i + 4 >= len || !bytes[i + 4].is_ascii_alphanumeric();
+            if before_ok && after_ok {
+                return Some(i);
+            }
+        }
+        i += 1;
+    }
+    None
+}
+
 /// Find the closing paren that balances the opening paren at `start`.
 /// Returns the index of the closing ')' relative to the input string.
 fn find_balanced_close(input: &str, start: usize) -> Option<usize> {
@@ -1892,6 +1968,16 @@ fn parse_atom(input: &str) -> Result<SvaExpr, SvaParseError> {
         }
     }
 
+    // IEEE 1800-2023 5.7.2: Real literal constants (e.g., 1.5, 1.2E3, 1.30e-2)
+    // Must have digit on each side of decimal point (.12 and 9. are invalid)
+    if (input.contains('.') || input.contains('e') || input.contains('E'))
+        && input.chars().next().map_or(false, |c| c.is_ascii_digit())
+    {
+        if let Ok(v) = input.parse::<f64>() {
+            return Ok(SvaExpr::RealConst(v));
+        }
+    }
+
     // Check if it's a number (plain or Verilog-style width'd value)
     if let Ok(n) = input.parse::<u64>() {
         return Ok(SvaExpr::Const(n, 32));
@@ -1914,6 +2000,40 @@ fn parse_atom(input: &str) -> Result<SvaExpr, SvaParseError> {
             };
             if let Ok(value) = u64::from_str_radix(value_str, radix) {
                 return Ok(SvaExpr::Const(value, width));
+            }
+        }
+    }
+
+    // IEEE 1800-2023: type(this) construct (IEEE 6.23)
+    if input == "type(this)" {
+        return Ok(SvaExpr::TypeThis);
+    }
+
+    // IEEE 1800-2023: A.map(x) with (expr) — array map method (IEEE 7.12)
+    if let Some(dot_map_pos) = input.find(".map(") {
+        let array_part = &input[..dot_map_pos].trim();
+        let after_map = &input[dot_map_pos + 5..]; // skip ".map("
+        // Find closing paren for iterator args
+        if let Some(iter_close) = after_map.find(')') {
+            let iter_part = after_map[..iter_close].trim();
+            let iterator = if iter_part.is_empty() {
+                "item".to_string() // default iterator name per IEEE 7.12
+            } else {
+                // May have iterator and optional index arg: "x" or "x, i"
+                iter_part.split(',').next().unwrap_or("item").trim().to_string()
+            };
+            let after_iter_close = after_map[iter_close + 1..].trim();
+            // Expect `with (expr)`
+            if after_iter_close.starts_with("with") {
+                let with_body = after_iter_close["with".len()..].trim();
+                let with_expr_str = strip_parens(with_body);
+                let array_expr = parse_atom(array_part)?;
+                let with_expr = parse_sva(with_expr_str)?;
+                return Ok(SvaExpr::ArrayMap {
+                    array: Box::new(array_expr),
+                    iterator,
+                    with_expr: Box::new(with_expr),
+                });
             }
         }
     }
@@ -2185,6 +2305,12 @@ pub fn sva_expr_to_string(expr: &SvaExpr) -> String {
             };
             format!("@({} {}) {}", edge_str, clock, sva_expr_to_string(body))
         }
+        // Sprint 23 (IEEE 1800-2023)
+        SvaExpr::ArrayMap { array, iterator, with_expr } => {
+            format!("{}.map({}) with ({})", sva_expr_to_string(array), iterator, sva_expr_to_string(with_expr))
+        }
+        SvaExpr::TypeThis => "type(this)".to_string(),
+        SvaExpr::RealConst(v) => format!("{}", v),
     }
 }
 
@@ -2502,6 +2628,13 @@ pub fn sva_exprs_structurally_equivalent(a: &SvaExpr, b: &SvaExpr) -> bool {
          SvaExpr::Clocked { clock: cb, edge: eb, body: bb }) => {
             ca == cb && ea == eb && sva_exprs_structurally_equivalent(ba, bb)
         }
+        // Sprint 23 (IEEE 1800-2023)
+        (SvaExpr::ArrayMap { array: aa, iterator: ia, with_expr: wa },
+         SvaExpr::ArrayMap { array: ab, iterator: ib, with_expr: wb }) => {
+            ia == ib && sva_exprs_structurally_equivalent(aa, ab) && sva_exprs_structurally_equivalent(wa, wb)
+        }
+        (SvaExpr::TypeThis, SvaExpr::TypeThis) => true,
+        (SvaExpr::RealConst(a), SvaExpr::RealConst(b)) => a.to_bits() == b.to_bits(),
         _ => false,
     }
 }

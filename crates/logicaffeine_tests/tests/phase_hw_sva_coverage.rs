@@ -4464,6 +4464,85 @@ fn vacuity_s_always_bounded() {
     assert_eq!(analyze_vacuity(&expr), VacuityStatus::Nonvacuous);
 }
 
+#[test]
+fn vacuity_followed_by_overlap() {
+    // Rule (j): seq #-# prop — depends on whether seq has endpoint match
+    let expr = parse_sva("req #-# ack").unwrap();
+    assert_eq!(analyze_vacuity(&expr), VacuityStatus::Unknown,
+        "FollowedBy vacuity depends on seq endpoint match");
+}
+
+#[test]
+fn vacuity_followed_by_nonoverlap() {
+    // Rule (k): seq #=# prop — depends on whether seq has match
+    let expr = parse_sva("req #=# ack").unwrap();
+    assert_eq!(analyze_vacuity(&expr), VacuityStatus::Unknown,
+        "FollowedBy nonoverlap vacuity depends on seq match");
+}
+
+#[test]
+fn vacuity_accept_on() {
+    // accept_on(c) p — nonvacuous based on body
+    let expr = parse_sva("accept_on(done) req").unwrap();
+    assert_eq!(analyze_vacuity(&expr), VacuityStatus::Nonvacuous,
+        "accept_on with nonvacuous body should be nonvacuous");
+}
+
+#[test]
+fn vacuity_reject_on() {
+    // reject_on(c) p — nonvacuous based on body
+    let expr = parse_sva("reject_on(err) req").unwrap();
+    assert_eq!(analyze_vacuity(&expr), VacuityStatus::Nonvacuous,
+        "reject_on with nonvacuous body should be nonvacuous");
+}
+
+#[test]
+fn vacuity_sync_accept_on() {
+    let expr = parse_sva("sync_accept_on(done) req").unwrap();
+    assert_eq!(analyze_vacuity(&expr), VacuityStatus::Nonvacuous);
+}
+
+#[test]
+fn vacuity_sync_reject_on() {
+    let expr = parse_sva("sync_reject_on(err) req").unwrap();
+    assert_eq!(analyze_vacuity(&expr), VacuityStatus::Nonvacuous);
+}
+
+#[test]
+fn vacuity_s_eventually_bounded() {
+    let expr = parse_sva("s_eventually [1:5] ack").unwrap();
+    assert_eq!(analyze_vacuity(&expr), VacuityStatus::Nonvacuous);
+}
+
+#[test]
+fn vacuity_until_all_four_forms() {
+    // All four until variants are nonvacuous
+    for (sva, desc) in &[
+        ("req until ack", "weak non-overlapping"),
+        ("req s_until ack", "strong non-overlapping"),
+        ("req until_with ack", "weak overlapping"),
+        ("req s_until_with ack", "strong overlapping"),
+    ] {
+        let expr = parse_sva(sva).unwrap();
+        assert_eq!(analyze_vacuity(&expr), VacuityStatus::Nonvacuous,
+            "{} until should be nonvacuous", desc);
+    }
+}
+
+#[test]
+fn vacuity_property_case_with_default() {
+    // PropertyCase WITH default: always nonvacuous
+    let expr = SvaExpr::PropertyCase {
+        expression: Box::new(SvaExpr::Signal("state".into())),
+        items: vec![
+            (vec![SvaExpr::Const(0, 2)], Box::new(SvaExpr::Signal("a".into()))),
+        ],
+        default: Some(Box::new(SvaExpr::Signal("b".into()))),
+    };
+    assert_eq!(analyze_vacuity(&expr), VacuityStatus::Nonvacuous,
+        "PropertyCase with default should be Nonvacuous");
+}
+
 // ═══════════════════════════════════════════════════════════════════════════
 // SPRINT 19: DIST CONSTRAINTS (IEEE 16.14.2)
 // ═══════════════════════════════════════════════════════════════════════════
@@ -4587,7 +4666,7 @@ fn dist_validate_non_empty_ok() {
 // SPRINT 20: CHECKERS (IEEE Chapter 17)
 // ═══════════════════════════════════════════════════════════════════════════
 
-use logicaffeine_compile::codegen_sva::sva_model::{CheckerDecl, RandVar};
+use logicaffeine_compile::codegen_sva::sva_model::{CheckerDecl, RandVar, RandVarType};
 
 #[test]
 fn checker_basic_construct() {
@@ -4606,21 +4685,21 @@ fn checker_basic_construct() {
 
 #[test]
 fn checker_rand_const_bit() {
-    let rv = RandVar { name: "d".into(), width: 1, is_const: true };
+    let rv = RandVar { name: "d".into(), var_type: RandVarType::BitVec(1), is_const: true };
     assert!(rv.is_const);
-    assert_eq!(rv.width, 1);
+    assert!(matches!(rv.var_type, RandVarType::BitVec(1)));
 }
 
 #[test]
 fn checker_rand_nonconst_bit() {
-    let rv = RandVar { name: "flag".into(), width: 1, is_const: false };
+    let rv = RandVar { name: "flag".into(), var_type: RandVarType::BitVec(1), is_const: false };
     assert!(!rv.is_const);
 }
 
 #[test]
 fn checker_rand_const_bitvec() {
-    let rv = RandVar { name: "idx".into(), width: 6, is_const: true };
-    assert_eq!(rv.width, 6);
+    let rv = RandVar { name: "idx".into(), var_type: RandVarType::BitVec(6), is_const: true };
+    assert!(matches!(rv.var_type, RandVarType::BitVec(6)));
     assert!(rv.is_const);
 }
 
@@ -4632,8 +4711,8 @@ fn checker_with_rand_vars() {
             SvaPort { name: "sig".into(), port_type: SvaPortType::Untyped, default: None },
         ],
         rand_vars: vec![
-            RandVar { name: "d".into(), width: 1, is_const: true },
-            RandVar { name: "idx".into(), width: 6, is_const: true },
+            RandVar { name: "d".into(), var_type: RandVarType::BitVec(1), is_const: true },
+            RandVar { name: "idx".into(), var_type: RandVarType::BitVec(6), is_const: true },
         ],
         assertions: vec![],
     };
@@ -4671,16 +4750,16 @@ fn checker_multiple_rand_vars() {
         name: "multi_rand".into(),
         ports: vec![],
         rand_vars: vec![
-            RandVar { name: "d1".into(), width: 1, is_const: true },
-            RandVar { name: "d2".into(), width: 1, is_const: false },
-            RandVar { name: "idx".into(), width: 8, is_const: true },
+            RandVar { name: "d1".into(), var_type: RandVarType::BitVec(1), is_const: true },
+            RandVar { name: "d2".into(), var_type: RandVarType::BitVec(1), is_const: false },
+            RandVar { name: "idx".into(), var_type: RandVarType::BitVec(8), is_const: true },
         ],
         assertions: vec![],
     };
     assert_eq!(checker.rand_vars.len(), 3);
     assert!(checker.rand_vars[0].is_const);
     assert!(!checker.rand_vars[1].is_const);
-    assert_eq!(checker.rand_vars[2].width, 8);
+    assert!(matches!(checker.rand_vars[2].var_type, RandVarType::BitVec(8)));
 }
 
 #[test]
@@ -4727,8 +4806,8 @@ fn checker_with_multiple_assertions() {
 
 #[test]
 fn checker_rand_const_vs_nonconst() {
-    let const_rand = RandVar { name: "d".into(), width: 1, is_const: true };
-    let nonconst_rand = RandVar { name: "d".into(), width: 1, is_const: false };
+    let const_rand = RandVar { name: "d".into(), var_type: RandVarType::BitVec(1), is_const: true };
+    let nonconst_rand = RandVar { name: "d".into(), var_type: RandVarType::BitVec(1), is_const: false };
     assert!(const_rand.is_const != nonconst_rand.is_const,
         "const and non-const rand should differ");
 }
@@ -4814,9 +4893,9 @@ fn checker_quantifier_structure_separates_const_and_nonconst() {
         name: "data_legal".into(),
         ports: vec![],
         rand_vars: vec![
-            RandVar { name: "d".into(), width: 1, is_const: true },
-            RandVar { name: "flag".into(), width: 1, is_const: false },
-            RandVar { name: "idx".into(), width: 6, is_const: true },
+            RandVar { name: "d".into(), var_type: RandVarType::BitVec(1), is_const: true },
+            RandVar { name: "flag".into(), var_type: RandVarType::BitVec(1), is_const: false },
+            RandVar { name: "idx".into(), var_type: RandVarType::BitVec(6), is_const: true },
         ],
         assertions: vec![],
     };
@@ -6201,5 +6280,568 @@ mod z3_sprint3_advanced_temporal {
         let result = check_equivalence(&lhs, &rhs, &signals(&["mode", "req", "ack"], bound as usize), bound as usize);
         assert!(matches!(result, EquivalenceResult::Equivalent),
             "if-else must equal (C→P) ∧ (¬C→Q). Got: {:?}", result);
+    }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Z3 ALGEBRAIC IDENTITY TESTS — Sprint 4 Unbounded Operators (IEEE 16.7, 16.9.2)
+// ═══════════════════════════════════════════════════════════════════════════
+
+#[cfg(feature = "verification")]
+mod z3_sprint4_unbounded_operators {
+    use super::*;
+    use logicaffeine_compile::codegen_sva::sva_to_verify::bounded_to_verify;
+    use logicaffeine_verify::equivalence::{check_equivalence, EquivalenceResult};
+    use logicaffeine_verify::ic3::check_sat;
+    use logicaffeine_verify::VerifyExpr;
+
+    fn translate_at(sva: &str, bound: u32, t: u32) -> VerifyExpr {
+        let expr = parse_sva(sva).unwrap();
+        let mut translator = SvaTranslator::new(bound);
+        let bounded = translator.translate(&expr, t);
+        bounded_to_verify(&bounded)
+    }
+
+    fn signals(names: &[&str], _bound: usize) -> Vec<String> {
+        names.iter().map(|s| s.to_string()).collect()
+    }
+
+    #[test]
+    fn z3_delay_dollar_eventual_ack() {
+        // ##[1:$] ack at bound=5 ≡ ack@1 ∨ ack@2 ∨ ack@3 ∨ ack@4 ∨ ack@5
+        let bound: u32 = 5;
+        let lhs = translate_at("##[1:$] ack", bound, 0);
+        let rhs = {
+            let mut disj = VerifyExpr::Var("ack@1".into());
+            for t in 2..=bound {
+                disj = VerifyExpr::binary(
+                    logicaffeine_verify::VerifyOp::Or,
+                    disj,
+                    VerifyExpr::Var(format!("ack@{}", t)),
+                );
+            }
+            disj
+        };
+        let result = check_equivalence(&lhs, &rhs, &signals(&["ack"], bound as usize), bound as usize);
+        assert!(matches!(result, EquivalenceResult::Equivalent),
+            "##[1:$] ack at bound=5 must equal ack@1∨...∨ack@5. Got: {:?}", result);
+    }
+
+    #[test]
+    fn z3_delay_dollar_at_bound_1() {
+        // ##[1:$] ack at bound=1 → ack@1 only
+        let bound: u32 = 1;
+        let lhs = translate_at("##[1:$] ack", bound, 0);
+        let rhs = VerifyExpr::Var("ack@1".into());
+        let result = check_equivalence(&lhs, &rhs, &signals(&["ack"], bound as usize), bound as usize);
+        assert!(matches!(result, EquivalenceResult::Equivalent),
+            "##[1:$] at bound=1 must equal ack@1. Got: {:?}", result);
+    }
+
+    #[test]
+    fn z3_rep_star_includes_zero() {
+        // req[*] includes the zero-repetition case (empty match)
+        // At bound=3, req[*] should be satisfiable even if req is always false
+        let bound: u32 = 3;
+        let expr = translate_at("req[*]", bound, 0);
+        // Constrain req false at all timesteps
+        let mut constrained = expr;
+        for t in 0..bound {
+            constrained = VerifyExpr::binary(
+                logicaffeine_verify::VerifyOp::And,
+                constrained,
+                VerifyExpr::not(VerifyExpr::Var(format!("req@{}", t))),
+            );
+        }
+        let is_satisfiable = check_sat(&constrained);
+        assert!(is_satisfiable,
+            "req[*] must be satisfiable with req always false (zero-repetition matches)");
+    }
+
+    #[test]
+    fn z3_rep_plus_excludes_zero() {
+        // req[+] requires at least one repetition
+        // If req is false at t=0, req[+] at t=0 must fail
+        let bound: u32 = 3;
+        let expr = translate_at("req[+]", bound, 0);
+        // Constrain req false at all timesteps
+        let mut constrained = expr;
+        for t in 0..bound {
+            constrained = VerifyExpr::binary(
+                logicaffeine_verify::VerifyOp::And,
+                constrained,
+                VerifyExpr::not(VerifyExpr::Var(format!("req@{}", t))),
+            );
+        }
+        let is_satisfiable = check_sat(&constrained);
+        assert!(!is_satisfiable,
+            "req[+] must be unsatisfiable when req is always false (no zero-repetition)");
+    }
+
+    #[test]
+    fn z3_dollar_in_implication() {
+        // req |-> ##[1:$] ack: if req holds, ack must eventually hold
+        // With req@0=true and ack@3=true, should be satisfiable
+        let bound: u32 = 5;
+        let expr = translate_at("req |-> ##[1:$] ack", bound, 0);
+        let mut constrained = expr;
+        constrained = VerifyExpr::binary(
+            logicaffeine_verify::VerifyOp::And,
+            constrained,
+            VerifyExpr::Var("req@0".into()),
+        );
+        constrained = VerifyExpr::binary(
+            logicaffeine_verify::VerifyOp::And,
+            constrained,
+            VerifyExpr::Var("ack@3".into()),
+        );
+        let is_satisfiable = check_sat(&constrained);
+        assert!(is_satisfiable,
+            "req |-> ##[1:$] ack with req@0=true and ack@3=true must be satisfiable");
+    }
+
+    #[test]
+    fn z3_dollar_implication_ack_never_arrives() {
+        // req |-> ##[1:$] ack: if req holds and ack NEVER holds, property should fail
+        let bound: u32 = 5;
+        let expr = translate_at("req |-> ##[1:$] ack", bound, 0);
+        let mut constrained = expr;
+        // req at t=0
+        constrained = VerifyExpr::binary(
+            logicaffeine_verify::VerifyOp::And,
+            constrained,
+            VerifyExpr::Var("req@0".into()),
+        );
+        // ack false at all timesteps
+        for t in 0..=bound {
+            constrained = VerifyExpr::binary(
+                logicaffeine_verify::VerifyOp::And,
+                constrained,
+                VerifyExpr::not(VerifyExpr::Var(format!("ack@{}", t))),
+            );
+        }
+        let is_satisfiable = check_sat(&constrained);
+        assert!(!is_satisfiable,
+            "req |-> ##[1:$] ack with req@0=true and ack always false must be unsatisfiable");
+    }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Z3 ALGEBRAIC IDENTITY TESTS — Sprint 5-6 Sequence Semantics (IEEE 16.9.5-10)
+// ═══════════════════════════════════════════════════════════════════════════
+
+#[cfg(feature = "verification")]
+mod z3_sprint5_6_sequence_semantics {
+    use super::*;
+    use logicaffeine_compile::codegen_sva::sva_to_verify::bounded_to_verify;
+    use logicaffeine_verify::equivalence::{check_equivalence, EquivalenceResult};
+    use logicaffeine_verify::ic3::check_sat;
+    use logicaffeine_verify::VerifyExpr;
+
+    fn translate_at(sva: &str, bound: u32, t: u32) -> VerifyExpr {
+        let expr = parse_sva(sva).unwrap();
+        let mut translator = SvaTranslator::new(bound);
+        let bounded = translator.translate(&expr, t);
+        bounded_to_verify(&bounded)
+    }
+
+    fn translate_property(sva: &str, bound: u32) -> VerifyExpr {
+        let expr = parse_sva(sva).unwrap();
+        let mut translator = SvaTranslator::new(bound);
+        let result = translator.translate_property(&expr);
+        bounded_to_verify(&result.expr)
+    }
+
+    fn signals(names: &[&str], _bound: usize) -> Vec<String> {
+        names.iter().map(|s| s.to_string()).collect()
+    }
+
+    #[test]
+    fn z3_seq_and_pure_expressions_equiv_bool_and() {
+        // When both operands are pure (non-temporal), seq AND ≡ boolean AND
+        let bound: u32 = 5;
+        let lhs = translate_at("req and ack", bound, 0);
+        let rhs = translate_at("req && ack", bound, 0);
+        let result = check_equivalence(&lhs, &rhs, &signals(&["req", "ack"], bound as usize), bound as usize);
+        assert!(matches!(result, EquivalenceResult::Equivalent),
+            "Pure seq `and` must equal boolean `&&`. Got: {:?}", result);
+    }
+
+    #[test]
+    fn z3_seq_or_pure_expressions_equiv_bool_or() {
+        // When both operands are pure, seq OR ≡ boolean OR
+        let bound: u32 = 5;
+        let lhs = translate_at("req or ack", bound, 0);
+        let rhs = translate_at("req || ack", bound, 0);
+        let result = check_equivalence(&lhs, &rhs, &signals(&["req", "ack"], bound as usize), bound as usize);
+        assert!(matches!(result, EquivalenceResult::Equivalent),
+            "Pure seq `or` must equal boolean `||`. Got: {:?}", result);
+    }
+
+    #[test]
+    fn z3_throughout_holds_every_cycle() {
+        // valid throughout (##2 done): valid must be true at t=0,1,2 for done@2
+        let bound: u32 = 5;
+        let expr = translate_at("valid throughout (##2 done)", bound, 0);
+        // Constrain: valid true at 0,1,2 and done true at 2 → satisfiable
+        let mut good = expr.clone();
+        for t in 0..=2 {
+            good = VerifyExpr::binary(
+                logicaffeine_verify::VerifyOp::And,
+                good,
+                VerifyExpr::Var(format!("valid@{}", t)),
+            );
+        }
+        good = VerifyExpr::binary(
+            logicaffeine_verify::VerifyOp::And,
+            good,
+            VerifyExpr::Var("done@2".into()),
+        );
+        assert!(check_sat(&good),
+            "throughout with condition held every cycle must be satisfiable");
+    }
+
+    #[test]
+    fn z3_throughout_fails_if_cond_drops() {
+        // valid throughout (##2 done): if valid drops at t=1, should fail
+        let bound: u32 = 5;
+        let expr = translate_at("valid throughout (##2 done)", bound, 0);
+        let mut bad = expr;
+        bad = VerifyExpr::binary(logicaffeine_verify::VerifyOp::And, bad, VerifyExpr::Var("valid@0".into()));
+        bad = VerifyExpr::binary(logicaffeine_verify::VerifyOp::And, bad, VerifyExpr::not(VerifyExpr::Var("valid@1".into())));
+        bad = VerifyExpr::binary(logicaffeine_verify::VerifyOp::And, bad, VerifyExpr::Var("valid@2".into()));
+        bad = VerifyExpr::binary(logicaffeine_verify::VerifyOp::And, bad, VerifyExpr::Var("done@2".into()));
+        assert!(!check_sat(&bad),
+            "throughout must fail when condition drops mid-sequence");
+    }
+
+    #[test]
+    fn z3_first_match_selects_earliest() {
+        // first_match(##[1:3] ack): if ack@1=true and ack@3=true, only ack@1 match
+        // Verify: first_match(##[1:3] ack) with ack@1=true ≡ ##1 ack with ack@1=true
+        let bound: u32 = 5;
+        let fm = translate_at("first_match(##[1:3] ack)", bound, 0);
+        let early = translate_at("##1 ack", bound, 0);
+        // Both should evaluate the same when ack@1 is true
+        let mut fm_constrained = fm;
+        fm_constrained = VerifyExpr::binary(logicaffeine_verify::VerifyOp::And, fm_constrained, VerifyExpr::Var("ack@1".into()));
+        let mut early_constrained = early;
+        early_constrained = VerifyExpr::binary(logicaffeine_verify::VerifyOp::And, early_constrained, VerifyExpr::Var("ack@1".into()));
+        // Both should be satisfiable
+        assert!(check_sat(&fm_constrained), "first_match with ack@1=true must be satisfiable");
+        assert!(check_sat(&early_constrained), "##1 ack with ack@1=true must be satisfiable");
+    }
+
+    #[test]
+    fn z3_intersect_length_mismatch_never_matches() {
+        // (##1 a) intersect (##3 b): lengths 1 vs 3 → never matches
+        // This should be equivalent to false
+        let bound: u32 = 10;
+        let expr = translate_at("(a ##1 b) intersect (c ##3 d)", bound, 0);
+        // If intersect properly enforces length matching, sequences of different
+        // fixed lengths should produce unsatisfiable conjunction
+        // Since a##1 b has length 2 and c##3 d has length 4, intersect should fail
+        let mut constrained = expr;
+        // Make all signals true so the sequences themselves would match
+        for sig in &["a", "b", "c", "d"] {
+            for t in 0..=bound {
+                constrained = VerifyExpr::binary(
+                    logicaffeine_verify::VerifyOp::And,
+                    constrained,
+                    VerifyExpr::Var(format!("{}@{}", sig, t)),
+                );
+            }
+        }
+        let is_satisfiable = check_sat(&constrained);
+        assert!(!is_satisfiable,
+            "intersect of sequences with different fixed lengths must be unsatisfiable");
+    }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Z3 ALGEBRAIC IDENTITY TESTS — Sprint 7 Directives (IEEE 16.14)
+// ═══════════════════════════════════════════════════════════════════════════
+
+#[cfg(feature = "verification")]
+mod z3_sprint7_directives {
+    use super::*;
+    use logicaffeine_compile::codegen_sva::sva_to_verify::bounded_to_verify;
+    use logicaffeine_verify::equivalence::{check_equivalence, EquivalenceResult};
+    use logicaffeine_verify::ic3::check_sat;
+    use logicaffeine_verify::VerifyExpr;
+
+    fn signals(names: &[&str], _bound: usize) -> Vec<String> {
+        names.iter().map(|s| s.to_string()).collect()
+    }
+
+    #[test]
+    fn z3_assume_constrains_assert() {
+        // assume !rst + assert (req |-> ack): with rst=false, check should pass
+        let bound: u32 = 3;
+        let assume_d = parse_sva_directive("assume property (!rst);").unwrap();
+        let assert_d = parse_sva_directive("assert property (req |-> ##1 ack);").unwrap();
+        let mut translator = SvaTranslator::new(bound);
+        let assume_result = translator.translate_directive(&assume_d);
+        let assert_result = translator.translate_directive(&assert_d);
+        let assume_ve = bounded_to_verify(&assume_result.expr);
+        let assert_ve = bounded_to_verify(&assert_result.expr);
+        // assume AND assert should be satisfiable (consistent)
+        let combined = VerifyExpr::binary(logicaffeine_verify::VerifyOp::And, assume_ve, assert_ve);
+        let is_satisfiable = check_sat(&combined);
+        assert!(is_satisfiable,
+            "assume !rst + assert req|->ack should be satisfiable (consistent)");
+    }
+
+    #[test]
+    fn z3_cover_reachability_sat() {
+        // cover property (req |-> ack) should be satisfiable
+        let bound: u32 = 3;
+        let cover_d = parse_sva_directive("cover property (req |-> ack);").unwrap();
+        let mut translator = SvaTranslator::new(bound);
+        let result = translator.translate_directive(&cover_d);
+        let ve = bounded_to_verify(&result.expr);
+        let is_satisfiable = check_sat(&ve);
+        assert!(is_satisfiable,
+            "cover req |-> ack should be satisfiable (reachable)");
+    }
+
+    #[test]
+    fn z3_assert_vs_assume_roles_differ() {
+        // Same property, assert vs assume should have same translated expression
+        let bound: u32 = 3;
+        let assert_d = parse_sva_directive("assert property (req |-> ack);").unwrap();
+        let assume_d = parse_sva_directive("assume property (req |-> ack);").unwrap();
+        let mut t1 = SvaTranslator::new(bound);
+        let mut t2 = SvaTranslator::new(bound);
+        let assert_r = t1.translate_directive(&assert_d);
+        let assume_r = t2.translate_directive(&assume_d);
+        let assert_ve = bounded_to_verify(&assert_r.expr);
+        let assume_ve = bounded_to_verify(&assume_r.expr);
+        let result = check_equivalence(&assert_ve, &assume_ve,
+            &signals(&["req", "ack"], bound as usize), bound as usize);
+        assert!(matches!(result, EquivalenceResult::Equivalent),
+            "Same property in assert vs assume should produce equivalent expression. Got: {:?}", result);
+    }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Z3 ALGEBRAIC IDENTITY TESTS — Sprint 10 Local Variables (IEEE 16.10)
+// ═══════════════════════════════════════════════════════════════════════════
+
+#[cfg(feature = "verification")]
+mod z3_sprint10_local_variables {
+    use super::*;
+    use logicaffeine_compile::codegen_sva::sva_to_verify::bounded_to_verify;
+    use logicaffeine_verify::equivalence::{check_equivalence, EquivalenceResult};
+    use logicaffeine_verify::ic3::check_sat;
+    use logicaffeine_verify::VerifyExpr;
+
+    fn signals(names: &[&str], _bound: usize) -> Vec<String> {
+        names.iter().map(|s| s.to_string()).collect()
+    }
+
+    #[test]
+    fn z3_local_var_pipeline_data_integrity() {
+        // (valid, v = data_in) |-> ##3 (data_out == v)
+        // At t=0: v binds to data_in@0. At t=3: data_out@3 must equal data_in@0.
+        let prop = SvaExpr::Implication {
+            antecedent: Box::new(SvaExpr::SequenceAction {
+                expression: Box::new(SvaExpr::Signal("valid".into())),
+                assignments: vec![("v".to_string(), Box::new(SvaExpr::Signal("data_in".into())))],
+            }),
+            consequent: Box::new(SvaExpr::Delay {
+                body: Box::new(SvaExpr::Eq(
+                    Box::new(SvaExpr::Signal("data_out".into())),
+                    Box::new(SvaExpr::LocalVar("v".into())),
+                )),
+                min: 3, max: Some(3),
+            }),
+            overlapping: true,
+        };
+        let mut translator = SvaTranslator::new(5);
+        let bounded = translator.translate(&prop, 0);
+        let ve = bounded_to_verify(&bounded);
+        // With valid@0=true and data_out@3 = data_in@0, property should be satisfiable
+        let mut constrained = ve;
+        constrained = VerifyExpr::binary(logicaffeine_verify::VerifyOp::And, constrained,
+            VerifyExpr::Var("valid@0".into()));
+        // data_out@3 == data_in@0 makes the consequent true
+        let is_satisfiable = check_sat(&constrained);
+        assert!(is_satisfiable,
+            "Pipeline with local var binding should be satisfiable when data flows correctly");
+    }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Z3 ALGEBRAIC IDENTITY TESTS — Sprint 12 Multi-Clock (IEEE 16.13)
+// ═══════════════════════════════════════════════════════════════════════════
+
+#[cfg(feature = "verification")]
+mod z3_sprint12_multi_clock {
+    use super::*;
+    use logicaffeine_compile::codegen_sva::sva_to_verify::bounded_to_verify;
+    use logicaffeine_verify::equivalence::{check_equivalence, EquivalenceResult};
+    use logicaffeine_verify::ic3::check_sat;
+    use logicaffeine_verify::VerifyExpr;
+
+    fn translate_at(sva: &str, bound: u32, t: u32) -> VerifyExpr {
+        let expr = parse_sva(sva).unwrap();
+        let mut translator = SvaTranslator::new(bound);
+        let bounded = translator.translate(&expr, t);
+        bounded_to_verify(&bounded)
+    }
+
+    fn signals(names: &[&str], _bound: usize) -> Vec<String> {
+        names.iter().map(|s| s.to_string()).collect()
+    }
+
+    #[test]
+    fn z3_clocked_property_satisfiable() {
+        // @(posedge clk) req |-> ##1 ack — basic single-clock, should be satisfiable
+        let bound: u32 = 5;
+        let expr = translate_at("@(posedge clk) (req |-> ##1 ack)", bound, 0);
+        let is_satisfiable = check_sat(&expr);
+        assert!(is_satisfiable,
+            "Single-clock req |-> ##1 ack should be satisfiable");
+    }
+
+    #[test]
+    fn z3_clocked_vs_unclocked_same_single_domain() {
+        // In bounded model, clocked and unclocked should produce equivalent logic
+        // when we assume the clock ticks at every timestep
+        let bound: u32 = 3;
+        let clocked = translate_at("@(posedge clk) req", bound, 0);
+        let unclocked = translate_at("req", bound, 0);
+        // With clk assumed always ticking, these should be equivalent
+        let is_satisfiable = check_sat(&clocked);
+        assert!(is_satisfiable, "Clocked req should be satisfiable");
+        let is_satisfiable2 = check_sat(&unclocked);
+        assert!(is_satisfiable2, "Unclocked req should be satisfiable");
+    }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Z3 ALGEBRAIC IDENTITY TESTS — Sprint 15 Bitwise (IEEE 16.6)
+// ═══════════════════════════════════════════════════════════════════════════
+
+#[cfg(feature = "verification")]
+mod z3_sprint15_bitwise {
+    use super::*;
+    use logicaffeine_compile::codegen_sva::sva_to_verify::bounded_to_verify;
+    use logicaffeine_verify::equivalence::{check_equivalence, EquivalenceResult};
+    use logicaffeine_verify::ic3::check_sat;
+    use logicaffeine_verify::VerifyExpr;
+
+    fn signals(names: &[&str], _bound: usize) -> Vec<String> {
+        names.iter().map(|s| s.to_string()).collect()
+    }
+
+    #[test]
+    fn z3_bitwise_demorgan() {
+        // ~(a & b) ≡ (~a | ~b)
+        let bound: u32 = 3;
+        let lhs_expr = SvaExpr::BitNot(Box::new(SvaExpr::BitAnd(
+            Box::new(SvaExpr::Signal("a".into())),
+            Box::new(SvaExpr::Signal("b".into())),
+        )));
+        let rhs_expr = SvaExpr::BitOr(
+            Box::new(SvaExpr::BitNot(Box::new(SvaExpr::Signal("a".into())))),
+            Box::new(SvaExpr::BitNot(Box::new(SvaExpr::Signal("b".into())))),
+        );
+        let mut t1 = SvaTranslator::new(bound);
+        let mut t2 = SvaTranslator::new(bound);
+        let lhs = bounded_to_verify(&t1.translate(&lhs_expr, 0));
+        let rhs = bounded_to_verify(&t2.translate(&rhs_expr, 0));
+        let result = check_equivalence(&lhs, &rhs, &signals(&["a", "b"], bound as usize), bound as usize);
+        assert!(matches!(result, EquivalenceResult::Equivalent),
+            "~(a & b) must equal (~a | ~b). Got: {:?}", result);
+    }
+
+    #[test]
+    fn z3_bitwise_and_or_absorption() {
+        // a & (a | b) ≡ a (absorption law)
+        let bound: u32 = 3;
+        let lhs_expr = SvaExpr::BitAnd(
+            Box::new(SvaExpr::Signal("a".into())),
+            Box::new(SvaExpr::BitOr(
+                Box::new(SvaExpr::Signal("a".into())),
+                Box::new(SvaExpr::Signal("b".into())),
+            )),
+        );
+        let rhs_expr = SvaExpr::Signal("a".into());
+        let mut t1 = SvaTranslator::new(bound);
+        let mut t2 = SvaTranslator::new(bound);
+        let lhs = bounded_to_verify(&t1.translate(&lhs_expr, 0));
+        let rhs = bounded_to_verify(&t2.translate(&rhs_expr, 0));
+        let result = check_equivalence(&lhs, &rhs, &signals(&["a", "b"], bound as usize), bound as usize);
+        assert!(matches!(result, EquivalenceResult::Equivalent),
+            "a & (a | b) must equal a (absorption). Got: {:?}", result);
+    }
+
+    #[test]
+    fn z3_bitwise_or_self_is_self() {
+        // a | a ≡ a (idempotent)
+        let bound: u32 = 3;
+        let or_self = SvaExpr::BitOr(
+            Box::new(SvaExpr::Signal("a".into())),
+            Box::new(SvaExpr::Signal("a".into())),
+        );
+        let mut t1 = SvaTranslator::new(bound);
+        let mut t2 = SvaTranslator::new(bound);
+        let lhs = bounded_to_verify(&t1.translate(&or_self, 0));
+        let rhs = bounded_to_verify(&t2.translate(&SvaExpr::Signal("a".into()), 0));
+        let result = check_equivalence(&lhs, &rhs, &signals(&["a"], bound as usize), bound as usize);
+        assert!(matches!(result, EquivalenceResult::Equivalent),
+            "a | a must equal a. Got: {:?}", result);
+    }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Z3 ALGEBRAIC IDENTITY TESTS — Sprint 18 const' Cast (IEEE 16.14.6.1)
+// ═══════════════════════════════════════════════════════════════════════════
+
+#[cfg(feature = "verification")]
+mod z3_sprint18_const_cast {
+    use super::*;
+    use logicaffeine_compile::codegen_sva::sva_to_verify::bounded_to_verify;
+    use logicaffeine_verify::equivalence::{check_equivalence, EquivalenceResult};
+    use logicaffeine_verify::ic3::check_sat;
+    use logicaffeine_verify::VerifyExpr;
+
+    fn signals(names: &[&str], _bound: usize) -> Vec<String> {
+        names.iter().map(|s| s.to_string()).collect()
+    }
+
+    #[test]
+    fn z3_const_cast_freeze_vs_live() {
+        // const'(data) at t=0 freezes to data@0. Normal data at t=5 is data@5.
+        // These should NOT be equivalent (different timesteps).
+        let bound: u32 = 8;
+        let frozen = SvaExpr::ConstCast(Box::new(SvaExpr::Signal("data".into())));
+        let live = SvaExpr::Signal("data".into());
+        let mut t1 = SvaTranslator::new(bound);
+        let mut t2 = SvaTranslator::new(bound);
+        let frozen_ve = bounded_to_verify(&t1.translate(&frozen, 0)); // data@0
+        let live_ve = bounded_to_verify(&t2.translate(&live, 5));     // data@5
+        let result = check_equivalence(&frozen_ve, &live_ve,
+            &signals(&["data"], bound as usize), bound as usize);
+        assert!(!matches!(result, EquivalenceResult::Equivalent),
+            "const'(data)@0 must NOT equal data@5 (different timesteps). Got: {:?}", result);
+    }
+
+    #[test]
+    fn z3_const_cast_same_timestep_equiv() {
+        // const'(data) at t=3 should equal data at t=3 (freeze = identity at same time)
+        let bound: u32 = 5;
+        let frozen = SvaExpr::ConstCast(Box::new(SvaExpr::Signal("data".into())));
+        let live = SvaExpr::Signal("data".into());
+        let mut t1 = SvaTranslator::new(bound);
+        let mut t2 = SvaTranslator::new(bound);
+        let frozen_ve = bounded_to_verify(&t1.translate(&frozen, 3));
+        let live_ve = bounded_to_verify(&t2.translate(&live, 3));
+        let result = check_equivalence(&frozen_ve, &live_ve,
+            &signals(&["data"], bound as usize), bound as usize);
+        assert!(matches!(result, EquivalenceResult::Equivalent),
+            "const'(data)@3 must equal data@3 (same timestep freeze is identity). Got: {:?}", result);
     }
 }

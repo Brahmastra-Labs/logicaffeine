@@ -570,7 +570,7 @@ fn collect_quantifier_bound_vars<'ctx>(
         VerifyExpr::ForAll { vars, body } | VerifyExpr::Exists { vars, body } => {
             for (name, ty) in vars {
                 match ty {
-                    VerifyType::Int | VerifyType::Object => {
+                    VerifyType::Int | VerifyType::Object | VerifyType::Real => {
                         if !int_vars.contains_key(name) {
                             int_vars.insert(name.clone(), Int::new_const(ctx, name.as_str()));
                         }
@@ -618,6 +618,7 @@ fn type_to_z3_sort<'ctx>(ctx: &'ctx Context, ty: &VerifyType) -> z3::Sort<'ctx> 
         VerifyType::Int => z3::Sort::int(ctx),
         VerifyType::Bool => z3::Sort::bool(ctx),
         VerifyType::Object => z3::Sort::int(ctx),
+        VerifyType::Real => z3::Sort::real(ctx),
         VerifyType::BitVector(w) => z3::Sort::bitvector(ctx, *w),
         VerifyType::Array(idx, elem) => {
             let idx_sort = type_to_z3_sort(ctx, idx);
@@ -903,6 +904,7 @@ impl<'ctx> EquivEncoder<'ctx> {
             VerifyType::Bool => Dynamic::from_ast(&Bool::new_const(self.ctx, name)),
             VerifyType::BitVector(w) => Dynamic::from_ast(&z3::ast::BV::new_const(self.ctx, name, *w)),
             VerifyType::Object => Dynamic::from_ast(&Int::new_const(self.ctx, name)),
+            VerifyType::Real => Dynamic::from_ast(&z3::ast::Real::new_const(self.ctx, name)),
             VerifyType::Array(idx, elem) => {
                 let idx_sort = self.type_to_sort(idx);
                 let elem_sort = self.type_to_sort(elem);
@@ -917,6 +919,7 @@ impl<'ctx> EquivEncoder<'ctx> {
             VerifyType::Int => z3::Sort::int(self.ctx),
             VerifyType::Bool => z3::Sort::bool(self.ctx),
             VerifyType::Object => z3::Sort::int(self.ctx),
+            VerifyType::Real => z3::Sort::real(self.ctx),
             VerifyType::BitVector(w) => z3::Sort::bitvector(self.ctx, *w),
             VerifyType::Array(idx, elem) => {
                 let idx_sort = self.type_to_sort(idx);

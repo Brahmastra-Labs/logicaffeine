@@ -1,6 +1,6 @@
 [package]
 name = "logicaffeine-proof"
-version = "0.9.15"
+version = "0.9.16"
 edition.workspace = true
 authors.workspace = true
 repository.workspace = true
@@ -17,7 +17,7 @@ default = []
 verification = ["dep:logicaffeine-verify"]
 
 [dependencies]
-logicaffeine-base = { version = "0.9.15", path = "../logicaffeine_base" }
-logicaffeine-kernel = { version = "0.9.15", path = "../logicaffeine_kernel" }
-logicaffeine-verify = { version = "0.9.15", path = "../logicaffeine_verify", optional = true }
+logicaffeine-base = { version = "0.9.16", path = "../logicaffeine_base" }
+logicaffeine-kernel = { version = "0.9.16", path = "../logicaffeine_kernel" }
+logicaffeine-verify = { version = "0.9.16", path = "../logicaffeine_verify", optional = true }
 # CRITICAL: NO LANGUAGE DEPENDENCY - Liskov Invariant

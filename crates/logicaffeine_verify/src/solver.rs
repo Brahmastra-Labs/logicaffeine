@@ -758,8 +758,10 @@ impl<'ctx> Encoder<'ctx> {
                     VerifyType::Int => Dynamic::from_ast(&Int::new_const(self.ctx, name.as_str())),
                     VerifyType::Bool => Dynamic::from_ast(&Bool::new_const(self.ctx, name.as_str())),
                     VerifyType::Object => {
-                        // For Object types, use Int as a placeholder
                         Dynamic::from_ast(&Int::new_const(self.ctx, name.as_str()))
+                    }
+                    VerifyType::Real => {
+                        Dynamic::from_ast(&z3::ast::Real::new_const(self.ctx, name.as_str()))
                     }
                     VerifyType::BitVector(width) => {
                         Dynamic::from_ast(&z3::ast::BV::new_const(self.ctx, name.as_str(), width))
@@ -767,7 +769,6 @@ impl<'ctx> Encoder<'ctx> {
                     VerifyType::Array(ref idx_ty, ref elem_ty) => {
                         let idx_sort = self.type_to_sort(idx_ty);
                         let elem_sort = self.type_to_sort(elem_ty);
-                        let arr_sort = z3::Sort::array(self.ctx, &idx_sort, &elem_sort);
                         Dynamic::from_ast(&z3::ast::Array::new_const(self.ctx, name.as_str(), &idx_sort, &elem_sort))
                     }
                 }
@@ -914,6 +915,7 @@ impl<'ctx> Encoder<'ctx> {
             VerifyType::Int => z3::Sort::int(self.ctx),
             VerifyType::Bool => z3::Sort::bool(self.ctx),
             VerifyType::Object => z3::Sort::int(self.ctx),
+            VerifyType::Real => z3::Sort::real(self.ctx),
             VerifyType::BitVector(width) => z3::Sort::bitvector(self.ctx, *width),
             VerifyType::Array(idx, elem) => {
                 let idx_sort = self.type_to_sort(idx);
@@ -929,6 +931,7 @@ impl<'ctx> Encoder<'ctx> {
             VerifyType::Bool => Dynamic::from_ast(&Bool::new_const(self.ctx, name)),
             VerifyType::BitVector(w) => Dynamic::from_ast(&z3::ast::BV::new_const(self.ctx, name, *w)),
             VerifyType::Object => Dynamic::from_ast(&Int::new_const(self.ctx, name)),
+            VerifyType::Real => Dynamic::from_ast(&z3::ast::Real::new_const(self.ctx, name)),
             VerifyType::Array(idx, elem) => {
                 let idx_sort = self.type_to_sort(idx);
                 let elem_sort = self.type_to_sort(elem);

@@ -48,6 +48,8 @@ pub enum VerifyType {
     BitVector(u32),
     /// Array type (index → element), maps to Z3 `ArraySort`.
     Array(Box<VerifyType>, Box<VerifyType>),
+    /// Real number type, maps to Z3 `RealSort` (IEEE 1800-2023).
+    Real,
 }
 
 /// Binary operations in the verification IR.

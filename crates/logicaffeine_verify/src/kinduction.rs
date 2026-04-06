@@ -360,6 +360,9 @@ pub fn encode_expr_bool<'ctx>(
                     crate::ir::VerifyType::Bool => {
                         Dynamic::from_ast(&Bool::new_const(ctx, name.as_str()))
                     }
+                    crate::ir::VerifyType::Real => {
+                        Dynamic::from_ast(&z3::ast::Real::new_const(ctx, name.as_str()))
+                    }
                     crate::ir::VerifyType::BitVector(w) => {
                         Dynamic::from_ast(&z3::ast::BV::new_const(ctx, name.as_str(), *w))
                     }
@@ -381,6 +384,9 @@ pub fn encode_expr_bool<'ctx>(
                     }
                     crate::ir::VerifyType::Bool => {
                         Dynamic::from_ast(&Bool::new_const(ctx, name.as_str()))
+                    }
+                    crate::ir::VerifyType::Real => {
+                        Dynamic::from_ast(&z3::ast::Real::new_const(ctx, name.as_str()))
                     }
                     crate::ir::VerifyType::BitVector(w) => {
                         Dynamic::from_ast(&z3::ast::BV::new_const(ctx, name.as_str(), *w))

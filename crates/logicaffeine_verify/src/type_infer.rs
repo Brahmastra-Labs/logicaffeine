@@ -224,6 +224,7 @@ fn types_compatible(a: &VerifyType, b: &VerifyType) -> bool {
     match (a, b) {
         (VerifyType::Int, VerifyType::Int) => true,
         (VerifyType::Bool, VerifyType::Bool) => true,
+        (VerifyType::Real, VerifyType::Real) => true,
         (VerifyType::Object, _) | (_, VerifyType::Object) => true,
         (VerifyType::BitVector(w1), VerifyType::BitVector(w2)) => w1 == w2,
         (VerifyType::Array(i1, e1), VerifyType::Array(i2, e2)) => {
@@ -238,6 +239,7 @@ fn type_specificity(ty: &VerifyType) -> u8 {
         VerifyType::Object => 0,
         VerifyType::Bool => 1,
         VerifyType::Int => 1,
+        VerifyType::Real => 1,
         VerifyType::BitVector(_) => 2,
         VerifyType::Array(_, _) => 2,
     }

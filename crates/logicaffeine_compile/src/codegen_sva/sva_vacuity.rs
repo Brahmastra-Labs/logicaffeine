@@ -172,7 +172,10 @@ pub fn analyze_vacuity(expr: &SvaExpr) -> VacuityStatus {
         SvaExpr::ImmediateAssert { .. } |
         SvaExpr::SequenceAction { .. } |
         SvaExpr::Clocked { .. } |
-        SvaExpr::LocalVar(_) => {
+        SvaExpr::LocalVar(_) |
+        SvaExpr::ArrayMap { .. } |
+        SvaExpr::TypeThis |
+        SvaExpr::RealConst(_) => {
             VacuityStatus::Nonvacuous
         }
     }

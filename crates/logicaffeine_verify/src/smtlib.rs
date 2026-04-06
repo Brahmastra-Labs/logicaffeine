@@ -56,6 +56,7 @@ fn type_to_smtlib(ty: &VerifyType) -> String {
         VerifyType::Int => "Int".into(),
         VerifyType::Bool => "Bool".into(),
         VerifyType::Object => "Int".into(),
+        VerifyType::Real => "Real".into(),
         VerifyType::BitVector(w) => format!("(_ BitVec {})", w),
         VerifyType::Array(idx, elem) => {
             format!("(Array {} {})", type_to_smtlib(idx), type_to_smtlib(elem))
