@@ -1915,6 +1915,16 @@ impl<'a> Lexer<'a> {
             }
         }
 
+        // "Exactly N" → Cardinal(N) — same as bare number but explicit
+        if lower == "exactly" {
+            if let Some(num_word) = self.peek_word(1) {
+                if let Some(n) = Self::word_to_number(num_word) {
+                    self.consume_words(1);
+                    return TokenType::Cardinal(n);
+                }
+            }
+        }
+
         if let Some(n) = Self::word_to_number(&lower) {
             return TokenType::Cardinal(n);
         }

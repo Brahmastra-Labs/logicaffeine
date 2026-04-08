@@ -98,11 +98,12 @@ pub enum ParserMode {
     Imperative,
 }
 
-/// Temporal modifier after copula: "is always Y" or "is never Y".
+/// Temporal modifier after copula: "is always Y", "is never Y", "is eventually Y".
 #[derive(Debug, Clone, Copy)]
-enum CopulaTemporal {
+pub(super) enum CopulaTemporal {
     Always,
     Never,
+    Eventually,
 }
 
 /// Controls scope of negation for lexically negative verbs (lacks, miss).
@@ -7106,6 +7107,9 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                     if resolved == "Always" || resolved == "always" {
                         self.advance();
                         copula_temporal = Some(CopulaTemporal::Always);
+                    } else if resolved == "Eventually" || resolved == "eventually" {
+                        self.advance();
+                        copula_temporal = Some(CopulaTemporal::Eventually);
                     }
                 }
             }
@@ -7603,6 +7607,12 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                     self.ctx.exprs.alloc(LogicExpr::Temporal {
                         operator: TemporalOperator::Always,
                         body: negated,
+                    })
+                }
+                Some(CopulaTemporal::Eventually) => {
+                    self.ctx.exprs.alloc(LogicExpr::Temporal {
+                        operator: TemporalOperator::Eventually,
+                        body: result,
                     })
                 }
                 None => result,
@@ -9308,7 +9318,8 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
             | TokenType::NonIntersectiveAdjective(_)
             | TokenType::Verb { .. }
             | TokenType::ProperName(_)
-            | TokenType::Article(_) => true,
+            | TokenType::Article(_)
+            | TokenType::Performative(_) => true,
             TokenType::Ambiguous { primary, alternatives } => {
                 Self::is_content_word_type(primary)
                     || alternatives.iter().any(Self::is_content_word_type)
@@ -9326,6 +9337,7 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                 | TokenType::Verb { .. }
                 | TokenType::ProperName(_)
                 | TokenType::Article(_)
+                | TokenType::Performative(_)
         )
     }
 
@@ -9805,10 +9817,12 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                 Ok(s)
             }
             TokenType::Verb { lemma, .. } => Ok(lemma),
+            TokenType::Performative(s) => Ok(s),
             TokenType::Ambiguous { primary, .. } => {
                 match *primary {
                     TokenType::Noun(s) | TokenType::Adjective(s) | TokenType::NonIntersectiveAdjective(s) => Ok(s),
                     TokenType::Verb { lemma, .. } => Ok(lemma),
+                    TokenType::Performative(s) => Ok(s),
                     TokenType::ProperName(s) => {
                         // In imperative mode, proper names must be defined
                         if self.mode == ParserMode::Imperative {

@@ -117,6 +117,23 @@ impl<'a, 'ctx, 'int> ClauseParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int> {
             }
         }
 
+        // "While X, Y" as temporal duration subordinator
+        // Duration semantics: Y holds for the entire interval where X is true.
+        // Lowered as implication checked globally: G(X → Y)
+        if self.check(&TokenType::While) {
+            self.advance(); // consume "While"
+            let condition = self.parse_sentence()?;
+            if self.check(&TokenType::Comma) {
+                self.advance();
+            }
+            let consequent = self.parse_sentence()?;
+            return Ok(self.ctx.exprs.alloc(LogicExpr::BinaryOp {
+                left: condition,
+                op: TokenType::Implies,
+                right: consequent,
+            }));
+        }
+
         // "When X, Y" as temporal subordinator (before wh-question check)
         // Disambiguate: subordinator has comma-separated clauses, question does not
         if self.check(&TokenType::When) {
@@ -205,6 +222,36 @@ impl<'a, 'ctx, 'int> ClauseParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int> {
             }));
         }
 
+        // "not both every request is valid and every grant is valid" → ¬(X ∧ Y)
+        // Only triggers for clausal conjunction: "both" + quantifier/determiner
+        // NOT for conjoined NP: "both Socrates and Plato are men"
+        if self.check(&TokenType::Both) {
+            // Peek at token after "both" — if it's a quantifier, this is clausal
+            let next_is_clausal = if self.current + 1 < self.tokens.len() {
+                matches!(self.tokens[self.current + 1].kind,
+                    TokenType::All | TokenType::No | TokenType::Some | TokenType::Any
+                    | TokenType::Most | TokenType::Few | TokenType::Many
+                    | TokenType::Cardinal(_) | TokenType::AtLeast(_) | TokenType::AtMost(_)
+                    | TokenType::Article(_)
+                )
+            } else {
+                false
+            };
+            if next_is_clausal {
+                self.advance(); // consume "both"
+                let first = self.parse_atom()?;
+                if self.check(&TokenType::And) {
+                    self.advance(); // consume "and"
+                }
+                let second = self.parse_atom()?;
+                return Ok(self.ctx.exprs.alloc(LogicExpr::BinaryOp {
+                    left: first,
+                    op: TokenType::And,
+                    right: second,
+                }));
+            }
+        }
+
         // Sentence-initial temporal operators for hardware verification:
         // "Always, P" → Temporal { Always, P }
         // "Eventually, P" → Temporal { Eventually, P }
@@ -265,9 +312,32 @@ impl<'a, 'ctx, 'int> ClauseParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int> {
 
         // "After X, Y" → X → Y (temporal sequence)
         // "Before X, Y" → Y → X
+        // Handles both "After reset is deasserted, ..." (full clause)
+        // and "After request, ..." (bare signal/event noun)
         if self.check_preposition_is("after") || self.check_preposition_is("After") {
             self.advance(); // consume "after"
-            let antecedent = self.parse_sentence()?;
+
+            // Check for bare noun/signal + comma pattern: "After request, ..."
+            // Also handle Performative tokens (e.g., "request" when not after determiner)
+            let is_bare_noun_comma = self.current + 1 < self.tokens.len()
+                && matches!(self.tokens[self.current + 1].kind, TokenType::Comma)
+                && (self.check_content_word()
+                    || matches!(self.peek().kind, TokenType::Performative(_)));
+            let antecedent = if is_bare_noun_comma {
+                let noun = match self.advance().kind.clone() {
+                    TokenType::Performative(s) => s,
+                    TokenType::Noun(s) | TokenType::Adjective(s) | TokenType::ProperName(s) => s,
+                    TokenType::Verb { lemma, .. } => lemma,
+                    _ => return Err(crate::error::ParseError {
+                        kind: crate::error::ParseErrorKind::ExpectedContentWord { found: self.peek().kind.clone() },
+                        span: self.current_span(),
+                    }),
+                };
+                self.ctx.exprs.alloc(LogicExpr::Atom(noun))
+            } else {
+                self.parse_sentence()?
+            };
+
             if self.check(&TokenType::Comma) {
                 self.advance();
             }

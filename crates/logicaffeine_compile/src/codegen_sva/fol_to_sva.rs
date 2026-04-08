@@ -58,6 +58,14 @@ pub fn synthesize_sva_from_spec(spec: &str, clock: &str) -> Result<SynthesizedSv
 
     let body = sva_body;
 
+    // Reject degenerate synthesis results — these indicate the spec is not
+    // a temporal property (e.g., bare action sentences like "The bus acknowledges the request.")
+    if body.trim() == "0" {
+        return Err("Not a temporal property: this sentence describes an action or event, \
+            not a verifiable hardware property. Wrap in a temporal operator \
+            (e.g., \"Always, ...\") or restructure as a conditional.".to_string());
+    }
+
     // Determine assertion kind from the temporal operator
     let kind = if body.contains("s_eventually") || body.contains("cover") {
         "cover"

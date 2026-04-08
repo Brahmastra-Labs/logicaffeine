@@ -121,6 +121,102 @@ impl<'a, 'ctx, 'int> QuantifierParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int
             self.in_negative_quantifier = true;
         }
 
+        // "At most one of X, Y, and Z is P" — counting quantifier with explicit list
+        if matches!(quantifier_token, TokenType::AtMost(_) | TokenType::AtLeast(_) | TokenType::Cardinal(_))
+            && self.check_preposition_is("of")
+        {
+            self.advance(); // consume "of"
+
+            // Parse comma-separated list of identifiers: "grant0, grant1, and grant2"
+            let mut signal_names: Vec<Symbol> = Vec::new();
+            loop {
+                let name = self.consume_content_word()?;
+                signal_names.push(name);
+
+                if self.check(&TokenType::Comma) {
+                    self.advance(); // consume ","
+                    // Skip optional "and" after comma: "X, Y, and Z"
+                    if self.check(&TokenType::And) {
+                        self.advance();
+                    }
+                } else if self.check(&TokenType::And) {
+                    self.advance(); // consume "and" (two-element: "X and Y")
+                } else {
+                    break;
+                }
+            }
+
+            // Now parse the predicate: "is asserted", "is valid", etc.
+            // In hardware context, the predicate is implicit — what matters
+            // is each signal name being high/low. Consume but don't use.
+            let mut is_negated = false;
+            if self.check(&TokenType::Is) || self.check(&TokenType::Are) {
+                self.advance(); // consume copula
+                is_negated = self.check(&TokenType::Not);
+                if is_negated {
+                    self.advance();
+                }
+                // Consume the predicate adjective/verb (e.g., "asserted", "valid")
+                let _ = self.consume_content_word();
+                // Consume optional trailing "at any time"
+                while self.check_preposition_is("at") {
+                    self.advance();
+                    if self.check(&TokenType::Any) {
+                        self.advance();
+                    }
+                    if self.check_content_word() {
+                        self.advance();
+                    }
+                }
+            }
+
+            // Build the body: each signal as an Atom, joined by OR
+            // SVA synthesis maps Atom(sig) → signal name directly
+            let mut signal_exprs: Vec<&'a LogicExpr<'a>> = Vec::new();
+            for &sig in &signal_names {
+                let atom: &'a LogicExpr<'a> = self.ctx.exprs.alloc(LogicExpr::Atom(sig));
+                let sig_expr = if is_negated {
+                    self.ctx.exprs.alloc(LogicExpr::UnaryOp {
+                        op: TokenType::Not,
+                        operand: atom,
+                    })
+                } else {
+                    atom
+                };
+                signal_exprs.push(sig_expr);
+            }
+
+            let body = if signal_exprs.len() == 1 {
+                signal_exprs[0]
+            } else {
+                let mut combined = signal_exprs[0];
+                for &expr in &signal_exprs[1..] {
+                    combined = self.ctx.exprs.alloc(LogicExpr::BinaryOp {
+                        left: combined,
+                        op: TokenType::Or,
+                        right: expr,
+                    });
+                }
+                combined
+            };
+
+            let kind = match quantifier_token {
+                TokenType::AtMost(n) => QuantifierKind::AtMost(n),
+                TokenType::AtLeast(n) => QuantifierKind::AtLeast(n),
+                TokenType::Cardinal(n) => QuantifierKind::Cardinal(n),
+                _ => unreachable!(),
+            };
+
+            self.in_negative_quantifier = was_in_negative_quantifier;
+
+            return Ok(self.ctx.exprs.alloc(LogicExpr::Quantifier {
+                kind,
+                variable: var_name,
+                body,
+                island_id: self.current_island,
+            }));
+        }
+
         let subject_pred = self.parse_restriction(var_name)?;
 
         if self.check_modal() {
