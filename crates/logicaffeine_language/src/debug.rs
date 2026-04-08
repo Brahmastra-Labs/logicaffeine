@@ -198,7 +198,8 @@ impl<'a> DisplayWith for LogicExpr<'a> {
                     TemporalOperator::Past => "P",
                     TemporalOperator::Future => "F",
                     TemporalOperator::Always => "G",
-                    TemporalOperator::Eventually => "F",
+                    TemporalOperator::Eventually
+                    | TemporalOperator::BoundedEventually(_) => "F",
                     TemporalOperator::Next => "X",
                 };
                 write!(f, "{}({})", op, body.with(interner))

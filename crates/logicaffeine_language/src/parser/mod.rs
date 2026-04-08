@@ -9048,6 +9048,12 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
 
             let mut pp_predicates: Vec<&'a LogicExpr<'a>> = Vec::new();
             while self.check_preposition() || self.check_to() {
+                // "within N cycles" is a temporal bound, not a PP
+                if self.check_preposition_is("within") && self.current + 1 < self.tokens.len()
+                    && matches!(self.tokens[self.current + 1].kind, TokenType::Cardinal(_) | TokenType::Number(_))
+                {
+                    break;
+                }
                 let prep_token = self.advance().clone();
                 let prep_name = if let TokenType::Preposition(sym) = prep_token.kind {
                     sym
@@ -9339,6 +9345,41 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                 | TokenType::Article(_)
                 | TokenType::Performative(_)
         )
+    }
+
+    /// Check for trailing "within N cycles" and wrap in BoundedEventually.
+    pub(super) fn try_wrap_bounded_delay(&mut self, expr: &'a LogicExpr<'a>) -> &'a LogicExpr<'a> {
+        if !self.check_preposition_is("within") {
+            return expr;
+        }
+        let has_number = if self.current + 1 < self.tokens.len() {
+            matches!(self.tokens[self.current + 1].kind, TokenType::Cardinal(_) | TokenType::Number(_))
+        } else {
+            false
+        };
+        if !has_number {
+            return expr;
+        }
+        self.advance(); // consume "within"
+        let bound = match self.advance().kind {
+            TokenType::Cardinal(n) => n,
+            TokenType::Number(sym) => {
+                let n_str = self.interner.resolve(sym);
+                n_str.parse::<u32>().unwrap_or(1)
+            }
+            _ => 1,
+        };
+        // Consume optional "cycle" / "cycles"
+        if self.check_content_word() {
+            let word = self.interner.resolve(self.peek().lexeme).to_lowercase();
+            if word == "cycle" || word == "cycles" {
+                self.advance();
+            }
+        }
+        self.ctx.exprs.alloc(LogicExpr::Temporal {
+            operator: TemporalOperator::BoundedEventually(bound),
+            body: expr,
+        })
     }
 
     fn check_verb(&self) -> bool {

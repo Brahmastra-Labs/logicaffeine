@@ -1191,6 +1191,12 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
             let unknown = self.interner.intern("?");
             let mut pp_predicates: Vec<&'a LogicExpr<'a>> = Vec::new();
             while self.check_preposition() || self.check_to() {
+                // "within N cycles" is a temporal bound, not a PP — leave for try_wrap_bounded_delay
+                if self.check_preposition_is("within") && self.current + 1 < self.tokens.len()
+                    && matches!(self.tokens[self.current + 1].kind, TokenType::Cardinal(_) | TokenType::Number(_))
+                {
+                    break;
+                }
                 let prep_token = self.advance().clone();
                 let prep_name = if let TokenType::Preposition(sym) = prep_token.kind {
                     sym
@@ -1411,11 +1417,13 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
 
 impl<'a, 'ctx, 'int> LogicVerbParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int> {
     fn parse_predicate_with_subject(&mut self, subject_symbol: Symbol) -> ParseResult<&'a LogicExpr<'a>> {
-        self.parse_predicate_impl(subject_symbol, false)
+        let result = self.parse_predicate_impl(subject_symbol, false)?;
+        Ok(self.try_wrap_bounded_delay(result))
     }
 
     fn parse_predicate_with_subject_as_var(&mut self, subject_symbol: Symbol) -> ParseResult<&'a LogicExpr<'a>> {
-        self.parse_predicate_impl(subject_symbol, true)
+        let result = self.parse_predicate_impl(subject_symbol, true)?;
+        Ok(self.try_wrap_bounded_delay(result))
     }
 
     fn try_parse_plural_subject(

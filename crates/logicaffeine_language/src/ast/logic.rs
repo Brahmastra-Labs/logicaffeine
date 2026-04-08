@@ -173,6 +173,9 @@ pub enum TemporalOperator {
     Eventually,
     /// Next: X(φ) — φ holds at the immediate next state.
     Next,
+    /// Bounded Eventually: F≤n(φ) — φ holds within n steps.
+    /// SVA target: `##[0:n] φ`
+    BoundedEventually(u32),
 }
 
 /// Binary temporal operators (LTL).

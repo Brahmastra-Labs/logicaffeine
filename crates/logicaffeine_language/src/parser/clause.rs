@@ -342,6 +342,7 @@ impl<'a, 'ctx, 'int> ClauseParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int> {
                 self.advance();
             }
             let consequent = self.parse_sentence()?;
+            let consequent = self.try_wrap_bounded_delay(consequent);
             return Ok(self.ctx.exprs.alloc(LogicExpr::BinaryOp {
                 left: antecedent,
                 op: TokenType::Implies,
@@ -1263,6 +1264,9 @@ impl<'a, 'ctx, 'int> ClauseParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int> {
                 right,
             });
         }
+
+        // Check for trailing "within N cycles" bounded temporal delay
+        let expr = self.try_wrap_bounded_delay(expr);
 
         Ok(expr)
     }

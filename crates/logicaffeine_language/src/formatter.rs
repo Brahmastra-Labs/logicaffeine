@@ -99,6 +99,7 @@ pub trait LogicFormatter {
             TemporalOperator::Future => self.future(),
             TemporalOperator::Always => "G",
             TemporalOperator::Eventually => "F",
+            TemporalOperator::BoundedEventually(n) => return format!("F≤{}({})", n, body),
             TemporalOperator::Next => "X",
         };
         format!("{}({})", sym, body)

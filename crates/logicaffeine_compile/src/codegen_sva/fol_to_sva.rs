@@ -103,6 +103,7 @@ fn synthesize_from_ast<'a>(
                 TemporalOperator::Always => inner, // G is implicit in assert property
                 TemporalOperator::Eventually => format!("s_eventually({})", inner),
                 TemporalOperator::Next => format!("nexttime({})", inner),
+                TemporalOperator::BoundedEventually(n) => format!("##[0:{}] {}", n, inner),
                 _ => inner,
             }
         }
