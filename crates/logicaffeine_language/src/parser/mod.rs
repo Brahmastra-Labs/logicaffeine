@@ -98,11 +98,12 @@ pub enum ParserMode {
     Imperative,
 }
 
-/// Temporal modifier after copula: "is always Y" or "is never Y".
+/// Temporal modifier after copula: "is always Y", "is never Y", "is eventually Y".
 #[derive(Debug, Clone, Copy)]
-enum CopulaTemporal {
+pub(super) enum CopulaTemporal {
     Always,
     Never,
+    Eventually,
 }
 
 /// Controls scope of negation for lexically negative verbs (lacks, miss).
@@ -7106,6 +7107,9 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                     if resolved == "Always" || resolved == "always" {
                         self.advance();
                         copula_temporal = Some(CopulaTemporal::Always);
+                    } else if resolved == "Eventually" || resolved == "eventually" {
+                        self.advance();
+                        copula_temporal = Some(CopulaTemporal::Eventually);
                     }
                 }
             }
@@ -7603,6 +7607,12 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                     self.ctx.exprs.alloc(LogicExpr::Temporal {
                         operator: TemporalOperator::Always,
                         body: negated,
+                    })
+                }
+                Some(CopulaTemporal::Eventually) => {
+                    self.ctx.exprs.alloc(LogicExpr::Temporal {
+                        operator: TemporalOperator::Eventually,
+                        body: result,
                     })
                 }
                 None => result,
@@ -9038,6 +9048,12 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
 
             let mut pp_predicates: Vec<&'a LogicExpr<'a>> = Vec::new();
             while self.check_preposition() || self.check_to() {
+                // "within N cycles" is a temporal bound, not a PP
+                if self.check_preposition_is("within") && self.current + 1 < self.tokens.len()
+                    && matches!(self.tokens[self.current + 1].kind, TokenType::Cardinal(_) | TokenType::Number(_))
+                {
+                    break;
+                }
                 let prep_token = self.advance().clone();
                 let prep_name = if let TokenType::Preposition(sym) = prep_token.kind {
                     sym
@@ -9308,7 +9324,8 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
             | TokenType::NonIntersectiveAdjective(_)
             | TokenType::Verb { .. }
             | TokenType::ProperName(_)
-            | TokenType::Article(_) => true,
+            | TokenType::Article(_)
+            | TokenType::Performative(_) => true,
             TokenType::Ambiguous { primary, alternatives } => {
                 Self::is_content_word_type(primary)
                     || alternatives.iter().any(Self::is_content_word_type)
@@ -9326,7 +9343,43 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                 | TokenType::Verb { .. }
                 | TokenType::ProperName(_)
                 | TokenType::Article(_)
+                | TokenType::Performative(_)
         )
+    }
+
+    /// Check for trailing "within N cycles" and wrap in BoundedEventually.
+    pub(super) fn try_wrap_bounded_delay(&mut self, expr: &'a LogicExpr<'a>) -> &'a LogicExpr<'a> {
+        if !self.check_preposition_is("within") {
+            return expr;
+        }
+        let has_number = if self.current + 1 < self.tokens.len() {
+            matches!(self.tokens[self.current + 1].kind, TokenType::Cardinal(_) | TokenType::Number(_))
+        } else {
+            false
+        };
+        if !has_number {
+            return expr;
+        }
+        self.advance(); // consume "within"
+        let bound = match self.advance().kind {
+            TokenType::Cardinal(n) => n,
+            TokenType::Number(sym) => {
+                let n_str = self.interner.resolve(sym);
+                n_str.parse::<u32>().unwrap_or(1)
+            }
+            _ => 1,
+        };
+        // Consume optional "cycle" / "cycles"
+        if self.check_content_word() {
+            let word = self.interner.resolve(self.peek().lexeme).to_lowercase();
+            if word == "cycle" || word == "cycles" {
+                self.advance();
+            }
+        }
+        self.ctx.exprs.alloc(LogicExpr::Temporal {
+            operator: TemporalOperator::BoundedEventually(bound),
+            body: expr,
+        })
     }
 
     fn check_verb(&self) -> bool {
@@ -9805,10 +9858,12 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                 Ok(s)
             }
             TokenType::Verb { lemma, .. } => Ok(lemma),
+            TokenType::Performative(s) => Ok(s),
             TokenType::Ambiguous { primary, .. } => {
                 match *primary {
                     TokenType::Noun(s) | TokenType::Adjective(s) | TokenType::NonIntersectiveAdjective(s) => Ok(s),
                     TokenType::Verb { lemma, .. } => Ok(lemma),
+                    TokenType::Performative(s) => Ok(s),
                     TokenType::ProperName(s) => {
                         // In imperative mode, proper names must be defined
                         if self.mode == ParserMode::Imperative {

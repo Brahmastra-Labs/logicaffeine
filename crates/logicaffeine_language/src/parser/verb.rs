@@ -567,6 +567,24 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                 self.advance(); // consume "not"
             }
 
+            // Check for temporal adverbs after copula: "is eventually Y", "is always Y", "is never Y"
+            let mut copula_temporal: Option<super::CopulaTemporal> = None;
+            if !is_negated {
+                if self.check(&TokenType::Never) {
+                    self.advance();
+                    copula_temporal = Some(super::CopulaTemporal::Never);
+                } else if let TokenType::Adverb(sym) | TokenType::ScopalAdverb(sym) | TokenType::TemporalAdverb(sym) = &self.peek().kind {
+                    let resolved = self.interner.resolve(*sym).to_string();
+                    if resolved == "Always" || resolved == "always" {
+                        self.advance();
+                        copula_temporal = Some(super::CopulaTemporal::Always);
+                    } else if resolved == "Eventually" || resolved == "eventually" {
+                        self.advance();
+                        copula_temporal = Some(super::CopulaTemporal::Eventually);
+                    }
+                }
+            }
+
             if self.check_verb() {
                 let (verb, _verb_time, verb_aspect, verb_class) = self.consume_verb_with_metadata();
 
@@ -608,14 +626,42 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                     with_aspect
                 };
 
-                return Ok(if is_negated {
+                let with_neg = if is_negated {
                     self.ctx.exprs.alloc(LogicExpr::UnaryOp {
                         op: TokenType::Not,
                         operand: with_time,
                     })
                 } else {
                     with_time
-                });
+                };
+
+                let result = match copula_temporal {
+                    Some(super::CopulaTemporal::Always) => {
+                        self.ctx.exprs.alloc(LogicExpr::Temporal {
+                            operator: TemporalOperator::Always,
+                            body: with_neg,
+                        })
+                    }
+                    Some(super::CopulaTemporal::Never) => {
+                        let negated = self.ctx.exprs.alloc(LogicExpr::UnaryOp {
+                            op: TokenType::Not,
+                            operand: with_time,
+                        });
+                        self.ctx.exprs.alloc(LogicExpr::Temporal {
+                            operator: TemporalOperator::Always,
+                            body: negated,
+                        })
+                    }
+                    Some(super::CopulaTemporal::Eventually) => {
+                        self.ctx.exprs.alloc(LogicExpr::Temporal {
+                            operator: TemporalOperator::Eventually,
+                            body: with_neg,
+                        })
+                    }
+                    None => with_neg,
+                };
+
+                return Ok(result);
             }
 
             let predicate = self.consume_content_word()?;
@@ -634,14 +680,42 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                 base_pred
             };
 
-            return Ok(if is_negated {
+            let with_neg = if is_negated {
                 self.ctx.exprs.alloc(LogicExpr::UnaryOp {
                     op: TokenType::Not,
                     operand: with_time,
                 })
             } else {
                 with_time
-            });
+            };
+
+            let result = match copula_temporal {
+                Some(super::CopulaTemporal::Always) => {
+                    self.ctx.exprs.alloc(LogicExpr::Temporal {
+                        operator: TemporalOperator::Always,
+                        body: with_neg,
+                    })
+                }
+                Some(super::CopulaTemporal::Never) => {
+                    let negated = self.ctx.exprs.alloc(LogicExpr::UnaryOp {
+                        op: TokenType::Not,
+                        operand: with_time,
+                    });
+                    self.ctx.exprs.alloc(LogicExpr::Temporal {
+                        operator: TemporalOperator::Always,
+                        body: negated,
+                    })
+                }
+                Some(super::CopulaTemporal::Eventually) => {
+                    self.ctx.exprs.alloc(LogicExpr::Temporal {
+                        operator: TemporalOperator::Eventually,
+                        body: with_neg,
+                    })
+                }
+                None => with_neg,
+            };
+
+            return Ok(result);
         }
 
         // Handle "did it" - when Auxiliary(Past) is used as a transitive verb (past of "do")
@@ -1117,6 +1191,12 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
             let unknown = self.interner.intern("?");
             let mut pp_predicates: Vec<&'a LogicExpr<'a>> = Vec::new();
             while self.check_preposition() || self.check_to() {
+                // "within N cycles" is a temporal bound, not a PP — leave for try_wrap_bounded_delay
+                if self.check_preposition_is("within") && self.current + 1 < self.tokens.len()
+                    && matches!(self.tokens[self.current + 1].kind, TokenType::Cardinal(_) | TokenType::Number(_))
+                {
+                    break;
+                }
                 let prep_token = self.advance().clone();
                 let prep_name = if let TokenType::Preposition(sym) = prep_token.kind {
                     sym
@@ -1337,11 +1417,13 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
 
 impl<'a, 'ctx, 'int> LogicVerbParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int> {
     fn parse_predicate_with_subject(&mut self, subject_symbol: Symbol) -> ParseResult<&'a LogicExpr<'a>> {
-        self.parse_predicate_impl(subject_symbol, false)
+        let result = self.parse_predicate_impl(subject_symbol, false)?;
+        Ok(self.try_wrap_bounded_delay(result))
     }
 
     fn parse_predicate_with_subject_as_var(&mut self, subject_symbol: Symbol) -> ParseResult<&'a LogicExpr<'a>> {
-        self.parse_predicate_impl(subject_symbol, true)
+        let result = self.parse_predicate_impl(subject_symbol, true)?;
+        Ok(self.try_wrap_bounded_delay(result))
     }
 
     fn try_parse_plural_subject(

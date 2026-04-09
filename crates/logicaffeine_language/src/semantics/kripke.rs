@@ -174,6 +174,14 @@ fn lower_expr<'a>(
                         "Reachable_Temporal", false,
                     )
                 }
+                TemporalOperator::BoundedEventually(n) => {
+                    // F≤n(φ) — preserve bound for SVA synthesis (##[0:n])
+                    let lowered_body = lower_expr(body, ctx, expr_arena, term_arena, interner);
+                    expr_arena.alloc(LogicExpr::Temporal {
+                        operator: TemporalOperator::BoundedEventually(*n),
+                        body: lowered_body,
+                    })
+                }
                 TemporalOperator::Next => {
                     // X(φ) → ∀w'(Next_Temporal(w, w') → φ(w'))
                     ctx.tick_clock();

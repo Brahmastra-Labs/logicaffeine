@@ -145,7 +145,8 @@ pub fn logic_expr_to_proof_expr<'a>(expr: &LogicExpr<'a>, interner: &Interner) -
                 TemporalOperator::Past => "Past",
                 TemporalOperator::Future => "Future",
                 TemporalOperator::Always => "Always",
-                TemporalOperator::Eventually => "Eventually",
+                TemporalOperator::Eventually
+                | TemporalOperator::BoundedEventually(_) => "Eventually",
                 TemporalOperator::Next => "Next",
             };
             ProofExpr::Temporal {

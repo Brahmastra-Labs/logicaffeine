@@ -467,6 +467,25 @@ pub fn extract_from_kripke_ast<'a>(
                      in_safety, in_liveness || is_temporal_world, position, impl_depth);
             }
 
+            // Counting quantifiers (AtMost, AtLeast, Cardinal, etc.) — recurse into body
+            LogicExpr::Quantifier { body, .. } => {
+                walk(body, interner, kg, seen, antecedent, consequent, pred_names,
+                     in_safety, in_liveness, position, impl_depth);
+            }
+
+            // Atom: bare symbol — treat as signal name
+            LogicExpr::Atom(sym) => {
+                let name = interner.resolve(*sym).to_string();
+                if !name.is_empty() && name.len() > 1 {
+                    seen.insert(name.clone());
+                    match position {
+                        Position::Antecedent => { antecedent.insert(name); }
+                        Position::Consequent => { consequent.insert(name); }
+                        Position::Neutral => {}
+                    }
+                }
+            }
+
             // Binary connectives: walk both sides
             LogicExpr::BinaryOp { left, right, op } => {
                 // TokenType::If = user-written conditional (provenance tag).
