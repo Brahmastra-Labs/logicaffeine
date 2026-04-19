@@ -349,6 +349,19 @@ fn substitute_identifiers<'a>(
         Expr::InterpolatedString(_) => expr,
         // Leaves
         Expr::Literal(_) | Expr::OptionNone | Expr::Escape { .. } => expr,
+
+        Expr::UnaryOp { .. } => {
+            unreachable!("HW-Spec UnaryOp not emitted outside ## Hardware/Property blocks (in constant propagation)")
+        }
+        Expr::BitSelect { .. } => {
+            unreachable!("HW-Spec BitSelect not emitted outside ## Hardware/Property blocks (in constant propagation)")
+        }
+        Expr::PartSelect { .. } => {
+            unreachable!("HW-Spec PartSelect not emitted outside ## Hardware/Property blocks (in constant propagation)")
+        }
+        Expr::HwConcat { .. } => {
+            unreachable!("HW-Spec HwConcat not emitted outside ## Hardware/Property blocks (in constant propagation)")
+        }
     }
 }
 

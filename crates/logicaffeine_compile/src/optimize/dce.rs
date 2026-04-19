@@ -73,6 +73,18 @@ fn collect_expr_reads(expr: &Expr, reads: &mut HashSet<Symbol>) -> bool {
             false
         }
         Expr::Closure { .. } | Expr::Escape { .. } => false,
+        Expr::UnaryOp { .. } => {
+            unreachable!("HW-Spec UnaryOp not emitted outside ## Hardware/Property blocks (in DCE read collection)")
+        }
+        Expr::BitSelect { .. } => {
+            unreachable!("HW-Spec BitSelect not emitted outside ## Hardware/Property blocks (in DCE read collection)")
+        }
+        Expr::PartSelect { .. } => {
+            unreachable!("HW-Spec PartSelect not emitted outside ## Hardware/Property blocks (in DCE read collection)")
+        }
+        Expr::HwConcat { .. } => {
+            unreachable!("HW-Spec HwConcat not emitted outside ## Hardware/Property blocks (in DCE read collection)")
+        }
     }
 }
 

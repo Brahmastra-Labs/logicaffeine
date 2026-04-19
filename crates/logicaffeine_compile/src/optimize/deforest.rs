@@ -336,6 +336,18 @@ fn collect_expr_symbols(expr: &Expr, syms: &mut HashSet<Symbol>) {
             for arg in args { collect_expr_symbols(arg, syms); }
         }
         Expr::Closure { .. } | Expr::Escape { .. } => {}
+        Expr::UnaryOp { .. } => {
+            unreachable!("HW-Spec UnaryOp not emitted outside ## Hardware/Property blocks (in deforest symbol collection)")
+        }
+        Expr::BitSelect { .. } => {
+            unreachable!("HW-Spec BitSelect not emitted outside ## Hardware/Property blocks (in deforest symbol collection)")
+        }
+        Expr::PartSelect { .. } => {
+            unreachable!("HW-Spec PartSelect not emitted outside ## Hardware/Property blocks (in deforest symbol collection)")
+        }
+        Expr::HwConcat { .. } => {
+            unreachable!("HW-Spec HwConcat not emitted outside ## Hardware/Property blocks (in deforest symbol collection)")
+        }
     }
 }
 
@@ -451,6 +463,18 @@ fn expr_references_symbol(expr: &Expr, sym: Symbol) -> bool {
         }
         // Conservative for opaque expressions
         Expr::Closure { .. } | Expr::Escape { .. } => true,
+        Expr::UnaryOp { .. } => {
+            unreachable!("HW-Spec UnaryOp not emitted outside ## Hardware/Property blocks (in deforest reference check)")
+        }
+        Expr::BitSelect { .. } => {
+            unreachable!("HW-Spec BitSelect not emitted outside ## Hardware/Property blocks (in deforest reference check)")
+        }
+        Expr::PartSelect { .. } => {
+            unreachable!("HW-Spec PartSelect not emitted outside ## Hardware/Property blocks (in deforest reference check)")
+        }
+        Expr::HwConcat { .. } => {
+            unreachable!("HW-Spec HwConcat not emitted outside ## Hardware/Property blocks (in deforest reference check)")
+        }
     }
 }
 

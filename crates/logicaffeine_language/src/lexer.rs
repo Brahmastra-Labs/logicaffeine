@@ -329,6 +329,9 @@ pub enum LexerMode {
     #[default]
     Declarative, // Logic, Theorems, Definitions
     Imperative,  // Main, Functions, Code
+    /// `## Hardware` / `## Property` — enables HW-Spec bitwise punctuation
+    /// (`&`, `|`, `^`, `~`, `{`, `}`) on top of declarative sentence parsing.
+    Hardware,
 }
 
 pub struct Lexer<'a> {
@@ -964,7 +967,14 @@ impl<'a> Lexer<'a> {
                 '+' | '-' if Self::is_exponent_sign(&current_word, &chars, char_idx) => {
                     current_word.push(c);
                 }
-                '(' | ')' | '[' | ']' | ',' | '?' | '!' | ':' | '+' | '-' | '*' | '/' | '%' | '<' | '>' | '=' => {
+                '(' | ')' | '[' | ']' | ',' | '?' | '!' | ':' | '+' | '-' | '*' | '/' | '%' | '<' | '>' | '='
+                | '&' | '|' | '^' | '~' | '{' | '}' => {
+                    // HW-Spec punctuation (`& | ^ ~ { }`) is captured as
+                    // trailing_punct at Stage 1 regardless of mode. Stage 2
+                    // then emits the HW-specific TokenType variants only when
+                    // LexerMode::Hardware is active; outside HW mode the
+                    // characters are dropped silently (matching the
+                    // pre-existing fallthrough behaviour).
                     if !current_word.is_empty() {
                         items.push(WordItem {
                             word: std::mem::take(&mut current_word),
@@ -1181,6 +1191,12 @@ impl<'a> Lexer<'a> {
                         '<' => TokenType::Lt,
                         '>' => TokenType::Gt,
                         '=' => TokenType::Assign,
+                        '&' if self.mode == LexerMode::Hardware => TokenType::Ampersand,
+                        '|' if self.mode == LexerMode::Hardware => TokenType::BitOr,
+                        '^' if self.mode == LexerMode::Hardware => TokenType::Caret,
+                        '~' if self.mode == LexerMode::Hardware => TokenType::Tilde,
+                        '{' if self.mode == LexerMode::Hardware => TokenType::LBrace,
+                        '}' if self.mode == LexerMode::Hardware => TokenType::RBrace,
                         _ => {
                             self.pos += 1;
                             continue;
@@ -1263,6 +1279,12 @@ impl<'a> Lexer<'a> {
                                     '<' => TokenType::Lt,
                                     '>' => TokenType::Gt,
                                     '=' => TokenType::Assign,
+                                    '&' if self.mode == LexerMode::Hardware => TokenType::Ampersand,
+                                    '|' if self.mode == LexerMode::Hardware => TokenType::BitOr,
+                                    '^' if self.mode == LexerMode::Hardware => TokenType::Caret,
+                                    '~' if self.mode == LexerMode::Hardware => TokenType::Tilde,
+                                    '{' if self.mode == LexerMode::Hardware => TokenType::LBrace,
+                                    '}' if self.mode == LexerMode::Hardware => TokenType::RBrace,
                                     _ => {
                                         self.pos += 1;
                                         continue;
@@ -1300,6 +1322,12 @@ impl<'a> Lexer<'a> {
                     '<' => TokenType::Lt,
                     '>' => TokenType::Gt,
                     '=' => TokenType::Assign,
+                    '&' if self.mode == LexerMode::Hardware => TokenType::Ampersand,
+                    '|' if self.mode == LexerMode::Hardware => TokenType::BitOr,
+                    '^' if self.mode == LexerMode::Hardware => TokenType::Caret,
+                    '~' if self.mode == LexerMode::Hardware => TokenType::Tilde,
+                    '{' if self.mode == LexerMode::Hardware => TokenType::LBrace,
+                    '}' if self.mode == LexerMode::Hardware => TokenType::RBrace,
                     _ => {
                         self.pos += 1;
                         continue;
@@ -1870,6 +1898,7 @@ impl<'a> Lexer<'a> {
             // Update lexer mode based on block type
             self.mode = match block_type {
                 BlockType::Main | BlockType::Function => LexerMode::Imperative,
+                BlockType::Hardware | BlockType::Property => LexerMode::Hardware,
                 _ => LexerMode::Declarative,
             };
 

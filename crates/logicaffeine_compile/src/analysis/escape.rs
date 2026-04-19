@@ -288,6 +288,19 @@ impl<'a> EscapeChecker<'a> {
             // Escape expressions are opaque — the Rust compiler handles zone safety for raw code
             Expr::Escape { .. } => {}
 
+            Expr::UnaryOp { .. } => {
+                unreachable!("HW-Spec UnaryOp not emitted outside ## Hardware/Property blocks (in escape analysis)")
+            }
+            Expr::BitSelect { .. } => {
+                unreachable!("HW-Spec BitSelect not emitted outside ## Hardware/Property blocks (in escape analysis)")
+            }
+            Expr::PartSelect { .. } => {
+                unreachable!("HW-Spec PartSelect not emitted outside ## Hardware/Property blocks (in escape analysis)")
+            }
+            Expr::HwConcat { .. } => {
+                unreachable!("HW-Spec HwConcat not emitted outside ## Hardware/Property blocks (in escape analysis)")
+            }
+
             Expr::Closure { body, .. } => {
                 match body {
                     crate::ast::stmt::ClosureBody::Expression(expr) => {

@@ -306,6 +306,13 @@ pub struct Parser<'a, 'ctx, 'int> {
     pub(super) world_state: &'ctx mut WorldState,
     /// Whether inside "No X" quantifier scope.
     pub(super) in_negative_quantifier: bool,
+    /// Whether the current token stream is inside a `## Hardware` or
+    /// `## Property` block. Enables HW-Spec-only expression operators
+    /// (bitwise `|`, `&`, `^`, `~`, bit-select `[N]`, part-select `[H:L]`,
+    /// concatenation `{...}`). Set by the block-header dispatcher; may also
+    /// be toggled explicitly via [`Parser::set_hw_context`] for tests and
+    /// for the HW preamble parser introduced in phase 3.
+    pub(super) hw_context: bool,
 }
 
 impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
@@ -344,7 +351,21 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
             modal_preference: ModalPreference::default(),
             world_state,
             in_negative_quantifier: false,
+            hw_context: false,
         }
+    }
+
+    /// Enable or disable the HW-Spec expression extensions for the remainder
+    /// of parsing. Called by the block-header dispatcher when entering or
+    /// leaving a `## Hardware` / `## Property` block, and by tests that drive
+    /// the imperative expression parser directly without a block header.
+    pub fn set_hw_context(&mut self, enabled: bool) {
+        self.hw_context = enabled;
+    }
+
+    /// Returns true while parsing inside a HW-Spec block.
+    pub fn hw_context(&self) -> bool {
+        self.hw_context
     }
 
     pub fn set_discourse_event_var(&mut self, var: Symbol) {
@@ -751,6 +772,12 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                     BlockType::Hardware | BlockType::Property => ParserMode::Declarative,
                     BlockType::No => self.mode, // Annotation — keep current mode
                 };
+                // HW-Spec blocks light up the bitwise/reduction/select/concat
+                // operators. Parsers outside those blocks retain legacy precedence.
+                self.hw_context = matches!(
+                    block_type,
+                    BlockType::Hardware | BlockType::Property
+                );
                 self.current += 1;
             } else {
                 break;
@@ -5952,13 +5979,24 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
     /// Parse a complete imperative expression with full operator precedence.
     /// Delegates to parse_condition to support and/or/xor/shifts/comparisons
     /// in all expression contexts (Let, Set, function arguments, etc.).
-    fn parse_imperative_expr(&mut self) -> ParseResult<&'a Expr<'a>> {
+    ///
+    /// Exposed publicly for the HW-Spec preamble parser (phase 3) and for
+    /// tests that drive the expression parser without wrapping statements.
+    pub fn parse_imperative_expr(&mut self) -> ParseResult<&'a Expr<'a>> {
         self.parse_condition()
     }
 
-    /// Parse XOR expressions: "x xor y" → `x ^ y`
-    /// Precedence: below comparison, above additive.
+    /// Parse XOR expressions: "x xor y" → `x ^ y`.
+    ///
+    /// Outside HW mode the precedence is comparison > xor > additive.
+    /// Inside `## Hardware` / `## Property`, the HW-Spec expression ladder
+    /// applies (`|` < `^` < `&` < additive), so the method dispatches to
+    /// [`Self::parse_bit_or_expr`] which wraps the bitwise chain.
     fn parse_xor_expr(&mut self) -> ParseResult<&'a Expr<'a>> {
+        if self.hw_context {
+            return self.parse_bit_or_expr();
+        }
+
         let mut left = self.parse_additive_expr()?;
 
         while self.check(&TokenType::Xor) {
@@ -5966,6 +6004,60 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
             let right = self.parse_additive_expr()?;
             left = self.ctx.alloc_imperative_expr(Expr::BinaryOp {
                 op: BinaryOpKind::BitXor,
+                left,
+                right,
+            });
+        }
+
+        Ok(left)
+    }
+
+    /// HW-Spec `|` layer — loosest bitwise operator inside a HW block.
+    fn parse_bit_or_expr(&mut self) -> ParseResult<&'a Expr<'a>> {
+        let mut left = self.parse_hw_xor_expr()?;
+
+        while self.check(&TokenType::BitOr) {
+            self.advance();
+            let right = self.parse_hw_xor_expr()?;
+            left = self.ctx.alloc_imperative_expr(Expr::BinaryOp {
+                op: BinaryOpKind::BitOr,
+                left,
+                right,
+            });
+        }
+
+        Ok(left)
+    }
+
+    /// HW-Spec XOR layer — accepts both the `^` character and the `xor` keyword
+    /// so HW expressions read naturally next to existing LOGOS arithmetic.
+    fn parse_hw_xor_expr(&mut self) -> ParseResult<&'a Expr<'a>> {
+        let mut left = self.parse_bit_and_expr()?;
+
+        while self.check(&TokenType::Caret) || self.check(&TokenType::Xor) {
+            self.advance();
+            let right = self.parse_bit_and_expr()?;
+            left = self.ctx.alloc_imperative_expr(Expr::BinaryOp {
+                op: BinaryOpKind::BitXor,
+                left,
+                right,
+            });
+        }
+
+        Ok(left)
+    }
+
+    /// HW-Spec `&` layer — tightest bitwise operator inside a HW block.
+    /// Sits just above the arithmetic chain so `req & valid + 1` parses as
+    /// `(req & valid) + 1` — same shape as SystemVerilog.
+    fn parse_bit_and_expr(&mut self) -> ParseResult<&'a Expr<'a>> {
+        let mut left = self.parse_additive_expr()?;
+
+        while self.check(&TokenType::Ampersand) {
+            self.advance();
+            let right = self.parse_additive_expr()?;
+            left = self.ctx.alloc_imperative_expr(Expr::BinaryOp {
+                op: BinaryOpKind::BitAnd,
                 left,
                 right,
             });
@@ -6089,21 +6181,72 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
         Ok(left)
     }
 
-    /// Parse unary expressions (currently just unary minus)
+    /// Parse unary expressions.
+    ///
+    /// Handles classic unary minus and, inside `## Hardware` / `## Property`,
+    /// the HW-Spec unary operators (`~`, `&`, `|`, `^`) and bit concatenation
+    /// (`{a, b, ...}`). The HW path recurses through `parse_unary_expr` so
+    /// nested unaries like `~&req` or `^|a` bind right-to-left.
     fn parse_unary_expr(&mut self) -> ParseResult<&'a Expr<'a>> {
-        use crate::ast::{Expr, Literal};
+        use crate::ast::{Expr, Literal, UnaryOpKind};
 
         if self.check(&TokenType::Minus) {
             self.advance(); // consume '-'
             let operand = self.parse_unary_expr()?; // recursive for --5
-            // Implement as 0 - operand (no UnaryOp variant in Expr)
             return Ok(self.ctx.alloc_imperative_expr(Expr::BinaryOp {
                 op: BinaryOpKind::Subtract,
                 left: self.ctx.alloc_imperative_expr(Expr::Literal(Literal::Number(0))),
                 right: operand,
             }));
         }
+
+        if self.hw_context {
+            if self.check(&TokenType::LBrace) {
+                return self.parse_hw_concat();
+            }
+
+            let hw_unary = match &self.peek().kind {
+                TokenType::Tilde => Some(UnaryOpKind::BitNot),
+                TokenType::Ampersand => Some(UnaryOpKind::ReduceAnd),
+                TokenType::BitOr => Some(UnaryOpKind::ReduceOr),
+                TokenType::Caret => Some(UnaryOpKind::ReduceXor),
+                _ => None,
+            };
+            if let Some(op) = hw_unary {
+                self.advance();
+                let operand = self.parse_unary_expr()?;
+                return Ok(self.ctx.alloc_imperative_expr(Expr::UnaryOp { op, operand }));
+            }
+        }
+
         self.parse_primary_expr()
+    }
+
+    /// Parse HW-Spec bit concatenation `{a, b, c}` — opener already peeked
+    /// by the caller. Empty concatenation `{}` is a parse error; at least
+    /// one operand is required.
+    fn parse_hw_concat(&mut self) -> ParseResult<&'a Expr<'a>> {
+        use crate::ast::Expr;
+
+        self.advance(); // consume '{'
+
+        let mut parts = Vec::new();
+        parts.push(self.parse_imperative_expr()?);
+
+        while self.check(&TokenType::Comma) {
+            self.advance();
+            parts.push(self.parse_imperative_expr()?);
+        }
+
+        if !self.check(&TokenType::RBrace) {
+            return Err(ParseError {
+                kind: ParseErrorKind::ExpectedKeyword { keyword: "}".to_string() },
+                span: self.current_span(),
+            });
+        }
+        self.advance(); // consume '}'
+
+        Ok(self.ctx.alloc_imperative_expr(Expr::HwConcat { parts }))
     }
 
     /// Parse multiplicative expressions (*, /, %) - left-to-right associative
@@ -6446,9 +6589,29 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                     field,
                 });
             } else if self.check(&TokenType::LBracket) {
-                // Bracket indexing: items[1], items[i]
+                // Bracket indexing: items[1], items[i], or HW-Spec `data[7]` /
+                // part-select `data[7:4]` when the parser is inside a
+                // `## Hardware` / `## Property` block.
                 self.advance(); // consume "["
-                let index = self.parse_imperative_expr()?;
+                let first = self.parse_imperative_expr()?;
+
+                if self.hw_context && self.check(&TokenType::Colon) {
+                    self.advance(); // consume ":"
+                    let low = self.parse_imperative_expr()?;
+                    if !self.check(&TokenType::RBracket) {
+                        return Err(ParseError {
+                            kind: ParseErrorKind::ExpectedKeyword { keyword: "]".to_string() },
+                            span: self.current_span(),
+                        });
+                    }
+                    self.advance(); // consume "]"
+                    result = self.ctx.alloc_imperative_expr(Expr::PartSelect {
+                        signal: result,
+                        hi: first,
+                        lo: low,
+                    });
+                    continue;
+                }
 
                 if !self.check(&TokenType::RBracket) {
                     return Err(ParseError {
@@ -6458,10 +6621,17 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                 }
                 self.advance(); // consume "]"
 
-                result = self.ctx.alloc_imperative_expr(Expr::Index {
-                    collection: result,
-                    index,
-                });
+                result = if self.hw_context {
+                    self.ctx.alloc_imperative_expr(Expr::BitSelect {
+                        signal: result,
+                        bit: first,
+                    })
+                } else {
+                    self.ctx.alloc_imperative_expr(Expr::Index {
+                        collection: result,
+                        index: first,
+                    })
+                };
             } else {
                 break;
             }

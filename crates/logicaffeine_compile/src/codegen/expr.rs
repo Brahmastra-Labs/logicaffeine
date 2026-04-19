@@ -448,6 +448,9 @@ fn codegen_expr_boxed_internal(
                 BinaryOpKind::BitXor => "^",
                 BinaryOpKind::Shl => "<<",
                 BinaryOpKind::Shr => ">>",
+                BinaryOpKind::BitAnd | BinaryOpKind::BitOr => {
+                    unreachable!("HW-Spec bitwise op not emitted outside ## Hardware/Property blocks (in Rust codegen)")
+                }
             };
 
             // Mixed Float*Int arithmetic coercion: if one side is f64,
@@ -1059,6 +1062,19 @@ fn codegen_expr_boxed_internal(
         Expr::Not { operand } => {
             let operand_str = recurse!(operand);
             format!("!({})", operand_str)
+        }
+
+        Expr::UnaryOp { .. } => {
+            unreachable!("HW-Spec UnaryOp not emitted outside ## Hardware/Property blocks (in Rust codegen)")
+        }
+        Expr::BitSelect { .. } => {
+            unreachable!("HW-Spec BitSelect not emitted outside ## Hardware/Property blocks (in Rust codegen)")
+        }
+        Expr::PartSelect { .. } => {
+            unreachable!("HW-Spec PartSelect not emitted outside ## Hardware/Property blocks (in Rust codegen)")
+        }
+        Expr::HwConcat { .. } => {
+            unreachable!("HW-Spec HwConcat not emitted outside ## Hardware/Property blocks (in Rust codegen)")
         }
     }
 }

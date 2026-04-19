@@ -1768,6 +1768,19 @@ impl<'a> Interpreter<'a> {
                     Err(format!("Cannot call value of type {}", callee_val.type_name()))
                 }
             }
+
+            Expr::UnaryOp { .. } => {
+                unreachable!("HW-Spec UnaryOp not emitted outside ## Hardware/Property blocks (in async interpreter)")
+            }
+            Expr::BitSelect { .. } => {
+                unreachable!("HW-Spec BitSelect not emitted outside ## Hardware/Property blocks (in async interpreter)")
+            }
+            Expr::PartSelect { .. } => {
+                unreachable!("HW-Spec PartSelect not emitted outside ## Hardware/Property blocks (in async interpreter)")
+            }
+            Expr::HwConcat { .. } => {
+                unreachable!("HW-Spec HwConcat not emitted outside ## Hardware/Property blocks (in async interpreter)")
+            }
         }
     }
 
@@ -1824,6 +1837,9 @@ impl<'a> Interpreter<'a> {
                 (RuntimeValue::Int(a), RuntimeValue::Int(b)) => Ok(RuntimeValue::Int(a >> b)),
                 _ => Err("Right shift requires integer operands".to_string()),
             },
+            BinaryOpKind::BitAnd | BinaryOpKind::BitOr => {
+                unreachable!("HW-Spec bitwise op not emitted outside ## Hardware/Property blocks (in interpreter)")
+            }
         }
     }
 
@@ -3495,6 +3511,19 @@ impl<'a> Interpreter<'a> {
                     Err(format!("Cannot call value of type {}", callee_val.type_name()))
                 }
             }
+
+            Expr::UnaryOp { .. } => {
+                unreachable!("HW-Spec UnaryOp not emitted outside ## Hardware/Property blocks (in sync interpreter)")
+            }
+            Expr::BitSelect { .. } => {
+                unreachable!("HW-Spec BitSelect not emitted outside ## Hardware/Property blocks (in sync interpreter)")
+            }
+            Expr::PartSelect { .. } => {
+                unreachable!("HW-Spec PartSelect not emitted outside ## Hardware/Property blocks (in sync interpreter)")
+            }
+            Expr::HwConcat { .. } => {
+                unreachable!("HW-Spec HwConcat not emitted outside ## Hardware/Property blocks (in sync interpreter)")
+            }
         }
     }
 
@@ -3881,6 +3910,18 @@ impl<'a> Interpreter<'a> {
                         Self::collect_symbols_from_expr(value, exclude, out, seen);
                     }
                 }
+            }
+            Expr::UnaryOp { .. } => {
+                unreachable!("HW-Spec UnaryOp not emitted outside ## Hardware/Property blocks (in free-var collection)")
+            }
+            Expr::BitSelect { .. } => {
+                unreachable!("HW-Spec BitSelect not emitted outside ## Hardware/Property blocks (in free-var collection)")
+            }
+            Expr::PartSelect { .. } => {
+                unreachable!("HW-Spec PartSelect not emitted outside ## Hardware/Property blocks (in free-var collection)")
+            }
+            Expr::HwConcat { .. } => {
+                unreachable!("HW-Spec HwConcat not emitted outside ## Hardware/Property blocks (in free-var collection)")
             }
         }
     }

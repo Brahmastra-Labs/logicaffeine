@@ -399,6 +399,19 @@ pub fn fold_expr<'a>(
 
         // Leaves — no sub-expressions to fold
         Expr::Literal(_) | Expr::Identifier(_) | Expr::OptionNone | Expr::Escape { .. } => expr,
+
+        Expr::UnaryOp { .. } => {
+            unreachable!("HW-Spec UnaryOp not emitted outside ## Hardware/Property blocks (in constant folding)")
+        }
+        Expr::BitSelect { .. } => {
+            unreachable!("HW-Spec BitSelect not emitted outside ## Hardware/Property blocks (in constant folding)")
+        }
+        Expr::PartSelect { .. } => {
+            unreachable!("HW-Spec PartSelect not emitted outside ## Hardware/Property blocks (in constant folding)")
+        }
+        Expr::HwConcat { .. } => {
+            unreachable!("HW-Spec HwConcat not emitted outside ## Hardware/Property blocks (in constant folding)")
+        }
     }
 }
 

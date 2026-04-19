@@ -240,6 +240,9 @@ pub(super) fn infer_expr_type(expr: &Expr, ctx: &CContext) -> CType {
                         CType::Int64
                     }
                 }
+                BinaryOpKind::BitAnd | BinaryOpKind::BitOr => {
+                    unreachable!("HW-Spec bitwise op not emitted outside ## Hardware/Property blocks (in C type inference)")
+                }
             }
         }
         Expr::Call { function, .. } => ctx.funcs.get(function).cloned().unwrap_or(CType::Int64),

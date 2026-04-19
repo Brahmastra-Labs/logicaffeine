@@ -77,6 +77,9 @@ pub(super) fn codegen_expr(expr: &Expr, ctx: &CContext) -> String {
                 BinaryOpKind::BitXor => "^",
                 BinaryOpKind::Shl => "<<",
                 BinaryOpKind::Shr => ">>",
+                BinaryOpKind::BitAnd | BinaryOpKind::BitOr => {
+                    unreachable!("HW-Spec bitwise op not emitted outside ## Hardware/Property blocks (in C codegen)")
+                }
             };
             format!("({} {} {})", l, op_str, r)
         }

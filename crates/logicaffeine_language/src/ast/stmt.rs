@@ -123,6 +123,27 @@ pub enum BinaryOpKind {
     Shl,
     /// Right shift: "x shifted right by y" → `x >> y`
     Shr,
+    /// Bitwise AND on signals: `a & b` (HW-Spec, emitted only inside ## Hardware/Property).
+    BitAnd,
+    /// Bitwise OR on signals: `a | b` (HW-Spec, emitted only inside ## Hardware/Property).
+    BitOr,
+}
+
+/// Unary operation kinds for imperative expressions.
+///
+/// These variants are emitted by the HW-Spec parser path inside `## Hardware`
+/// and `## Property` blocks. Logical NOT remains in `Expr::Not` to preserve
+/// the existing negation semantics and consumer set.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum UnaryOpKind {
+    /// Bitwise NOT on a signal: `~a`.
+    BitNot,
+    /// Reduction AND on a bus: `&a` is scalar (are all bits high?).
+    ReduceAnd,
+    /// Reduction OR on a bus: `|a` is scalar (is any bit high?).
+    ReduceOr,
+    /// Reduction XOR on a bus: `^a` is scalar (odd parity?).
+    ReduceXor,
 }
 
 /// Block is a sequence of statements.
@@ -640,6 +661,36 @@ pub enum Expr<'a> {
     /// Unary NOT: "not x" → `!x` (logical for Bool, bitwise for Int)
     Not {
         operand: &'a Expr<'a>,
+    },
+
+    /// HW-Spec unary operation (`~a`, `&a`, `|a`, `^a`).
+    ///
+    /// Emitted only from the HW-Spec expression parser. Lowered to SVA in
+    /// the HW code-generation pass; outside that pass it is `unreachable!`.
+    UnaryOp {
+        op: UnaryOpKind,
+        operand: &'a Expr<'a>,
+    },
+
+    /// HW-Spec bit select: `data[7]` returns a scalar bit.
+    BitSelect {
+        signal: &'a Expr<'a>,
+        bit: &'a Expr<'a>,
+    },
+
+    /// HW-Spec part select: `data[7:4]` returns a sub-bus `bus[H:L]`.
+    PartSelect {
+        signal: &'a Expr<'a>,
+        hi: &'a Expr<'a>,
+        lo: &'a Expr<'a>,
+    },
+
+    /// HW-Spec bit concatenation: `{a, b, c}` produces a wider bus.
+    ///
+    /// Distinct from [`BinaryOpKind::Concat`], which is a two-operand string
+    /// concatenation. Bit concatenation is N-ary and width-aware.
+    HwConcat {
+        parts: Vec<&'a Expr<'a>>,
     },
 
     /// Function call as expression: f(x, y)

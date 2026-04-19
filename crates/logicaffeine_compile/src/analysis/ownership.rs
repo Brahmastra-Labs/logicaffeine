@@ -523,6 +523,19 @@ impl<'a> OwnershipChecker<'a> {
 
             // Literals are always safe
             Expr::Literal(_) => Ok(()),
+
+            Expr::UnaryOp { .. } => {
+                unreachable!("HW-Spec UnaryOp not emitted outside ## Hardware/Property blocks (in ownership analysis)")
+            }
+            Expr::BitSelect { .. } => {
+                unreachable!("HW-Spec BitSelect not emitted outside ## Hardware/Property blocks (in ownership analysis)")
+            }
+            Expr::PartSelect { .. } => {
+                unreachable!("HW-Spec PartSelect not emitted outside ## Hardware/Property blocks (in ownership analysis)")
+            }
+            Expr::HwConcat { .. } => {
+                unreachable!("HW-Spec HwConcat not emitted outside ## Hardware/Property blocks (in ownership analysis)")
+            }
         }
     }
 

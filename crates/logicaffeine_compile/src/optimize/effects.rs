@@ -679,6 +679,18 @@ fn analyze_expr_effects_core(expr: &Expr<'_>, known_fns: &HashSet<Symbol>) -> Ef
             }
             effects
         }
+        Expr::UnaryOp { .. } => {
+            unreachable!("HW-Spec UnaryOp not emitted outside ## Hardware/Property blocks (in effects analysis)")
+        }
+        Expr::BitSelect { .. } => {
+            unreachable!("HW-Spec BitSelect not emitted outside ## Hardware/Property blocks (in effects analysis)")
+        }
+        Expr::PartSelect { .. } => {
+            unreachable!("HW-Spec PartSelect not emitted outside ## Hardware/Property blocks (in effects analysis)")
+        }
+        Expr::HwConcat { .. } => {
+            unreachable!("HW-Spec HwConcat not emitted outside ## Hardware/Property blocks (in effects analysis)")
+        }
     }
 }
 

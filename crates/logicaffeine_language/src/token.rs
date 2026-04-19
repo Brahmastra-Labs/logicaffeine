@@ -525,12 +525,31 @@ pub enum TokenType {
     RBracket,
     Comma,
     Period,
+    /// `{` — HW-Spec bit-concatenation opener, emitted only inside `## Hardware`/`## Property`.
+    LBrace,
+    /// `}` — HW-Spec bit-concatenation closer, emitted only inside `## Hardware`/`## Property`.
+    RBrace,
 
     // Bitwise Operators
     /// "x xor y" → bitwise XOR (`^`)
     Xor,
     /// "x shifted left/right by y" → bit shift (`<<`/`>>`)
     Shifted,
+
+    // HW-Spec bitwise punctuation. These variants represent the literal characters
+    // `&`, `|`, `^`, `~` and are emitted by the lexer only while it is tracking a
+    // `## Hardware` or `## Property` block. Outside those blocks the characters
+    // retain their pre-existing behaviour (e.g. `|` continues to be ambiguous with
+    // sentence-level "or"). Distinct from the existing `Pipe` variant at ~:363,
+    // which represents the channel-creation keyword "Pipe of Type".
+    /// `&` — bitwise AND on signals.
+    Ampersand,
+    /// `|` — bitwise OR on signals (not to be confused with the `Pipe` keyword).
+    BitOr,
+    /// `^` — bitwise XOR on signals (HW-Spec sibling of the `Xor` keyword).
+    Caret,
+    /// `~` — bitwise NOT on signals.
+    Tilde,
 
     // Arithmetic Operators
     Plus,

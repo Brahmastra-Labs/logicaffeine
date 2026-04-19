@@ -346,6 +346,18 @@ fn gen_expr(expr: &Expr<'_>, out: &mut HashSet<Symbol>) {
             }
         }
         Expr::Literal(_) | Expr::OptionNone | Expr::Escape { .. } => {}
+        Expr::UnaryOp { .. } => {
+            unreachable!("HW-Spec UnaryOp not emitted outside ## Hardware/Property blocks (in liveness analysis)")
+        }
+        Expr::BitSelect { .. } => {
+            unreachable!("HW-Spec BitSelect not emitted outside ## Hardware/Property blocks (in liveness analysis)")
+        }
+        Expr::PartSelect { .. } => {
+            unreachable!("HW-Spec PartSelect not emitted outside ## Hardware/Property blocks (in liveness analysis)")
+        }
+        Expr::HwConcat { .. } => {
+            unreachable!("HW-Spec HwConcat not emitted outside ## Hardware/Property blocks (in liveness analysis)")
+        }
     }
 }
 

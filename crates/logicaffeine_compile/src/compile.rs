@@ -1555,6 +1555,9 @@ fn encode_expr_compact(expr: &Expr, counter: &mut usize, output: &mut String, in
                 BinaryOpKind::BitXor => "^",
                 BinaryOpKind::Shl => "<<",
                 BinaryOpKind::Shr => ">>",
+                BinaryOpKind::BitAnd | BinaryOpKind::BitOr => {
+                    unreachable!("HW-Spec bitwise op not emitted outside ## Hardware/Property blocks (in compact encoder)")
+                }
             };
             output.push_str(&format!(
                 "Let {} be a new CBinOp with op \"{}\" and left {} and right {}.\n",
@@ -2140,6 +2143,9 @@ fn encode_expr_src(expr: &Expr, counter: &mut usize, output: &mut String, intern
                 BinaryOpKind::BitXor => "^",
                 BinaryOpKind::Shl => "<<",
                 BinaryOpKind::Shr => ">>",
+                BinaryOpKind::BitAnd | BinaryOpKind::BitOr => {
+                    unreachable!("HW-Spec bitwise op not emitted outside ## Hardware/Property blocks (in source encoder)")
+                }
             };
             output.push_str(&format!(
                 "Let {} be a new CBinOp with op \"{}\" and left {} and right {}.\n",
@@ -3592,6 +3598,9 @@ fn decompile_expr(expr: &Expr, interner: &Interner) -> String {
                 BinaryOpKind::BitXor => "+",
                 BinaryOpKind::Shl => "*",
                 BinaryOpKind::Shr => "/",
+                BinaryOpKind::BitAnd | BinaryOpKind::BitOr => {
+                    unreachable!("HW-Spec bitwise op not emitted outside ## Hardware/Property blocks (in decompiler)")
+                }
             };
             format!("{} {} {}", l, op_str, r)
         }
@@ -3749,6 +3758,18 @@ fn decompile_expr(expr: &Expr, interner: &Interner) -> String {
             let c = decompile_expr(callee, interner);
             let arg_strs: Vec<String> = args.iter().map(|a| decompile_expr(a, interner)).collect();
             format!("{}({})", c, arg_strs.join(", "))
+        }
+        Expr::UnaryOp { .. } => {
+            unreachable!("HW-Spec UnaryOp not emitted outside ## Hardware/Property blocks (in decompiler)")
+        }
+        Expr::BitSelect { .. } => {
+            unreachable!("HW-Spec BitSelect not emitted outside ## Hardware/Property blocks (in decompiler)")
+        }
+        Expr::PartSelect { .. } => {
+            unreachable!("HW-Spec PartSelect not emitted outside ## Hardware/Property blocks (in decompiler)")
+        }
+        Expr::HwConcat { .. } => {
+            unreachable!("HW-Spec HwConcat not emitted outside ## Hardware/Property blocks (in decompiler)")
         }
     }
 }

@@ -416,6 +416,10 @@ impl TypeEnv {
                         let rt = self.infer_expr(right, interner);
                         LogosType::numeric_promotion(&lt, &rt)
                     }
+
+                    BinaryOpKind::BitAnd | BinaryOpKind::BitOr => {
+                        unreachable!("HW-Spec bitwise op not emitted outside ## Hardware/Property blocks (in type inference)")
+                    }
                 }
             }
 

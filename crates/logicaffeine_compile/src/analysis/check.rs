@@ -400,6 +400,10 @@ impl<'r> CheckEnv<'r> {
                     unify_numeric(&lt, &rt).or(Ok(InferType::Unknown))
                 }
             }
+
+            BinaryOpKind::BitAnd | BinaryOpKind::BitOr => {
+                unreachable!("HW-Spec bitwise op not emitted outside ## Hardware/Property blocks (in type check)")
+            }
         }
     }
 

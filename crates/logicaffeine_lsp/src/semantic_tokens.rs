@@ -260,7 +260,13 @@ fn classify_token_inner(kind: &TokenType, depth: usize) -> (Option<u32>, u32) {
 
         // Punctuation → skip (or operator for comma/period)
         TokenType::Period | TokenType::Comma | TokenType::Colon => (Some(6), 0),
-        TokenType::LParen | TokenType::RParen | TokenType::LBracket | TokenType::RBracket => {
+        TokenType::LParen | TokenType::RParen | TokenType::LBracket | TokenType::RBracket
+        | TokenType::LBrace | TokenType::RBrace => {
+            (Some(6), 0)
+        }
+
+        // HW-Spec bitwise punctuation → operator (emitted only inside ## Hardware / ## Property)
+        TokenType::Ampersand | TokenType::BitOr | TokenType::Caret | TokenType::Tilde => {
             (Some(6), 0)
         }
 

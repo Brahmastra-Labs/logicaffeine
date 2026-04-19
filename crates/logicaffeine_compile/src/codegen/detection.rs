@@ -1159,6 +1159,18 @@ pub(super) fn collect_expr_identifiers(expr: &Expr, identifiers: &mut HashSet<Sy
         Expr::OptionNone => {}
         Expr::Escape { .. } => {}
         Expr::Literal(_) => {}
+        Expr::UnaryOp { .. } => {
+            unreachable!("HW-Spec UnaryOp not emitted outside ## Hardware/Property blocks (in identifier collection)")
+        }
+        Expr::BitSelect { .. } => {
+            unreachable!("HW-Spec BitSelect not emitted outside ## Hardware/Property blocks (in identifier collection)")
+        }
+        Expr::PartSelect { .. } => {
+            unreachable!("HW-Spec PartSelect not emitted outside ## Hardware/Property blocks (in identifier collection)")
+        }
+        Expr::HwConcat { .. } => {
+            unreachable!("HW-Spec HwConcat not emitted outside ## Hardware/Property blocks (in identifier collection)")
+        }
     }
 }
 
