@@ -123,34 +123,32 @@ where
     // declarative parser sees the first sentence head directly.
     skip_structural_tokens(&mut parser);
 
+    // Property sentences: match `parser.parse()`'s loop shape — parse one
+    // sentence, then keep going only while the next token is an explicit
+    // sentence terminator (`.` / `?` / `!`). Not every input consumes every
+    // remaining token — some declarative sentences legitimately leave
+    // trailing adverbs (e.g. "The X is always Y" parses as NP + habitual
+    // aspect and stops before the adverb). Treating that as "more to parse"
+    // turns well-formed legacy input into a loud error; gate on explicit
+    // terminators instead.
     let mut properties: Vec<&LogicExpr<'_>> = Vec::new();
-    while !parser.is_at_end_public() {
-        skip_structural_tokens(&mut parser);
-        if parser.is_at_end_public() {
-            break;
-        }
-        if parser.peek_is_block_header() {
-            // A downstream block (e.g. a `## Note`) ends the preamble scope.
-            break;
-        }
+    skip_structural_tokens(&mut parser);
+    if !parser.is_at_end_public() && !parser.peek_is_block_header() {
+        let first = parser.parse_sentence()?;
+        let first = semantics::apply_axioms(first, ctx.exprs, ctx.terms, parser.interner_mut());
+        let first = semantics::apply_kripke_lowering(first, ctx.exprs, ctx.terms, parser.interner_mut());
+        properties.push(first);
 
-        let sentence = parser.parse_sentence()?;
-        let sentence = semantics::apply_axioms(
-            sentence,
-            ctx.exprs,
-            ctx.terms,
-            parser.interner_mut(),
-        );
-        let sentence = semantics::apply_kripke_lowering(
-            sentence,
-            ctx.exprs,
-            ctx.terms,
-            parser.interner_mut(),
-        );
-        properties.push(sentence);
-
-        // Consume sentence terminators so the next iteration starts clean.
-        while parser.consume_terminator() {}
+        while parser.consume_terminator() {
+            skip_structural_tokens(&mut parser);
+            if parser.is_at_end_public() || parser.peek_is_block_header() {
+                break;
+            }
+            let next = parser.parse_sentence()?;
+            let next = semantics::apply_axioms(next, ctx.exprs, ctx.terms, parser.interner_mut());
+            let next = semantics::apply_kripke_lowering(next, ctx.exprs, ctx.terms, parser.interner_mut());
+            properties.push(next);
+        }
     }
 
     let hw_spec = HwSpec {

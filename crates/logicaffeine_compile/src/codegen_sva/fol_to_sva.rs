@@ -30,31 +30,38 @@ pub struct SynthesizedSva {
 
 /// Synthesize an SVA property from an English specification.
 ///
-/// Parses the spec, applies Kripke lowering, then pattern-matches the
-/// resulting FOL structure to produce SVA. The synthesized SVA uses the
-/// EXACT same signal names as the FOL translator so Z3 equivalence checking works.
+/// Phase 4b migration: routes through `parse_hw_spec_with`. Synthesizes
+/// from the first property sentence, matching the legacy single-assertion
+/// behavior. Callers with multiple properties should hold an `HwSpec`
+/// and call [`synthesize_sva_from_hwspec`] per property.
+///
+/// The synthesized SVA uses the EXACT same signal names as the FOL
+/// translator so Z3 equivalence checking works.
 pub fn synthesize_sva_from_spec(spec: &str, clock: &str) -> Result<SynthesizedSva, String> {
-    use logicaffeine_language::compile_kripke_with;
+    use logicaffeine_language::hw_spec::parse_hw_spec_with;
     use logicaffeine_language::semantics::knowledge_graph::extract_from_kripke_ast;
     use super::fol_to_verify::FolTranslator;
     use super::sva_to_verify::extract_signal_names;
 
-    // Parse and Kripke-lower the spec, then extract BOTH the SVA body
-    // AND the FOL signal names (so they match for Z3 equivalence)
-    let (sva_body, signals, fol_signals) = compile_kripke_with(spec, |ast, interner| {
-        // Get the FOL translator's signal names
+    let (sva_body, signals, fol_signals) = parse_hw_spec_with(spec, |hw_spec, interner| {
+        let ast = match hw_spec.properties.first() {
+            Some(expr) => *expr,
+            None => {
+                return Err("No property sentence in spec".to_string());
+            }
+        };
+
         let mut fol_translator = FolTranslator::new(interner, 5);
         let fol_result = fol_translator.translate_property(ast);
         let fol_sigs = extract_signal_names(&fol_result);
 
-        // Get KG signals for metadata
         let kg = extract_from_kripke_ast(ast, interner);
         let kg_signals: Vec<String> = kg.signals.iter().map(|s| s.name.clone()).collect();
 
-        // Synthesize SVA body using signal names from the FOL translator
         let body = synthesize_from_ast(ast, interner, clock, &fol_sigs);
-        (body, kg_signals, fol_sigs)
-    }).map_err(|e| format!("Parse error: {:?}", e))?;
+        Ok((body, kg_signals, fol_sigs))
+    })
+    .map_err(|e| format!("Parse error: {:?}", e))??;
 
     let body = sva_body;
 

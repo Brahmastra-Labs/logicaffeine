@@ -189,41 +189,147 @@ fn sva_has_outermost_temporal(expr: &SvaExpr) -> bool {
     matches!(expr, SvaExpr::SEventually(_) | SvaExpr::Nexttime(_, _) | SvaExpr::SAlways(_))
 }
 
-/// Translate a LOGOS spec to bounded verification IR using compile_kripke_with.
+/// Translate a LOGOS spec to bounded verification IR.
+///
+/// Phase 4b migration: routes through `parse_hw_spec_with`. For multi-
+/// sentence inputs, only the first property is translated — matching
+/// the legacy `compile_kripke`-based behavior which was implicitly
+/// single-assertion. Use [`translate_spec_to_bounded_from_hwspec`] for
+/// multi-property translation when callers already hold an `HwSpec`.
 pub fn translate_spec_to_bounded(
     spec: &str,
     bound: u32,
 ) -> Result<TranslateResult, HwError> {
-    logicaffeine_language::compile_kripke_with(spec, |ast, interner| {
+    use logicaffeine_language::hw_spec::parse_hw_spec_with;
+
+    parse_hw_spec_with(spec, |hw_spec, interner| {
+        if hw_spec.properties.is_empty() {
+            return Err(HwError::ParseError(
+                "no property sentences in spec".to_string(),
+            ));
+        }
         let mut translator = FolTranslator::new(interner, bound);
-        translator.translate_property(ast)
+        Ok(translator.translate_property(hw_spec.properties[0]))
     })
-    .map_err(|e| HwError::ParseError(format!("{:?}", e)))
+    .map_err(|e| HwError::ParseError(format!("{:?}", e)))?
+}
+
+/// Translate the first property of an already-parsed [`HwSpec`] to
+/// bounded verification IR. Returns `None` if the spec has no properties.
+pub fn translate_spec_to_bounded_from_hwspec(
+    spec: &logicaffeine_language::hw_spec::HwSpec<'_>,
+    interner: &logicaffeine_base::Interner,
+    bound: u32,
+) -> Option<TranslateResult> {
+    let first = spec.properties.first()?;
+    let mut translator = FolTranslator::new(interner, bound);
+    Some(translator.translate_property(first))
 }
 
 /// Compile an English hardware property with signal declarations.
 ///
-/// Takes an English specification and a list of signal declarations that map
-/// English proper nouns to SVA signal names. Produces a BoundedExpr with
-/// correctly-mapped signal variables.
+/// Phase 4b migration: routes through `parse_hw_spec_with`. The signal
+/// map is built from `HwSignalDecl`s; phase 4 already exposes
+/// `HwSymbolTable::from_decls` as the canonical parity bridge.
 pub fn compile_hw_property(
     spec: &str,
     decls: &[HwSignalDecl],
     bound: u32,
 ) -> Result<TranslateResult, HwError> {
+    use logicaffeine_language::hw_spec::parse_hw_spec_with;
+
     let signal_map = SignalMap::from_decls(decls);
-    logicaffeine_language::compile_kripke_with(spec, |ast, interner| {
+    parse_hw_spec_with(spec, |hw_spec, interner| {
+        if hw_spec.properties.is_empty() {
+            return Err(HwError::ParseError(
+                "no property sentences in spec".to_string(),
+            ));
+        }
         let mut translator = FolTranslator::new(interner, bound);
         translator.set_signal_map(&signal_map);
-        translator.translate_property(ast)
+        Ok(translator.translate_property(hw_spec.properties[0]))
+    })
+    .map_err(|e| HwError::ParseError(format!("{:?}", e)))?
+}
+
+/// Compile an already-parsed [`HwSpec`] with a signal map. Returns `None`
+/// if the spec has no properties.
+pub fn compile_hw_property_from_hwspec(
+    spec: &logicaffeine_language::hw_spec::HwSpec<'_>,
+    interner: &logicaffeine_base::Interner,
+    signal_map: &SignalMap,
+    bound: u32,
+) -> Option<TranslateResult> {
+    let first = spec.properties.first()?;
+    let mut translator = FolTranslator::new(interner, bound);
+    translator.set_signal_map(signal_map);
+    Some(translator.translate_property(first))
+}
+
+/// Compile an English hardware spec to FOL text.
+///
+/// Phase 4b migration: routes through `parse_hw_spec_with` so the parse
+/// boundary is unified with the typed `HwSpec` IR. Each property sentence
+/// is transpiled in Kripke format; multi-property specs produce a numbered
+/// list matching the shape `transpile_discourse` emits.
+pub fn compile_hw_spec(source: &str) -> Result<String, HwError> {
+    use logicaffeine_language::hw_spec::parse_hw_spec_with;
+    use logicaffeine_language::OutputFormat;
+    use logicaffeine_language::SymbolRegistry;
+
+    parse_hw_spec_with(source, |spec, interner| {
+        if spec.properties.is_empty() {
+            return String::new();
+        }
+        let mut registry = SymbolRegistry::new();
+        if spec.properties.len() == 1 {
+            return spec.properties[0].transpile(&mut registry, interner, OutputFormat::Kripke);
+        }
+        let mut out = String::new();
+        for (i, expr) in spec.properties.iter().enumerate() {
+            if i > 0 {
+                out.push('\n');
+            }
+            out.push_str(&format!(
+                "{}) {}",
+                i + 1,
+                expr.transpile(&mut registry, interner, OutputFormat::Kripke)
+            ));
+        }
+        out
     })
     .map_err(|e| HwError::ParseError(format!("{:?}", e)))
 }
 
-/// Compile an English hardware spec to FOL text.
-pub fn compile_hw_spec(source: &str) -> Result<String, HwError> {
-    logicaffeine_language::compile_kripke(source)
-        .map_err(|e| HwError::ParseError(format!("{:?}", e)))
+/// Compile an already-parsed [`HwSpec`] directly to FOL text. Skips the
+/// text→IR step for callers that already have a typed spec from
+/// [`logicaffeine_language::hw_spec::parse_hw_spec_with`].
+pub fn compile_hw_spec_from_hwspec(
+    spec: &logicaffeine_language::hw_spec::HwSpec<'_>,
+    interner: &logicaffeine_base::Interner,
+) -> String {
+    use logicaffeine_language::OutputFormat;
+    use logicaffeine_language::SymbolRegistry;
+
+    if spec.properties.is_empty() {
+        return String::new();
+    }
+    let mut registry = SymbolRegistry::new();
+    if spec.properties.len() == 1 {
+        return spec.properties[0].transpile(&mut registry, interner, OutputFormat::Kripke);
+    }
+    let mut out = String::new();
+    for (i, expr) in spec.properties.iter().enumerate() {
+        if i > 0 {
+            out.push('\n');
+        }
+        out.push_str(&format!(
+            "{}) {}",
+            i + 1,
+            expr.transpile(&mut registry, interner, OutputFormat::Kripke)
+        ));
+    }
+    out
 }
 
 /// Emit SVA from a property specification.
@@ -237,12 +343,55 @@ pub fn emit_hw_sva(name: &str, clock: &str, body: &str, kind: SvaAssertionKind) 
     emit_sva_property(&prop)
 }
 
-/// Extract a Knowledge Graph from an English hardware spec (one call).
+/// Extract a Knowledge Graph from an English hardware spec.
+///
+/// Phase 4b migration: routes through `parse_hw_spec_with`. Each parsed
+/// property sentence contributes to the merged KG, matching the behavior
+/// of the legacy `compile_kripke_with`-based path on single- and multi-
+/// sentence inputs.
 pub fn extract_kg(spec: &str) -> Result<HwKnowledgeGraph, HwError> {
-    logicaffeine_language::compile_kripke_with(spec, |ast, interner| {
-        logicaffeine_language::semantics::knowledge_graph::extract_from_kripke_ast(ast, interner)
+    use logicaffeine_language::hw_spec::parse_hw_spec_with;
+    use logicaffeine_language::semantics::knowledge_graph::extract_from_kripke_ast;
+
+    parse_hw_spec_with(spec, |hw_spec, interner| {
+        merge_property_kgs(hw_spec.properties.iter().copied(), interner)
     })
     .map_err(|e| HwError::ParseError(format!("{:?}", e)))
+}
+
+/// Extract a Knowledge Graph from an already-parsed [`HwSpec`] directly.
+pub fn extract_kg_from_hwspec(
+    spec: &logicaffeine_language::hw_spec::HwSpec<'_>,
+    interner: &logicaffeine_base::Interner,
+) -> HwKnowledgeGraph {
+    merge_property_kgs(spec.properties.iter().copied(), interner)
+}
+
+fn merge_property_kgs<'a, I>(
+    properties: I,
+    interner: &logicaffeine_base::Interner,
+) -> HwKnowledgeGraph
+where
+    I: Iterator<Item = &'a logicaffeine_language::ast::LogicExpr<'a>>,
+{
+    use logicaffeine_language::semantics::knowledge_graph::extract_from_kripke_ast;
+
+    let mut signal_names: Vec<String> = Vec::new();
+    let mut merged = HwKnowledgeGraph::default();
+    for expr in properties {
+        let sub = extract_from_kripke_ast(expr, interner);
+        for signal in sub.signals {
+            if !signal_names.iter().any(|n| n == &signal.name) {
+                signal_names.push(signal.name.clone());
+                merged.signals.push(signal);
+            }
+        }
+        merged.properties.extend(sub.properties);
+        merged.edges.extend(sub.edges);
+        merged.entities.extend(sub.entities);
+        merged.typed_edges.extend(sub.typed_edges);
+    }
+    merged
 }
 
 /// Check Z3 semantic equivalence between an English spec and an SVA string.
