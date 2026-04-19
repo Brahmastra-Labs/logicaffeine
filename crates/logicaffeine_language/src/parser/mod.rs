@@ -67,8 +67,9 @@ mod tests;
 pub use clause::ClauseParsing;
 pub use hw_preamble::{
     parse_hw_preamble, ClockDecl, ClockEdge, ClockRole, EnumType, EnumTypeId, HwPreamble,
-    HwPreambleResult, HwSymbolEntry, HwSymbolTable, HwTypeRegistry, InterfaceDecl, InterfaceField,
-    LetBinding, ParameterDecl, ResetDecl, ResetPolarity, SignalDecl, SignalType,
+    HwPreambleResult, HwSignalDeclLike, HwSymbolEntry, HwSymbolTable, HwTypeRegistry,
+    InterfaceDecl, InterfaceField, LetBinding, ParameterDecl, ResetDecl, ResetPolarity,
+    SignalDecl, SignalType,
 };
 pub use modal::ModalParsing;
 pub use noun::NounParsing;
@@ -372,6 +373,52 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
     /// Returns true while parsing inside a HW-Spec block.
     pub fn hw_context(&self) -> bool {
         self.hw_context
+    }
+
+    /// Public token-stream helpers used by the phase-4 `HwSpec` driver and
+    /// by tests that need to iterate the declarative parser without going
+    /// through the full `compile_kripke_with` pipeline.
+    pub fn is_at_end_public(&self) -> bool {
+        self.is_at_end()
+    }
+
+    /// Returns the current token kind, or `None` at end of stream.
+    pub fn peek_kind(&self) -> Option<&TokenType> {
+        self.tokens.get(self.current).map(|t| &t.kind)
+    }
+
+    /// Returns true if the current token is a `BlockHeader` (e.g. entering
+    /// a sibling `## Note` section that should end the HW block).
+    pub fn peek_is_block_header(&self) -> bool {
+        matches!(self.peek_kind(), Some(TokenType::BlockHeader { .. }))
+    }
+
+    /// Advance the cursor by one token. No-op at end of stream.
+    pub fn advance_public(&mut self) {
+        if self.current < self.tokens.len() {
+            self.current += 1;
+        }
+    }
+
+    /// Consume a sentence terminator (`.`, `?`, `!`) if present. Returns
+    /// `true` if one was consumed, `false` otherwise.
+    pub fn consume_terminator(&mut self) -> bool {
+        if matches!(
+            self.peek_kind(),
+            Some(TokenType::Period) | Some(TokenType::Exclamation)
+        ) {
+            self.current += 1;
+            true
+        } else {
+            false
+        }
+    }
+
+    /// Mutable interner access for the `HwSpec` driver, which needs to
+    /// thread the same interner through the declarative parser and the
+    /// axiom / Kripke semantic passes.
+    pub fn interner_mut(&mut self) -> &mut Interner {
+        self.interner
     }
 
     pub fn set_discourse_event_var(&mut self, var: Symbol) {

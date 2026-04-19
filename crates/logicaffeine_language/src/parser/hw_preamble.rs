@@ -194,6 +194,67 @@ impl HwSymbolTable {
     pub fn iter(&self) -> impl Iterator<Item = &HwSymbolEntry> {
         self.entries.iter()
     }
+
+    /// Build a symbol table from the programmatic `HwSignalDecl`-like pairs
+    /// used by `logicaffeine_compile::codegen_sva::SignalMap::from_decls`.
+    ///
+    /// Each pair is `(english_name, width)` where `width == 1` means a
+    /// scalar and any other value yields `bus[width-1:0]`. Clock domain is
+    /// always `None` for this compatibility constructor — callers that need
+    /// multi-clock metadata go through the textual `.hwspec` path.
+    ///
+    /// Phase 4 adds this entry point so that the Python-bridge tests that
+    /// build `HwSignalDecl[]` lists programmatically produce the same
+    /// symbol-table shape the `.hwspec` preamble path does, without either
+    /// path silently forking.
+    pub fn from_decls<I>(decls: I, interner: &mut logicaffeine_base::Interner) -> Self
+    where
+        I: IntoIterator,
+        I::Item: AsRef<HwSignalDeclLike>,
+    {
+        let mut table = Self::default();
+        for decl in decls {
+            let decl = decl.as_ref();
+            let name_sym = interner.intern(&decl.english_name);
+            let ty = if decl.width <= 1 {
+                SignalType::Scalar
+            } else {
+                SignalType::Bus {
+                    hi: (decl.width as i64) - 1,
+                    lo: 0,
+                }
+            };
+            table.insert(name_sym, ty, None);
+        }
+        table
+    }
+}
+
+/// Thin, crate-agnostic echo of `logicaffeine_compile::codegen_sva::HwSignalDecl`.
+///
+/// Phase 4 can't depend on the compile crate (that would be a circular
+/// dependency), so this mirror struct lives alongside
+/// [`HwSymbolTable::from_decls`] to give programmatic callers a uniform
+/// shape. Convert from `HwSignalDecl` via `.into()` or by constructing
+/// `HwSignalDeclLike { english_name, width }` directly.
+///
+/// **Lossy bridge:** the compile-crate `HwSignalDecl` carries three extra
+/// fields (`sva_name`, `role`, width-as-domain-metadata) that are not
+/// needed for symbol-table construction. Callers who need those fields —
+/// typically SVA code-generation — must keep the original `HwSignalDecl`
+/// list alongside the derived [`HwSymbolTable`]. The `HwSymbolTable`
+/// alone is sufficient for signal-name resolution and type queries, which
+/// is the only guarantee the `from_decls` bridge makes.
+#[derive(Debug, Clone)]
+pub struct HwSignalDeclLike {
+    pub english_name: String,
+    pub width: u32,
+}
+
+impl AsRef<HwSignalDeclLike> for HwSignalDeclLike {
+    fn as_ref(&self) -> &HwSignalDeclLike {
+        self
+    }
 }
 
 /// Typed record produced by [`parse_hw_preamble`]. `Vec` fields live on the

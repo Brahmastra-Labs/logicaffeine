@@ -101,6 +101,9 @@ pub mod transpile;
 // Compile API
 pub mod compile;
 
+// HW-Spec one-stop parser (phase 4)
+pub mod hw_spec;
+
 // Support modules
 pub mod analysis;
 pub mod arena_ctx;
