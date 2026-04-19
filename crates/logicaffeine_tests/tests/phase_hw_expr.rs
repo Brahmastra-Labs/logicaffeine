@@ -330,7 +330,9 @@ fn concat_with_inner_bit_select() {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
-// Cross-mode guard — the HW operators must not fire outside `## Hardware`
+// Cross-mode guard — the HW operators must not fire outside `## Hardware`,
+// and the pre-existing LOGOS operator behaviour (`xor` keyword precedence,
+// literal `|`/`&`/`^`/`~`/`{`/`}` silently dropped) must be preserved.
 // ═══════════════════════════════════════════════════════════════════════════
 
 #[test]
@@ -353,4 +355,32 @@ fn hw_operators_do_not_fire_outside_hw_block() {
             // Acceptable: parser rejects the lone `|` outside a HW block.
         }
     }
+}
+
+#[test]
+fn xor_keyword_unchanged_in_main_mode() {
+    // Phase 2 explicitly promises that `xor` keyword precedence is untouched
+    // for non-HW documents. Outside `## Hardware`, the imperative parser still
+    // drops `xor` into `BinaryOpKind::BitXor` via the original parse_xor_expr
+    // path (no hw_context dispatch). Guards against future refactors that
+    // accidentally reroute the xor chain through HW-only helpers.
+    let desc = parse_main_expr("a xor b")
+        .expect("`a xor b` must still compile in ## Main after HW extensions");
+    assert_eq!(desc, "(bit_xor id(a) id(b))");
+}
+
+#[test]
+fn hw_punct_chars_dropped_when_outside_hw_block() {
+    // Stage 1 of the lexer now captures `& | ^ ~ { }` as trailing_punct so
+    // Stage 2 can emit HW tokens when mode=Hardware. Outside HW mode, Stage 2
+    // must drop them silently — no bare Ampersand/BitOr/Caret/Tilde tokens
+    // should leak into imperative code that happens to contain these chars.
+    //
+    // `{a}` in ## Main must tokenize as just the identifier `a`; the parser
+    // then sees only `a` (single identifier) and parses successfully. If the
+    // HW tokens were leaking, the parser would hit a stray LBrace at primary
+    // position and reject the input with a different error.
+    let desc = parse_main_expr("{a}")
+        .expect("`{{a}}` in ## Main must reduce to the identifier `a` after HW-punct dropping");
+    assert_eq!(desc, "id(a)");
 }
