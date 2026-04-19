@@ -2142,7 +2142,14 @@
     { "lemma": "Wicked", "regular": true, "features": ["Intersective", "Gradable"] },
     { "lemma": "Willing", "regular": true, "features": ["Intersective"] },
     { "lemma": "Wooden", "regular": true, "features": ["Intersective"] },
-    { "lemma": "Worthy", "regular": true, "features": ["Intersective", "Gradable"] }
+    { "lemma": "Worthy", "regular": true, "features": ["Intersective", "Gradable"] },
+    { "lemma": "Asserted", "regular": true, "features": ["Intersective"] },
+    { "lemma": "Deasserted", "regular": true, "features": ["Intersective"] },
+    { "lemma": "Unknown", "regular": true, "features": ["Intersective"] },
+    { "lemma": "Zero", "regular": true, "features": ["Intersective"] },
+    { "lemma": "Active", "regular": true, "features": ["Intersective"] },
+    { "lemma": "Idle", "regular": true, "features": ["Intersective"] },
+    { "lemma": "Set", "regular": true, "features": ["Intersective"] }
   ],
   "morphological_rules": [
     { "suffix": "ist", "base_pos": "Noun", "relation": "Practitioner" },
