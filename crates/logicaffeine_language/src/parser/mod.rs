@@ -53,6 +53,7 @@
 
 mod clause;
 mod common;
+pub mod hw_preamble;
 mod modal;
 mod noun;
 mod pragmatics;
@@ -64,6 +65,11 @@ mod verb;
 mod tests;
 
 pub use clause::ClauseParsing;
+pub use hw_preamble::{
+    parse_hw_preamble, ClockDecl, ClockEdge, ClockRole, EnumType, EnumTypeId, HwPreamble,
+    HwPreambleResult, HwSymbolEntry, HwSymbolTable, HwTypeRegistry, InterfaceDecl, InterfaceField,
+    LetBinding, ParameterDecl, ResetDecl, ResetPolarity, SignalDecl, SignalType,
+};
 pub use modal::ModalParsing;
 pub use noun::NounParsing;
 pub use pragmatics::PragmaticsParsing;
