@@ -604,12 +604,34 @@ mod english_integration {
 
     #[test]
     fn english_report_preserves_labels() {
-        // This is tested indirectly — the labels are set from sentence text
-        // and appear in vacuity/redundancy findings
         let report = check_english_spec(
             "Req is valid. Ack is valid.",
             default_config(),
         ).unwrap();
         assert_eq!(report.satisfiability, SatisfiabilityResult::Satisfiable);
+    }
+
+    #[test]
+    fn english_spec_with_preamble_parses() {
+        // Regression guard: before fix 1, `check_english_spec` passed spec text
+        // through `split_sentences + compile_kripke_with` per sentence, which
+        // tried to parse preamble lines like `clock: clk posedge` as property
+        // sentences and returned `HwError::ParseError`. After the fix it routes
+        // through `parse_hw_spec_with`, which recognises preamble sigils and
+        // only feeds property sentences into the consistency checker.
+        //
+        // This test asserts the spec parses without error — the satisfiability
+        // of preamble+property semantics is a separate concern tracked
+        // independently (see LOGOS_ALIGNMENT_STATUS.md known-deferred items).
+        let spec = "clock: clk posedge\n\
+                    signals: req : scalar\n\
+                    \n\
+                    Always, every req is valid.";
+        let result = check_english_spec(spec, default_config());
+        assert!(
+            result.is_ok(),
+            "spec-with-preamble must parse through parse_hw_spec_with (no HwError::ParseError on sigils); got {:?}",
+            result
+        );
     }
 }

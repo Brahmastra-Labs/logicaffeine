@@ -502,3 +502,57 @@ If rx_valid is asserted, rx_data is valid.";
         "HwSymbolTable::from_decls must produce byte-identical entries vs. the .hwspec parse path"
     );
 }
+
+// ═══════════════════════════════════════════════════════════════════════════
+// synthesize_sva_from_spec no longer silently drops properties beyond [0];
+// synthesize_sva_from_hwspec handles per-property synthesis.
+// ═══════════════════════════════════════════════════════════════════════════
+
+#[test]
+fn synthesize_sva_from_spec_rejects_multi_property_input() {
+    use logicaffeine_compile::codegen_sva::fol_to_sva::synthesize_sva_from_spec;
+
+    let spec = "Always, every req is valid. Always, every ack is valid.";
+    let result = synthesize_sva_from_spec(spec, "clk");
+
+    let err = result.expect_err(
+        "multi-property spec must error instead of silently dropping properties beyond [0]",
+    );
+    assert!(
+        err.contains("only handles single-property") || err.contains("synthesize_sva_from_hwspec"),
+        "error must guide the caller to the per-property API; got: {}",
+        err
+    );
+}
+
+#[test]
+fn synthesize_sva_from_hwspec_accepts_multi_property_input() {
+    use logicaffeine_compile::codegen_sva::fol_to_sva::synthesize_sva_from_hwspec;
+
+    let spec = "Always, every req is valid. Always, every ack is valid.";
+
+    parse_hw_spec_with(spec, |hw_spec, interner| {
+        assert_eq!(
+            hw_spec.properties.len(),
+            2,
+            "both property sentences must reach HwSpec.properties"
+        );
+
+        let sva0 = synthesize_sva_from_hwspec(hw_spec, interner, 0, "clk")
+            .expect("property[0] synthesis must succeed");
+        let sva1 = synthesize_sva_from_hwspec(hw_spec, interner, 1, "clk")
+            .expect("property[1] synthesis must succeed");
+
+        assert_ne!(
+            sva0.body, sva1.body,
+            "distinct property sentences must produce distinct SVA bodies"
+        );
+
+        let oob = synthesize_sva_from_hwspec(hw_spec, interner, 2, "clk");
+        assert!(
+            oob.is_err(),
+            "out-of-bounds property index must error, not panic"
+        );
+    })
+    .expect("multi-property spec must parse");
+}

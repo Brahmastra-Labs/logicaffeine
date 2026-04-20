@@ -1275,8 +1275,16 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                         continue;
                     }
                     BlockType::Hardware | BlockType::Property => {
-                        // Hardware signal declarations and temporal property assertions
-                        // Skip content until next block header
+                        // Hardware signal declarations and temporal property assertions.
+                        // Skip content until next block header.
+                        //
+                        // Load-bearing: Phase-2 `Expr::UnaryOp`, `Expr::BitSelect`,
+                        // `Expr::PartSelect`, `Expr::HwConcat`, and the new `BinaryOpKind`
+                        // variants live only on the SVA lowering path. Non-SVA passes
+                        // (interpreter, Rust/C codegen, decompiler, optimizer, analysis)
+                        // carry `unreachable!()` arms for those variants and rely on
+                        // HW-block content never reaching them. The `.hwspec` path
+                        // enters via `parse_hw_spec_with`, not `parse_program`.
                         in_definition_block = true;
                         self.mode = ParserMode::Declarative;
                         self.advance();

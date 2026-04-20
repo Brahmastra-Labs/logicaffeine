@@ -244,6 +244,8 @@ impl<'a> VerificationPass<'a> {
                     BinaryOpKind::Concat => VerifyType::Object,
                     // Bitwise operations produce Int
                     BinaryOpKind::BitXor
+                    | BinaryOpKind::BitAnd
+                    | BinaryOpKind::BitOr
                     | BinaryOpKind::Shl
                     | BinaryOpKind::Shr => VerifyType::Int,
                 }
@@ -412,7 +414,8 @@ impl<'a> VerificationPass<'a> {
                     BinaryOpKind::Or => VerifyOp::Or,
                     // Modulo, Concat, and bitwise ops not directly supported in verification IR
                     BinaryOpKind::Modulo | BinaryOpKind::Concat
-                    | BinaryOpKind::BitXor | BinaryOpKind::Shl | BinaryOpKind::Shr => return None,
+                    | BinaryOpKind::BitXor | BinaryOpKind::BitAnd | BinaryOpKind::BitOr
+                    | BinaryOpKind::Shl | BinaryOpKind::Shr => return None,
                 };
                 Some(VerifyExpr::binary(verify_op, l, r))
             }
@@ -468,7 +471,8 @@ impl<'a> VerificationPass<'a> {
                     BinaryOpKind::Or => VerifyOp::Or,
                     // Modulo, Concat, and bitwise ops not directly supported in verification IR
                     BinaryOpKind::Modulo | BinaryOpKind::Concat
-                    | BinaryOpKind::BitXor | BinaryOpKind::Shl | BinaryOpKind::Shr => return None,
+                    | BinaryOpKind::BitXor | BinaryOpKind::BitAnd | BinaryOpKind::BitOr
+                    | BinaryOpKind::Shl | BinaryOpKind::Shr => return None,
                 };
                 Some(VerifyExpr::binary(verify_op, l, r))
             }
@@ -577,6 +581,7 @@ impl<'a> VerificationPass<'a> {
                     TemporalOperator::Always => "Always",
                     TemporalOperator::Eventually => "Eventually",
                     TemporalOperator::Next => "Next",
+                    TemporalOperator::BoundedEventually(_) => "Eventually",
                 };
                 VerifyExpr::apply(op_name, vec![self.map_logic_expr(body)])
             }

@@ -30,40 +30,70 @@ pub struct SynthesizedSva {
 
 /// Synthesize an SVA property from an English specification.
 ///
-/// Phase 4b migration: routes through `parse_hw_spec_with`. Synthesizes
-/// from the first property sentence, matching the legacy single-assertion
-/// behavior. Callers with multiple properties should hold an `HwSpec`
-/// and call [`synthesize_sva_from_hwspec`] per property.
+/// Single-property convenience entry. Rejects multi-property specs with an
+/// explicit error so callers do not silently lose properties after index 0 —
+/// use [`synthesize_sva_from_hwspec`] when multiple properties need SVA.
 ///
 /// The synthesized SVA uses the EXACT same signal names as the FOL
 /// translator so Z3 equivalence checking works.
 pub fn synthesize_sva_from_spec(spec: &str, clock: &str) -> Result<SynthesizedSva, String> {
     use logicaffeine_language::hw_spec::parse_hw_spec_with;
+
+    parse_hw_spec_with(spec, |hw_spec, interner| {
+        match hw_spec.properties.len() {
+            0 => Err("No property sentence in spec".to_string()),
+            1 => synthesize_sva_from_logic_expr(hw_spec.properties[0], interner, clock),
+            n => Err(format!(
+                "Spec has {} properties; synthesize_sva_from_spec only handles \
+                 single-property specs. Call synthesize_sva_from_hwspec per \
+                 property index instead.",
+                n
+            )),
+        }
+    })
+    .map_err(|e| format!("Parse error: {:?}", e))?
+}
+
+/// Synthesize SVA from an already-parsed [`HwSpec`] at a specific property index.
+///
+/// Use this when a caller parsed a multi-property spec via
+/// [`parse_hw_spec_with`] and needs SVA for each property. Returns an error
+/// if `property_index` is out of range.
+pub fn synthesize_sva_from_hwspec(
+    hw_spec: &logicaffeine_language::hw_spec::HwSpec,
+    interner: &Interner,
+    property_index: usize,
+    clock: &str,
+) -> Result<SynthesizedSva, String> {
+    let ast = hw_spec
+        .properties
+        .get(property_index)
+        .copied()
+        .ok_or_else(|| format!(
+            "Property index {} out of bounds (spec has {} properties)",
+            property_index,
+            hw_spec.properties.len()
+        ))?;
+    synthesize_sva_from_logic_expr(ast, interner, clock)
+}
+
+fn synthesize_sva_from_logic_expr<'a>(
+    ast: &'a LogicExpr<'a>,
+    interner: &Interner,
+    clock: &str,
+) -> Result<SynthesizedSva, String> {
     use logicaffeine_language::semantics::knowledge_graph::extract_from_kripke_ast;
     use super::fol_to_verify::FolTranslator;
     use super::sva_to_verify::extract_signal_names;
 
-    let (sva_body, signals, fol_signals) = parse_hw_spec_with(spec, |hw_spec, interner| {
-        let ast = match hw_spec.properties.first() {
-            Some(expr) => *expr,
-            None => {
-                return Err("No property sentence in spec".to_string());
-            }
-        };
+    let mut fol_translator = FolTranslator::new(interner, 5);
+    let fol_result = fol_translator.translate_property(ast);
+    let fol_signals = extract_signal_names(&fol_result);
 
-        let mut fol_translator = FolTranslator::new(interner, 5);
-        let fol_result = fol_translator.translate_property(ast);
-        let fol_sigs = extract_signal_names(&fol_result);
+    let kg = extract_from_kripke_ast(ast, interner);
+    let kg_signals: Vec<String> = kg.signals.iter().map(|s| s.name.clone()).collect();
 
-        let kg = extract_from_kripke_ast(ast, interner);
-        let kg_signals: Vec<String> = kg.signals.iter().map(|s| s.name.clone()).collect();
-
-        let body = synthesize_from_ast(ast, interner, clock, &fol_sigs);
-        Ok((body, kg_signals, fol_sigs))
-    })
-    .map_err(|e| format!("Parse error: {:?}", e))??;
-
-    let body = sva_body;
+    let body = synthesize_from_ast(ast, interner, clock, &fol_signals);
 
     // Reject degenerate synthesis results — these indicate the spec is not
     // a temporal property (e.g., bare action sentences like "The bus acknowledges the request.")
@@ -73,22 +103,18 @@ pub fn synthesize_sva_from_spec(spec: &str, clock: &str) -> Result<SynthesizedSv
             (e.g., \"Always, ...\") or restructure as a conditional.".to_string());
     }
 
-    // Determine assertion kind from the temporal operator
     let kind = if body.contains("s_eventually") || body.contains("cover") {
         "cover"
     } else {
         "assert"
     };
 
-    let sva_text = format!(
-        "{} property (@(posedge {}) {});",
-        kind, clock, body
-    );
+    let sva_text = format!("{} property (@(posedge {}) {});", kind, clock, body);
 
     Ok(SynthesizedSva {
         sva_text,
         body,
-        signals: if signals.is_empty() { fol_signals } else { signals },
+        signals: if kg_signals.is_empty() { fol_signals } else { kg_signals },
         kind: kind.to_string(),
     })
 }
