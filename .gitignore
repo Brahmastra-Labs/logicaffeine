@@ -31,6 +31,8 @@ benchmarks/.logos-bench-target/
 benchmarks/bin/
 benchmarks/generated/
 benchmarks/results/raw/
+# asm/llvm-ir dumps (~620MB, regenerate via run-logos-vs-c.sh)
+benchmarks/asm/
 
 # Local cargo config (mold linker — not available in CI)
 .cargo/
@@ -47,3 +49,8 @@ AssertionBench/
 .env.local
 .claude/
 typescript
+nanoGPT
+nanochat
+puzzles
+apps/logicaffeine_nano
+SimpleBench
