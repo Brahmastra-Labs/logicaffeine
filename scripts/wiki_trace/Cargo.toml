@@ -1,0 +1,24 @@
+[package]
+name = "wiki-trace"
+version = "0.0.0"
+publish = false
+edition.workspace = true
+rust-version.workspace = true
+
+[lib]
+name = "wiki_trace"
+path = "src/lib.rs"
+
+[[bin]]
+name = "wiki-trace"
+path = "src/bin/trace.rs"
+
+[[bin]]
+name = "wiki-triage"
+path = "src/bin/triage.rs"
+
+[dependencies]
+logicaffeine-compile = { path = "../../crates/logicaffeine_compile" }
+logicaffeine-language = { path = "../../crates/logicaffeine_language" }
+serde = { workspace = true }
+serde_json = { workspace = true }

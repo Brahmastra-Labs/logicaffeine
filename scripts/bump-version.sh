@@ -26,6 +26,8 @@ CARGO_FILES=(
   "apps/logicaffeine_cli/Cargo.toml"
   "apps/logicaffeine_web/Cargo.toml"
   "crates/logicaffeine_verify/Cargo.toml"
+  "crates/logicaffeine_tv/Cargo.toml"
+  "crates/logicaffeine_forge/Cargo.toml"
 )
 
 echo "Bumping version: $OLD → $NEW"

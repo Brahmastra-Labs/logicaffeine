@@ -9,11 +9,37 @@ members = [
     "crates/logicaffeine_language",
     "crates/logicaffeine_proof",
     "crates/logicaffeine_compile",
+    "crates/logicaffeine_forge",
+    "crates/logicaffeine_jit",
     "crates/logicaffeine_tests",
     "apps/logicaffeine_cli",
     "apps/logicaffeine_web",
     "crates/logicaffeine_lsp",
     "crates/logicaffeine_verify",
+    "crates/logicaffeine_tv",
+    "scripts/wiki_trace",
+]
+
+# The two Z3-backed crates are excluded from the DEFAULT package set so plain
+# `cargo test` / `cargo build` need no Z3 toolchain. They still build whenever
+# the `verification` feature pulls them in, and their own unit tests run under
+# `cargo test --workspace` (CI and the all-tests command, which provide Z3).
+default-members = [
+    "crates/logicaffeine_base",
+    "crates/logicaffeine_lexicon",
+    "crates/logicaffeine_kernel",
+    "crates/logicaffeine_data",
+    "crates/logicaffeine_system",
+    "crates/logicaffeine_language",
+    "crates/logicaffeine_proof",
+    "crates/logicaffeine_compile",
+    "crates/logicaffeine_forge",
+    "crates/logicaffeine_jit",
+    "crates/logicaffeine_tests",
+    "apps/logicaffeine_cli",
+    "apps/logicaffeine_web",
+    "crates/logicaffeine_lsp",
+    "scripts/wiki_trace",
 ]
 
 [workspace.package]

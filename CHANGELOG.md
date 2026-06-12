@@ -4,6 +4,13 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.9.17] - 2026-06-11
+
+### Added
+- **`logicaffeine-forge`** — new crate: the copy-and-patch JIT's executable-memory layer and stencil runtime (native only). `JitPage` allocates page-aligned memory, copies machine code in, flips it to executable, and returns a callable function pointer; compiling a function at runtime is `memcpy(stencil bytes)` + patch relocations. Platform-correct W^X handling for macOS/aarch64 (`MAP_JIT` + per-thread write-protect toggling + `sys_icache_invalidate`), other Unix (`mmap` → `mprotect` + aarch64 I-cache flush), and Windows (`VirtualAlloc` → `VirtualProtect` → `FlushInstructionCache`). Build-time stencil extraction via a `build.rs` over `object`.
+- **`logicaffeine-tv`** — new crate: SMT translation validation. Proves the emitted Rust is observationally equivalent to the LOGOS source per compile by symbolically executing both into the `logicaffeine-verify` domain and discharging the equivalence with Z3. `check_encoder_sound` cross-validates the LOGOS encoder against the tree-walking interpreter as the load-bearing trust anchor (rung 3–4 translation validation).
+- **Lockstep publishing for the new crates** — `logicaffeine-forge` joins the workspace at the lockstep version (from its initial `0.1.0`), and both new crates are wired into the crates.io publish pipeline and the version-bump tooling.
+
 ## [0.9.16] - 2026-04-06
 
 ### Added

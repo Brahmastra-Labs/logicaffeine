@@ -2,7 +2,26 @@
 
 //! Platform IO and System Services for LOGOS
 //!
-//! This crate provides platform-specific IO operations with feature-gated heavy dependencies.
+//! The effectful counterpart to `logicaffeine_data`. Where that crate holds the
+//! pure, WASM-safe value types, this crate owns every interaction with the
+//! outside world — the clock, the console, the filesystem, the network — and
+//! gates the heavy dependencies behind features so a lean build (or a `wasm32`
+//! build) pays only for what it uses.
+//!
+//! ## Modules
+//!
+//! Always available:
+//! - `io` — console and stream IO, plus the `Showable` rendering used to print
+//!   runtime values.
+//! - `temporal` — clock-agnostic time arithmetic over caller-injected timestamps.
+//!
+//! Native only (`#[cfg(not(target_arch = "wasm32"))]`):
+//! - `time`, `env`, `random`, `text` — wall-clock access, environment, RNG, and
+//!   host text services that have no portable `wasm32` equivalent.
+//!
+//! Feature-gated (see below): `file`, `fs`, `storage` (persistence); `network`,
+//! `crdt` (networking); `concurrency`, `memory` (concurrency); and `distributed`,
+//! which needs both networking and persistence.
 //!
 //! ## Feature Flags (Cerf/Drasner Amendment)
 //!
@@ -11,7 +30,7 @@
 //! - `persistence`: File persistence with memmap2 (small dependency)
 //! - `concurrency`: Parallel computation with rayon (moderate dependency)
 //! - `full`: All features enabled
-//! - `distributed`: networking + persistence (for Distributed<T>)
+//! - `distributed`: networking + persistence (for `Distributed<T>`)
 
 // === Always Available (Core IO) ===
 pub mod io;

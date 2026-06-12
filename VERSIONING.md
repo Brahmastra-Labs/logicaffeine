@@ -33,33 +33,36 @@ This means `0.6.0` → `0.7.0` may break APIs, but `0.6.0` → `0.6.1` will not.
 
 ## Crate Hierarchy
 
-Crates must be published in dependency order (leaves first):
+Crates must be published in dependency order (leaves first). This mirrors
+`.github/workflows/publish.yml`, which is the authoritative publish order:
 
 ```
 Tier 0 (no internal deps):
   logicaffeine-base
-  logicaffeine-data
+  logicaffeine-verify
+  logicaffeine-forge
 
 Tier 1 (depends on Tier 0):
+  logicaffeine-data
   logicaffeine-kernel
   logicaffeine-lexicon
 
 Tier 2 (depends on Tier 0-1):
   logicaffeine-system
+  logicaffeine-proof
 
 Tier 3 (depends on Tier 0-2):
   logicaffeine-language
-  logicaffeine-proof
 
 Tier 4 (depends on Tier 0-3):
   logicaffeine-compile
 
-Tier 5 (applications):
-  logicaffeine-cli
-  logicaffeine-web
+Tier 4.5 (depends on Tier 0-4):
+  logicaffeine-lsp
 
-Optional (excluded from workspace):
-  logicaffeine-verify
+Tier 5 (applications + validation):
+  logicaffeine-cli
+  logicaffeine-tv
 ```
 
 ## Changelogs
@@ -184,11 +187,12 @@ git push origin main --tags
 To bump all crates simultaneously, use:
 
 ```bash
-# Example: bump to 0.7.0
-./scripts/bump-version.sh 0.7.0
+# Example: bump from 0.9.16 to 0.9.17
+./scripts/bump-version.sh 0.9.16 0.9.17
 ```
 
-This script updates all `Cargo.toml` files and inter-crate dependencies.
+This script updates all `Cargo.toml` files and inter-crate dependencies, then runs
+`cargo check --workspace` to validate the bump.
 
 ## Unpublished Crates
 
@@ -196,11 +200,12 @@ The following crates are not published to crates.io:
 
 | Crate | Reason |
 |-------|--------|
-| `logicaffeine-tests` | Internal test suite only |
-| `logicaffeine-web` | Web application, not a library |
-| `logicaffeine-verify` | Requires Z3, optional feature |
+| `logicaffeine-tests` | Internal test suite only (`publish = false`) |
+| `logicaffeine-web` | Web application, not a library (`publish = false`) |
+| `wiki-trace` | Internal tooling script (`publish = false`) |
 
-These crates still follow lockstep versioning for consistency.
+The `logicaffeine-tests` and `logicaffeine-web` crates still follow lockstep
+versioning for consistency. `wiki-trace` is an out-of-band utility kept at `0.0.0`.
 
 ## Version History
 

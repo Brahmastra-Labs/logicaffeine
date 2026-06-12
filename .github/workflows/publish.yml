@@ -24,6 +24,9 @@ jobs:
       - name: Publish logicaffeine-verify
         run: cargo publish -p logicaffeine-verify --no-verify 2>&1 | tee /tmp/pub.log || grep -q 'already uploaded' /tmp/pub.log
 
+      - name: Publish logicaffeine-forge
+        run: cargo publish -p logicaffeine-forge --no-verify 2>&1 | tee /tmp/pub.log || grep -q 'already uploaded' /tmp/pub.log
+
       - name: Wait for crates.io index
         run: sleep 30
 
@@ -65,9 +68,16 @@ jobs:
         run: sleep 30
 
       # Tier 4.5 — depends on base + language + compile + proof
+      - name: Publish logicaffeine-jit
+        run: cargo publish -p logicaffeine-jit --no-verify 2>&1 | tee /tmp/pub.log || grep -q 'already uploaded' /tmp/pub.log
+
       - name: Publish logicaffeine-lsp
         run: cargo publish -p logicaffeine-lsp --no-verify 2>&1 | tee /tmp/pub.log || grep -q 'already uploaded' /tmp/pub.log
 
       # Tier 5 — depends on base + kernel + language + compile
       - name: Publish logicaffeine-cli
         run: cargo publish -p logicaffeine-cli --no-verify 2>&1 | tee /tmp/pub.log || grep -q 'already uploaded' /tmp/pub.log
+
+      # Tier 5 — depends on compile + verify
+      - name: Publish logicaffeine-tv
+        run: cargo publish -p logicaffeine-tv --no-verify 2>&1 | tee /tmp/pub.log || grep -q 'already uploaded' /tmp/pub.log

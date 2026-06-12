@@ -7,8 +7,8 @@
 3. **USE TDD** - Follow RED/GREEN test-driven development, WE LOVE TESTS, ROBUST TESTS TO THE POINT OF ABSURDITY.
 4. **NEVER MODIFY RED TESTS** - Do not update failing tests without stopping and asking the user first. The test defines the spec; if a test fails, fix the implementation, not the test. DO NOT UPDATE RED TESTS. IF YOU UPDATE RED TESTS TO MAKE THEM PASS WITHOUT STOPPING TO ASK THE USER YOU WILL BE DECOMISSIONED!
 5. **RUNNING TESTS**
-  Use `cargo test --no-fail-fast -- --skip e2e > /tmp/test_file_logs.txt 2>&1; echo "EXIT: $?" >> /tmp/test_file_logs.txt` when running tests unless asked to run all tests. BY DEFAULT, skip the e2e tests. Use a sensible file to dump the logs to.
-  When asked to run all tests run `Z3_SYS_Z3_HEADER=/opt/homebrew/include/z3.h BINDGEN_EXTRA_CLANG_ARGS="-I/opt/homebrew/include" LIBRARY_PATH="/opt/homebrew/lib" cargo test --features verification --no-fail-fast > /tmp/test_all.txt 2>&1; echo "EXIT: $?" >> /tmp/test_all.txt`.
+  Use `cargo test --no-fail-fast -- --skip e2e > /tmp/test_file_logs.txt 2>&1; echo "EXIT: $?" >> /tmp/test_file_logs.txt` when running tests unless asked to run all tests. BY DEFAULT, skip the e2e tests. Use a sensible file to dump the logs to. This default path needs NO Z3 (the Z3-backed crates are outside `default-members` and the Z3 test files are gated behind the `verification` feature).
+  When asked to run all tests run `Z3_SYS_Z3_HEADER=/opt/homebrew/include/z3.h BINDGEN_EXTRA_CLANG_ARGS="-I/opt/homebrew/include" LIBRARY_PATH="/opt/homebrew/lib" cargo test --workspace --features verification --no-fail-fast > /tmp/test_all.txt 2>&1; echo "EXIT: $?" >> /tmp/test_all.txt` (`--workspace` pulls the Z3 crates `logicaffeine-verify`/`logicaffeine-tv` back in; the feature turns on their test files).
   When running tests, don't tail or head the outputs, just read the entire thing.
   During development, we will develop the RED test, then work until that passes, then run all our tests.
   For large refactors, we can selectively run existing tests to ensure we didn't break things.
@@ -182,7 +182,7 @@ Verification is gated by license. Valid license keys are Stripe subscription IDs
 ## Release Process
 
 1. **Ensure all tests pass**: `cargo test -- --skip e2e`
-2. **Bump versions** in all 13 Cargo.toml files (lockstep versioning)
+2. **Bump versions** in all 15 Cargo.toml files (lockstep versioning)
 3. **Update CHANGELOG.md** with the new version entry
 4. **Add news article** in `apps/logicaffeine_web/src/ui/pages/news/data.rs`
 5. **Pull and rebase**:

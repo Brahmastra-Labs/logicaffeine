@@ -16,12 +16,15 @@ CRATES=(
     logicaffeine_cli
     logicaffeine_compile
     logicaffeine_data
+    logicaffeine_forge
     logicaffeine_kernel
     logicaffeine_language
     logicaffeine_lexicon
     logicaffeine_lsp
     logicaffeine_proof
     logicaffeine_system
+    logicaffeine_tv
+    logicaffeine_verify
     logicaffeine_web
 )
 
@@ -91,6 +94,9 @@ cat > apps/logicaffeine_docs/dist/index.html << 'EOF'
             <li><a href="logicaffeine_base/index.html">logicaffeine_base</a> - Base types</li>
             <li><a href="logicaffeine_data/index.html">logicaffeine_data</a> - Data structures</li>
             <li><a href="logicaffeine_system/index.html">logicaffeine_system</a> - System layer</li>
+            <li><a href="logicaffeine_forge/index.html">logicaffeine_forge</a> - Copy-and-patch JIT (native)</li>
+            <li><a href="logicaffeine_verify/index.html">logicaffeine_verify</a> - Z3 static &amp; hardware (SVA) verification</li>
+            <li><a href="logicaffeine_tv/index.html">logicaffeine_tv</a> - SMT translation validation</li>
             <li><a href="logicaffeine_cli/index.html">logicaffeine_cli</a> - CLI (largo)</li>
             <li><a href="logicaffeine_web/index.html">logicaffeine_web</a> - Web frontend</li>
         </ul>

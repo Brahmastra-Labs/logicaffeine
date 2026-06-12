@@ -46,7 +46,7 @@ jobs:
       - name: Run all tests
         run: |
           set -o pipefail
-          cargo nextest run --workspace --features logicaffeine-tests/ffi-link-tests --profile ci 2>&1 | tee test_output.txt
+          cargo nextest run --workspace --features logicaffeine-tests/ffi-link-tests,logicaffeine-tests/verification --profile ci 2>&1 | tee test_output.txt
 
       - name: Run web tests
         run: |

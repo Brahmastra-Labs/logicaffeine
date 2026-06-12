@@ -62,6 +62,35 @@ pub fn get_articles_by_tag(tag: &str) -> Vec<&'static Article> {
 /// All news articles
 static ARTICLES: &[Article] = &[
     Article {
+        slug: "release-0-9-17-copy-and-patch-jit",
+        title: "v0.9.17 — Copy-and-Patch JIT",
+        date: "2026-06-11",
+        summary: "Two new crates join the published workspace: logicaffeine-forge, the copy-and-patch JIT's executable-memory layer and stencil runtime, and logicaffeine-tv, SMT translation validation proving emitted Rust is observationally equivalent to its LOGOS source.",
+        content: r#"
+## Copy-and-Patch JIT
+
+This release publishes two new crates that have been taking shape inside the workspace: a copy-and-patch JIT foundation and an SMT translation-validation engine.
+
+### logicaffeine-forge — the executable-memory layer
+
+`logicaffeine-forge` is the foundation a copy-and-patch JIT builds on. `JitPage` allocates page-aligned memory, copies machine code into it, flips the page to executable, and hands back a callable function pointer. At runtime, compiling a function is `memcpy(stencil bytes)` followed by patching relocations — no per-function assembler, just stencils stamped out and wired together.
+
+### Platform-correct W^X
+
+Write-xor-execute is handled per platform: on macOS/aarch64 (Apple Silicon) via `mmap(MAP_JIT)` with per-thread `pthread_jit_write_protect_np` toggling and a mandatory `sys_icache_invalidate`; on other Unix via `mmap(RW)` then `mprotect(RX)` with an I-cache flush on aarch64 Linux; on Windows via `VirtualAlloc` then `VirtualProtect` then `FlushInstructionCache`. The JIT is native-only — the browser continues to use the bytecode VM.
+
+### logicaffeine-tv — translation validation
+
+`logicaffeine-tv` proves that the Rust emitted by the compiler is observationally equivalent to the LOGOS source it was compiled from, per compile, by symbolically executing both sides into the shared verification domain and discharging the equivalence with Z3. Its `check_encoder_sound` check cross-validates the LOGOS encoder against the tree-walking interpreter — the load-bearing trust anchor that catches a buggy encoder rather than letting it "prove" two wrong things equal. This is translation validation (rung 3–4): the trust boundary is the encoders, Z3, and rustc.
+
+### Lockstep & published
+
+Both crates join the lockstep version line and the crates.io publish pipeline, so they ship and version alongside the rest of the workspace.
+"#,
+        tags: &["release", "jit", "compiler", "translation-validation", "verification"],
+        author: "LOGICAFFEINE Team",
+    },
+    Article {
         slug: "release-0-9-16-ieee-1800-2023-sva-upgrade",
         title: "v0.9.16 — IEEE 1800-2023 SVA Upgrade",
         date: "2026-04-06",
