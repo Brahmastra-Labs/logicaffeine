@@ -1,0 +1,33 @@
+═══ Sentence 1 ═══
+INPUT: Paul Michael Corballis is a New Zealand cognitive neuroscientist and professor of Psychology at the University of Auckland.
+
+TOKENS:
+    0..4   "Paul"       Proper
+    5..12  "Michael"    Proper
+   13..22  "Corballis"  Proper
+   23..25  "is"         Other
+   26..27  "a"          Determiner
+   28..31  "New"        Proper
+   32..39  "Zealand"    Proper
+   40..49  "cognitive"  Adjective
+   50..64  "neuroscientist" Adjective
+   65..68  "and"        Connective
+   69..78  "professor"  Adjective
+   79..81  "of"         Preposition
+   82..92  "Psychology" Proper
+   93..95  "at"         Preposition
+   96..99  "the"        Determiner
+  100..110 "University" Proper
+  111..113 "of"         Preposition
+  114..122 "Auckland"   Proper
+  122..123 "."          Punctuation
+  123..123 ""           Other
+
+FOL:
+  unicode: Paul_Michael
+  simple : Paul_Michael
+  kripke : Paul_Michael
+
+AST (1 nodes, 1 unhandled):
+  └─ Atom(Symbol(36)) [other]
+

@@ -1,0 +1,45 @@
+CLASSIFICATION: ActionableLexiconGap | subsystem Lexicon | gate Auto | confidence 0.75
+
+═══ Sentence 6 ═══
+INPUT: After his doctorate, Corballis held a postdoctoral position in the Department of Psychological and Brain Sciences at Dartmouth College.
+
+TOKENS:
+    0..5   "After"      Preposition
+    6..9   "his"        Pronoun
+   10..19  "doctorate"  Adjective
+   19..20  ","          Punctuation
+   21..30  "Corballis"  Proper
+   31..35  "held"       Verb
+   36..37  "a"          Determiner
+   38..50  "postdoctoral" Adjective
+   51..59  "position"   Other
+   60..62  "in"         Preposition
+   63..66  "the"        Determiner
+   67..77  "Department" Proper
+   78..80  "of"         Preposition
+   81..94  "Psychological" Proper
+   95..98  "and"        Connective
+   99..104 "Brain"      Proper
+  105..113 "Sciences"   Proper
+  114..116 "at"         Preposition
+  117..126 "Dartmouth"  Proper
+  127..134 "College"    Proper
+  134..135 "."          Punctuation
+  135..135 ""           Other
+
+FOL:
+  unicode: (Him → Have(Corballis, Doctorate))
+  simple : (Him → Have(Corballis, Doctorate))
+  kripke : (Him  Implies  Have(Corballis, Doctorate, w0))
+
+AST (5 nodes, 1 unhandled):
+  └─ ? [binary_op]
+     ├─ Atom(Symbol(42)) [other]
+     └─ Have(2) [predicate]
+        ├─ Corballis [constant]
+        └─ doctorate [constant]
+
+AMBIGUITY READINGS (2):
+  [1] (Him → Have(Corballis, Doctorate))
+  [2] (∃x(((Doctorate(x) ∧ ∀y((Doctorate(y) → y = x))) ∧ Have(Corballis, x))) → Postdoctoral)
+

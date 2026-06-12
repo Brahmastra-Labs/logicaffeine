@@ -1,0 +1,44 @@
+CLASSIFICATION: ActionableLexiconGap | subsystem Lexicon | gate Auto | confidence 0.75
+
+═══ Sentence 7 ═══
+INPUT: He joined the faculty at the University of Auckland School of Psychology, where he is a professor of Psychology.
+
+TOKENS:
+    0..2   "He"         Pronoun
+    3..9   "joined"     Verb
+   10..13  "the"        Determiner
+   14..21  "faculty"    Adjective
+   22..24  "at"         Preposition
+   25..28  "the"        Determiner
+   29..39  "University" Proper
+   40..42  "of"         Preposition
+   43..51  "Auckland"   Proper
+   52..58  "School"     Proper
+   59..61  "of"         Preposition
+   62..72  "Psychology" Proper
+   72..73  ","          Punctuation
+   74..79  "where"      Other
+   80..82  "he"         Pronoun
+   83..85  "is"         Other
+   86..87  "a"          Determiner
+   88..97  "professor"  Adjective
+   98..100 "of"         Preposition
+  101..111 "Psychology" Proper
+  111..112 "."          Punctuation
+  112..112 ""           Other
+
+FOL:
+  unicode: 1) ∃e(Join(e) ∧ Agent(e, Him) ∧ Theme(e, Faculty) ∧ Past(e))
+2) At(e, University)
+  simple : 1) Join(Him, Faculty)
+2) At(e, University)
+  kripke : 1) Exists e(Join(e, w0)  And  Agent(e, Him, w0)  And  Theme(e, Faculty, w0)  And  Past(e, w0))
+2) At(e, University, w0)
+
+AST (5 nodes, 1 unhandled):
+  └─ ∧ [binary_op]
+     ├─ NeoEvent(NeoEventData { event_var: Symbol(39), verb: Symbol(2), roles: [(Agent, Constant(Symbol(36))), (Theme, Constant(Symbol(5)))], modifiers: [Symbol(40)], suppress_existential: false, world: None }) [other]
+     └─ at(2) [predicate]
+        ├─ e [variable]
+        └─ University [constant]
+

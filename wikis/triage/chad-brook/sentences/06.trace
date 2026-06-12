@@ -1,0 +1,34 @@
+CLASSIFICATION: ActionableLexiconGap | subsystem Lexicon | gate Auto | confidence 0.75
+
+═══ Sentence 6 ═══
+INPUT: A water mill, called 'Over Mill' operated on the brook from the 16th to 19th centuries.
+
+TOKENS:
+    0..1   "A"          Determiner
+    2..7   "water"      Other
+    8..12  "mill"       Adjective
+   12..13  ","          Punctuation
+   14..20  "called"     Verb
+   22..26  "Over"       Preposition
+   27..31  "Mill"       Proper
+   33..41  "operated"   Verb
+   42..44  "on"         Preposition
+   45..48  "the"        Determiner
+   49..54  "brook"      Adjective
+   55..59  "from"       Other
+   60..63  "the"        Determiner
+   64..68  "16th"       Other
+   69..71  "to"         Preposition
+   72..76  "19th"       Other
+   77..86  "centuries"  Adjective
+   86..87  "."          Punctuation
+   87..87  ""           Other
+
+FOL:
+  unicode: Water
+  simple : Water
+  kripke : Water
+
+AST (1 nodes, 1 unhandled):
+  └─ Atom(Symbol(2)) [other]
+

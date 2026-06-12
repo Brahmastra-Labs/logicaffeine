@@ -1,0 +1,58 @@
+CLASSIFICATION: ActionableLexiconGap | subsystem Lexicon | gate Auto | confidence 0.75
+ISOLATED: "(formerly in Worcestershire)"(Parenthetical), "(and thus indirectly to Chad Valley toys)"(Parenthetical)
+
+═══ Sentence 2 ═══
+INPUT: It rises in the district of Harborne (formerly in Worcestershire), giving its name to the area known as Chad Valley (and thus indirectly to Chad Valley toys), and runs through the suburb of Edgbaston.
+
+TOKENS:
+    0..2   "It"         Pronoun
+    3..8   "rises"      Verb
+    9..11  "in"         Preposition
+   12..15  "the"        Determiner
+   16..24  "district"   Adjective
+   25..27  "of"         Preposition
+   28..36  "Harborne"   Proper
+   37..38  "("          Other
+   38..46  "formerly"   Other
+   47..49  "in"         Preposition
+   50..64  "Worcestershire" Proper
+   64..65  ")"          Other
+   65..66  ","          Punctuation
+   67..73  "giving"     Verb
+   74..77  "its"        Pronoun
+   78..82  "name"       Other
+   83..85  "to"         Preposition
+   86..89  "the"        Determiner
+   90..94  "area"       Noun
+   95..100 "known"      Verb
+  101..103 "as"         Adjective
+  104..108 "Chad"       Proper
+  109..115 "Valley"     Proper
+  116..117 "("          Other
+  117..120 "and"        Connective
+  121..125 "thus"       Adjective
+  126..136 "indirectly" Other
+  137..139 "to"         Preposition
+  140..144 "Chad"       Proper
+  145..151 "Valley"     Proper
+  152..156 "toys"       Adjective
+  156..157 ")"          Other
+  157..158 ","          Punctuation
+  159..162 "and"        Connective
+  163..167 "runs"       Verb
+  168..175 "through"    Preposition
+  176..179 "the"        Determiner
+  180..186 "suburb"     Adjective
+  187..189 "of"         Preposition
+  190..199 "Edgbaston"  Proper
+  199..200 "."          Punctuation
+  200..200 ""           Other
+
+FOL:
+  unicode: HAB((∃e(Rise(e) ∧ Theme(e, It)) ∧ In(e, District)))
+  simple : (Rise(It) ∧ In(e, District))
+  kripke : HAB((Exists e(Rise(e, w0)  And  Theme(e, It, w0))  And  In(e, District, w0)))
+
+AST (1 nodes, 1 unhandled):
+  └─ Aspectual { operator: Habitual, body: BinaryOp { left: NeoEvent(NeoEventData { event_var: Symbol(56), verb: Symbol(2), roles: [(Theme, Constant(Symbol(1)))], modifiers: [], suppress_existential: false, world: None }), op: And, right: Predicate { name: Symbol(4), args: [Variable(Symbol(56)), Constant(Symbol(6))], world: None } } } [other]
+

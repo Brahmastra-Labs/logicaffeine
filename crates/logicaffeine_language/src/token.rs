@@ -55,6 +55,8 @@ pub enum FocusKind {
     Only,
     Even,
     Just,
+    /// it-cleft / pseudo-cleft: "It was John who left." — focus + exhaustivity.
+    Cleft,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -147,6 +149,8 @@ pub enum TokenType {
     Not,
     Iff,
     Because,
+    /// Concessive subordinator: "although"/"though"/"even though".
+    Although,
     /// Temporal binary connective: "P until Q"
     Until,
     /// Temporal binary connective: "P release Q" (dual of Until)

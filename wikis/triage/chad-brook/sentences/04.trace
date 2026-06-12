@@ -1,0 +1,35 @@
+CLASSIFICATION: ParserGap | subsystem Parser | gate Investigate | confidence 0.50
+
+═══ Sentence 4 ═══
+INPUT: From there, water flows into the Rivers Rea, Tame and Trent, then the Humber, and eventually the North Sea.
+
+TOKENS:
+    0..4   "From"       Other
+    5..10  "there"      Adjective
+   10..11  ","          Punctuation
+   12..17  "water"      Other
+   18..23  "flows"      Verb
+   24..28  "into"       Preposition
+   29..32  "the"        Determiner
+   33..39  "Rivers"     Proper
+   40..43  "Rea"        Proper
+   43..44  ","          Punctuation
+   45..49  "Tame"       Proper
+   50..53  "and"        Connective
+   54..59  "Trent"      Proper
+   59..60  ","          Punctuation
+   61..65  "then"       Connective
+   66..69  "the"        Determiner
+   70..76  "Humber"     Proper
+   76..77  ","          Punctuation
+   78..81  "and"        Connective
+   82..92  "eventually" Other
+   93..96  "the"        Determiner
+   97..102 "North"      Proper
+  103..106 "Sea"        Proper
+  106..107 "."          Punctuation
+  107..107 ""           Other
+
+ERROR (Socratic):
+  I was looking for a noun, verb, or adjective at position 5, but found From instead. The logic needs a content word to ground it.
+

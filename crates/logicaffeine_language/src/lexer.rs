@@ -960,6 +960,15 @@ impl<'a> Lexer<'a> {
                     // This colon is part of a time, include it in the word
                     current_word.push(c);
                 }
+                // Hyphenated compounds ("weak-until", "highest-priority"):
+                // a hyphen BETWEEN letters is part of the word, never the
+                // arithmetic minus (which is space- or digit-adjacent).
+                '-' if char_idx > 0
+                    && chars[char_idx - 1].is_alphabetic()
+                    && char_idx + 1 < chars.len()
+                    && chars[char_idx + 1].is_alphabetic() => {
+                    current_word.push(c);
+                }
                 // Scientific notation: 4.84e+00, 1.66E-03, 2.5e-2
                 '+' | '-' if Self::is_exponent_sign(&current_word, &chars, char_idx) => {
                     current_word.push(c);
@@ -993,58 +1002,27 @@ impl<'a> Lexer<'a> {
                        remaining_lower.starts_with("t,") || remaining_lower == "t" ||
                        (char_idx + 1 < chars.len() && chars[char_idx + 1] == 't' &&
                         (char_idx + 2 >= chars.len() || !chars[char_idx + 2].is_alphabetic())) {
-                        // This is a contraction ending in 't (don't, doesn't, won't, can't, etc.)
+                        // The splitter broke the word at the apostrophe, so
+                        // `current_word` is the n't-contraction STEM ("isn",
+                        // "won"). Which stems contract — and what they expand
+                        // to ("won" is suppletive: "will not") — is lexical
+                        // knowledge, so the lexicon owns the table; here we
+                        // only apply its expansion.
                         let word_lower = current_word.to_lowercase();
-                        if word_lower == "don" || word_lower == "doesn" || word_lower == "didn" {
-                            // do/does/did + not
-                            let base = if word_lower == "don" { "do" }
-                                      else if word_lower == "doesn" { "does" }
-                                      else { "did" };
-                            items.push(WordItem {
-                                word: base.to_string(),
-                                trailing_punct: None,
-                                start: word_start,
-                                end: i,
-                                punct_pos: None,
-                            });
-                            items.push(WordItem {
-                                word: "not".to_string(),
-                                trailing_punct: None,
-                                start: i,
-                                end: i + 2,
-                                punct_pos: None,
-                            });
-                            current_word.clear();
-                            word_start = next_pos + 1;
-                            skip_count = 1;
-                        } else if word_lower == "won" {
-                            // will + not
-                            items.push(WordItem {
-                                word: "will".to_string(),
-                                trailing_punct: None,
-                                start: word_start,
-                                end: i,
-                                punct_pos: None,
-                            });
-                            items.push(WordItem {
-                                word: "not".to_string(),
-                                trailing_punct: None,
-                                start: i,
-                                end: i + 2,
-                                punct_pos: None,
-                            });
-                            current_word.clear();
-                            word_start = next_pos + 1;
-                            skip_count = 1;
-                        } else if word_lower == "can" {
-                            // cannot
-                            items.push(WordItem {
-                                word: "cannot".to_string(),
-                                trailing_punct: None,
-                                start: word_start,
-                                end: i + 2,
-                                punct_pos: None,
-                            });
+                        if let Some(expansion) =
+                            crate::lexicon::lookup_negative_contraction(&word_lower)
+                        {
+                            let words: Vec<&str> = expansion.split_whitespace().collect();
+                            let last_idx = words.len().saturating_sub(1);
+                            for (idx, part) in words.iter().enumerate() {
+                                items.push(WordItem {
+                                    word: (*part).to_string(),
+                                    trailing_punct: None,
+                                    start: if idx == 0 { word_start } else { i },
+                                    end: if idx == last_idx { i + 2 } else { i },
+                                    punct_pos: None,
+                                });
+                            }
                             current_word.clear();
                             word_start = next_pos + 1;
                             skip_count = 1;
@@ -2109,7 +2087,14 @@ impl<'a> Lexer<'a> {
             _ => {}
         }
 
-        if lexicon::is_preposition(&lower) {
+        // A word that is BOTH a verb and a preposition ("like") stays
+        // ambiguous — the dual-class block below emits the alternatives.
+        // Lexicon-disambiguated NON-verbs ("during") are pure prepositions
+        // even when morphology over-derives a verb reading.
+        if lexicon::is_preposition(&lower)
+            && (self.lexicon.lookup_verb(&lower).is_none()
+                || lexicon::is_disambiguation_not_verb(&lower))
+        {
             let sym = self.interner.intern(&lower);
             return TokenType::Preposition(sym);
         }
@@ -2355,14 +2340,29 @@ impl<'a> Lexer<'a> {
         // Check for gerunds/progressive verbs BEFORE ProperName check
         // "Running" at start of sentence should be Verb, not ProperName
         if lower.ends_with("ing") && lower.len() > 4 {
-            if let Some(entry) = self.lexicon.lookup_verb(&lower) {
-                let sym = self.interner.intern(&entry.lemma);
-                return TokenType::Verb {
-                    lemma: sym,
-                    time: entry.time,
-                    aspect: entry.aspect,
-                    class: entry.class,
-                };
+            // Participial ADJECTIVE in attributive position ("the
+            // corresponding output line"): the word has an adjective entry
+            // and a content word follows it. -ing PREPOSITIONS ("during")
+            // skip the early return too — the dual-class block below emits
+            // their Ambiguous alternatives.
+            let attributive = self.is_adjective_like(&lower)
+                && self
+                    .peek_word(1)
+                    .map(|next| {
+                        let next_lower = next.to_lowercase();
+                        self.is_noun_like(&next_lower) || self.is_adjective_like(&next_lower)
+                    })
+                    .unwrap_or(false);
+            if !attributive && !lexicon::is_preposition(&lower) {
+                if let Some(entry) = self.lexicon.lookup_verb(&lower) {
+                    let sym = self.interner.intern(&entry.lemma);
+                    return TokenType::Verb {
+                        lemma: sym,
+                        time: entry.time,
+                        aspect: entry.aspect,
+                        class: entry.class,
+                    };
+                }
             }
         }
 
@@ -2407,12 +2407,22 @@ impl<'a> Lexer<'a> {
         }
 
         let verb_entry = self.lexicon.lookup_verb(&lower);
-        let is_noun = lexicon::is_common_noun(&lower);
+        // Irregular plurals ("children", "mice") are not in the common-noun
+        // table; morphological analysis identifies them. Restricted to
+        // non-verb words so "rains" stays a pure verb.
+        let is_noun = lexicon::is_common_noun(&lower)
+            || (verb_entry.is_none()
+                && matches!(
+                    lexicon::analyze_word(&lower),
+                    Some(lexicon::WordAnalysis::Noun(_))
+                ));
         let is_adj = self.is_adjective_like(&lower);
         let is_disambiguated = lexicon::is_disambiguation_not_verb(&lower);
 
-        // Ambiguous: word is Verb AND (Noun OR Adjective), not disambiguated
-        if verb_entry.is_some() && (is_noun || is_adj) && !is_disambiguated {
+        // Ambiguous: word is Verb AND (Noun OR Adjective OR Preposition),
+        // not disambiguated
+        let is_prep = lexicon::is_preposition(&lower);
+        if verb_entry.is_some() && (is_noun || is_adj || is_prep) && !is_disambiguated {
             let entry = verb_entry.unwrap();
             let verb_token = TokenType::Verb {
                 lemma: self.interner.intern(&entry.lemma),
@@ -2427,6 +2437,9 @@ impl<'a> Lexer<'a> {
             }
             if is_adj {
                 alternatives.push(TokenType::Adjective(self.interner.intern(word)));
+            }
+            if is_prep {
+                alternatives.push(TokenType::Preposition(self.interner.intern(&lower)));
             }
 
             return TokenType::Ambiguous {

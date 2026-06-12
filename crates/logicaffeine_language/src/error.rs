@@ -179,6 +179,11 @@ pub enum ParseErrorKind {
         gender: crate::drs::Gender,
         number: crate::drs::Number,
     },
+    /// The parser finished a sentence with input left over — accepting it
+    /// would silently drop the remainder's meaning.
+    TrailingTokens {
+        found: TokenType,
+    },
     /// Custom error message (used for escape analysis, zone errors, etc.).
     Custom(String),
 }
@@ -447,6 +452,15 @@ pub fn socratic_explanation(error: &ParseError, _interner: &Interner) -> String 
                 The referent may be trapped in an inaccessible scope (negation, disjunction) or \
                 there may be no matching referent.",
                 pos, gender, number
+            )
+        }
+        ParseErrorKind::TrailingTokens { found } => {
+            format!(
+                "I understood your sentence up to position {}, but the rest of the input \
+                (beginning with {:?}) doesn't fit the structure I built. A sentence must be \
+                one complete thought — is a word missing, or does this construction use a \
+                pattern I don't know yet?",
+                pos, found
             )
         }
         ParseErrorKind::Custom(msg) => msg.clone(),

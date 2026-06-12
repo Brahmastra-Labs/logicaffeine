@@ -1,0 +1,28 @@
+CLASSIFICATION: ParserGap | subsystem Parser | gate Investigate | confidence 0.50
+
+═══ Sentence 2 ═══
+INPUT: It is native to coastal regions of Japan but cultivated as an ornamental in other regions.
+
+TOKENS:
+    0..2   "It"         Pronoun
+    3..5   "is"         Other
+    6..12  "native"     Other
+   13..15  "to"         Preposition
+   16..23  "coastal"    Adjective
+   24..31  "regions"    Adjective
+   32..34  "of"         Preposition
+   35..40  "Japan"      Proper
+   41..44  "but"        Connective
+   45..55  "cultivated" Adjective
+   56..58  "as"         Adjective
+   59..61  "an"         Determiner
+   62..72  "ornamental" Adjective
+   73..75  "in"         Preposition
+   76..81  "other"      Noun
+   82..89  "regions"    Adjective
+   89..90  "."          Punctuation
+   90..90  ""           Other
+
+ERROR (Socratic):
+  I was looking for a noun, verb, or adjective at position 13, but found Native instead. The logic needs a content word to ground it.
+

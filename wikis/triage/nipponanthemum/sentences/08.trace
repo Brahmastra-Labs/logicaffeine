@@ -1,0 +1,31 @@
+CLASSIFICATION: ActionableLexiconGap | subsystem Lexicon | gate Auto | confidence 0.75
+
+═══ Sentence 8 ═══
+INPUT: Ray flowers are white, disc flowers usually yellow but sometimes red or purple.
+
+TOKENS:
+    0..3   "Ray"        Proper
+    4..11  "flowers"    Adjective
+   12..15  "are"        Other
+   16..21  "white"      Adjective
+   21..22  ","          Punctuation
+   23..27  "disc"       Adjective
+   28..35  "flowers"    Adjective
+   36..43  "usually"    Other
+   44..50  "yellow"     Adjective
+   51..54  "but"        Connective
+   55..64  "sometimes"  Other
+   65..68  "red"        Adjective
+   69..71  "or"         Connective
+   72..78  "purple"     Adjective
+   78..79  "."          Punctuation
+   79..79  ""           Other
+
+FOL:
+  unicode: Ray
+  simple : Ray
+  kripke : Ray
+
+AST (1 nodes, 1 unhandled):
+  └─ Atom(Symbol(1)) [other]
+

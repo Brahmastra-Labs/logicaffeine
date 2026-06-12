@@ -1,0 +1,47 @@
+CLASSIFICATION: ActionableLexiconGap | subsystem Lexicon | gate Auto | confidence 0.75
+
+═══ Sentence 1 ═══
+INPUT: The Chad Brook is a stream, or brook, wholly within Birmingham, England.
+
+TOKENS:
+    0..3   "The"        Determiner
+    4..8   "Chad"       Proper
+    9..14  "Brook"      Proper
+   15..17  "is"         Other
+   18..19  "a"          Determiner
+   20..26  "stream"     Adjective
+   26..27  ","          Punctuation
+   28..30  "or"         Connective
+   31..36  "brook"      Adjective
+   36..37  ","          Punctuation
+   38..44  "wholly"     Other
+   45..51  "within"     Preposition
+   52..62  "Birmingham" Proper
+   62..63  ","          Punctuation
+   64..71  "England"    Proper
+   71..72  "."          Punctuation
+   72..72  ""           Other
+
+FOL:
+  unicode: (∃x(((Chad_Brook(x) ∧ ∀y((Chad_Brook(y) → y = x))) ∧ Stream(x))) ∨ Brook)
+  simple : (∃x(((Chad_Brook(x) ∧ ∀y((Chad_Brook(y) → y = x))) ∧ Stream(x))) ∨ Brook)
+  kripke : (Exists x(((Chad_Brook(x, w0)  And  ForAll y((Chad_Brook(y, w0)  Implies  y = x)))  And  Stream(x, w0)))  Or  Brook)
+
+AST (16 nodes, 1 unhandled):
+  └─ ∨ [binary_op]
+     ├─ ∃x [quantifier]
+     │  └─ ∧ [binary_op]
+     │     ├─ ∧ [binary_op]
+     │     │  ├─ Chad_Brook(1) [predicate]
+     │     │  │  └─ x [variable]
+     │     │  └─ ∀y [quantifier]
+     │     │     └─ ? [binary_op]
+     │     │        ├─ Chad_Brook(1) [predicate]
+     │     │        │  └─ y [variable]
+     │     │        └─ = [identity]
+     │     │           ├─ y [variable]
+     │     │           └─ x [variable]
+     │     └─ stream(1) [predicate]
+     │        └─ x [variable]
+     └─ Atom(Symbol(9)) [other]
+

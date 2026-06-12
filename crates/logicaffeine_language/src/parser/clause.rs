@@ -44,6 +44,10 @@ pub trait ClauseParsing<'a, 'ctx, 'int> {
     fn parse_disjunction(&mut self) -> ParseResult<&'a LogicExpr<'a>>;
     /// Parses "P and Q" conjunctions with scope coordination.
     fn parse_conjunction(&mut self) -> ParseResult<&'a LogicExpr<'a>>;
+    /// Extracts the subject of a copular predication, for non-parallel coordination.
+    fn extract_copular_subject(&self, expr: &'a LogicExpr<'a>) -> Option<Symbol>;
+    /// Parses a bare copular-predicate remnant ("wealthy" / "a philanthropist").
+    fn try_parse_copular_predicate(&mut self, subject: Symbol) -> ParseResult<Option<&'a LogicExpr<'a>>>;
     /// Parses "who/that/which" relative clauses attaching to noun phrases.
     fn parse_relative_clause(&mut self, gap_var: Symbol) -> ParseResult<&'a LogicExpr<'a>>;
     /// Parses a clause with a gap filled by borrowed verb (for VP coordination).
@@ -60,6 +64,31 @@ pub trait ClauseParsing<'a, 'ctx, 'int> {
     fn is_complete_clause(&self, expr: &LogicExpr<'a>) -> bool;
     /// Extracts the main verb from an expression.
     fn extract_verb_from_expr(&self, expr: &LogicExpr<'a>) -> Option<Symbol>;
+    /// Attempts to parse an English imperative ("Close the door.", "Don't touch
+    /// that.", "Let's leave."). Returns `None` (restoring position) when the input
+    /// is not verb-initial / not a hortative or negative command.
+    fn try_parse_imperative(&mut self) -> ParseResult<Option<&'a LogicExpr<'a>>>;
+    /// True if a finite verb (Verb/Auxiliary/copula/have/modal) appears at or after
+    /// `from`, before the clause terminator. Used to distinguish an imperative
+    /// (command verb is the only finite verb) from a declarative whose initial word
+    /// is a subject ("Set A has cardinality 5.").
+    fn clause_has_later_finite_verb(&self, from: usize) -> bool;
+    /// Attempts to parse an it-cleft "It was X who/that VP." → focus on X plus
+    /// exhaustivity (only X did it). Returns `None` (restoring position) otherwise.
+    fn try_parse_cleft(&mut self) -> ParseResult<Option<&'a LogicExpr<'a>>>;
+    /// Attempts to parse an exclamative "How tall she is!" / "What a fool he is!"
+    /// (how/what, no subject-aux inversion, "!"-terminated). Returns `None` otherwise.
+    fn try_parse_exclamative(&mut self) -> ParseResult<Option<&'a LogicExpr<'a>>>;
+    /// Attempts to parse an optative wish "May you prosper!", "Long live the king!",
+    /// "If only it were Friday!". Returns `None` (restoring position) otherwise.
+    fn try_parse_optative(&mut self) -> ParseResult<Option<&'a LogicExpr<'a>>>;
+    /// Attempts to parse correlative coordination "Neither X nor Y VP" / "Either X
+    /// or Y VP" — a shared predicate scoped over two subjects. `None` otherwise.
+    fn try_parse_correlative(&mut self) -> ParseResult<Option<&'a LogicExpr<'a>>>;
+    /// Attempts to parse an inverted conditional "Had/Were/Should SUBJECT …, …" by
+    /// un-inverting to the canonical "If SUBJECT aux …" form and reusing the conditional
+    /// parser. Handles multi-word subjects and `Should`-fronting. `None` otherwise.
+    fn try_parse_inverted_conditional(&mut self) -> ParseResult<Option<&'a LogicExpr<'a>>>;
     /// Attempts to parse VP ellipsis ("Mary did too").
     fn try_parse_ellipsis(&mut self) -> Option<ParseResult<&'a LogicExpr<'a>>>;
     /// Checks for ellipsis auxiliary (did, does, can, etc.).
@@ -69,6 +98,515 @@ pub trait ClauseParsing<'a, 'ctx, 'int> {
 }
 
 impl<'a, 'ctx, 'int> ClauseParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int> {
+    fn try_parse_imperative(&mut self) -> ParseResult<Option<&'a LogicExpr<'a>>> {
+        let start = self.current;
+        let mut negated = false;
+        // The covert subject of an imperative is the addressee (the hearer); the
+        // hortative "let's" makes it the inclusive group (speaker + addressee).
+        let mut agent_name = "Addressee";
+
+        if self.check(&TokenType::Let) {
+            // Hortative: "Let's leave." / "Let us leave." (Let + 's|us + verb)
+            let n1 = self.current + 1;
+            if n1 >= self.tokens.len() {
+                return Ok(None);
+            }
+            let next = &self.tokens[n1];
+            let next_text = self.interner.resolve(next.lexeme);
+            let is_lets = matches!(next.kind, TokenType::Possessive)
+                || next_text.eq_ignore_ascii_case("us")
+                || next_text.eq_ignore_ascii_case("'s")
+                || next_text.eq_ignore_ascii_case("s");
+            if !is_lets {
+                return Ok(None);
+            }
+            self.advance(); // Let
+            self.advance(); // 's / us
+            agent_name = "Us";
+        } else if self.check(&TokenType::Do) {
+            // Negative imperative: "Don't touch that." → Do + Not + verb
+            let n1 = self.current + 1;
+            if n1 < self.tokens.len() && matches!(self.tokens[n1].kind, TokenType::Not) {
+                self.advance(); // Do
+                self.advance(); // Not
+                negated = true;
+            } else {
+                // "Do you ...?" is a yes/no question, handled elsewhere.
+                return Ok(None);
+            }
+        }
+
+        // Sentence-initial imperatives capitalize the command verb, so the lexer
+        // may have tagged it as a ProperName ("Close" in "Close the door."). Retag
+        // a capitalized known base verb as a Verb — but ONLY when no other finite
+        // verb appears later in the clause. A real imperative has the command verb
+        // as its only finite verb; a later finite verb means the initial capitalized
+        // word is actually a subject ("Bill ran.", "Set A has cardinality 5.").
+        if let TokenType::ProperName(sym) = self.peek().kind {
+            let lemma = self.interner.resolve(sym).to_lowercase();
+            if crate::lexicon::is_base_verb(&lemma)
+                && !self.clause_has_later_finite_verb(self.current + 1)
+            {
+                let class = crate::lexicon::lookup_verb_class(&lemma);
+                self.tokens[self.current].kind = TokenType::Verb {
+                    lemma: sym,
+                    time: Time::Present,
+                    aspect: crate::lexicon::Aspect::Simple,
+                    class,
+                };
+            }
+        }
+
+        // An imperative is verb-initial. English has no bare-verb declaratives, and
+        // yes/no questions begin with an auxiliary (Do/Is/...) rather than a Verb
+        // token, so a Verb in initial position is the command verb.
+        if !self.check_verb() {
+            self.current = start;
+            return Ok(None);
+        }
+
+        // Even when the initial word is a Verb token, a later finite verb means it is
+        // really a subject (e.g. "Set" in "Set A has cardinality 5."), not a command.
+        if self.clause_has_later_finite_verb(self.current + 1) {
+            self.current = start;
+            return Ok(None);
+        }
+
+        let agent = self.interner.intern(agent_name);
+        let core = self.parse_predicate_with_subject(agent)?;
+        let action = if negated {
+            self.ctx.exprs.alloc(LogicExpr::UnaryOp {
+                op: TokenType::Not,
+                operand: core,
+            })
+        } else {
+            core
+        };
+        Ok(Some(self.ctx.exprs.alloc(LogicExpr::Imperative { action })))
+    }
+
+    fn clause_has_later_finite_verb(&self, from: usize) -> bool {
+        let mut j = from;
+        while j < self.tokens.len() {
+            match self.tokens[j].kind {
+                TokenType::Period | TokenType::EOF | TokenType::Exclamation => return false,
+                TokenType::Verb { .. }
+                | TokenType::Auxiliary(_)
+                | TokenType::Is
+                | TokenType::Are
+                | TokenType::Was
+                | TokenType::Were
+                | TokenType::Do
+                | TokenType::Does => return true,
+                _ => {
+                    // Some finite verbs (have/has/had, modals) are lexed as other
+                    // token kinds; catch them by lexeme.
+                    let lex = self.interner.resolve(self.tokens[j].lexeme).to_lowercase();
+                    if matches!(
+                        lex.as_str(),
+                        "has" | "have" | "had" | "is" | "are" | "was" | "were"
+                            | "do" | "does" | "did" | "will" | "would" | "can"
+                            | "could" | "should" | "shall" | "may" | "might" | "must"
+                    ) {
+                        return true;
+                    }
+                }
+            }
+            j += 1;
+        }
+        false
+    }
+
+    fn try_parse_cleft(&mut self) -> ParseResult<Option<&'a LogicExpr<'a>>> {
+        let start = self.current;
+        // "It was/is X who/that VP." — the expletive "it" + copula + focus + relative.
+        if !self.interner.resolve(self.peek().lexeme).eq_ignore_ascii_case("it") {
+            return Ok(None);
+        }
+        if self.current + 1 >= self.tokens.len()
+            || !matches!(self.tokens[self.current + 1].kind, TokenType::Is | TokenType::Was)
+        {
+            return Ok(None);
+        }
+        self.advance(); // it
+        self.advance(); // is/was
+
+        // The focused constituent (a proper name or NP).
+        let focus_np = match self.parse_noun_phrase(false) {
+            Ok(np) => np,
+            Err(_) => {
+                self.current = start;
+                return Ok(None);
+            }
+        };
+        if !self.check(&TokenType::Who) && !self.check(&TokenType::That) {
+            self.current = start;
+            return Ok(None);
+        }
+        self.advance(); // who/that
+
+        let focus_sym = focus_np.noun;
+        // The cleft clause "broke the vase" with the focus as subject — the core
+        // predication.
+        let core = self.parse_predicate_with_subject(focus_sym)?;
+
+        // Exhaustivity: ∀z( core[focus→z] → z = focus ) — no one but the focus did it.
+        let z = self.next_var_name();
+        let core_z = self.substitute_constant_with_var_sym(core, focus_sym, z)?;
+        let identity = self.ctx.exprs.alloc(LogicExpr::Identity {
+            left: self.ctx.terms.alloc(Term::Variable(z)),
+            right: self.ctx.terms.alloc(Term::Constant(focus_sym)),
+        });
+        let implies = self.ctx.exprs.alloc(LogicExpr::BinaryOp {
+            left: core_z,
+            op: TokenType::Implies,
+            right: identity,
+        });
+        let exhaustivity = self.ctx.exprs.alloc(LogicExpr::Quantifier {
+            kind: QuantifierKind::Universal,
+            variable: z,
+            body: implies,
+            island_id: self.current_island,
+        });
+
+        // Focus marker over the core, conjoined with the exhaustivity claim.
+        let focused_term = self.ctx.terms.alloc(Term::Constant(focus_sym));
+        let focus_expr = self.ctx.exprs.alloc(LogicExpr::Focus {
+            kind: crate::token::FocusKind::Cleft,
+            focused: focused_term,
+            scope: core,
+        });
+        Ok(Some(self.ctx.exprs.alloc(LogicExpr::BinaryOp {
+            left: focus_expr,
+            op: TokenType::And,
+            right: exhaustivity,
+        })))
+    }
+
+    fn try_parse_exclamative(&mut self) -> ParseResult<Option<&'a LogicExpr<'a>>> {
+        let start = self.current;
+        let lead = self.interner.resolve(self.peek().lexeme).to_lowercase();
+        if lead != "how" && lead != "what" {
+            return Ok(None);
+        }
+        // An exclamative is "!"-terminated and has NO subject-aux inversion. A
+        // wh-question ("How tall is she?") inverts and ends with "?"; require "!".
+        let ends_with_exclamation = self.tokens[start..]
+            .iter()
+            .take_while(|t| !matches!(t.kind, TokenType::EOF))
+            .any(|t| matches!(t.kind, TokenType::Exclamation));
+        if !ends_with_exclamation {
+            return Ok(None);
+        }
+        let is_what = lead == "what";
+        self.advance(); // How / What
+        // optional "a"/"an"
+        if self.check_article() {
+            self.advance();
+        }
+        // The gradable adjective (How) or the noun (What).
+        let pred_sym = match self.consume_content_word() {
+            Ok(s) => s,
+            Err(_) => {
+                self.current = start;
+                return Ok(None);
+            }
+        };
+        // The subject (a pronoun or proper name).
+        let subj_sym = if let TokenType::ProperName(s) = self.peek().kind {
+            self.advance();
+            s
+        } else if self.check_pronoun() {
+            let lx = self.interner.resolve(self.peek().lexeme).to_string();
+            self.advance();
+            let cap = lx
+                .chars()
+                .next()
+                .map(|c| c.to_uppercase().collect::<String>() + &lx[1..])
+                .unwrap_or(lx);
+            self.interner.intern(&cap)
+        } else {
+            match self.consume_content_word() {
+                Ok(s) => s,
+                Err(_) => {
+                    self.current = start;
+                    return Ok(None);
+                }
+            }
+        };
+        // optional copula + "!"
+        if matches!(
+            self.peek().kind,
+            TokenType::Is | TokenType::Are | TokenType::Was | TokenType::Were
+        ) {
+            self.advance();
+        }
+        if self.check(&TokenType::Exclamation) {
+            self.advance();
+        }
+
+        let degree_var = self.next_var_name();
+        // "How tall she is!" → Tall(she, d); "What a fool he is!" → Fool(he).
+        let body = if is_what {
+            self.ctx.exprs.alloc(LogicExpr::Predicate {
+                name: pred_sym,
+                args: self.ctx.terms.alloc_slice([Term::Constant(subj_sym)]),
+                world: None,
+            })
+        } else {
+            self.ctx.exprs.alloc(LogicExpr::Predicate {
+                name: pred_sym,
+                args: self
+                    .ctx
+                    .terms
+                    .alloc_slice([Term::Constant(subj_sym), Term::Variable(degree_var)]),
+                world: None,
+            })
+        };
+        Ok(Some(self.ctx.exprs.alloc(LogicExpr::Exclamative { degree_var, body })))
+    }
+
+    fn try_parse_optative(&mut self) -> ParseResult<Option<&'a LogicExpr<'a>>> {
+        let start = self.current;
+        // Optatives are "!"-terminated wishes.
+        let ends_with_exclamation = self.tokens[start..]
+            .iter()
+            .take_while(|t| !matches!(t.kind, TokenType::EOF))
+            .any(|t| matches!(t.kind, TokenType::Exclamation));
+        if !ends_with_exclamation {
+            return Ok(None);
+        }
+
+        // "May SUBJ VP!" — may-fronting (a wish, not the deontic modal).
+        if self.check(&TokenType::May) {
+            self.advance(); // May
+            let subj_sym = if let TokenType::ProperName(s) = self.peek().kind {
+                self.advance();
+                s
+            } else if self.check_pronoun() {
+                let lx = self.interner.resolve(self.peek().lexeme).to_lowercase();
+                self.advance();
+                match lx.as_str() {
+                    "you" => self.interner.intern("Addressee"),
+                    "i" | "me" => self.interner.intern("Speaker"),
+                    other => self.interner.intern(
+                        &(other.chars().next().map(|c| c.to_uppercase().collect::<String>() + &other[1..]).unwrap_or_default()),
+                    ),
+                }
+            } else {
+                match self.parse_noun_phrase(false) {
+                    Ok(np) => np.noun,
+                    Err(_) => {
+                        self.current = start;
+                        return Ok(None);
+                    }
+                }
+            };
+            // The wish verb may be a rare/unlisted word ("prosper"), so capture it
+            // by lexeme rather than requiring a recognized verb token.
+            if self.is_at_end() || self.check(&TokenType::Exclamation) {
+                self.current = start;
+                return Ok(None);
+            }
+            let vlex = self.interner.resolve(self.peek().lexeme).to_string();
+            let vname = vlex
+                .chars()
+                .next()
+                .map(|c| c.to_uppercase().collect::<String>() + &vlex[1..])
+                .unwrap_or(vlex);
+            let verb_sym = self.interner.intern(&vname);
+            self.advance(); // consume the wish verb
+            // Optional object (a pronoun / proper name).
+            let wish = if let TokenType::ProperName(o) = self.peek().kind {
+                self.advance();
+                self.ctx.exprs.alloc(LogicExpr::Predicate {
+                    name: verb_sym,
+                    args: self
+                        .ctx
+                        .terms
+                        .alloc_slice([Term::Constant(subj_sym), Term::Constant(o)]),
+                    world: None,
+                })
+            } else {
+                self.ctx.exprs.alloc(LogicExpr::Predicate {
+                    name: verb_sym,
+                    args: self.ctx.terms.alloc_slice([Term::Constant(subj_sym)]),
+                    world: None,
+                })
+            };
+            return Ok(Some(self.ctx.exprs.alloc(LogicExpr::Optative { wish })));
+        }
+
+        // "Long live NP!" — fixed optative construction.
+        let lead = self.interner.resolve(self.peek().lexeme).to_lowercase();
+        if lead == "long"
+            && self.current + 1 < self.tokens.len()
+            && self.interner.resolve(self.tokens[self.current + 1].lexeme).eq_ignore_ascii_case("live")
+        {
+            self.advance(); // Long
+            self.advance(); // live
+            let np = self.parse_noun_phrase(false)?;
+            let live_sym = self.interner.intern("Live");
+            let wish = self.ctx.exprs.alloc(LogicExpr::Predicate {
+                name: live_sym,
+                args: self.ctx.terms.alloc_slice([Term::Constant(np.noun)]),
+                world: None,
+            });
+            return Ok(Some(self.ctx.exprs.alloc(LogicExpr::Optative { wish })));
+        }
+
+        // "If only S!" — counterfactual wish.
+        if self.check(&TokenType::If)
+            && self.current + 1 < self.tokens.len()
+            && self.interner.resolve(self.tokens[self.current + 1].lexeme).eq_ignore_ascii_case("only")
+        {
+            self.advance(); // If
+            self.advance(); // only
+            let wish = self.parse_sentence()?;
+            return Ok(Some(self.ctx.exprs.alloc(LogicExpr::Optative { wish })));
+        }
+
+        Ok(None)
+    }
+
+    fn try_parse_correlative(&mut self) -> ParseResult<Option<&'a LogicExpr<'a>>> {
+        let start = self.current;
+        let lead = self.interner.resolve(self.peek().lexeme).to_lowercase();
+        let is_neither = lead == "neither";
+        let is_either = lead == "either";
+        if !is_neither && !is_either {
+            return Ok(None);
+        }
+        self.advance(); // Neither / Either
+        let subj1 = match self.peek().kind {
+            TokenType::ProperName(s) => {
+                self.advance();
+                s
+            }
+            _ => {
+                self.current = start;
+                return Ok(None);
+            }
+        };
+        let conj = self.interner.resolve(self.peek().lexeme).to_lowercase();
+        if conj != "nor" && conj != "or" {
+            self.current = start;
+            return Ok(None);
+        }
+        self.advance(); // nor / or
+        let subj2 = match self.peek().kind {
+            TokenType::ProperName(s) => {
+                self.advance();
+                s
+            }
+            _ => {
+                self.current = start;
+                return Ok(None);
+            }
+        };
+        // The shared predicate is parsed once per subject by re-parsing from the
+        // same position (parallel structure), so "Neither X nor Y VP" distributes VP.
+        let vp_start = self.current;
+        let pred1 = self.parse_predicate_with_subject(subj1)?;
+        self.current = vp_start;
+        let pred2 = self.parse_predicate_with_subject(subj2)?;
+
+        let result = if is_neither {
+            // ¬pred1 ∧ ¬pred2
+            let n1 = self.ctx.exprs.alloc(LogicExpr::UnaryOp { op: TokenType::Not, operand: pred1 });
+            let n2 = self.ctx.exprs.alloc(LogicExpr::UnaryOp { op: TokenType::Not, operand: pred2 });
+            self.ctx.exprs.alloc(LogicExpr::BinaryOp { left: n1, op: TokenType::And, right: n2 })
+        } else {
+            // "either…or" is the inclusive disjunction by default (so the proof engine
+            // and existing tests see a plain ∨); its EXCLUSIVITY implicature
+            // `∧ ¬(pred1 ∧ pred2)` is a pragmatic enrichment, added only in that mode.
+            let disj = self.ctx.exprs.alloc(LogicExpr::BinaryOp { left: pred1, op: TokenType::Or, right: pred2 });
+            if self.pragmatic {
+                let both = self.ctx.exprs.alloc(LogicExpr::BinaryOp { left: pred1, op: TokenType::And, right: pred2 });
+                let not_both = self.ctx.exprs.alloc(LogicExpr::UnaryOp { op: TokenType::Not, operand: both });
+                self.ctx.exprs.alloc(LogicExpr::BinaryOp { left: disj, op: TokenType::And, right: not_both })
+            } else {
+                disj
+            }
+        };
+        Ok(Some(result))
+    }
+
+    fn try_parse_inverted_conditional(&mut self) -> ParseResult<Option<&'a LogicExpr<'a>>> {
+        // A fronted auxiliary (Had / Were / Should) stands in for "if".
+        if !matches!(
+            self.peek().kind,
+            TokenType::Had | TokenType::Were | TokenType::Should
+        ) {
+            return Ok(None);
+        }
+
+        // Require "antecedent, consequent" — a comma before the clause terminator — so an
+        // inverted yes/no question ("Had you eaten?") is not mistaken for a conditional.
+        let has_comma = self.tokens[self.current..]
+            .iter()
+            .take_while(|t| !matches!(t.kind, TokenType::EOF | TokenType::Period))
+            .any(|t| matches!(t.kind, TokenType::Comma));
+        if !has_comma {
+            return Ok(None);
+        }
+
+        // Where the fronted aux un-inverts to: before the antecedent's first verb when
+        // there is one ("Had the soldiers KNOWN" → "the soldiers had known"), else after
+        // the subject-NP head (copular "Were I rich" → "I were rich"). Scanning stops at
+        // the clause comma so the aux never lands in the consequent.
+        let start = self.current + 1;
+        let comma_at = self.tokens[start..]
+            .iter()
+            .position(|t| matches!(t.kind, TokenType::Comma))
+            .map(|p| start + p)
+            .unwrap_or(self.tokens.len());
+
+        let first_verb = (start..comma_at)
+            .find(|&j| matches!(self.tokens[j].kind, TokenType::Verb { .. }));
+
+        // Subject-NP head: optional determiners/adjectives then a nominal head (or, after
+        // a determiner, any content word — "soldiers" is verb/noun-ambiguous here).
+        let mut i = start;
+        while i < comma_at
+            && matches!(
+                self.tokens[i].kind,
+                TokenType::Article(_)
+                    | TokenType::Adjective(_)
+                    | TokenType::Cardinal(_)
+                    | TokenType::Possessive
+            )
+        {
+            i += 1;
+        }
+        let head_is_nominal = i < comma_at
+            && matches!(
+                self.tokens[i].kind,
+                TokenType::Noun(_) | TokenType::ProperName(_) | TokenType::Pronoun { .. }
+            );
+        let head_after_determiner =
+            i > start && i < comma_at && Self::is_content_word_type(&self.tokens[i].kind);
+
+        let insert_at = match first_verb {
+            Some(v) => v,
+            None if head_is_nominal || head_after_determiner => i + 1,
+            None => return Ok(None), // no subject NP / no predicate — not a conditional
+        };
+
+        // Un-invert to canonical order: lift the fronted aux to just after the subject NP
+        // and prepend a synthesized "If", then reuse the conditional parser. Reusing it
+        // keeps one antecedent grammar (weather verbs, conjunction, counterfactual
+        // detection) rather than duplicating it for the inverted word order.
+        let aux = self.tokens.remove(self.current);
+        self.tokens.insert(insert_at - 1, aux);
+        let mut if_tok = self.tokens[self.current].clone();
+        if_tok.kind = TokenType::If;
+        if_tok.lexeme = self.interner.intern("if");
+        self.tokens.insert(self.current, if_tok);
+        self.advance(); // consume the synthesized "If"
+        Ok(Some(self.parse_conditional()?))
+    }
+
     fn parse_sentence(&mut self) -> ParseResult<&'a LogicExpr<'a>> {
         // In imperative mode, handle Let statements by converting to LogicExpr
         // This supports declarative parser being called after process_block_headers()
@@ -89,32 +627,54 @@ impl<'a, 'ctx, 'int> ClauseParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int> {
             return result;
         }
 
-        if self.check_verb() {
-            let verb_pos = self.current;
-            let mut temp_pos = self.current + 1;
-            while temp_pos < self.tokens.len() {
-                if matches!(self.tokens[temp_pos].kind, TokenType::Exclamation) {
-                    self.current = verb_pos;
-                    let verb = self.consume_verb();
-                    while !matches!(self.peek().kind, TokenType::Exclamation | TokenType::EOF) {
-                        self.advance();
-                    }
-                    if self.check(&TokenType::Exclamation) {
-                        self.advance();
-                    }
-                    let addressee = self.interner.intern("addressee");
-                    let action = self.ctx.exprs.alloc(LogicExpr::Predicate {
-                        name: verb,
-                        args: self.ctx.terms.alloc_slice([Term::Variable(addressee)]),
-                        world: None,
-                    });
-                    return Ok(self.ctx.exprs.alloc(LogicExpr::Imperative { action }));
-                }
-                if matches!(self.tokens[temp_pos].kind, TokenType::Period | TokenType::EOF) {
-                    break;
-                }
-                temp_pos += 1;
+        // Optatives: "May you prosper!", "Long live the king!", "If only …!".
+        if self.mode != ParserMode::Imperative {
+            if let Some(opt) = self.try_parse_optative()? {
+                return Ok(opt);
             }
+        }
+
+        // Correlative coordination: "Neither X nor Y VP" / "Either X or Y VP".
+        if self.mode != ParserMode::Imperative {
+            if let Some(corr) = self.try_parse_correlative()? {
+                return Ok(corr);
+            }
+        }
+
+        // Exclamatives: "How tall she is!" / "What a fool he is!" — before the
+        // wh-question path, since they share how/what but are "!"-terminated.
+        if self.mode != ParserMode::Imperative {
+            if let Some(excl) = self.try_parse_exclamative()? {
+                return Ok(excl);
+            }
+        }
+
+        // it-clefts: "It was John who broke the vase." → focus + exhaustivity.
+        if self.mode != ParserMode::Imperative {
+            if let Some(cleft) = self.try_parse_cleft()? {
+                return Ok(cleft);
+            }
+        }
+
+        // English imperatives: bare-verb-initial commands ("Close the door."),
+        // negatives ("Don't touch that."), and hortatives ("Let's leave."). Only in
+        // declarative (English) mode — code mode has its own verb-initial handling.
+        if self.mode != ParserMode::Imperative {
+            if let Some(imp) = self.try_parse_imperative()? {
+                return Ok(imp);
+            }
+        }
+
+        // "Although/Though X, Y" concessive subordinator: Y holds despite X (a
+        // defeated expectation). → Concessive{ main: Y, concession: X }.
+        if self.check(&TokenType::Although) {
+            self.advance(); // consume "Although"/"Though"
+            let concession = self.parse_sentence()?;
+            if self.check(&TokenType::Comma) {
+                self.advance();
+            }
+            let main = self.parse_sentence()?;
+            return Ok(self.ctx.exprs.alloc(LogicExpr::Concessive { main, concession }));
         }
 
         // "While X, Y" as temporal duration subordinator
@@ -195,6 +755,12 @@ impl<'a, 'ctx, 'int> ClauseParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int> {
             || self.check(&TokenType::Can)
         {
             return self.parse_yes_no_question();
+        }
+
+        // Inverted conditional (§4.1): "Had I known, …" / "Were I rich, …" /
+        // "Should it rain, …" — subject-aux inversion stands in for "if".
+        if let Some(expr) = self.try_parse_inverted_conditional()? {
+            return Ok(expr);
         }
 
         if self.match_token(&[TokenType::If]) {
@@ -394,6 +960,21 @@ impl<'a, 'ctx, 'int> ClauseParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int> {
     fn parse_conditional(&mut self) -> ParseResult<&'a LogicExpr<'a>> {
         let is_counterfactual = self.is_counterfactual_context();
 
+        // Biscuit / relevance conditional (§4.2): "If you WANT tea, the kettle is
+        // hot." — an "if you <relevance-verb> …" antecedent restricts RELEVANCE, not
+        // truth; the consequent is asserted unconditionally.
+        let is_biscuit = self.check_pronoun()
+            && self.interner.resolve(self.peek().lexeme).eq_ignore_ascii_case("you")
+            && self
+                .tokens
+                .get(self.current + 1)
+                .map(|t| {
+                    crate::lexicon::is_relevance_verb(
+                        &self.interner.resolve(t.lexeme).to_lowercase(),
+                    )
+                })
+                .unwrap_or(false);
+
         // Enter DRS antecedent box - indefinites here get universal force
         self.drs.enter_box(BoxType::ConditionalAntecedent);
         let mut antecedent = self.parse_counterfactual_antecedent()?;
@@ -420,8 +1001,68 @@ impl<'a, 'ctx, 'int> ClauseParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int> {
 
         // Enter DRS consequent box - can access antecedent referents
         self.drs.enter_box(BoxType::ConditionalConsequent);
-        let consequent = self.parse_counterfactual_consequent()?;
+        let mut consequent = self.parse_counterfactual_consequent()?;
+
+        // Conjunction of consequent clauses: "…, he would have passed and he
+        // would have celebrated." A non-clausal "and" (NP coordination left
+        // unconsumed) rolls back and is left for the caller.
+        while self.check(&TokenType::And) {
+            let cp = self.checkpoint();
+            self.advance(); // consume "and"
+            match self.parse_counterfactual_consequent() {
+                Ok(second) => {
+                    consequent = self.ctx.exprs.alloc(LogicExpr::BinaryOp {
+                        left: consequent,
+                        op: TokenType::And,
+                        right: second,
+                    });
+                }
+                Err(_) => {
+                    self.restore(cp);
+                    break;
+                }
+            }
+        }
+
+        // Trailing temporal operators on the consequent — the conditional's
+        // consequent path does not route through parse_disjunction, so the
+        // same handlers apply here: "…, P until Q." / "…, P in the next
+        // cycle." / "…, P within N cycles."
+        if self.check(&TokenType::Until)
+            || self.check(&TokenType::Release)
+            || self.check(&TokenType::WeakUntil)
+        {
+            let op = match self.peek().kind {
+                TokenType::Release => crate::ast::logic::BinaryTemporalOp::Release,
+                TokenType::WeakUntil => crate::ast::logic::BinaryTemporalOp::WeakUntil,
+                _ => crate::ast::logic::BinaryTemporalOp::Until,
+            };
+            self.advance();
+            let right = self.parse_counterfactual_consequent()?;
+            consequent = self.ctx.exprs.alloc(LogicExpr::TemporalBinary {
+                operator: op,
+                left: consequent,
+                right,
+            });
+        }
+        consequent = self.try_wrap_next_cycle(consequent);
+        consequent = self.try_wrap_bounded_delay(consequent);
         self.drs.exit_box();
+
+        // Biscuit conditional: assert the consequent and mark the antecedent as a
+        // relevance condition — `consequent ∧ Relevance(⟨antecedent⟩)`.
+        if is_biscuit {
+            let relevance = self.ctx.exprs.alloc(LogicExpr::Predicate {
+                name: self.interner.intern("Relevance"),
+                args: self.ctx.terms.alloc_slice([Term::Proposition(antecedent)]),
+                world: None,
+            });
+            return Ok(self.ctx.exprs.alloc(LogicExpr::BinaryOp {
+                left: consequent,
+                op: TokenType::And,
+                right: relevance,
+            }));
+        }
 
         // Get DRS referents that need universal quantification
         let universal_refs = self.drs.get_universal_referents();
@@ -805,7 +1446,7 @@ impl<'a, 'ctx, 'int> ClauseParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int> {
                     pps: &[],
                     superlative: None,
                 };
-                return self.parse_presupposition(&np, presup_kind);
+                return self.parse_presupposition(&np, presup_kind, false);
             }
 
             if self.check(&TokenType::Were) {
@@ -853,12 +1494,24 @@ impl<'a, 'ctx, 'int> ClauseParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int> {
 
             if self.check(&TokenType::Had) {
                 self.advance();
+                // "If John had NOT studied, …" — negated antecedent.
+                let negated = self.check(&TokenType::Not);
+                if negated {
+                    self.advance();
+                }
                 let verb = self.consume_content_word()?;
-                let main_pred = self.ctx.exprs.alloc(LogicExpr::Predicate {
-                    name: verb,
-                    args: self.ctx.terms.alloc_slice([subject_term]),
-                    world: None,
-                });
+                let mut main_pred: &'a LogicExpr<'a> =
+                    self.ctx.exprs.alloc(LogicExpr::Predicate {
+                        name: verb,
+                        args: self.ctx.terms.alloc_slice([subject_term]),
+                        world: None,
+                    });
+                if negated {
+                    main_pred = self.ctx.exprs.alloc(LogicExpr::UnaryOp {
+                        op: TokenType::Not,
+                        operand: main_pred,
+                    });
+                }
 
                 // Handle "because" causal clause in antecedent
                 // Phase 35: Do NOT consume if followed by string literal (Trust justification)
@@ -1031,23 +1684,65 @@ impl<'a, 'ctx, 'int> ClauseParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int> {
                     unknown
                 }
             } else {
-                self.parse_noun_phrase(true)?.noun
+                let np = self.parse_noun_phrase(true)?;
+                if np.definiteness == Some(crate::lexicon::Definiteness::Definite) {
+                    // A definite presupposes existence: accommodate the
+                    // referent GLOBALLY (highest box) so later mentions BIND
+                    // to it ("…, the kettle is hot." then "The kettle is
+                    // hot." reuses the same individual).
+                    self.drs.introduce_referent_global(
+                        np.noun,
+                        np.noun,
+                        Gender::Unknown,
+                        Number::Singular,
+                        crate::drs::ReferentSource::MainClause,
+                    );
+                }
+                np.noun
             };
 
             if self.check(&TokenType::Would) {
                 self.advance();
+                // "…, he would NOT have failed." — negated consequent.
+                let negated = self.check(&TokenType::Not);
+                if negated {
+                    self.advance();
+                }
                 if self.check_content_word() {
                     let next_word = self.interner.resolve(self.peek().lexeme).to_lowercase();
                     if next_word == "have" {
                         self.advance();
                     }
                 }
-                let verb = self.consume_content_word()?;
-                return Ok(self.ctx.exprs.alloc(LogicExpr::Predicate {
-                    name: verb,
-                    args: self.ctx.terms.alloc_slice([Term::Constant(subject)]),
-                    world: None,
-                }));
+                // A bare verb keeps the simple predication shape; anything
+                // after it ("would buy a boat") takes the full VP grammar.
+                let clause_ends_after_verb = matches!(
+                    self.tokens.get(self.current + 1).map(|t| t.kind.clone()),
+                    Some(
+                        TokenType::Period
+                            | TokenType::Exclamation
+                            | TokenType::EOF
+                            | TokenType::And
+                            | TokenType::Comma
+                    ) | None
+                );
+                let mut pred: &'a LogicExpr<'a> = if clause_ends_after_verb {
+                    let verb = self.consume_content_word()?;
+                    self.ctx.exprs.alloc(LogicExpr::Predicate {
+                        name: verb,
+                        args: self.ctx.terms.alloc_slice([Term::Constant(subject)]),
+                        world: None,
+                    })
+                } else {
+                    self.parse_predicate_with_subject(subject)?
+                };
+                if negated {
+                    pred = self.ctx.exprs.alloc(LogicExpr::UnaryOp {
+                        op: TokenType::Not,
+                        operand: pred,
+                    });
+                }
+                return Ok(pred);
             }
 
             return self.parse_predicate_with_subject(subject);
@@ -1268,11 +1963,91 @@ impl<'a, 'ctx, 'int> ClauseParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int> {
         // Check for trailing "within N cycles" bounded temporal delay
         let expr = self.try_wrap_bounded_delay(expr);
 
+        // Trailing "in the next cycle" → X(P)
+        let mut expr = self.try_wrap_next_cycle(expr);
+
+        // Sentence-final temporal anchor ("…eat Bill first.", "…left
+        // yesterday.") for clauses whose path didn't consume it in the VP.
+        if let TokenType::TemporalAdverb(anchor) = self.peek().kind {
+            if matches!(
+                self.tokens.get(self.current + 1).map(|t| &t.kind),
+                Some(TokenType::Period) | Some(TokenType::Exclamation) | Some(TokenType::EOF) | None
+            ) {
+                self.advance();
+                expr = self.ctx.exprs.alloc(LogicExpr::TemporalAnchor { anchor, body: expr });
+            }
+        }
+
+        // Postposed "when": "Y when X." ⇔ "When X, Y." → X → Y
+        if self.check(&TokenType::When) {
+            self.advance();
+            let condition = self.parse_conjunction()?;
+            expr = self.ctx.exprs.alloc(LogicExpr::BinaryOp {
+                left: condition,
+                op: TokenType::Implies,
+                right: expr,
+            });
+        }
+
         Ok(expr)
     }
 
     /// Parse conjunction (And) - higher precedence than Or.
     /// Calls parse_atom for operands.
+    /// Extracts the subject of a copular predication (the first `Constant` argument
+    /// of a copular `Predicate`), digging through degree/aspect/boolean wrappers.
+    /// Returns `None` for event predications (NeoEvent) and variable subjects, so
+    /// only true copular clauses ("X is ADJ/NP") trigger predicate coordination.
+    fn extract_copular_subject(&self, expr: &'a LogicExpr<'a>) -> Option<Symbol> {
+        match expr {
+            LogicExpr::Predicate { args, .. } => match args.first() {
+                Some(Term::Constant(s)) => Some(*s),
+                _ => None,
+            },
+            LogicExpr::Quantifier { body, .. } => self.extract_copular_subject(body),
+            LogicExpr::Aspectual { body, .. } => self.extract_copular_subject(body),
+            LogicExpr::UnaryOp { operand, .. } => self.extract_copular_subject(operand),
+            LogicExpr::BinaryOp { left, .. } => self.extract_copular_subject(left),
+            _ => None,
+        }
+    }
+
+    /// Parses a bare copular-predicate remnant — an adjective ("wealthy") or a
+    /// predicate nominal ("a philanthropist") — as `Predicate(subject)`. Returns
+    /// `None` (consuming nothing) if the next tokens are not such a remnant.
+    fn try_parse_copular_predicate(
+        &mut self,
+        subject: Symbol,
+    ) -> ParseResult<Option<&'a LogicExpr<'a>>> {
+        let pred_sym = if let TokenType::Adjective(adj) = self.peek().kind {
+            // An adjective-classified word followed by a copula is the
+            // SUBJECT of a new clause ("…and ready is not asserted"), not a
+            // predicate remnant of the previous one.
+            if matches!(
+                self.tokens.get(self.current + 1).map(|t| &t.kind),
+                Some(TokenType::Is)
+                    | Some(TokenType::Are)
+                    | Some(TokenType::Was)
+                    | Some(TokenType::Were)
+            ) {
+                return Ok(None);
+            }
+            self.advance();
+            adj
+        } else if self.check_article() {
+            // "a/an N" predicate nominal — parse the NP and use its head noun.
+            let np = self.parse_noun_phrase(false)?;
+            np.noun
+        } else {
+            return Ok(None);
+        };
+        Ok(Some(self.ctx.exprs.alloc(LogicExpr::Predicate {
+            name: pred_sym,
+            args: self.ctx.terms.alloc_slice([Term::Constant(subject)]),
+            world: None,
+        })))
+    }
+
     fn parse_conjunction(&mut self) -> ParseResult<&'a LogicExpr<'a>> {
         let mut expr = self.parse_atom()?;
 
@@ -1296,6 +2071,23 @@ impl<'a, 'ctx, 'int> ClauseParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int> {
             }
             let operator = self.previous().kind.clone();
             self.current_island += 1;
+
+            // Non-parallel copular coordination (§2.2): "X is wealthy and a
+            // philanthropist" — the remnant after "and" is a bare predicate (an
+            // adjective or a predicate nominal) attributed to the SAME copular
+            // subject, not a gapped event verb.
+            if let Some(subj) = self.extract_copular_subject(expr) {
+                let cop_pos = self.current;
+                if let Some(p2) = self.try_parse_copular_predicate(subj)? {
+                    expr = self.ctx.exprs.alloc(LogicExpr::BinaryOp {
+                        left: expr,
+                        op: operator,
+                        right: p2,
+                    });
+                    continue;
+                }
+                self.current = cop_pos;
+            }
 
             let saved_pos = self.current;
             let standard_attempt = self.try_parse(|p| p.parse_atom());
@@ -1347,6 +2139,58 @@ impl<'a, 'ctx, 'int> ClauseParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int> {
     fn parse_relative_clause(&mut self, gap_var: Symbol) -> ParseResult<&'a LogicExpr<'a>> {
         if self.check_verb() {
             return self.parse_verb_phrase_for_restriction(gap_var);
+        }
+
+        // Copular relative: "that is on the table", "that is red".
+        if matches!(
+            self.peek().kind,
+            TokenType::Is | TokenType::Are | TokenType::Was | TokenType::Were
+        ) {
+            let copula_past = matches!(self.peek().kind, TokenType::Was | TokenType::Were);
+            self.advance(); // copula
+            let negated = self.check(&TokenType::Not);
+            if negated {
+                self.advance();
+            }
+            let pred: &'a LogicExpr<'a> = if self.check_preposition() {
+                let prep = if let TokenType::Preposition(sym) = self.advance().kind {
+                    sym
+                } else {
+                    self.interner.intern("At")
+                };
+                let obj = self.parse_noun_phrase(false)?;
+                self.ctx.exprs.alloc(LogicExpr::Predicate {
+                    name: prep,
+                    args: self
+                        .ctx
+                        .terms
+                        .alloc_slice([Term::Variable(gap_var), Term::Constant(obj.noun)]),
+                    world: None,
+                })
+            } else {
+                let adj = self.consume_content_word()?;
+                self.ctx.exprs.alloc(LogicExpr::Predicate {
+                    name: adj,
+                    args: self.ctx.terms.alloc_slice([Term::Variable(gap_var)]),
+                    world: None,
+                })
+            };
+            let pred = if copula_past {
+                &*self.ctx.exprs.alloc(LogicExpr::Temporal {
+                    operator: TemporalOperator::Past,
+                    body: pred,
+                })
+            } else {
+                pred
+            };
+            return Ok(if negated {
+                self.ctx.exprs.alloc(LogicExpr::UnaryOp {
+                    op: TokenType::Not,
+                    operand: pred,
+                })
+            } else {
+                pred
+            });
         }
 
         // Handle "do/does (not)" in relative clauses: "who do not shave themselves"
@@ -1628,6 +2472,65 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
         pp_args: &[(Symbol, Term<'a>)],
         template: &Option<EventTemplate<'a>>,
     ) -> Vec<(ThematicRole, Term<'a>)> {
+        // Agent-gapping (non-constituent coordination, §2.1): "John gave Mary a book
+        // and Sue a pen" — the remnant (Sue, a pen) fills the template's non-agent
+        // NP roles (Recipient, Theme) IN ORDER and the agent is SHARED from the
+        // template (John). Detected when the remnant count (subject + np_args) equals
+        // the number of non-agent NP roles (≥ 2), i.e. the agent is the gap.
+        if let Some(tmpl) = template {
+            if let Some(shared_agent) = &tmpl.agent {
+                let np_template_roles: Vec<_> = tmpl
+                    .non_agent_roles
+                    .iter()
+                    .filter(|(r, _)| {
+                        matches!(
+                            r,
+                            ThematicRole::Theme | ThematicRole::Recipient | ThematicRole::Patient
+                        )
+                    })
+                    .collect();
+                // A LONE bare-NP remnant after a complete transitive clause is
+                // object coordination ("John saw himself and Mary" — Mary is
+                // a second THEME, the agent is shared), not a new agent
+                // inheriting the template's object.
+                if np_template_roles.len() == 1 && np_args.is_empty() && pp_args.is_empty() {
+                    let (role, _) = np_template_roles[0];
+                    return vec![
+                        (ThematicRole::Agent, shared_agent.clone()),
+                        (*role, subject_term),
+                    ];
+                }
+                if np_template_roles.len() >= 2 && 1 + np_args.len() == np_template_roles.len() {
+                    let mut roles = vec![(ThematicRole::Agent, shared_agent.clone())];
+                    let remnants: Vec<Term<'a>> = std::iter::once(subject_term)
+                        .chain(np_args.iter().cloned())
+                        .collect();
+                    for ((role, _), arg) in np_template_roles.iter().zip(remnants.iter()) {
+                        roles.push((*role, arg.clone()));
+                    }
+                    // Inherit template PP roles when none are overt in the remnant.
+                    if pp_args.is_empty() {
+                        for (role, term) in tmpl.non_agent_roles.iter().filter(|(r, _)| {
+                            matches!(
+                                r,
+                                ThematicRole::Goal
+                                    | ThematicRole::Source
+                                    | ThematicRole::Location
+                                    | ThematicRole::Instrument
+                            )
+                        }) {
+                            roles.push((*role, term.clone()));
+                        }
+                    } else {
+                        for (prep, term) in pp_args {
+                            roles.push((self.preposition_to_role(*prep), term.clone()));
+                        }
+                    }
+                    return roles;
+                }
+            }
+        }
+
         let mut roles = vec![(ThematicRole::Agent, subject_term)];
 
         match template {

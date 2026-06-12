@@ -359,6 +359,22 @@ fn lower_expr<'a>(
             let new_action = lower_expr(action, ctx, expr_arena, term_arena, interner);
             expr_arena.alloc(LogicExpr::Imperative { action: new_action })
         }
+        LogicExpr::Exclamative { degree_var, body } => {
+            let new_body = lower_expr(body, ctx, expr_arena, term_arena, interner);
+            expr_arena.alloc(LogicExpr::Exclamative { degree_var: *degree_var, body: new_body })
+        }
+        LogicExpr::Optative { wish } => {
+            let new_wish = lower_expr(wish, ctx, expr_arena, term_arena, interner);
+            expr_arena.alloc(LogicExpr::Optative { wish: new_wish })
+        }
+        LogicExpr::Implicature { assertion, implicature } => {
+            let new_assertion = lower_expr(assertion, ctx, expr_arena, term_arena, interner);
+            let new_implicature = lower_expr(implicature, ctx, expr_arena, term_arena, interner);
+            expr_arena.alloc(LogicExpr::Implicature {
+                assertion: new_assertion,
+                implicature: new_implicature,
+            })
+        }
 
         LogicExpr::Causal { effect, cause } => {
             let new_effect = lower_expr(effect, ctx, expr_arena, term_arena, interner);
@@ -366,6 +382,15 @@ fn lower_expr<'a>(
             expr_arena.alloc(LogicExpr::Causal {
                 effect: new_effect,
                 cause: new_cause,
+            })
+        }
+
+        LogicExpr::Concessive { main, concession } => {
+            let new_main = lower_expr(main, ctx, expr_arena, term_arena, interner);
+            let new_concession = lower_expr(concession, ctx, expr_arena, term_arena, interner);
+            expr_arena.alloc(LogicExpr::Concessive {
+                main: new_main,
+                concession: new_concession,
             })
         }
 

@@ -356,7 +356,7 @@ mod tests {
         let mut interner = Interner::new();
         let p = interner.intern("P");
         let operand = ctx.alloc_expr(LogicExpr::Atom(p));
-        let vector = ModalVector { domain: ModalDomain::Alethic, force: 1.0, flavor: crate::ast::ModalFlavor::Root };
+        let vector = ModalVector { domain: ModalDomain::Alethic, force: 1.0, flavor: crate::ast::ModalFlavor::Root, modal_base: None, ordering_source: None };
         let result = ctx.modal(vector, operand);
 
         assert!(matches!(result, LogicExpr::Modal { .. }));

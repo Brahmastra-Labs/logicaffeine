@@ -1,0 +1,48 @@
+CLASSIFICATION: SemanticLossy | subsystem Semantics | gate Investigate | confidence 0.35
+ISOLATED: "BSc"(Abbreviation), "(1989)"(Parenthetical), "MSc"(Abbreviation), "(1991)"(Parenthetical)
+
+═══ Sentence 4 ═══
+INPUT: He completed a BSc in Psychology (1989) and an MSc in Psychology with First Class Honours (1991) at the University of Auckland.
+
+TOKENS:
+    0..2   "He"         Pronoun
+    3..12  "completed"  Verb
+   13..14  "a"          Determiner
+   15..18  "BSc"        Proper
+   19..21  "in"         Preposition
+   22..32  "Psychology" Proper
+   33..34  "("          Other
+   34..38  "1989"       Other
+   38..39  ")"          Other
+   40..43  "and"        Connective
+   44..46  "an"         Determiner
+   47..50  "MSc"        Proper
+   51..53  "in"         Preposition
+   54..64  "Psychology" Proper
+   65..69  "with"       Preposition
+   70..75  "First"      Proper
+   76..81  "Class"      Proper
+   82..89  "Honours"    Proper
+   90..91  "("          Other
+   91..95  "1991"       Other
+   95..96  ")"          Other
+   97..99  "at"         Preposition
+  100..103 "the"        Determiner
+  104..114 "University" Proper
+  115..117 "of"         Preposition
+  118..126 "Auckland"   Proper
+  126..127 "."          Punctuation
+  127..127 ""           Other
+
+FOL:
+  unicode: ∃x((BSc(x) ∧ ∃e(Complete(e) ∧ Agent(e, Him) ∧ Theme(e, x) ∧ Past(e))))
+  simple : ∃x((BSc(x) ∧ Complete(Him, x)))
+  kripke : Exists x((BSc(x, w0)  And  Exists e(Complete(e, w0)  And  Agent(e, Him, w0)  And  Theme(e, x, w0)  And  Past(e, w0))))
+
+AST (5 nodes, 1 unhandled):
+  └─ ∃x [quantifier]
+     └─ ∧ [binary_op]
+        ├─ BSc(1) [predicate]
+        │  └─ x [variable]
+        └─ NeoEvent(NeoEventData { event_var: Symbol(44), verb: Symbol(2), roles: [(Agent, Constant(Symbol(42))), (Theme, Variable(Symbol(43)))], modifiers: [Symbol(45)], suppress_existential: false, world: None }) [other]
+

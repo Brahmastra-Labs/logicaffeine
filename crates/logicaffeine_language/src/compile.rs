@@ -46,19 +46,24 @@ pub fn compile(input: &str) -> Result<String, ParseError> {
     compile_with_options(input, CompileOptions::default())
 }
 
+/// Compile with conversational (scalar) implicature enrichment (§8.7). The literal
+/// `compile` output is unchanged; this adds the `+> Implicature(…)` line.
+pub fn compile_pragmatic(input: &str) -> Result<String, ParseError> {
+    compile_with_options(input, CompileOptions {
+        format: OutputFormat::Unicode,
+        pragmatic: true,
+    })
+}
+
 /// Compile with simple FOL format.
 pub fn compile_simple(input: &str) -> Result<String, ParseError> {
-    compile_with_options(input, CompileOptions {
-        format: OutputFormat::SimpleFOL,
-    })
+    compile_with_options(input, CompileOptions { format: OutputFormat::SimpleFOL, pragmatic: false })
 }
 
 /// Compile with Kripke semantics lowering.
 /// Modal operators are transformed into explicit possible world quantification.
 pub fn compile_kripke(input: &str) -> Result<String, ParseError> {
-    compile_with_options(input, CompileOptions {
-        format: OutputFormat::Kripke,
-    })
+    compile_with_options(input, CompileOptions { format: OutputFormat::Kripke, pragmatic: false })
 }
 
 /// Compile to Kripke-lowered FOL and pass the AST to a callback.
@@ -153,7 +158,11 @@ pub fn compile_with_options(input: &str, options: CompileOptions) -> Result<Stri
     // Pass 2: Parse with type context
     let mut world_state = drs::WorldState::new();
     let mut parser = Parser::new(tokens, &mut world_state, &mut interner, ctx, type_registry);
-    let ast = parser.parse()?;
+    let ast = if options.pragmatic {
+        parser.parse_pragmatic()?
+    } else {
+        parser.parse()?
+    };
     let ast = semantics::apply_axioms(ast, ctx.exprs, ctx.terms, &mut interner);
 
     // Apply Kripke lowering for Kripke format (before pragmatics to preserve modal structure)
@@ -349,6 +358,18 @@ pub fn compile_all_scopes_with_options(input: &str, options: CompileOptions) -> 
         }
     }
 
+    // Cumulative reading (Scha) — irreducible to either nesting — for two-cardinal
+    // transitive sentences ("Three boys lifted five boxes.").
+    if let Some(cumulative) = lambda::cumulative_reading(ast, &mut interner, &scope_arena) {
+        let cumulative =
+            semantics::apply_axioms(cumulative, &scope_arena, &scope_term_arena, &mut interner);
+        let mut registry = SymbolRegistry::new();
+        let rendered = cumulative.transpile(&mut registry, &interner, options.format);
+        if !results.contains(&rendered) {
+            results.push(rendered);
+        }
+    }
+
     Ok(results)
 }
 
@@ -487,39 +508,84 @@ pub fn compile_forest_with_options(input: &str, options: CompileOptions) -> Vec<
         }
     }
 
-    // Reading 2: Noun priority mode (for lexical ambiguity)
+    // Reading set 2: PER-TOKEN resolution of lexical ambiguity. Each
+    // Ambiguous token contributes its primary and alternative readings;
+    // every combination is parsed STRICTLY, so exactly the grammatical
+    // readings survive ("I saw her duck." → perception event AND
+    // possessed-bird object; "time flies" → N+V and compound-N+V).
     if has_lexical_ambiguity {
-        let expr_arena = Arena::new();
-        let term_arena = Arena::new();
-        let np_arena = Arena::new();
-        let sym_arena = Arena::new();
-        let role_arena = Arena::new();
-        let pp_arena = Arena::new();
+        let amb_positions: Vec<usize> = tokens
+            .iter()
+            .enumerate()
+            .filter(|(_, t)| matches!(t.kind, token::TokenType::Ambiguous { .. }))
+            .map(|(i, _)| i)
+            .collect();
+        let option_counts: Vec<usize> = amb_positions
+            .iter()
+            .map(|&i| {
+                if let token::TokenType::Ambiguous { alternatives, .. } = &tokens[i].kind {
+                    1 + alternatives.len()
+                } else {
+                    1
+                }
+            })
+            .collect();
+        let total: usize = option_counts.iter().product();
 
-        let ast_ctx = AstContext::new(
-            &expr_arena,
-            &term_arena,
-            &np_arena,
-            &sym_arena,
-            &role_arena,
-            &pp_arena,
-        );
+        if total <= MAX_FOREST_READINGS {
+            for combo in 0..total {
+                let mut variant = tokens.clone();
+                let mut rem = combo;
+                for (slot, &i) in amb_positions.iter().enumerate() {
+                    let pick = rem % option_counts[slot];
+                    rem /= option_counts[slot];
+                    if let token::TokenType::Ambiguous { primary, alternatives } = &tokens[i].kind {
+                        variant[i].kind = if pick == 0 {
+                            (**primary).clone()
+                        } else {
+                            alternatives[pick - 1].clone()
+                        };
+                    }
+                }
 
-        let mut world_state = drs::WorldState::new();
-        let mut parser = Parser::new(tokens.clone(), &mut world_state, &mut interner, ast_ctx, type_registry.clone());
-        parser.set_noun_priority_mode(true);
+                let expr_arena = Arena::new();
+                let term_arena = Arena::new();
+                let np_arena = Arena::new();
+                let sym_arena = Arena::new();
+                let role_arena = Arena::new();
+                let pp_arena = Arena::new();
 
-        if let Ok(ast) = parser.parse() {
-            let ast = semantics::apply_axioms(ast, ast_ctx.exprs, ast_ctx.terms, &mut interner);
-            let ast = if options.format == OutputFormat::Kripke {
-                semantics::apply_kripke_lowering(ast, ast_ctx.exprs, ast_ctx.terms, &mut interner)
-            } else {
-                ast
-            };
-            let mut registry = SymbolRegistry::new();
-            let reading = ast.transpile_discourse(&mut registry, &interner, options.format);
-            if !results.contains(&reading) {
-                results.push(reading);
+                let ast_ctx = AstContext::new(
+                    &expr_arena,
+                    &term_arena,
+                    &np_arena,
+                    &sym_arena,
+                    &role_arena,
+                    &pp_arena,
+                );
+
+                let mut world_state = drs::WorldState::new();
+                let mut parser = Parser::new(
+                    variant,
+                    &mut world_state,
+                    &mut interner,
+                    ast_ctx,
+                    type_registry.clone(),
+                );
+
+                if let Ok(ast) = parser.parse() {
+                    let ast = semantics::apply_axioms(ast, ast_ctx.exprs, ast_ctx.terms, &mut interner);
+                    let ast = if options.format == OutputFormat::Kripke {
+                        semantics::apply_kripke_lowering(ast, ast_ctx.exprs, ast_ctx.terms, &mut interner)
+                    } else {
+                        ast
+                    };
+                    let mut registry = SymbolRegistry::new();
+                    let reading = ast.transpile_discourse(&mut registry, &interner, options.format);
+                    if !results.contains(&reading) {
+                        results.push(reading);
+                    }
+                }
             }
         }
     }
@@ -591,6 +657,40 @@ pub fn compile_forest_with_options(input: &str, options: CompileOptions) -> Vec<
                 if !results.contains(&reading) {
                     results.push(reading);
                 }
+            }
+        }
+    }
+
+    // Reading 4b: Distributive mode — a mixed verb with a definite plural
+    // defaults to the collective reading, so the per-member reading is the
+    // OTHER half of the ambiguity ("the boys lifted the piano" — each alone).
+    if has_plurality_ambiguity {
+        let expr_arena = Arena::new();
+        let term_arena = Arena::new();
+        let np_arena = Arena::new();
+        let sym_arena = Arena::new();
+        let role_arena = Arena::new();
+        let pp_arena = Arena::new();
+
+        let ast_ctx = AstContext::new(
+            &expr_arena,
+            &term_arena,
+            &np_arena,
+            &sym_arena,
+            &role_arena,
+            &pp_arena,
+        );
+
+        let mut world_state = drs::WorldState::new();
+        let mut parser = Parser::new(tokens.clone(), &mut world_state, &mut interner, ast_ctx, type_registry.clone());
+        parser.set_distributive_marker(true);
+
+        if let Ok(ast) = parser.parse() {
+            let ast = semantics::apply_axioms(ast, ast_ctx.exprs, ast_ctx.terms, &mut interner);
+            let mut registry = SymbolRegistry::new();
+            let reading = ast.transpile(&mut registry, &interner, options.format);
+            if !results.contains(&reading) {
+                results.push(reading);
             }
         }
     }
@@ -964,7 +1064,6 @@ pub fn compile_ambiguous_with_options(input: &str, options: CompileOptions) -> R
 use crate::ast::{self, Stmt};
 use crate::token::Span;
 use crate::error::ParseErrorKind;
-use logicaffeine_proof::BackwardChainer;
 use crate::proof_convert::logic_expr_to_proof_expr;
 
 /// Compile and prove a theorem block.
@@ -1019,38 +1118,43 @@ pub fn compile_theorem(input: &str) -> Result<String, ParseError> {
             span: Span::default(),
         })?;
 
-    // Convert premises from LogicExpr to ProofExpr
-    let mut engine = BackwardChainer::new();
-    for premise in &theorem.premises {
-        let proof_expr = logic_expr_to_proof_expr(premise, &interner);
-        engine.add_axiom(proof_expr);
-    }
-
-    // Convert goal from LogicExpr to ProofExpr
+    // Convert premises and goal from LogicExpr to ProofExpr
+    let premises: Vec<_> = theorem
+        .premises
+        .iter()
+        .map(|premise| logic_expr_to_proof_expr(premise, &interner))
+        .collect();
     let goal = logic_expr_to_proof_expr(theorem.goal, &interner);
 
-    // Attempt to prove the goal
-    match engine.prove(goal.clone()) {
-        Ok(derivation) => {
-            Ok(format!(
-                "Theorem '{}' Proved!\n{}",
+    // Route through the one canonical pipeline (prove → certify → kernel check),
+    // so every theorem entry point shares a single engine. This door reports a
+    // proof when a derivation is found, annotating whether the kernel certified
+    // it; the strong (kernel-checked) guarantee is exposed by `verify_theorem`
+    // and the `verified` flag on `TheoremCompileResult`.
+    let outcome = logicaffeine_proof::verify::prove_certify_check(&premises, &goal);
+    match outcome.derivation {
+        Some(derivation) if outcome.verified => Ok(format!(
+            "Theorem '{}' Proved! [kernel-verified]\n{}",
+            theorem.name,
+            derivation.display_tree()
+        )),
+        Some(derivation) => Ok(format!(
+            "Theorem '{}' — derivation found but NOT kernel-certified (this is not a proof)\n{}",
+            theorem.name,
+            derivation.display_tree()
+        )),
+        None => Err(ParseError {
+            kind: ParseErrorKind::Custom(format!(
+                "Theorem '{}' failed.\n  Goal: {}\n  Premises: {}\n  Error: {}",
                 theorem.name,
-                derivation.display_tree()
-            ))
-        }
-        Err(e) => {
-            // Return error with context about what was attempted
-            Err(ParseError {
-                kind: ParseErrorKind::Custom(format!(
-                    "Theorem '{}' failed.\n  Goal: {}\n  Premises: {}\n  Error: {}",
-                    theorem.name,
-                    goal,
-                    theorem.premises.len(),
-                    e
-                )),
-                span: Span::default(),
-            })
-        }
+                goal,
+                theorem.premises.len(),
+                outcome
+                    .verification_error
+                    .unwrap_or_else(|| "no derivation found".to_string())
+            )),
+            span: Span::default(),
+        }),
     }
 }
 
@@ -1069,7 +1173,7 @@ mod tests {
 
     #[test]
     fn test_compile_with_unicode_format() {
-        let options = CompileOptions { format: OutputFormat::Unicode };
+        let options = CompileOptions { format: OutputFormat::Unicode, pragmatic: false };
         let result = compile_with_options("Every dog barks.", options);
         assert!(result.is_ok());
         let output = result.unwrap();

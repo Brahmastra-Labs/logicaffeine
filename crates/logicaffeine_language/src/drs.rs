@@ -284,12 +284,6 @@ impl WorldState {
         let can_access_modal = self.in_modal_context();
 
         #[cfg(debug_assertions)]
-        eprintln!("[TELESCOPE DEBUG] can_access_modal={}, candidates={:?}",
-            can_access_modal,
-            self.telescope_candidates.iter()
-                .map(|c| (c.in_modal_scope, c.gender))
-                .collect::<Vec<_>>()
-        );
 
         // Apply same Gender Accommodation rules as resolve_pronoun:
         // - Exact match (Male=Male, Female=Female, etc)
@@ -300,7 +294,6 @@ impl WorldState {
             if candidate.in_modal_scope && !can_access_modal {
                 // Wolf in imagination cannot be referenced from reality
                 #[cfg(debug_assertions)]
-                eprintln!("[TELESCOPE DEBUG] BLOCKED modal candidate: {:?}", candidate.gender);
                 continue;
             }
 
@@ -584,10 +577,29 @@ impl Drs {
         self.boxes[self.current_box].universe.push(referent);
     }
 
+    /// Accommodate a referent at the MAIN (highest) box. Definites presuppose
+    /// existence, so they project globally even when first mentioned inside
+    /// an embedded box (Van der Sandt global accommodation).
+    pub fn introduce_referent_global(&mut self, variable: Symbol, noun_class: Symbol, gender: Gender, number: Number, source: ReferentSource) {
+        let referent = Referent::new(variable, noun_class, gender, number, source);
+        self.boxes[self.main_box].universe.push(referent);
+    }
+
     pub fn introduce_proper_name(&mut self, variable: Symbol, name: Symbol, gender: Gender) {
         // Proper names are always singular
         let referent = Referent::new(variable, name, gender, Number::Singular, ReferentSource::ProperName);
         self.boxes[self.current_box].universe.push(referent);
+    }
+
+    /// Is this symbol a RIGID referent (proper name or deictic constant)?
+    /// A pronoun resolving to a rigid referent denotes the constant itself,
+    /// not a discourse-bound variable.
+    pub fn is_rigid_referent(&self, symbol: Symbol) -> bool {
+        self.boxes.iter().any(|b| {
+            b.universe
+                .iter()
+                .any(|r| r.variable == symbol && r.source == ReferentSource::ProperName)
+        })
     }
 
     /// Check if a referent in box `from_box` can access referents in box `target_box`
@@ -808,7 +820,11 @@ impl Drs {
         let mut result = Vec::new();
         for drs_box in &self.boxes {
             for referent in &drs_box.universe {
-                if referent.should_be_universal() {
+                // Proper names are rigid constants, never universally bound — a
+                // counterfactual "If John had studied…" must not become ∀John.
+                if referent.should_be_universal()
+                    && !matches!(referent.source, ReferentSource::ProperName)
+                {
                     result.push(referent.variable);
                 }
             }

@@ -129,6 +129,8 @@ pub fn logic_expr_to_proof_expr<'a>(expr: &LogicExpr<'a>, interner: &Interner) -
             let flavor = match vector.flavor {
                 ModalFlavor::Root => "Root",
                 ModalFlavor::Epistemic => "Epistemic",
+                ModalFlavor::Evidential => "Evidential",
+                ModalFlavor::Bouletic => "Bouletic",
             };
             ProofExpr::Modal {
                 domain: domain.to_string(),
@@ -189,6 +191,8 @@ pub fn logic_expr_to_proof_expr<'a>(expr: &LogicExpr<'a>, interner: &Interner) -
                         ThematicRole::Location => "Location",
                         ThematicRole::Time => "Time",
                         ThematicRole::Manner => "Manner",
+                        ThematicRole::Result => "Result",
+                        ThematicRole::Depictive => "Depictive",
                     };
                     (role_name.to_string(), term_to_proof_term(term, interner))
                 })
@@ -206,11 +210,13 @@ pub fn logic_expr_to_proof_expr<'a>(expr: &LogicExpr<'a>, interner: &Interner) -
             antecedent,
             consequent,
         } => {
-            // Counterfactuals become implications in classical logic
-            ProofExpr::Implies(
-                Box::new(logic_expr_to_proof_expr(antecedent, interner)),
-                Box::new(logic_expr_to_proof_expr(consequent, interner)),
-            )
+            // □→ keeps closest-world semantics: the consequent is quantified
+            // over the similarity-closest antecedent-worlds, never lowered to
+            // material implication (§4.5).
+            ProofExpr::Counterfactual {
+                antecedent: Box::new(logic_expr_to_proof_expr(antecedent, interner)),
+                consequent: Box::new(logic_expr_to_proof_expr(consequent, interner)),
+            }
         }
 
         // --- Unsupported constructs (return Unsupported variant) ---
@@ -221,18 +227,154 @@ pub fn logic_expr_to_proof_expr<'a>(expr: &LogicExpr<'a>, interner: &Interner) -
         LogicExpr::YesNoQuestion { .. } => ProofExpr::Unsupported("YesNoQuestion".into()),
         LogicExpr::Intensional { .. } => ProofExpr::Unsupported("Intensional".into()),
         LogicExpr::Event { .. } => ProofExpr::Unsupported("Event (legacy)".into()),
-        LogicExpr::Imperative { .. } => ProofExpr::Unsupported("Imperative".into()),
-        LogicExpr::SpeechAct { .. } => ProofExpr::Unsupported("SpeechAct".into()),
+        LogicExpr::Imperative { action } => {
+            // Directive(h, p) → O_g p: the commanded action becomes a bouletic
+            // obligation over the addressee's action worlds (§1.4). The action
+            // itself is NOT asserted — commanding is not doing.
+            ProofExpr::Modal {
+                domain: "Deontic".to_string(),
+                force: 1.0,
+                flavor: "Bouletic".to_string(),
+                body: Box::new(logic_expr_to_proof_expr(action, interner)),
+            }
+        }
+        LogicExpr::Exclamative { body, .. } => {
+            // The presupposed/asserted content is the body predication.
+            logic_expr_to_proof_expr(body, interner)
+        }
+        LogicExpr::Optative { wish } => {
+            // Wish(speaker, ⟨p⟩): a bouletic necessity over the speaker's
+            // preference-ideal worlds (§1.2); the complement is not entailed.
+            ProofExpr::Modal {
+                domain: "Deontic".to_string(),
+                force: 1.0,
+                flavor: "Bouletic".to_string(),
+                body: Box::new(logic_expr_to_proof_expr(wish, interner)),
+            }
+        }
+        LogicExpr::Implicature { assertion, .. } => {
+            // Truth-conditional content is the literal assertion; the implicature is
+            // defeasible/cancellable and not part of the entailment core.
+            logic_expr_to_proof_expr(assertion, interner)
+        }
+        LogicExpr::SpeechAct { performer, act_type, .. } => {
+            // A performative asserts that the act is performed at the utterance
+            // world (the saying is the doing): `act_type(performer)`. The
+            // propositional content is NOT asserted — promising to φ does not make
+            // φ true — so it is deliberately not conjoined here.
+            ProofExpr::Predicate {
+                name: interner.resolve(*act_type).to_lowercase(),
+                args: vec![term_to_proof_term(&Term::Constant(*performer), interner)],
+                world: None,
+            }
+        }
         LogicExpr::Causal { .. } => ProofExpr::Unsupported("Causal".into()),
+        LogicExpr::Concessive { main, .. } => {
+            // The main clause is asserted; the concession is backgrounded (a defeated
+            // expectation), so the truth-conditional content reduces to the main.
+            logic_expr_to_proof_expr(main, interner)
+        }
         LogicExpr::Comparative { .. } => ProofExpr::Unsupported("Comparative".into()),
         LogicExpr::Superlative { .. } => ProofExpr::Unsupported("Superlative".into()),
         LogicExpr::Scopal { .. } => ProofExpr::Unsupported("Scopal".into()),
         LogicExpr::Control { .. } => ProofExpr::Unsupported("Control".into()),
-        LogicExpr::Presupposition { .. } => ProofExpr::Unsupported("Presupposition".into()),
-        LogicExpr::Focus { .. } => ProofExpr::Unsupported("Focus".into()),
+        LogicExpr::Presupposition {
+            assertion,
+            presupposition,
+        } => {
+            // A surviving (projected/accommodated) presupposition is real
+            // content: "Mary doesn't regret lying" carries both ¬Regret and
+            // the projected Lied(mary). Bound/filtered presuppositions are
+            // rewritten away before this point (Van der Sandt pass), so the
+            // conjunction is monotonically sound.
+            ProofExpr::And(
+                Box::new(logic_expr_to_proof_expr(assertion, interner)),
+                Box::new(logic_expr_to_proof_expr(presupposition, interner)),
+            )
+        }
+        LogicExpr::Focus { scope, .. } => {
+            // Focus marking is information structure; the truth-conditional
+            // content is the scope. Cleft exhaustivity is already a separate
+            // conjunct built by the parser.
+            logic_expr_to_proof_expr(scope, interner)
+        }
         LogicExpr::TemporalAnchor { .. } => ProofExpr::Unsupported("TemporalAnchor".into()),
-        LogicExpr::Distributive { .. } => ProofExpr::Unsupported("Distributive".into()),
-        LogicExpr::GroupQuantifier { .. } => ProofExpr::Unsupported("GroupQuantifier".into()),
+        LogicExpr::Distributive { predicate } => {
+            // *P(σN) — atomic distribution over the plural sum. Members of
+            // σN are exactly the Ns (Link lattice atoms), so the first-order
+            // form is ∀x(N(x) → P(x)).
+            let base = logic_expr_to_proof_expr(predicate, interner);
+            match find_sigma_symbol(predicate) {
+                Some(noun) => {
+                    let noun_str = interner.resolve(noun).to_string();
+                    let noun_pred = get_canonical_noun(&noun_str.to_lowercase())
+                        .map(|lemma| lemma.to_lowercase())
+                        .unwrap_or_else(|| noun_str.to_lowercase());
+                    let var = format!("each_{}", noun_pred);
+                    let sigma_term = ProofTerm::Variable(noun_str);
+                    let member = ProofTerm::Variable(var.clone());
+                    let body = replace_proof_term(&base, &sigma_term, &member);
+                    ProofExpr::ForAll {
+                        variable: var.clone(),
+                        body: Box::new(ProofExpr::Implies(
+                            Box::new(ProofExpr::Predicate {
+                                name: noun_pred,
+                                args: vec![ProofTerm::Variable(var)],
+                                world: None,
+                            }),
+                            Box::new(body),
+                        )),
+                    }
+                }
+                None => base,
+            }
+        }
+        LogicExpr::GroupQuantifier {
+            group_var,
+            count,
+            member_var,
+            restriction,
+            body,
+        } => {
+            // ∃g(group(g) ∧ count(g, n) ∧ ∀x(member(x, g) → R(x)) ∧ B(g))
+            let g = interner.resolve(*group_var).to_string();
+            let x = interner.resolve(*member_var).to_string();
+            let group_pred = ProofExpr::Predicate {
+                name: "group".to_string(),
+                args: vec![ProofTerm::Variable(g.clone())],
+                world: None,
+            };
+            let count_pred = ProofExpr::Predicate {
+                name: "count".to_string(),
+                args: vec![
+                    ProofTerm::Variable(g.clone()),
+                    ProofTerm::Constant(count.to_string()),
+                ],
+                world: None,
+            };
+            let member_pred = ProofExpr::Predicate {
+                name: "member".to_string(),
+                args: vec![ProofTerm::Variable(x.clone()), ProofTerm::Variable(g.clone())],
+                world: None,
+            };
+            let members = ProofExpr::ForAll {
+                variable: x,
+                body: Box::new(ProofExpr::Implies(
+                    Box::new(member_pred),
+                    Box::new(logic_expr_to_proof_expr(restriction, interner)),
+                )),
+            };
+            ProofExpr::Exists {
+                variable: g,
+                body: Box::new(ProofExpr::And(
+                    Box::new(ProofExpr::And(
+                        Box::new(ProofExpr::And(Box::new(group_pred), Box::new(count_pred))),
+                        Box::new(members),
+                    )),
+                    Box::new(logic_expr_to_proof_expr(body, interner)),
+                )),
+            }
+        }
         // Aspectual wrappers (Imperfective, Perfective, etc.) are transparent to proof.
         // "John runs" -> Aspectual(Imperfective, ∃e(Run(e) ∧ Agent(e, John)))
         // We pass through to the inner event structure.
@@ -242,6 +384,255 @@ pub fn logic_expr_to_proof_expr<'a>(expr: &LogicExpr<'a>, interner: &Interner) -
 }
 
 /// Convert a Term to ProofTerm.
+/// A defeasible default extracted by [`logic_expr_to_proof_expr_defeasible`]:
+/// the abnormality predicate guarding one GEN rule or implicature.
+#[derive(Debug, Clone)]
+pub struct DefaultRule {
+    /// The abnormality predicate name (`ab_1`, `ab_2`, …).
+    pub ab_name: String,
+    /// The generic's restrictor predicate ("penguin" in GEN x(Penguin → …)),
+    /// used for specificity ordering. `None` for implicatures.
+    pub restriction_pred: Option<String>,
+    /// Unary (per-individual, generics) vs propositional (implicatures).
+    pub unary: bool,
+}
+
+/// Convert with DEFEASIBLE semantics: a generic `GEN x(R(x) → N(x))` becomes
+/// the abnormality-guarded `∀x((R(x) ∧ ¬ab_k(x)) → N(x))`, and an implicature
+/// is asserted under its own guard (`assertion ∧ (¬ab_k → implicature)`).
+/// The circumscription itself — minimizing each `ab_k` — happens in the
+/// defeasible reasoner; this conversion only preserves what the strict
+/// export (`Generic → ∀`, implicature dropped) erases.
+pub fn logic_expr_to_proof_expr_defeasible<'a>(
+    expr: &LogicExpr<'a>,
+    interner: &Interner,
+    defaults: &mut Vec<DefaultRule>,
+) -> ProofExpr {
+    match expr {
+        LogicExpr::Quantifier {
+            kind: QuantifierKind::Generic,
+            variable,
+            body,
+            ..
+        } => {
+            let var = interner.resolve(*variable).to_string();
+            if let LogicExpr::BinaryOp {
+                left: restriction,
+                op: TokenType::Implies | TokenType::If,
+                right: nucleus,
+            } = body
+            {
+                let ab_name = format!("ab_{}", defaults.len() + 1);
+                let restriction_pred = match restriction {
+                    LogicExpr::Predicate { name, .. } => {
+                        let s = interner.resolve(*name);
+                        Some(
+                            get_canonical_noun(&s.to_lowercase())
+                                .map(|l| l.to_lowercase())
+                                .unwrap_or_else(|| s.to_lowercase()),
+                        )
+                    }
+                    _ => None,
+                };
+                defaults.push(DefaultRule {
+                    ab_name: ab_name.clone(),
+                    restriction_pred,
+                    unary: true,
+                });
+                let guarded = ProofExpr::And(
+                    Box::new(logic_expr_to_proof_expr(restriction, interner)),
+                    Box::new(ProofExpr::Not(Box::new(ProofExpr::Predicate {
+                        name: ab_name,
+                        args: vec![ProofTerm::Variable(var.clone())],
+                        world: None,
+                    }))),
+                );
+                return ProofExpr::ForAll {
+                    variable: var,
+                    body: Box::new(ProofExpr::Implies(
+                        Box::new(guarded),
+                        Box::new(logic_expr_to_proof_expr(nucleus, interner)),
+                    )),
+                };
+            }
+            logic_expr_to_proof_expr(expr, interner)
+        }
+        LogicExpr::Implicature {
+            assertion,
+            implicature,
+        } => {
+            let ab_name = format!("ab_{}", defaults.len() + 1);
+            defaults.push(DefaultRule {
+                ab_name: ab_name.clone(),
+                restriction_pred: None,
+                unary: false,
+            });
+            ProofExpr::And(
+                Box::new(logic_expr_to_proof_expr(assertion, interner)),
+                Box::new(ProofExpr::Implies(
+                    Box::new(ProofExpr::Not(Box::new(ProofExpr::Atom(ab_name)))),
+                    Box::new(logic_expr_to_proof_expr(implicature, interner)),
+                )),
+            )
+        }
+        // Containers recurse so defaults nested under connectives or
+        // presuppositions are still found.
+        LogicExpr::BinaryOp { left, op, right } => {
+            let l = logic_expr_to_proof_expr_defeasible(left, interner, defaults);
+            let r = logic_expr_to_proof_expr_defeasible(right, interner, defaults);
+            match op {
+                TokenType::And => ProofExpr::And(Box::new(l), Box::new(r)),
+                TokenType::Or => ProofExpr::Or(Box::new(l), Box::new(r)),
+                TokenType::If | TokenType::Implies => {
+                    ProofExpr::Implies(Box::new(l), Box::new(r))
+                }
+                TokenType::Iff => ProofExpr::Iff(Box::new(l), Box::new(r)),
+                _ => logic_expr_to_proof_expr(expr, interner),
+            }
+        }
+        LogicExpr::UnaryOp {
+            op: TokenType::Not,
+            operand,
+        } => ProofExpr::Not(Box::new(logic_expr_to_proof_expr_defeasible(
+            operand, interner, defaults,
+        ))),
+        LogicExpr::Presupposition {
+            assertion,
+            presupposition,
+        } => ProofExpr::And(
+            Box::new(logic_expr_to_proof_expr_defeasible(
+                assertion, interner, defaults,
+            )),
+            Box::new(logic_expr_to_proof_expr_defeasible(
+                presupposition,
+                interner,
+                defaults,
+            )),
+        ),
+        _ => logic_expr_to_proof_expr(expr, interner),
+    }
+}
+
+/// Find the first `Term::Sigma` symbol in an expression (the plural sum a
+/// `Distributive` operator ranges over).
+fn find_sigma_symbol<'a>(expr: &LogicExpr<'a>) -> Option<crate::Symbol> {
+    fn in_term<'a>(term: &Term<'a>) -> Option<crate::Symbol> {
+        match term {
+            Term::Sigma(s) => Some(*s),
+            Term::Function(_, args) | Term::Group(args) => args.iter().find_map(in_term),
+            Term::Possessed { possessor, .. } => in_term(possessor),
+            _ => None,
+        }
+    }
+    match expr {
+        LogicExpr::Predicate { args, .. } => args.iter().find_map(in_term),
+        LogicExpr::NeoEvent(data) => data.roles.iter().find_map(|(_, t)| in_term(t)),
+        LogicExpr::Quantifier { body, .. } => find_sigma_symbol(body),
+        LogicExpr::BinaryOp { left, right, .. } => {
+            find_sigma_symbol(left).or_else(|| find_sigma_symbol(right))
+        }
+        LogicExpr::UnaryOp { operand, .. } => find_sigma_symbol(operand),
+        LogicExpr::Modal { operand, .. } => find_sigma_symbol(operand),
+        LogicExpr::Temporal { body, .. } => find_sigma_symbol(body),
+        LogicExpr::Aspectual { body, .. } => find_sigma_symbol(body),
+        LogicExpr::Distributive { predicate } => find_sigma_symbol(predicate),
+        LogicExpr::Presupposition { assertion, .. } => find_sigma_symbol(assertion),
+        _ => None,
+    }
+}
+
+/// Replace every occurrence of `from` with `to` in the term positions of a
+/// proof expression (used to instantiate a plural sum by its members).
+fn replace_proof_term(expr: &ProofExpr, from: &ProofTerm, to: &ProofTerm) -> ProofExpr {
+    fn in_term(term: &ProofTerm, from: &ProofTerm, to: &ProofTerm) -> ProofTerm {
+        if term == from {
+            return to.clone();
+        }
+        match term {
+            ProofTerm::Function(name, args) => ProofTerm::Function(
+                name.clone(),
+                args.iter().map(|t| in_term(t, from, to)).collect(),
+            ),
+            ProofTerm::Group(terms) => {
+                ProofTerm::Group(terms.iter().map(|t| in_term(t, from, to)).collect())
+            }
+            other => other.clone(),
+        }
+    }
+    match expr {
+        ProofExpr::Predicate { name, args, world } => ProofExpr::Predicate {
+            name: name.clone(),
+            args: args.iter().map(|t| in_term(t, from, to)).collect(),
+            world: world.clone(),
+        },
+        ProofExpr::Identity(l, r) => {
+            ProofExpr::Identity(in_term(l, from, to), in_term(r, from, to))
+        }
+        ProofExpr::And(l, r) => ProofExpr::And(
+            Box::new(replace_proof_term(l, from, to)),
+            Box::new(replace_proof_term(r, from, to)),
+        ),
+        ProofExpr::Or(l, r) => ProofExpr::Or(
+            Box::new(replace_proof_term(l, from, to)),
+            Box::new(replace_proof_term(r, from, to)),
+        ),
+        ProofExpr::Implies(l, r) => ProofExpr::Implies(
+            Box::new(replace_proof_term(l, from, to)),
+            Box::new(replace_proof_term(r, from, to)),
+        ),
+        ProofExpr::Iff(l, r) => ProofExpr::Iff(
+            Box::new(replace_proof_term(l, from, to)),
+            Box::new(replace_proof_term(r, from, to)),
+        ),
+        ProofExpr::Not(inner) => {
+            ProofExpr::Not(Box::new(replace_proof_term(inner, from, to)))
+        }
+        ProofExpr::ForAll { variable, body } => ProofExpr::ForAll {
+            variable: variable.clone(),
+            body: Box::new(replace_proof_term(body, from, to)),
+        },
+        ProofExpr::Exists { variable, body } => ProofExpr::Exists {
+            variable: variable.clone(),
+            body: Box::new(replace_proof_term(body, from, to)),
+        },
+        ProofExpr::Modal {
+            domain,
+            force,
+            flavor,
+            body,
+        } => ProofExpr::Modal {
+            domain: domain.clone(),
+            force: *force,
+            flavor: flavor.clone(),
+            body: Box::new(replace_proof_term(body, from, to)),
+        },
+        ProofExpr::Counterfactual {
+            antecedent,
+            consequent,
+        } => ProofExpr::Counterfactual {
+            antecedent: Box::new(replace_proof_term(antecedent, from, to)),
+            consequent: Box::new(replace_proof_term(consequent, from, to)),
+        },
+        ProofExpr::Temporal { operator, body } => ProofExpr::Temporal {
+            operator: operator.clone(),
+            body: Box::new(replace_proof_term(body, from, to)),
+        },
+        ProofExpr::NeoEvent {
+            event_var,
+            verb,
+            roles,
+        } => ProofExpr::NeoEvent {
+            event_var: event_var.clone(),
+            verb: verb.clone(),
+            roles: roles
+                .iter()
+                .map(|(r, t)| (r.clone(), in_term(t, from, to)))
+                .collect(),
+        },
+        other => other.clone(),
+    }
+}
+
 pub fn term_to_proof_term<'a>(term: &Term<'a>, interner: &Interner) -> ProofTerm {
     match term {
         Term::Constant(s) => ProofTerm::Constant(interner.resolve(*s).to_string()),
@@ -275,6 +666,12 @@ pub fn term_to_proof_term<'a>(term: &Term<'a>, interner: &Interner) -> ProofTerm
 
         Term::Intension(s) => {
             // Intensions become constants with ^ prefix
+            ProofTerm::Constant(format!("^{}", interner.resolve(*s)))
+        }
+
+        Term::Kind(s) => {
+            // Kind terms are reified entities; like intensions they become a
+            // ^-prefixed constant so kind predication reasons over a fixed object.
             ProofTerm::Constant(format!("^{}", interner.resolve(*s)))
         }
 

@@ -97,6 +97,9 @@ impl<'a> DisplayWith for Term<'a> {
             Term::Intension(predicate) => {
                 write!(f, "^{}", interner.resolve(*predicate))
             }
+            Term::Kind(kind) => {
+                write!(f, "^{}", interner.resolve(*kind))
+            }
             Term::Proposition(expr) => {
                 write!(f, "[{:?}]", expr)
             }
@@ -272,6 +275,16 @@ impl<'a> DisplayWith for LogicExpr<'a> {
             LogicExpr::Imperative { action } => {
                 write!(f, "!({})", action.with(interner))
             }
+            LogicExpr::Exclamative { degree_var, body } => {
+                write!(f, "Exclaim(∃{}({} ∧ {} ≫ θ))",
+                    interner.resolve(*degree_var), body.with(interner), interner.resolve(*degree_var))
+            }
+            LogicExpr::Optative { wish } => {
+                write!(f, "Wish(Speaker, ⟨{}⟩)", wish.with(interner))
+            }
+            LogicExpr::Implicature { assertion, implicature } => {
+                write!(f, "{} +> Implicature({})", assertion.with(interner), implicature.with(interner))
+            }
             LogicExpr::SpeechAct { performer, act_type, content } => {
                 write!(f, "{}:{}({})", interner.resolve(*performer), interner.resolve(*act_type), content.with(interner))
             }
@@ -281,7 +294,10 @@ impl<'a> DisplayWith for LogicExpr<'a> {
             LogicExpr::Causal { effect, cause } => {
                 write!(f, "Cause({}, {})", cause.with(interner), effect.with(interner))
             }
-            LogicExpr::Comparative { adjective, subject, object, difference } => {
+            LogicExpr::Concessive { main, concession } => {
+                write!(f, "{} ∧ Concessive({})", main.with(interner), concession.with(interner))
+            }
+            LogicExpr::Comparative { adjective, subject, object, difference, .. } => {
                 if let Some(diff) = difference {
                     write!(f, "{}({}, {}, by: {})", interner.resolve(*adjective), subject.with(interner), object.with(interner), diff.with(interner))
                 } else {
@@ -311,6 +327,7 @@ impl<'a> DisplayWith for LogicExpr<'a> {
                     crate::token::FocusKind::Only => "ONLY",
                     crate::token::FocusKind::Even => "EVEN",
                     crate::token::FocusKind::Just => "JUST",
+                    crate::token::FocusKind::Cleft => "CLEFT",
                 };
                 write!(f, "{}[", k)?;
                 focused.fmt_with(interner, f)?;
@@ -519,7 +536,7 @@ mod tests {
             vector: crate::ast::ModalVector {
                 domain: crate::ast::ModalDomain::Alethic,
                 force: 1.0,
-                flavor: crate::ast::ModalFlavor::Root,
+                flavor: crate::ast::ModalFlavor::Root, modal_base: None, ordering_source: None
             },
             operand: expr_arena.alloc(LogicExpr::Atom(p)),
         };

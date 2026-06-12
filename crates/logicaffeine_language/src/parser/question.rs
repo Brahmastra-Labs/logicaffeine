@@ -242,43 +242,43 @@ impl<'a, 'ctx, 'int> QuestionParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int> 
             TokenType::Can => ModalVector {
                 domain: ModalDomain::Alethic,
                 force: 0.5,
-                flavor: ModalFlavor::Root,
+                flavor: ModalFlavor::Root, modal_base: None, ordering_source: None
             },
             TokenType::Could => ModalVector {
                 domain: ModalDomain::Alethic,
                 force: 0.4,
-                flavor: ModalFlavor::Root,
+                flavor: ModalFlavor::Root, modal_base: None, ordering_source: None
             },
             TokenType::Would => ModalVector {
                 domain: ModalDomain::Alethic,
                 force: 0.6,
-                flavor: ModalFlavor::Root,
+                flavor: ModalFlavor::Root, modal_base: None, ordering_source: None
             },
             TokenType::Must => ModalVector {
                 domain: ModalDomain::Alethic,
                 force: 1.0,
-                flavor: ModalFlavor::Root,
+                flavor: ModalFlavor::Root, modal_base: None, ordering_source: None
             },
             TokenType::Should => ModalVector {
                 domain: ModalDomain::Deontic,
                 force: 0.6,
-                flavor: ModalFlavor::Root,
+                flavor: ModalFlavor::Root, modal_base: None, ordering_source: None
             },
             // Epistemic modals (wide scope)
             TokenType::May => ModalVector {
                 domain: ModalDomain::Deontic,
                 force: 0.5,
-                flavor: ModalFlavor::Epistemic,
+                flavor: ModalFlavor::Epistemic, modal_base: None, ordering_source: None
             },
             TokenType::Might => ModalVector {
                 domain: ModalDomain::Alethic,
                 force: 0.3,
-                flavor: ModalFlavor::Epistemic,
+                flavor: ModalFlavor::Epistemic, modal_base: None, ordering_source: None
             },
             _ => ModalVector {
                 domain: ModalDomain::Alethic,
                 force: 0.5,
-                flavor: ModalFlavor::Root,
+                flavor: ModalFlavor::Root, modal_base: None, ordering_source: None
             },
         }
     }

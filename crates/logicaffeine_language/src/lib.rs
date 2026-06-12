@@ -135,7 +135,7 @@ pub use session::Session;
 
 // Compile API re-exports
 pub use compile::{
-    compile, compile_simple, compile_kripke, compile_kripke_with, compile_with_options,
+    compile, compile_pragmatic, compile_simple, compile_kripke, compile_kripke_with, compile_with_options,
     compile_with_world_state, compile_with_world_state_options,
     compile_with_discourse, compile_with_world_state_interner_options,
     compile_all_scopes, compile_all_scopes_with_options,
@@ -175,12 +175,17 @@ impl<'a> TranspileContext<'a> {
 #[derive(Debug, Clone, Copy)]
 pub struct CompileOptions {
     pub format: OutputFormat,
+    /// Enrich the parse with conversational (scalar) implicature (§8.7): a weak
+    /// scalar "some" is strengthened to `∃… +> ¬∀…`. Off by default so the literal
+    /// truth-conditional output is unchanged.
+    pub pragmatic: bool,
 }
 
 impl Default for CompileOptions {
     fn default() -> Self {
         CompileOptions {
             format: OutputFormat::Unicode,
+            pragmatic: false,
         }
     }
 }

@@ -1,0 +1,27 @@
+CLASSIFICATION: ActionableLexiconGap | subsystem Lexicon | gate Auto | confidence 0.75
+
+═══ Sentence 8 ═══
+INPUT: The origins of the name are not recorded.
+
+TOKENS:
+    0..3   "The"        Determiner
+    4..11  "origins"    Adjective
+   12..14  "of"         Preposition
+   15..18  "the"        Determiner
+   19..23  "name"       Other
+   24..27  "are"        Other
+   28..31  "not"        Connective
+   32..40  "recorded"   Verb
+   40..41  "."          Punctuation
+   41..41  ""           Other
+
+FOL:
+  unicode: ¬Record(Origins)
+  simple : ¬Record(Origins)
+  kripke : Not Record(Origins, w0)
+
+AST (3 nodes, 0 unhandled):
+  └─ ¬ [unary_op]
+     └─ Record(1) [predicate]
+        └─ origins [constant]
+

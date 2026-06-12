@@ -63,6 +63,7 @@ pub trait PragmaticsParsing<'a, 'ctx, 'int> {
         &mut self,
         subject: &NounPhrase<'a>,
         presup_kind: PresupKind,
+        negated: bool,
     ) -> ParseResult<&'a LogicExpr<'a>>;
 
     /// Parses a simple predicate for a given subject noun phrase.
@@ -101,6 +102,9 @@ pub trait PragmaticsParsing<'a, 'ctx, 'int> {
         copula_time: Time,
         difference: Option<&'a Term<'a>>,
     ) -> ParseResult<&'a LogicExpr<'a>>;
+
+    /// Parses the equative "X is as ADJ as Y" → an at-least (`≥`) comparison.
+    fn parse_equative(&mut self, subject: &NounPhrase<'a>) -> ParseResult<&'a LogicExpr<'a>>;
 
     /// Checks if the current token is a numeric literal.
     ///
@@ -277,19 +281,48 @@ impl<'a, 'ctx, 'int> PragmaticsParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int
         &mut self,
         subject: &NounPhrase<'a>,
         presup_kind: PresupKind,
+        negated: bool,
     ) -> ParseResult<&'a LogicExpr<'a>> {
         let subject_noun = subject.noun;
 
         let unknown = self.interner.intern("?");
-        let complement = if self.check_verb() {
-            let verb = self.consume_verb();
-            self.ctx.exprs.alloc(LogicExpr::Predicate {
+        let complement_verb = if self.check_verb() {
+            Some(self.consume_verb())
+        } else {
+            None
+        };
+        let complement = match complement_verb {
+            Some(verb) => self.ctx.exprs.alloc(LogicExpr::Predicate {
                 name: verb,
                 args: self.ctx.terms.alloc_slice([Term::Constant(subject_noun)]),
                 world: None,
-            })
-        } else {
-            self.ctx.exprs.alloc(LogicExpr::Atom(unknown))
+            }),
+            None => self.ctx.exprs.alloc(LogicExpr::Atom(unknown)),
+        };
+        // The presupposed clause is a real past EVENT — the same shape the
+        // standalone sentence parses to ("Mary lied." →
+        // ∃e(Lie(e) ∧ Agent(e, Mary) ∧ Past(e))) — so the projected content
+        // is derivable by the proof engine, not just printable.
+        let past_event = match complement_verb {
+            Some(verb) => {
+                use crate::ast::logic::NeoEventData;
+                use crate::ast::ThematicRole;
+                self.ctx.exprs.alloc(LogicExpr::NeoEvent(Box::new(NeoEventData {
+                    event_var: self.interner.intern("e"),
+                    verb,
+                    roles: self
+                        .ctx
+                        .roles
+                        .alloc_slice(vec![(ThematicRole::Agent, Term::Constant(subject_noun))]),
+                    modifiers: self.ctx.syms.alloc_slice(vec![self.interner.intern("Past")]),
+                    suppress_existential: false,
+                    world: None,
+                })))
+            }
+            None => self.ctx.exprs.alloc(LogicExpr::Temporal {
+                operator: TemporalOperator::Past,
+                body: complement,
+            }),
         };
 
         let (assertion, presupposition) = match presup_kind {
@@ -298,20 +331,12 @@ impl<'a, 'ctx, 'int> PragmaticsParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int
                     op: TokenType::Not,
                     operand: complement,
                 });
-                let past = self.ctx.exprs.alloc(LogicExpr::Temporal {
-                    operator: TemporalOperator::Past,
-                    body: complement,
-                });
-                (neg, past)
+                (neg, past_event)
             }
             PresupKind::Start => {
-                let past = self.ctx.exprs.alloc(LogicExpr::Temporal {
-                    operator: TemporalOperator::Past,
-                    body: complement,
-                });
                 let neg_past = self.ctx.exprs.alloc(LogicExpr::UnaryOp {
                     op: TokenType::Not,
-                    operand: past,
+                    operand: past_event,
                 });
                 (complement, neg_past)
             }
@@ -322,11 +347,7 @@ impl<'a, 'ctx, 'int> PragmaticsParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int
                     args: self.ctx.terms.alloc_slice([Term::Constant(subject_noun)]),
                     world: None,
                 });
-                let past = self.ctx.exprs.alloc(LogicExpr::Temporal {
-                    operator: TemporalOperator::Past,
-                    body: complement,
-                });
-                (regret, past)
+                (regret, past_event)
             }
             PresupKind::Continue | PresupKind::Realize | PresupKind::Know => {
                 let verb_name = match presup_kind {
@@ -342,6 +363,18 @@ impl<'a, 'ctx, 'int> PragmaticsParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int
                 });
                 (main, complement)
             }
+        };
+
+        // Van der Sandt projection: under negation the assertion is negated but the
+        // PRESUPPOSITION projects (survives outside the ¬). "Mary doesn't regret
+        // lying." → ¬Regret(Mary) [Presup: P(Lie(Mary))] — she still lied.
+        let assertion = if negated {
+            self.ctx.exprs.alloc(LogicExpr::UnaryOp {
+                op: TokenType::Not,
+                operand: assertion,
+            })
+        } else {
+            assertion
         };
 
         Ok(self.ctx.exprs.alloc(LogicExpr::Presupposition {
@@ -418,6 +451,24 @@ impl<'a, 'ctx, 'int> PragmaticsParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int
                 },
                 span: self.current_span(),
             });
+        }
+
+        // A bare verb keeps the simple predication shape; anything after it
+        // ("almost killed Mary") takes the full VP grammar under the operator.
+        let clause_ends_after_verb = matches!(
+            self.tokens.get(self.current + 1).map(|t| t.kind.clone()),
+            Some(
+                TokenType::Period
+                    | TokenType::Exclamation
+                    | TokenType::EOF
+                    | TokenType::Comma
+                    | TokenType::And
+            ) | None
+        );
+        if !clause_ends_after_verb {
+            use super::verb::LogicVerbParsing;
+            let body = self.parse_predicate_with_subject(subject.noun)?;
+            return Ok(self.ctx.exprs.alloc(LogicExpr::Scopal { operator, body }));
         }
 
         let (verb, verb_time, _verb_aspect, _) = self.consume_verb_with_metadata();
@@ -506,6 +557,79 @@ impl<'a, 'ctx, 'int> PragmaticsParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int
         } else {
             // Parse noun phrase as the comparison target
             let object = self.parse_noun_phrase(false)?;
+
+            // Comparative subdeletion (§2.4): a clausal than-complement with its OWN
+            // gradable dimension — "than the door is WIDE" → compare the matrix
+            // length-degree to the than-clause width-degree:
+            //   ∃d∃d'(Long(desk,d) ∧ Wide(door,d') ∧ d > d').
+            if matches!(
+                self.peek().kind,
+                TokenType::Is | TokenType::Are | TokenType::Was | TokenType::Were
+            ) {
+                let save = self.current;
+                self.advance(); // copula
+                if let TokenType::Adjective(adj2) = self.peek().kind {
+                    self.advance();
+                    let d1 = self.next_var_name();
+                    let d2 = self.next_var_name();
+                    let matrix = self.ctx.exprs.alloc(LogicExpr::Predicate {
+                        name: adj,
+                        args: self
+                            .ctx
+                            .terms
+                            .alloc_slice([Term::Constant(subject.noun), Term::Variable(d1)]),
+                        world: None,
+                    });
+                    let than_clause = self.ctx.exprs.alloc(LogicExpr::Predicate {
+                        name: adj2,
+                        args: self
+                            .ctx
+                            .terms
+                            .alloc_slice([Term::Constant(object.noun), Term::Variable(d2)]),
+                        world: None,
+                    });
+                    let gt = self.ctx.exprs.alloc(LogicExpr::Predicate {
+                        name: self.interner.intern(">"),
+                        args: self
+                            .ctx
+                            .terms
+                            .alloc_slice([Term::Variable(d1), Term::Variable(d2)]),
+                        world: None,
+                    });
+                    let conj1 = self.ctx.exprs.alloc(LogicExpr::BinaryOp {
+                        left: matrix,
+                        op: TokenType::And,
+                        right: than_clause,
+                    });
+                    let body = self.ctx.exprs.alloc(LogicExpr::BinaryOp {
+                        left: conj1,
+                        op: TokenType::And,
+                        right: gt,
+                    });
+                    let inner = self.ctx.exprs.alloc(LogicExpr::Quantifier {
+                        kind: crate::ast::logic::QuantifierKind::Existential,
+                        variable: d2,
+                        body,
+                        island_id: self.current_island,
+                    });
+                    let outer = self.ctx.exprs.alloc(LogicExpr::Quantifier {
+                        kind: crate::ast::logic::QuantifierKind::Existential,
+                        variable: d1,
+                        body: inner,
+                        island_id: self.current_island,
+                    });
+                    return Ok(outer);
+                }
+                // Clausal ellipsis ("taller than Bill is."): the bare copula
+                // adds nothing — keep it consumed at a clause boundary,
+                // otherwise restore for other readings.
+                if self.at_clause_boundary() {
+                    // copula consumed; comparison proceeds as phrasal
+                } else {
+                    self.current = save;
+                }
+            }
+
             let obj_term = self.ctx.terms.alloc(Term::Constant(object.noun));
 
             let result = self.ctx.exprs.alloc(LogicExpr::Comparative {
@@ -513,6 +637,7 @@ impl<'a, 'ctx, 'int> PragmaticsParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int
                 subject: self.ctx.terms.alloc(Term::Constant(subject.noun)),
                 object: obj_term,
                 difference,
+                relation: crate::ast::ComparisonRelation::Greater,
             });
 
             let result = self.wrap_with_definiteness(subject.definiteness, subject.noun, result)?;
@@ -525,7 +650,46 @@ impl<'a, 'ctx, 'int> PragmaticsParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int
             subject: self.ctx.terms.alloc(Term::Constant(subject.noun)),
             object: object_term,
             difference,
+            relation: crate::ast::ComparisonRelation::Greater,
         }))
+    }
+
+    /// Parses the equative frame "X is as ADJ as Y" → an at-least (`≥`) degree
+    /// comparison. The parser is positioned at the first "as"; the subject's
+    /// definiteness wrapping is applied by the caller.
+    fn parse_equative(
+        &mut self,
+        subject: &NounPhrase<'a>,
+    ) -> ParseResult<&'a LogicExpr<'a>> {
+        self.advance(); // consume the first "as"
+        // The gradable dimension (an adjective).
+        let adj = match self.advance().kind.clone() {
+            TokenType::Adjective(a) => a,
+            TokenType::Comparative(a) => a,
+            other => {
+                // Use the lexeme as the dimension if it is not a plain adjective token.
+                if let TokenType::Noun(a) = other {
+                    a
+                } else {
+                    self.interner.intern(&self.interner.resolve(self.previous().lexeme).to_string())
+                }
+            }
+        };
+        // Second "as".
+        if self.interner.resolve(self.peek().lexeme).eq_ignore_ascii_case("as") {
+            self.advance();
+        }
+        let object = self.parse_noun_phrase(false)?;
+        let obj_term = self.ctx.terms.alloc(Term::Constant(object.noun));
+        let result = self.ctx.exprs.alloc(LogicExpr::Comparative {
+            adjective: adj,
+            subject: self.ctx.terms.alloc(Term::Constant(subject.noun)),
+            object: obj_term,
+            difference: None,
+            relation: crate::ast::ComparisonRelation::GreaterEqual,
+        });
+        let result = self.wrap_with_definiteness(subject.definiteness, subject.noun, result)?;
+        self.wrap_with_definiteness_for_object(object.definiteness, object.noun, result)
     }
 
     fn check_number(&self) -> bool {

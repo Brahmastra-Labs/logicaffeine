@@ -1,0 +1,19 @@
+{
+  "all_clean": false,
+  "article": "wikis/paul-corballis.txt",
+  "by_category": {
+    "actionable_lexicon_gap": 8,
+    "ambiguity_human": 0,
+    "clean": 0,
+    "isolate_out_of_scope": 0,
+    "parser_gap": 1,
+    "semantic_lossy": 2
+  },
+  "clusters": 10,
+  "outcomes": {
+    "fail": 1,
+    "ok": 0,
+    "partial": 10
+  },
+  "sentences": 11
+}

@@ -1,0 +1,27 @@
+CLASSIFICATION: ParserGap | subsystem Parser | gate Investigate | confidence 0.85
+ORACLE [pp_fronting_to_trailing]: "he discussed \"brain mechanisms of constructive perception.\" in an inaugural lecture hosted by the Faculty of Science." ⇒ ∃e(Discuss(e) ∧ Agent(e, Him) ∧ Past(e))
+ISOLATED: "\"brain mechanisms of constructive perception.\""(Quote)
+
+═══ Sentence 8 ═══
+INPUT: In an inaugural lecture hosted by the Faculty of Science, he discussed "brain mechanisms of constructive perception."
+
+TOKENS:
+    0..2   "In"         Preposition
+    3..5   "an"         Determiner
+    6..15  "inaugural"  Adjective
+   16..23  "lecture"    Adjective
+   24..30  "hosted"     Verb
+   31..33  "by"         Preposition
+   34..37  "the"        Determiner
+   38..45  "Faculty"    Proper
+   46..48  "of"         Preposition
+   49..56  "Science"    Proper
+   56..57  ","          Punctuation
+   58..60  "he"         Pronoun
+   61..70  "discussed"  Verb
+   71..117 ""brain mechanisms of constructive perception."" Other
+  117..117 ""           Other
+
+ERROR (Socratic):
+  I was looking for a noun, verb, or adjective at position 3, but found Preposition(Symbol(1)) instead. The logic needs a content word to ground it.
+

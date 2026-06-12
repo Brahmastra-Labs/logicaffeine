@@ -31,7 +31,10 @@ use crate::drs::ReferentSource;
 use crate::error::{ParseError, ParseErrorKind};
 use logicaffeine_base::Symbol;
 use crate::lexer::Lexer;
-use crate::lexicon::{get_canonical_verb, is_subsective, lookup_verb_db, Definiteness, Feature, Time};
+use crate::lexicon::{
+    get_canonical_verb, is_subsective, lookup_relational_adjective, lookup_verb_db, Definiteness,
+    Feature, Time,
+};
 use crate::token::{PresupKind, TokenType};
 
 /// Trait for parsing quantified expressions and managing scope.
@@ -41,8 +44,16 @@ use crate::token::{PresupKind, TokenType};
 pub trait QuantifierParsing<'a, 'ctx, 'int> {
     /// Parses a quantified expression from a quantifier determiner.
     fn parse_quantified(&mut self) -> ParseResult<&'a LogicExpr<'a>>;
+
+    /// The quantifier-parsing body; `parse_quantified` wraps its result with any pending
+    /// partitive-superset presupposition (§5.3).
+    fn parse_quantified_core(&mut self) -> ParseResult<&'a LogicExpr<'a>>;
     /// Parses the restrictor clause for a quantifier.
     fn parse_restriction(&mut self, var_name: Symbol) -> ParseResult<&'a LogicExpr<'a>>;
+    /// Builds the restriction conjunct for one pre-nominal adjective, dispatching
+    /// on its lexical class (relational/subsective/intersective). Shared by every
+    /// NP-restriction path so all paths model adjective classes identically.
+    fn adjective_restriction(&mut self, adj: Symbol, var: Symbol, noun: Symbol) -> &'a LogicExpr<'a>;
     /// Parses a verb phrase as the nuclear scope of a quantifier.
     fn parse_verb_phrase_for_restriction(&mut self, var_name: Symbol) -> ParseResult<&'a LogicExpr<'a>>;
     /// Combines multiple expressions with conjunction.
@@ -111,6 +122,51 @@ pub trait QuantifierParsing<'a, 'ctx, 'int> {
 
 impl<'a, 'ctx, 'int> QuantifierParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int> {
     fn parse_quantified(&mut self) -> ParseResult<&'a LogicExpr<'a>> {
+        // The specialized quantified-VP grammar below covers many frames but
+        // not all of them. A parse that stops mid-clause silently drops the
+        // remainder's meaning, so when it under-consumes (or fails), re-parse
+        // the clause delegating the VP to the full predicate parser. The
+        // specialized result is kept whenever the delegation does no better.
+        let cp = self.checkpoint();
+        let core = self.parse_quantified_core();
+        let core_complete = core.is_ok() && self.at_clause_boundary();
+        let result = if core_complete {
+            core?
+        } else {
+            let core_end = self.checkpoint();
+            let core_partitive = self.pending_partitive.take();
+            self.restore(cp);
+            match self.parse_quantified_delegating() {
+                Ok(r) if self.at_clause_boundary() => r,
+                _ => match core {
+                    Ok(r) => {
+                        self.restore(core_end);
+                        self.pending_partitive = core_partitive;
+                        r
+                    }
+                    Err(e) => return Err(e),
+                },
+            }
+        };
+        // §5.3: a partitive "of the [Num]" frame presupposes a salient set of that
+        // cardinality. Surface it as `assertion [Presup: ∃=n x Restriction(x)]` rather
+        // than discarding the superset.
+        if let Some((n, restriction, var)) = self.pending_partitive.take() {
+            let superset = self.ctx.exprs.alloc(LogicExpr::Quantifier {
+                kind: QuantifierKind::Cardinal(n),
+                variable: var,
+                body: restriction,
+                island_id: self.current_island,
+            });
+            return Ok(self.ctx.exprs.alloc(LogicExpr::Presupposition {
+                assertion: result,
+                presupposition: superset,
+            }));
+        }
+        Ok(result)
+    }
+
+    fn parse_quantified_core(&mut self) -> ParseResult<&'a LogicExpr<'a>> {
         let quantifier_token = self.previous().kind.clone();
         let var_name = self.next_var_name();
 
@@ -121,6 +177,32 @@ impl<'a, 'ctx, 'int> QuantifierParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int
             self.in_negative_quantifier = true;
         }
 
+        // Partitive: "Two of the three students passed.", "Most of the students
+        // passed." The "of the [Num]" frame restricts the quantifier to a salient
+        // presupposed definite set. Consume the frame so the quantifier ranges over
+        // the head noun normally; the leading cardinal/proportion is the count, the
+        // optional inner cardinal is the presupposed superset size.
+        let mut partitive_superset: Option<u32> = None;
+        if matches!(
+            quantifier_token,
+            TokenType::Cardinal(_)
+                | TokenType::Most
+                | TokenType::Few
+                | TokenType::Many
+                | TokenType::Some
+                | TokenType::AtLeast(_)
+                | TokenType::AtMost(_)
+        ) && self.check_preposition_is("of")
+            && self.current + 1 < self.tokens.len()
+            && matches!(self.tokens[self.current + 1].kind, TokenType::Article(_))
+        {
+            self.advance(); // consume "of"
+            self.advance(); // consume "the"
+            if let TokenType::Cardinal(n) = self.peek().kind {
+                partitive_superset = Some(n);
+                self.advance(); // consume the superset cardinal ("three")
+            }
+        }
         // "At most one of X, Y, and Z is P" — counting quantifier with explicit list
         if matches!(quantifier_token, TokenType::AtMost(_) | TokenType::AtLeast(_) | TokenType::Cardinal(_))
             && self.check_preposition_is("of")
@@ -218,6 +300,12 @@ impl<'a, 'ctx, 'int> QuantifierParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int
         }
 
         let subject_pred = self.parse_restriction(var_name)?;
+
+        // §5.3: stash the partitive superset now that the restriction predicate exists; the
+        // `parse_quantified` wrapper turns it into a presupposed `∃=n x Restriction(x)`.
+        if let Some(n) = partitive_superset {
+            self.pending_partitive = Some((n, subject_pred, var_name));
+        }
 
         if self.check_modal() {
             use crate::ast::ModalFlavor;
@@ -467,11 +555,13 @@ impl<'a, 'ctx, 'int> QuantifierParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int
                 let verb = self.consume_verb();
 
                 // Convert aux_time to modifier
-                let modifiers = match aux_time {
+                let mut modifiers = match aux_time {
                     Time::Past => vec![self.interner.intern("Past")],
                     Time::Future => vec![self.interner.intern("Future")],
                     _ => vec![],
                 };
+                // Manner adverbs after the participle ("were running quickly").
+                modifiers.extend(self.collect_adverbs());
 
                 let verb_pred = self.build_verb_neo_event(verb, var_name, None, modifiers);
 
@@ -677,8 +767,12 @@ impl<'a, 'ctx, 'int> QuantifierParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int
                     body,
                     island_id: self.current_island,
                 }));
-            } else if self.check_quantifier() || self.check_article() {
-                let obj_quantifier = if self.check_quantifier() {
+            } else if self.check_quantifier() || self.check_article() || self.check_possessive_pronoun() {
+                let obj_quantifier = if self.check_possessive_pronoun() {
+                    // Possessive NP object ("his dog"): parse_noun_phrase
+                    // consumes the possessor; no quantifier wrapper.
+                    None
+                } else if self.check_quantifier() {
                     Some(self.advance().kind.clone())
                 } else {
                     let art = self.advance().kind.clone();
@@ -1121,8 +1215,91 @@ impl<'a, 'ctx, 'int> QuantifierParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int
         Ok(result)
     }
 
+    /// Build the restriction conjunct contributed by a pre-nominal adjective,
+    /// dispatching on the adjective's lexical class. This is the single shared
+    /// site every NP-restriction path routes through, so the four classes are
+    /// modeled identically everywhere (universal, indefinite, definite, copular):
+    ///
+    /// - **Relational / pertainymic** (lexicon `relational`): predicate of a
+    ///   kind by default — `Rel(x, ^Base)` (no ∃) — or, at `level: Instance`,
+    ///   an existential over a base-noun individual — `∃y(Base(y) ∧ Rel(x, y))`.
+    ///   (McNally & Boleda 2004.)
+    /// - **Subsective**: `Adj(x, ^Noun)` — graded against the head-noun kind.
+    /// - **Intersective / other** (incl. NonIntersective, whose privative
+    ///   meaning is supplied later by the axiom layer): flat `Adj(x)`.
+    fn adjective_restriction(
+        &mut self,
+        adj: Symbol,
+        var: Symbol,
+        noun: Symbol,
+    ) -> &'a LogicExpr<'a> {
+        let adj_str = self.interner.resolve(adj).to_lowercase();
+
+        if let Some((base, relation, level)) = lookup_relational_adjective(&adj_str) {
+            let base_sym = self.interner.intern(base);
+            let rel_sym = self.interner.intern(relation);
+            if level == "Instance" {
+                // ∃y( Base(y) ∧ Rel(x, y) )
+                let y = self.next_var_name();
+                let base_pred = self.ctx.exprs.alloc(LogicExpr::Predicate {
+                    name: base_sym,
+                    args: self.ctx.terms.alloc_slice([Term::Variable(y)]),
+                    world: None,
+                });
+                let rel_pred = self.ctx.exprs.alloc(LogicExpr::Predicate {
+                    name: rel_sym,
+                    args: self
+                        .ctx
+                        .terms
+                        .alloc_slice([Term::Variable(var), Term::Variable(y)]),
+                    world: None,
+                });
+                let body = self.ctx.exprs.alloc(LogicExpr::BinaryOp {
+                    left: base_pred,
+                    op: TokenType::And,
+                    right: rel_pred,
+                });
+                return self.ctx.exprs.alloc(LogicExpr::Quantifier {
+                    kind: QuantifierKind::Existential,
+                    variable: y,
+                    body,
+                    island_id: self.current_island,
+                });
+            }
+            // kind-level (default): Rel(x, ^Base)
+            return self.ctx.exprs.alloc(LogicExpr::Predicate {
+                name: rel_sym,
+                args: self
+                    .ctx
+                    .terms
+                    .alloc_slice([Term::Variable(var), Term::Kind(base_sym)]),
+                world: None,
+            });
+        }
+
+        if is_subsective(&adj_str) {
+            return self.ctx.exprs.alloc(LogicExpr::Predicate {
+                name: adj,
+                args: self
+                    .ctx
+                    .terms
+                    .alloc_slice([Term::Variable(var), Term::Intension(noun)]),
+                world: None,
+            });
+        }
+
+        self.ctx.exprs.alloc(LogicExpr::Predicate {
+            name: adj,
+            args: self.ctx.terms.alloc_slice([Term::Variable(var)]),
+            world: None,
+        })
+    }
+
     fn parse_restriction(&mut self, var_name: Symbol) -> ParseResult<&'a LogicExpr<'a>> {
-        let mut conditions: Vec<&'a LogicExpr<'a>> = Vec::new();
+        // Collect leading adjectives, then consume the head noun. The adjective
+        // predicate forms (subsective `Adj(x, ^Noun)`, relational expansions)
+        // need the head noun, so the noun is resolved before they are emitted.
+        let mut adj_syms: Vec<Symbol> = Vec::new();
 
         loop {
             if self.is_at_end() {
@@ -1145,11 +1322,7 @@ impl<'a, 'ctx, 'int> QuantifierParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int
 
             if next_is_content {
                 if let TokenType::Adjective(adj) = self.advance().kind.clone() {
-                    conditions.push(self.ctx.exprs.alloc(LogicExpr::Predicate {
-                        name: adj,
-                        args: self.ctx.terms.alloc_slice([Term::Variable(var_name)]),
-                        world: None,
-                    }));
+                    adj_syms.push(adj);
                 }
             } else {
                 break;
@@ -1157,6 +1330,12 @@ impl<'a, 'ctx, 'int> QuantifierParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int
         }
 
         let noun = self.consume_content_word()?;
+
+        let mut conditions: Vec<&'a LogicExpr<'a>> = Vec::new();
+        for adj in &adj_syms {
+            let adj_pred = self.adjective_restriction(*adj, var_name, noun);
+            conditions.push(adj_pred);
+        }
         conditions.push(self.ctx.exprs.alloc(LogicExpr::Predicate {
             name: noun,
             args: self.ctx.terms.alloc_slice([Term::Variable(var_name)]),
@@ -1418,20 +1597,47 @@ impl<'a, 'ctx, 'int> QuantifierParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int
         )?;
 
         // If NP has a superlative, add the superlative constraint
-        if let Some(adj) = np.superlative {
+        let result = if let Some(adj) = np.superlative {
             let superlative_expr = self.ctx.exprs.alloc(LogicExpr::Superlative {
                 adjective: adj,
                 subject: self.ctx.terms.alloc(Term::Constant(np.noun)),
                 domain: np.noun,
             });
-            Ok(self.ctx.exprs.alloc(LogicExpr::BinaryOp {
+            self.ctx.exprs.alloc(LogicExpr::BinaryOp {
                 left: result,
                 op: TokenType::And,
                 right: superlative_expr,
-            }))
+            })
         } else {
-            Ok(result)
+            result
+        };
+
+        // A possessive definite carries an existence presupposition (§8.2):
+        // "His children are happy." ≫ He has children. The presupposed
+        // possession is a real event — the same shape "He has children."
+        // parses to — so it is derivable, not just printable.
+        if let Some(possessor) = np.possessor {
+            use crate::ast::logic::NeoEventData;
+            use crate::ast::ThematicRole;
+            let presupposition =
+                self.ctx.exprs.alloc(LogicExpr::NeoEvent(Box::new(NeoEventData {
+                    event_var: self.interner.intern("e"),
+                    verb: self.interner.intern("Have"),
+                    roles: self.ctx.roles.alloc_slice(vec![
+                        (ThematicRole::Agent, Term::Constant(possessor.noun)),
+                        (ThematicRole::Theme, Term::Constant(np.noun)),
+                    ]),
+                    modifiers: self.ctx.syms.alloc_slice(vec![]),
+                    suppress_existential: false,
+                    world: None,
+                })));
+            return Ok(self.ctx.exprs.alloc(LogicExpr::Presupposition {
+                assertion: result,
+                presupposition,
+            }));
         }
+
+        Ok(result)
     }
 
     fn wrap_with_definiteness(
@@ -1492,23 +1698,7 @@ impl<'a, 'ctx, 'int> QuantifierParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int
                 });
 
                 for adj in adjectives {
-                    let adj_str = self.interner.resolve(*adj).to_lowercase();
-                    let adj_pred = if is_subsective(&adj_str) {
-                        self.ctx.exprs.alloc(LogicExpr::Predicate {
-                            name: *adj,
-                            args: self.ctx.terms.alloc_slice([
-                                Term::Variable(var),
-                                Term::Intension(noun),
-                            ]),
-                            world: None,
-                        })
-                    } else {
-                        self.ctx.exprs.alloc(LogicExpr::Predicate {
-                            name: *adj,
-                            args: self.ctx.terms.alloc_slice([Term::Variable(var)]),
-                            world: None,
-                        })
-                    };
+                    let adj_pred = self.adjective_restriction(*adj, var, noun);
                     restriction = self.ctx.exprs.alloc(LogicExpr::BinaryOp {
                         left: restriction,
                         op: TokenType::And,
@@ -1554,7 +1744,11 @@ impl<'a, 'ctx, 'int> QuantifierParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int
                         .map(|v| {
                             let lemma = self.interner.resolve(v);
                             Lexer::is_collective_verb(lemma)
-                                || (Lexer::is_mixed_verb(lemma) && self.collective_mode)
+                                // A mixed verb ("lift", "carry") defaults to
+                                // the COLLECTIVE reading for a plural definite
+                                // ("the boys lifted the piano" — together);
+                                // a floated "all/each" forces distribution.
+                                || (Lexer::is_mixed_verb(lemma) && !self.distributive_marker)
                         })
                         .unwrap_or(false);
 
@@ -1572,6 +1766,87 @@ impl<'a, 'ctx, 'int> QuantifierParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int
                         }))
                     }
                 } else {
+                    // Van der Sandt: a definite BINDS to an accessible
+                    // antecedent before accommodating — a re-mentioned "the
+                    // kettle" reuses the referent instead of asserting a
+                    // second Russell expansion (existence + uniqueness).
+                    if adjectives.is_empty() && pps.is_empty() {
+                        if let Some(prior) =
+                            self.drs.resolve_definite(self.drs.current_box_index(), noun)
+                        {
+                            if prior == noun {
+                                return Ok(predicate);
+                            }
+                            return self.substitute_constant_with_var_sym(
+                                predicate, noun, prior,
+                            );
+                        }
+                    }
+
+                    // In DISCOURSE mode an unbound, non-bridging definite is
+                    // SKOLEMIZED: Russell's uniqueness licenses a witness
+                    // constant, so cross-sentence mentions stay rigidly
+                    // linked — `Barber(B) ∧ ∀y(Barber(y) → y = B) ∧ P(B)`
+                    // (the very form the proof engine's definite-description
+                    // machinery expects) — never an ∃ whose bound variable
+                    // later premises cannot reach.
+                    if self.world_state.in_discourse_mode()
+                        && adjectives.is_empty()
+                        && pps.is_empty()
+                        && self.drs.resolve_bridging(self.interner, noun).is_none()
+                    {
+                        let y = self.next_var_name();
+                        let gender = Self::infer_noun_gender(self.interner.resolve(noun));
+                        let number = if Self::is_plural_noun(self.interner.resolve(noun)) {
+                            Number::Plural
+                        } else {
+                            Number::Singular
+                        };
+                        // Rigid (skolem) referent: later definites and
+                        // pronouns resolve to the constant itself.
+                        self.drs.introduce_referent_with_source(
+                            noun,
+                            noun,
+                            gender,
+                            number,
+                            ReferentSource::ProperName,
+                        );
+                        let restriction = self.ctx.exprs.alloc(LogicExpr::Predicate {
+                            name: noun,
+                            args: self.ctx.terms.alloc_slice([Term::Constant(noun)]),
+                            world: None,
+                        });
+                        let y_restriction = self.ctx.exprs.alloc(LogicExpr::Predicate {
+                            name: noun,
+                            args: self.ctx.terms.alloc_slice([Term::Variable(y)]),
+                            world: None,
+                        });
+                        let identity = self.ctx.exprs.alloc(LogicExpr::Identity {
+                            left: self.ctx.terms.alloc(Term::Variable(y)),
+                            right: self.ctx.terms.alloc(Term::Constant(noun)),
+                        });
+                        let uniqueness = self.ctx.exprs.alloc(LogicExpr::Quantifier {
+                            kind: QuantifierKind::Universal,
+                            variable: y,
+                            body: self.ctx.exprs.alloc(LogicExpr::BinaryOp {
+                                left: y_restriction,
+                                op: TokenType::Implies,
+                                right: identity,
+                            }),
+                            island_id: self.current_island,
+                        });
+                        let described = self.ctx.exprs.alloc(LogicExpr::BinaryOp {
+                            left: restriction,
+                            op: TokenType::And,
+                            right: uniqueness,
+                        });
+                        return Ok(self.ctx.exprs.alloc(LogicExpr::BinaryOp {
+                            left: described,
+                            op: TokenType::And,
+                            right: predicate,
+                        }));
+                    }
+
                     let x = self.next_var_name();
                     let y = self.next_var_name();
 
@@ -1582,23 +1857,7 @@ impl<'a, 'ctx, 'int> QuantifierParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int
                     });
 
                     for adj in adjectives {
-                        let adj_str = self.interner.resolve(*adj).to_lowercase();
-                        let adj_pred = if is_subsective(&adj_str) {
-                            self.ctx.exprs.alloc(LogicExpr::Predicate {
-                                name: *adj,
-                                args: self.ctx.terms.alloc_slice([
-                                    Term::Variable(x),
-                                    Term::Intension(noun),
-                                ]),
-                                world: None,
-                            })
-                        } else {
-                            self.ctx.exprs.alloc(LogicExpr::Predicate {
-                                name: *adj,
-                                args: self.ctx.terms.alloc_slice([Term::Variable(x)]),
-                                world: None,
-                            })
-                        };
+                        let adj_pred = self.adjective_restriction(*adj, x, noun);
                         restriction = self.ctx.exprs.alloc(LogicExpr::BinaryOp {
                             left: restriction,
                             op: TokenType::And,
@@ -1659,23 +1918,7 @@ impl<'a, 'ctx, 'int> QuantifierParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int
                         world: None,
                     });
                     for adj in adjectives {
-                        let adj_str = self.interner.resolve(*adj).to_lowercase();
-                        let adj_pred = if is_subsective(&adj_str) {
-                            self.ctx.exprs.alloc(LogicExpr::Predicate {
-                                name: *adj,
-                                args: self.ctx.terms.alloc_slice([
-                                    Term::Variable(y),
-                                    Term::Intension(noun),
-                                ]),
-                                world: None,
-                            })
-                        } else {
-                            self.ctx.exprs.alloc(LogicExpr::Predicate {
-                                name: *adj,
-                                args: self.ctx.terms.alloc_slice([Term::Variable(y)]),
-                                world: None,
-                            })
-                        };
+                        let adj_pred = self.adjective_restriction(*adj, y, noun);
                         y_restriction = self.ctx.exprs.alloc(LogicExpr::BinaryOp {
                             left: y_restriction,
                             op: TokenType::And,
@@ -1755,23 +1998,7 @@ impl<'a, 'ctx, 'int> QuantifierParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int
                 });
 
                 for adj in adjectives {
-                    let adj_str = self.interner.resolve(*adj).to_lowercase();
-                    let adj_pred = if is_subsective(&adj_str) {
-                        self.ctx.exprs.alloc(LogicExpr::Predicate {
-                            name: *adj,
-                            args: self.ctx.terms.alloc_slice([
-                                Term::Variable(var),
-                                Term::Intension(noun),
-                            ]),
-                            world: None,
-                        })
-                    } else {
-                        self.ctx.exprs.alloc(LogicExpr::Predicate {
-                            name: *adj,
-                            args: self.ctx.terms.alloc_slice([Term::Variable(var)]),
-                            world: None,
-                        })
-                    };
+                    let adj_pred = self.adjective_restriction(*adj, var, noun);
                     restriction = self.ctx.exprs.alloc(LogicExpr::BinaryOp {
                         left: restriction,
                         op: TokenType::And,
@@ -1983,6 +2210,7 @@ impl<'a, 'ctx, 'int> QuantifierParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int
                         },
                         Term::Sigma(p) => Term::Sigma(*p),
                         Term::Intension(p) => Term::Intension(*p),
+                        Term::Kind(k) => Term::Kind(*k),
                         Term::Proposition(e) => Term::Proposition(*e),
                         Term::Value { kind, unit, dimension } => Term::Value {
                             kind: *kind,
@@ -2042,6 +2270,7 @@ impl<'a, 'ctx, 'int> QuantifierParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int
                             },
                             Term::Sigma(p) => Term::Sigma(*p),
                             Term::Intension(p) => Term::Intension(*p),
+                            Term::Kind(k) => Term::Kind(*k),
                             Term::Proposition(e) => Term::Proposition(*e),
                             Term::Value { kind, unit, dimension } => Term::Value {
                                 kind: *kind,
@@ -2069,6 +2298,23 @@ impl<'a, 'ctx, 'int> QuantifierParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int
                     variable: *variable,
                     body: new_body,
                     island_id: *island_id,
+                }))
+            }
+            LogicExpr::Control { verb, subject, object, infinitive } => {
+                let sub_term = |t: &Term<'a>| -> Term<'a> {
+                    match t {
+                        Term::Constant(c) if *c == constant_name => Term::Variable(var_name),
+                        other => other.clone(),
+                    }
+                };
+                Ok(self.ctx.exprs.alloc(LogicExpr::Control {
+                    verb: *verb,
+                    subject: self.ctx.terms.alloc(sub_term(subject)),
+                    object: match object {
+                        Some(o) => Some(&*self.ctx.terms.alloc(sub_term(o))),
+                        None => None,
+                    },
+                    infinitive: self.substitute_constant_with_var(infinitive, constant_name, var_name)?,
                 }))
             }
             _ => Ok(expr),
@@ -2106,6 +2352,7 @@ impl<'a, 'ctx, 'int> QuantifierParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int
                         },
                         Term::Sigma(p) => Term::Sigma(*p),
                         Term::Intension(p) => Term::Intension(*p),
+                        Term::Kind(k) => Term::Kind(*k),
                         Term::Proposition(e) => Term::Proposition(*e),
                         Term::Value { kind, unit, dimension } => Term::Value {
                             kind: *kind,
@@ -2172,6 +2419,7 @@ impl<'a, 'ctx, 'int> QuantifierParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int
                             },
                             Term::Sigma(p) => Term::Sigma(*p),
                             Term::Intension(p) => Term::Intension(*p),
+                            Term::Kind(k) => Term::Kind(*k),
                             Term::Proposition(e) => Term::Proposition(*e),
                             Term::Value { kind, unit, dimension } => Term::Value {
                                 kind: *kind,
@@ -2330,6 +2578,393 @@ impl<'a, 'ctx, 'int> QuantifierParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int
 
 // Helper methods for donkey binding scope handling
 impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
+    /// Is the parser at a position where a finished clause may legitimately
+    /// end? Used to detect under-consumption by specialized sub-grammars.
+    pub(super) fn at_clause_boundary(&self) -> bool {
+        matches!(
+            self.peek().kind,
+            TokenType::Period
+                | TokenType::Exclamation
+                | TokenType::EOF
+                | TokenType::Comma
+                | TokenType::RParen
+                | TokenType::And
+                | TokenType::Or
+                | TokenType::Iff
+                | TokenType::Then
+        )
+    }
+
+    /// Quantified clause whose VP is parsed by the FULL predicate parser with
+    /// the subject bound to the quantified variable. The under-consumption
+    /// fallback for frames the specialized quantified grammar does not cover
+    /// (reflexives, reciprocals, control infinitives, ditransitives,
+    /// comparatives, adverbs, …).
+    fn parse_quantified_delegating(&mut self) -> ParseResult<&'a LogicExpr<'a>> {
+        use super::verb::LogicVerbParsing;
+
+        let quantifier_token = self.previous().kind.clone();
+        let var_name = self.next_var_name();
+
+        let was_in_negative_quantifier = self.in_negative_quantifier;
+        if matches!(quantifier_token, TokenType::No) {
+            self.in_negative_quantifier = true;
+        }
+
+        let restriction = self.parse_restriction(var_name)?;
+
+        // Reciprocal VP ("helped each other"): every pair of distinct members
+        // of the restriction stands in the relation —
+        // ∀y((R(y) ∧ ¬(y = x)) → ∃e(V(e) ∧ Agent(e, x) ∧ Theme(e, y))).
+        let mut copula_vp: Option<&'a LogicExpr<'a>> = None;
+        if matches!(self.peek().kind, TokenType::Verb { .. })
+            && matches!(
+                self.tokens.get(self.current + 1).map(|t| t.kind.clone()),
+                Some(TokenType::Reciprocal)
+            )
+        {
+            let (verb, recip_time, _, _) = self.consume_verb_with_metadata();
+            self.advance(); // the reciprocal
+            let other_var = self.next_var_name();
+            let other_restriction = self.rename_var_in_expr(restriction, var_name, other_var);
+            let distinct = self.ctx.exprs.alloc(LogicExpr::UnaryOp {
+                op: TokenType::Not,
+                operand: self.ctx.exprs.alloc(LogicExpr::Identity {
+                    left: self.ctx.terms.alloc(Term::Variable(other_var)),
+                    right: self.ctx.terms.alloc(Term::Variable(var_name)),
+                }),
+            });
+            let modifiers = match recip_time {
+                Time::Past => vec![self.interner.intern("Past")],
+                Time::Future => vec![self.interner.intern("Future")],
+                _ => vec![],
+            };
+            let event_var = self.get_event_var();
+            let suppress_existential = self.drs.in_conditional_antecedent();
+            let event = self.ctx.exprs.alloc(LogicExpr::NeoEvent(Box::new(NeoEventData {
+                event_var,
+                verb,
+                roles: self.ctx.roles.alloc_slice(vec![
+                    (ThematicRole::Agent, Term::Variable(var_name)),
+                    (ThematicRole::Theme, Term::Variable(other_var)),
+                ]),
+                modifiers: self.ctx.syms.alloc_slice(modifiers),
+                suppress_existential,
+                world: None,
+            })));
+            let antecedent = self.ctx.exprs.alloc(LogicExpr::BinaryOp {
+                left: other_restriction,
+                op: TokenType::And,
+                right: distinct,
+            });
+            let pair_body = self.ctx.exprs.alloc(LogicExpr::BinaryOp {
+                left: antecedent,
+                op: TokenType::Implies,
+                right: event,
+            });
+            copula_vp = Some(self.ctx.exprs.alloc(LogicExpr::Quantifier {
+                kind: QuantifierKind::Universal,
+                variable: other_var,
+                body: pair_body,
+                island_id: self.current_island,
+            }));
+        }
+
+        // Copula-initial VP. A progressive participle keeps the full predicate
+        // parser (the copula only carries tense: "were running quickly"); a
+        // passive participle predicates the subject variable as Theme with an
+        // optional by-phrase Agent ("were read by some students").
+        if matches!(
+            self.peek().kind,
+            TokenType::Is | TokenType::Are | TokenType::Was | TokenType::Were
+        ) {
+            let copula_past = matches!(self.peek().kind, TokenType::Was | TokenType::Were);
+            if let Some(TokenType::Verb { aspect, .. }) =
+                self.tokens.get(self.current + 1).map(|t| t.kind.clone())
+            {
+                if aspect == crate::lexicon::Aspect::Progressive {
+                    self.advance(); // copula carries tense only
+                    self.pending_time =
+                        Some(if copula_past { Time::Past } else { Time::None });
+                } else {
+                    self.advance(); // copula
+                    let (verb, _, _, _) = self.consume_verb_with_metadata();
+                    let mut modifiers = if copula_past {
+                        vec![self.interner.intern("Past")]
+                    } else {
+                        vec![]
+                    };
+                    modifiers.extend(self.collect_adverbs());
+
+                    let mut roles = vec![(ThematicRole::Theme, Term::Variable(var_name))];
+                    let mut agent_quant: Option<(TokenType, Symbol, Symbol)> = None;
+                    if self.check_preposition_is("by") {
+                        self.advance(); // by
+                        if self.check_quantifier() {
+                            let q = self.advance().kind.clone();
+                            let a_np = self.parse_noun_phrase(false)?;
+                            let a_var = self.next_var_name();
+                            roles.push((ThematicRole::Agent, Term::Variable(a_var)));
+                            agent_quant = Some((q, a_var, a_np.noun));
+                        } else if self.check_content_word() || self.check_article() {
+                            let a_np = self.parse_noun_phrase(false)?;
+                            roles.push((ThematicRole::Agent, Term::Constant(a_np.noun)));
+                        }
+                    }
+
+                    let event_var = self.get_event_var();
+                    let suppress_existential = self.drs.in_conditional_antecedent();
+                    let passive = self.ctx.exprs.alloc(LogicExpr::NeoEvent(Box::new(
+                        NeoEventData {
+                            event_var,
+                            verb,
+                            roles: self.ctx.roles.alloc_slice(roles),
+                            modifiers: self.ctx.syms.alloc_slice(modifiers),
+                            suppress_existential,
+                            world: None,
+                        },
+                    )));
+                    copula_vp = Some(if let Some((q, a_var, a_noun)) = agent_quant {
+                        let a_restriction = self.ctx.exprs.alloc(LogicExpr::Predicate {
+                            name: a_noun,
+                            args: self.ctx.terms.alloc_slice([Term::Variable(a_var)]),
+                            world: None,
+                        });
+                        let (a_kind, a_op) = match q {
+                            TokenType::All => (QuantifierKind::Universal, TokenType::Implies),
+                            TokenType::Most => (QuantifierKind::Most, TokenType::And),
+                            TokenType::Few => (QuantifierKind::Few, TokenType::And),
+                            TokenType::Many => (QuantifierKind::Many, TokenType::And),
+                            _ => (QuantifierKind::Existential, TokenType::And),
+                        };
+                        let a_body = self.ctx.exprs.alloc(LogicExpr::BinaryOp {
+                            left: a_restriction,
+                            op: a_op,
+                            right: passive,
+                        });
+                        self.ctx.exprs.alloc(LogicExpr::Quantifier {
+                            kind: a_kind,
+                            variable: a_var,
+                            body: a_body,
+                            island_id: self.current_island,
+                        })
+                    } else {
+                        passive
+                    });
+                }
+            }
+        }
+
+        let vp = match copula_vp {
+            Some(vp) => vp,
+            None => self.parse_predicate_with_subject_as_var(var_name)?,
+        };
+        // Sentence-final temporal anchor ("studied yesterday") — the same
+        // wrapping the simple-subject clause path applies.
+        let vp = if self.check_temporal_adverb() {
+            if let TokenType::TemporalAdverb(anchor) = self.advance().kind.clone() {
+                &*self.ctx.exprs.alloc(LogicExpr::TemporalAnchor { anchor, body: vp })
+            } else {
+                vp
+            }
+        } else {
+            vp
+        };
+        self.in_negative_quantifier = was_in_negative_quantifier;
+
+        // "No N VP" denies the VP of every N.
+        let consequent = if matches!(quantifier_token, TokenType::No) {
+            self.ctx.exprs.alloc(LogicExpr::UnaryOp {
+                op: TokenType::Not,
+                operand: vp,
+            })
+        } else {
+            vp
+        };
+
+        let universal_frame = matches!(
+            quantifier_token,
+            TokenType::All | TokenType::Any | TokenType::No
+        );
+        let body = self.ctx.exprs.alloc(LogicExpr::BinaryOp {
+            left: restriction,
+            op: if universal_frame { TokenType::Implies } else { TokenType::And },
+            right: consequent,
+        });
+
+        // Donkey closure: an indefinite introduced inside the restriction and
+        // picked up by the VP ("Every man who owns a book gives it …") is a
+        // free variable in both — close it at the quantifier (universal force
+        // under a universal frame, existential otherwise).
+        let mut restriction_vars = Vec::new();
+        self.collect_unbound_vars(restriction, &mut vec![var_name], &mut restriction_vars);
+        let mut body = body;
+        for donkey_var in restriction_vars {
+            if self.expr_mentions_var(consequent, donkey_var) {
+                body = self.ctx.exprs.alloc(LogicExpr::Quantifier {
+                    kind: if universal_frame {
+                        QuantifierKind::Universal
+                    } else {
+                        QuantifierKind::Existential
+                    },
+                    variable: donkey_var,
+                    body,
+                    island_id: self.current_island,
+                });
+            }
+        }
+
+        let kind = match quantifier_token {
+            TokenType::All | TokenType::Any | TokenType::No => QuantifierKind::Universal,
+            TokenType::Some => QuantifierKind::Existential,
+            TokenType::Most => QuantifierKind::Most,
+            TokenType::Few => QuantifierKind::Few,
+            TokenType::Many => QuantifierKind::Many,
+            TokenType::Cardinal(n) => QuantifierKind::Cardinal(n),
+            TokenType::AtLeast(n) => QuantifierKind::AtLeast(n),
+            TokenType::AtMost(n) => QuantifierKind::AtMost(n),
+            _ => QuantifierKind::Universal,
+        };
+
+        Ok(self.ctx.exprs.alloc(LogicExpr::Quantifier {
+            kind,
+            variable: var_name,
+            body,
+            island_id: self.current_island,
+        }))
+    }
+
+    /// Rebuild `expr` with free occurrences of variable `from` renamed to
+    /// `to`; binders that shadow `from` keep their bodies untouched.
+    fn rename_var_in_expr(
+        &self,
+        expr: &'a LogicExpr<'a>,
+        from: Symbol,
+        to: Symbol,
+    ) -> &'a LogicExpr<'a> {
+        let rename_term = |t: &Term<'a>| -> Term<'a> {
+            match t {
+                Term::Variable(v) if *v == from => Term::Variable(to),
+                other => other.clone(),
+            }
+        };
+        match expr {
+            LogicExpr::Predicate { name, args, world } => {
+                let new_args: Vec<Term<'a>> = args.iter().map(|a| rename_term(a)).collect();
+                self.ctx.exprs.alloc(LogicExpr::Predicate {
+                    name: *name,
+                    args: self.ctx.terms.alloc_slice(new_args),
+                    world: world.clone(),
+                })
+            }
+            LogicExpr::Identity { left, right } => self.ctx.exprs.alloc(LogicExpr::Identity {
+                left: self.ctx.terms.alloc(rename_term(left)),
+                right: self.ctx.terms.alloc(rename_term(right)),
+            }),
+            LogicExpr::NeoEvent(data) => {
+                let new_roles: Vec<(ThematicRole, Term<'a>)> = data
+                    .roles
+                    .iter()
+                    .map(|(role, term)| (*role, rename_term(term)))
+                    .collect();
+                self.ctx.exprs.alloc(LogicExpr::NeoEvent(Box::new(NeoEventData {
+                    event_var: data.event_var,
+                    verb: data.verb,
+                    roles: self.ctx.roles.alloc_slice(new_roles),
+                    modifiers: data.modifiers,
+                    suppress_existential: data.suppress_existential,
+                    world: data.world.clone(),
+                })))
+            }
+            LogicExpr::BinaryOp { left, op, right } => self.ctx.exprs.alloc(LogicExpr::BinaryOp {
+                left: self.rename_var_in_expr(left, from, to),
+                op: op.clone(),
+                right: self.rename_var_in_expr(right, from, to),
+            }),
+            LogicExpr::UnaryOp { op, operand } => self.ctx.exprs.alloc(LogicExpr::UnaryOp {
+                op: op.clone(),
+                operand: self.rename_var_in_expr(operand, from, to),
+            }),
+            LogicExpr::Quantifier { kind, variable, body, island_id } if *variable != from => {
+                self.ctx.exprs.alloc(LogicExpr::Quantifier {
+                    kind: *kind,
+                    variable: *variable,
+                    body: self.rename_var_in_expr(body, from, to),
+                    island_id: *island_id,
+                })
+            }
+            LogicExpr::Temporal { operator, body } => self.ctx.exprs.alloc(LogicExpr::Temporal {
+                operator: *operator,
+                body: self.rename_var_in_expr(body, from, to),
+            }),
+            LogicExpr::Aspectual { operator, body } => {
+                self.ctx.exprs.alloc(LogicExpr::Aspectual {
+                    operator: *operator,
+                    body: self.rename_var_in_expr(body, from, to),
+                })
+            }
+            LogicExpr::Event { predicate, adverbs } => self.ctx.exprs.alloc(LogicExpr::Event {
+                predicate: self.rename_var_in_expr(predicate, from, to),
+                adverbs: *adverbs,
+            }),
+            other => other,
+        }
+    }
+
+    /// Collect variables that occur free in `expr` (not bound by an inner
+    /// quantifier and not in `bound`), in first-occurrence order.
+    fn collect_unbound_vars(
+        &self,
+        expr: &LogicExpr<'a>,
+        bound: &mut Vec<Symbol>,
+        out: &mut Vec<Symbol>,
+    ) {
+        fn term_vars(term: &Term<'_>, bound: &[Symbol], out: &mut Vec<Symbol>) {
+            match term {
+                Term::Variable(v) => {
+                    if !bound.contains(v) && !out.contains(v) {
+                        out.push(*v);
+                    }
+                }
+                Term::Function(_, args) => {
+                    for t in args.iter() {
+                        term_vars(t, bound, out);
+                    }
+                }
+                _ => {}
+            }
+        }
+
+        match expr {
+            LogicExpr::Predicate { args, .. } => {
+                for t in args.iter() {
+                    term_vars(t, bound, out);
+                }
+            }
+            LogicExpr::NeoEvent(data) => {
+                for (_, t) in data.roles.iter() {
+                    term_vars(t, bound, out);
+                }
+            }
+            LogicExpr::BinaryOp { left, right, .. } => {
+                self.collect_unbound_vars(left, bound, out);
+                self.collect_unbound_vars(right, bound, out);
+            }
+            LogicExpr::UnaryOp { operand, .. } => self.collect_unbound_vars(operand, bound, out),
+            LogicExpr::Quantifier { variable, body, .. } => {
+                bound.push(*variable);
+                self.collect_unbound_vars(body, bound, out);
+                bound.pop();
+            }
+            LogicExpr::Temporal { body, .. } => self.collect_unbound_vars(body, bound, out),
+            LogicExpr::Aspectual { body, .. } => self.collect_unbound_vars(body, bound, out),
+            LogicExpr::Event { predicate, .. } => self.collect_unbound_vars(predicate, bound, out),
+            LogicExpr::Modal { operand, .. } => self.collect_unbound_vars(operand, bound, out),
+            LogicExpr::Scopal { body, .. } => self.collect_unbound_vars(body, bound, out),
+            _ => {}
+        }
+    }
+
     /// Check if an expression mentions a specific variable
     fn expr_mentions_var(&self, expr: &LogicExpr<'a>, var: Symbol) -> bool {
         match expr {

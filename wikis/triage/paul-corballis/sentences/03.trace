@@ -1,0 +1,27 @@
+CLASSIFICATION: ActionableLexiconGap | subsystem Lexicon | gate Auto | confidence 0.75
+
+═══ Sentence 3 ═══
+INPUT: Corballis is the son of academic psychologist Michael Corballis.
+
+TOKENS:
+    0..9   "Corballis"  Proper
+   10..12  "is"         Other
+   13..16  "the"        Determiner
+   17..20  "son"        Noun
+   21..23  "of"         Preposition
+   24..32  "academic"   Adjective
+   33..45  "psychologist" Adjective
+   46..53  "Michael"    Proper
+   54..63  "Corballis"  Proper
+   63..64  "."          Punctuation
+   64..64  ""           Other
+
+FOL:
+  unicode: Son(Corballis)
+  simple : Son(Corballis)
+  kripke : Son(Corballis, w0)
+
+AST (2 nodes, 0 unhandled):
+  └─ son(1) [predicate]
+     └─ Corballis [constant]
+

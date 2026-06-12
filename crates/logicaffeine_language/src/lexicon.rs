@@ -158,6 +158,13 @@ impl Lexicon {
         let base = &word[..word.len() - 2];
 
         if base.ends_with("i") {
+            // Silent-e verbs ending in -ie add only "d": "lied" → "lie",
+            // "died" → "die", "tied" → "tie". Only then the y-restoring
+            // rule: "studied" → "study".
+            let with_e = format!("{}e", base);
+            if is_base_verb(&with_e) {
+                return with_e;
+            }
             return format!("{}y", &base[..base.len() - 1]);
         }
 

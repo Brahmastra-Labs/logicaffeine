@@ -1,0 +1,30 @@
+═══ Sentence 5 ═══
+INPUT: He earned a PhD in Psychology from Columbia University in 1997.
+
+TOKENS:
+    0..2   "He"         Pronoun
+    3..9   "earned"     Verb
+   10..11  "a"          Determiner
+   12..15  "PhD"        Proper
+   16..18  "in"         Preposition
+   19..29  "Psychology" Proper
+   30..34  "from"       Other
+   35..43  "Columbia"   Proper
+   44..54  "University" Proper
+   55..57  "in"         Preposition
+   58..62  "1997"       Other
+   62..63  "."          Punctuation
+   63..63  ""           Other
+
+FOL:
+  unicode: ∃x((PhD(x) ∧ ∃e(Earn(e) ∧ Agent(e, Him) ∧ Theme(e, x) ∧ Past(e))))
+  simple : ∃x((PhD(x) ∧ Earn(Him, x)))
+  kripke : Exists x((PhD(x, w0)  And  Exists e(Earn(e, w0)  And  Agent(e, Him, w0)  And  Theme(e, x, w0)  And  Past(e, w0))))
+
+AST (5 nodes, 1 unhandled):
+  └─ ∃x [quantifier]
+     └─ ∧ [binary_op]
+        ├─ PhD(1) [predicate]
+        │  └─ x [variable]
+        └─ NeoEvent(NeoEventData { event_var: Symbol(32), verb: Symbol(2), roles: [(Agent, Constant(Symbol(30))), (Theme, Variable(Symbol(31)))], modifiers: [Symbol(33)], suppress_existential: false, world: None }) [other]
+

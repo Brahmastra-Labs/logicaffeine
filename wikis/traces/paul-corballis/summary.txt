@@ -1,0 +1,48 @@
+# Trace map for wikis/paul-corballis.txt
+# 11 sentences
+
+[ PART ] 01. Paul Michael Corballis is a New Zealand cognitive neuroscientist and professor of Psychology at the University of Auckland.
+           ⊢ Paul_Michael
+           ⚠ 1/1 AST nodes are unhandled variants (parser/transpile gap)
+
+[ PART ] 02. His research focuses on visual perception and attention, and uses electrophysiology (EEG/ERPs) and neuroimaging methods.
+           ⊢ 1) HAB((∃e(Research(e) ∧ Agent(e, Him) ∧ Theme(e, Focuses)) ∧ On(e, Perception)))
+2) ∃e(Research(e) ∧ Agent(e, Attention) ∧ Theme(e, Focuses))
+3) ∃e(Research(e) ∧ Agent(e, Use) ∧ Theme(e, Electrophysiology))
+           ⚠ 3/5 AST nodes are unhandled variants (parser/transpile gap)
+
+[  ok  ] 03. Corballis is the son of academic psychologist Michael Corballis.
+           ⊢ Son(Corballis)
+
+[ PART ] 04. He completed a BSc in Psychology (1989) and an MSc in Psychology with First Class Honours (1991) at the University of Auckland.
+           ⊢ ∃x((BSc(x) ∧ ∃e(Complete(e) ∧ Agent(e, Him) ∧ Theme(e, x) ∧ Past(e))))
+           ⚠ 1/5 AST nodes are unhandled variants (parser/transpile gap)
+
+[ PART ] 05. He earned a PhD in Psychology from Columbia University in 1997.
+           ⊢ ∃x((PhD(x) ∧ ∃e(Earn(e) ∧ Agent(e, Him) ∧ Theme(e, x) ∧ Past(e))))
+           ⚠ 1/5 AST nodes are unhandled variants (parser/transpile gap)
+
+[ PART ] 06. After his doctorate, Corballis held a postdoctoral position in the Department of Psychological and Brain Sciences at Dartmouth College.
+           ⊢ (Him → Have(Corballis, Doctorate))
+           ⚠ 1/5 AST nodes are unhandled variants (parser/transpile gap)
+
+[ PART ] 07. He joined the faculty at the University of Auckland School of Psychology, where he is a professor of Psychology.
+           ⊢ 1) ∃e(Join(e) ∧ Agent(e, Him) ∧ Theme(e, Faculty) ∧ Past(e))
+2) At(e, University)
+           ⚠ 1/5 AST nodes are unhandled variants (parser/transpile gap)
+
+[ FAIL ] 08. In an inaugural lecture hosted by the Faculty of Science, he discussed "brain mechanisms of constructive perception."
+           ↳ I was looking for a noun, verb, or adjective at position 3, but found Preposition(Symbol(1)) instead. The logic needs a content word to ground it.
+
+[  ok  ] 09. Corballis studies the neural mechanisms that support selective attention and visual perception, often using event-related potentials such as the N2pc, together with other EEG and neuroimaging techniques.
+           ⊢ Gen x((Corballis(x) → Study(x, Mechanisms)))
+
+[ PART ] 10. Early in his career he co-authored work demonstrating noninvasive optical imaging of human brain responses during visual stimulation.
+           ⊢ Early
+           ⚠ 1/1 AST nodes are unhandled variants (parser/transpile gap)
+
+[ PART ] 11. His later publications and collaborations include work on lateralized ERP components associated with attentional selection.
+           ⊢ Him
+           ⚠ 1/1 AST nodes are unhandled variants (parser/transpile gap)
+
+# totals: 2 ok, 8 partial, 1 error (of 11)

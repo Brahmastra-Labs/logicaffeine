@@ -193,6 +193,45 @@ impl<'a, 'ctx, 'int> NounParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int> {
             noun
         };
 
+        // Noun-noun compounds ("stop bit", "data bits", "grant signal"): a
+        // PLAIN noun directly after the head joins it as one compound head.
+        // An Ambiguous noun/verb word ("signal") joins ONLY when a copula
+        // follows it — there the verb reading is impossible — so genuine
+        // ambiguity ("Time flies like an arrow") keeps its verb reading and
+        // the forest enumerates the rest.
+        let mut noun = noun;
+        loop {
+            let next = match &self.peek().kind {
+                TokenType::Noun(next) => *next,
+                TokenType::Ambiguous { primary, alternatives } => {
+                    let noun_reading = if let TokenType::Noun(n) = &**primary {
+                        Some(*n)
+                    } else {
+                        alternatives.iter().find_map(|t| {
+                            if let TokenType::Noun(n) = t { Some(*n) } else { None }
+                        })
+                    };
+                    let copula_after = matches!(
+                        self.tokens.get(self.current + 1).map(|t| &t.kind),
+                        Some(TokenType::Is)
+                            | Some(TokenType::Are)
+                            | Some(TokenType::Was)
+                            | Some(TokenType::Were)
+                    );
+                    match (noun_reading, copula_after) {
+                        (Some(n), true) => n,
+                        _ => break,
+                    }
+                }
+                _ => break,
+            };
+            self.advance();
+            let head_str = self.interner.resolve(noun);
+            let next_str = self.interner.resolve(next);
+            let compound = format!("{}_{}", head_str, next_str);
+            noun = self.interner.intern(&compound);
+        }
+
         if self.check_possessive() {
             self.advance();
 
@@ -398,17 +437,22 @@ impl<'a, 'ctx, 'int> NounParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int> {
         match &self.peek().kind {
             TokenType::Pronoun { case: Case::Possessive, .. } => true,
             TokenType::Ambiguous { primary, alternatives } => {
-                if self.noun_priority_mode {
-                    if let TokenType::Pronoun { case: Case::Possessive, .. } = **primary {
-                        return true;
-                    }
-                    for alt in alternatives {
-                        if let TokenType::Pronoun { case: Case::Possessive, .. } = alt {
-                            return true;
-                        }
-                    }
+                let is_possessive = matches!(
+                    **primary,
+                    TokenType::Pronoun { case: Case::Possessive, .. }
+                ) || alternatives.iter().any(|alt| {
+                    matches!(alt, TokenType::Pronoun { case: Case::Possessive, .. })
+                });
+                if !is_possessive {
+                    return false;
                 }
-                false
+                if self.noun_priority_mode {
+                    return true;
+                }
+                // Outside noun-priority contexts, the possessive reading of an
+                // object/possessive-ambiguous pronoun ("her") applies exactly
+                // when an NP head follows: "saw her dog" vs "saw her".
+                self.possessive_np_head_follows()
             }
             _ => false,
         }

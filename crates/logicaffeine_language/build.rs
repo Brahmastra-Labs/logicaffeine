@@ -24,11 +24,26 @@ struct RefactoredLexiconData {
     adverbs: Vec<String>,
     scopal_adverbs: Vec<String>,
     temporal_adverbs: Vec<String>,
+    /// Adverbs of quantification ("usually", "often", "always", …) that mark a
+    /// characterizing/habitual clause (§4.4). A lexical category, not a parser list.
+    #[serde(default)]
+    quantificational_adverbs: Vec<String>,
+    /// Place names that conventionally denote an institution (metonymy §8.6):
+    /// "the White House", "the Pentagon", "the Kremlin". As an agent of a
+    /// communication/decision verb they coerce to the institution (government-of).
+    #[serde(default)]
+    institution_metonyms: Vec<String>,
     #[serde(default)]
     particles: Vec<String>,
     #[serde(default)]
     phrasal_verbs: HashMap<String, PhrasalVerbEntry>,
     not_adverbs: Vec<String>,
+    /// Negative n't-contraction stems and their expansions ("isn" → "is not",
+    /// "can" → "cannot"). Which words contract with n't is LEXICAL knowledge
+    /// (n't is inflection on a listed class), so the list lives here; the
+    /// lexer only applies the expansion.
+    #[serde(default)]
+    negative_contractions: HashMap<String, String>,
     noun_patterns: Vec<String>,
     disambiguation_not_verbs: Vec<String>,
     morphology: Morphology,
@@ -120,6 +135,31 @@ struct AdjectiveDefinition {
     regular: bool,
     #[serde(default)]
     features: Vec<String>,
+    #[serde(default)]
+    relational: Option<AdjectiveRelational>,
+}
+
+/// Relational/pertainymic adjective metadata (mirrors `NounDerivation`).
+///
+/// `base` is the base noun lemma the adjective relates to ("dental" → "Tooth").
+/// `relation` is the relating predicate (default `Pertains`; "coastal" → "Near").
+/// `level` is `Kind` (default — predicate of a kind, no ∃) or `Instance`
+/// (introduces ∃y over a base-noun individual).
+#[derive(Deserialize, Default)]
+struct AdjectiveRelational {
+    base: String,
+    #[serde(default = "default_relational_relation")]
+    relation: String,
+    #[serde(default = "default_relational_level")]
+    level: String,
+}
+
+fn default_relational_relation() -> String {
+    "Pertains".to_string()
+}
+
+fn default_relational_level() -> String {
+    "Kind".to_string()
 }
 
 #[derive(Deserialize)]
@@ -267,6 +307,28 @@ fn main() {
     generate_is_check(&mut file, "is_noun_pattern", &data.noun_patterns);
     generate_is_check(&mut file, "is_scopal_adverb", &data.scopal_adverbs);
     generate_is_check(&mut file, "is_temporal_adverb", &data.temporal_adverbs);
+    generate_is_check(
+        &mut file,
+        "is_quantificational_adverb",
+        &data.quantificational_adverbs,
+    );
+    generate_is_check(&mut file, "is_institution_metonym", &data.institution_metonyms);
+    // Perception verbs (see, hear, …): take an event small-clause complement (§3.2).
+    let perception_verbs: Vec<String> = data
+        .verbs
+        .iter()
+        .filter(|v| v.features.iter().any(|f| f == "Perception"))
+        .map(|v| v.lemma.to_lowercase())
+        .collect();
+    generate_is_check(&mut file, "is_perception_verb", &perception_verbs);
+    // Relevance/biscuit-conditional trigger verbs (want, need, …) (§4.2).
+    let relevance_verbs: Vec<String> = data
+        .verbs
+        .iter()
+        .filter(|v| v.features.iter().any(|f| f == "Relevance"))
+        .map(|v| v.lemma.to_lowercase())
+        .collect();
+    generate_is_check(&mut file, "is_relevance_verb", &relevance_verbs);
     generate_is_check(&mut file, "is_particle", &data.particles);
     generate_is_check(&mut file, "is_adverb", &data.adverbs);
     generate_is_check(&mut file, "is_not_adverb", &data.not_adverbs);
@@ -305,6 +367,16 @@ fn main() {
     generate_is_check(&mut file, "is_distributive_verb", &distributive_verbs);
     generate_is_check(&mut file, "is_intensional_predicate", &intensional_predicates);
 
+    // Resultative verbs (paint, dye, …): a post-object AP is the object's RESULTING
+    // state (§3.3). Lexicon-tagged, not hardcoded in the parser.
+    let resultative_verbs: Vec<String> = data
+        .verbs
+        .iter()
+        .filter(|v| v.features.iter().any(|f| f == "Resultative"))
+        .map(|v| v.lemma.to_lowercase())
+        .collect();
+    generate_is_check(&mut file, "is_resultative_verb", &resultative_verbs);
+
     // Generate base verb list from all verb lemmas
     let base_verbs: Vec<String> = data.verbs.iter().map(|v| v.lemma.to_lowercase()).collect();
     generate_is_check(&mut file, "is_base_verb", &base_verbs);
@@ -319,6 +391,15 @@ fn main() {
     generate_is_check(&mut file, "is_gradable_adjective", &gradable);
     generate_is_check(&mut file, "is_event_modifier_adjective", &event_modifier);
 
+    // Vague adjectives (bald, tall, …): a penumbra around the threshold (§8.5).
+    let vague_adjectives: Vec<String> = data
+        .adjectives
+        .iter()
+        .filter(|a| a.features.iter().any(|f| f == "Vague"))
+        .map(|a| a.lemma.to_lowercase())
+        .collect();
+    generate_is_check(&mut file, "is_vague_adjective", &vague_adjectives);
+
     // Derive noun lists from features
     let (common_nouns, male_names, female_names, male_nouns, female_nouns, neuter_nouns) =
         derive_noun_lists(&data.nouns);
@@ -328,6 +409,15 @@ fn main() {
     generate_is_check(&mut file, "is_male_noun", &male_nouns);
     generate_is_check(&mut file, "is_female_noun", &female_nouns);
     generate_is_check(&mut file, "is_neuter_noun", &neuter_nouns);
+
+    // Mass nouns (water, gold, …): denote non-atomic stuff (Link lattice §6.2).
+    let mass_nouns: Vec<String> = data
+        .nouns
+        .iter()
+        .filter(|n| n.features.iter().any(|f| f == "Mass"))
+        .map(|n| n.lemma.to_lowercase())
+        .collect();
+    generate_is_check(&mut file, "is_mass_noun", &mass_nouns);
 
     // Generate verb class lookup from verb definitions
     let (state_verbs, activity_verbs, accomplishment_verbs, achievement_verbs, semelfactive_verbs) =
@@ -353,6 +443,9 @@ fn main() {
 
     // Generate unit dimension lookup for degree semantics
     generate_lookup_unit_dimension(&mut file, &data.units);
+
+    // Generate negative n't-contraction expansion lookup
+    generate_lookup_negative_contraction(&mut file, &data.negative_contractions);
 
     // Generate phrasal verb lookup for particle movement
     generate_lookup_phrasal_verb(&mut file, &data.phrasal_verbs);
@@ -383,6 +476,9 @@ fn main() {
 
     // Generate noun derivation lookups (replaces agentive_nouns)
     generate_lookup_noun_derivation(&mut file, &data.nouns);
+
+    // Generate relational/pertainymic adjective lookups (mirrors noun derivation)
+    generate_lookup_relational_adjective(&mut file, &data.adjectives);
 }
 
 // ═══════════════════════════════════════════════════════════════════
@@ -711,6 +807,7 @@ fn generate_lookup_keyword(file: &mut fs::File, keywords: &HashMap<String, Strin
             "Than" => "crate::token::TokenType::Than",
             "Reflexive" => "crate::token::TokenType::Reflexive",
             "Because" => "crate::token::TokenType::Because",
+            "Although" => "crate::token::TokenType::Although",
             "Anything" => "crate::token::TokenType::Anything",
             "Anyone" => "crate::token::TokenType::Anyone",
             "Nothing" => "crate::token::TokenType::Nothing",
@@ -1270,6 +1367,32 @@ fn generate_lookup_adjective_db(file: &mut fs::File, entries: &[AdjectiveDbEntry
     writeln!(file, "}}\n").unwrap();
 }
 
+fn generate_lookup_negative_contraction(
+    file: &mut fs::File,
+    contractions: &HashMap<String, String>,
+) {
+    writeln!(
+        file,
+        "/// The lexicon's expansion for a negative n't-contraction stem"
+    )
+    .unwrap();
+    writeln!(file, "/// (\"isn\" → \"is not\", \"can\" → \"cannot\").").unwrap();
+    writeln!(
+        file,
+        "pub fn lookup_negative_contraction(stem: &str) -> Option<&'static str> {{"
+    )
+    .unwrap();
+    writeln!(file, "    match stem {{").unwrap();
+    let mut entries: Vec<_> = contractions.iter().collect();
+    entries.sort();
+    for (stem, expansion) in entries {
+        writeln!(file, "        \"{}\" => Some(\"{}\"),", stem, expansion).unwrap();
+    }
+    writeln!(file, "        _ => None,").unwrap();
+    writeln!(file, "    }}").unwrap();
+    writeln!(file, "}}\n").unwrap();
+}
+
 fn generate_lookup_unit_dimension(file: &mut fs::File, units: &HashMap<String, String>) {
     writeln!(
         file,
@@ -1603,6 +1726,39 @@ fn generate_morphological_rules(file: &mut fs::File, rules: &[MorphologicalRule]
 // ═══════════════════════════════════════════════════════════════════
 // Noun Derivation Lookup Generation
 // ═══════════════════════════════════════════════════════════════════
+
+fn generate_lookup_relational_adjective(file: &mut fs::File, adjectives: &[AdjectiveDefinition]) {
+    writeln!(file, "/// Lookup relational-adjective metadata (e.g., dental -> (Tooth, Pertains, Kind)).").unwrap();
+    writeln!(file, "/// Returns (base, relation, level) where level is \"Kind\" or \"Instance\".").unwrap();
+    writeln!(file, "pub fn lookup_relational_adjective(word: &str) -> Option<(&'static str, &'static str, &'static str)> {{").unwrap();
+    writeln!(file, "    match word.to_lowercase().as_str() {{").unwrap();
+
+    for adj in adjectives {
+        if let Some(ref rel) = adj.relational {
+            writeln!(
+                file,
+                "        \"{}\" => Some((\"{}\", \"{}\", \"{}\")),",
+                adj.lemma.to_lowercase(),
+                rel.base,
+                rel.relation,
+                rel.level
+            )
+            .unwrap();
+        }
+    }
+
+    writeln!(file, "        _ => None,").unwrap();
+    writeln!(file, "    }}").unwrap();
+    writeln!(file, "}}").unwrap();
+    writeln!(file).unwrap();
+
+    // Simple boolean check mirroring the other is_* generators.
+    writeln!(file, "/// Check whether an adjective is relational/pertainymic.").unwrap();
+    writeln!(file, "pub fn is_relational_adjective(word: &str) -> bool {{").unwrap();
+    writeln!(file, "    lookup_relational_adjective(word).is_some()").unwrap();
+    writeln!(file, "}}").unwrap();
+    writeln!(file).unwrap();
+}
 
 fn generate_lookup_noun_derivation(file: &mut fs::File, nouns: &[NounDefinition]) {
     writeln!(file, "/// Lookup the derivation info for a noun (e.g., dancer -> (Dance, Verb, Agent))").unwrap();

@@ -1,0 +1,34 @@
+═══ Sentence 11 ═══
+INPUT: His later publications and collaborations include work on lateralized ERP components associated with attentional selection.
+
+TOKENS:
+    0..3   "His"        Pronoun
+    4..9   "later"      Noun
+   10..22  "publications" Adjective
+   23..26  "and"        Connective
+   27..41  "collaborations" Adjective
+   42..49  "include"    Verb
+   50..54  "work"       Other
+   55..57  "on"         Preposition
+   58..69  "lateralized" Adjective
+   70..73  "ERP"        Proper
+   74..84  "components" Adjective
+   85..95  "associated" Adjective
+   96..100 "with"       Preposition
+  101..112 "attentional" Adjective
+  113..122 "selection"  Adjective
+  122..123 "."          Punctuation
+  123..123 ""           Other
+
+FOL:
+  unicode: Him
+  simple : Him
+  kripke : Him
+
+AST (1 nodes, 1 unhandled):
+  └─ Atom(Symbol(36)) [other]
+
+AMBIGUITY READINGS (2):
+  [1] Him
+  [2] Later
+

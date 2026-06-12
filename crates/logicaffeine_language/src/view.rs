@@ -30,6 +30,7 @@ pub enum TermView<'a> {
     },
     Sigma(&'a str),
     Intension(&'a str),
+    Kind(&'a str),
     Proposition(Box<ExprView<'a>>),
     Value {
         kind: NumberKindView<'a>,
@@ -148,6 +149,17 @@ pub enum ExprView<'a> {
     Imperative {
         action: Box<ExprView<'a>>,
     },
+    Exclamative {
+        degree_var: &'a str,
+        body: Box<ExprView<'a>>,
+    },
+    Optative {
+        wish: Box<ExprView<'a>>,
+    },
+    Implicature {
+        assertion: Box<ExprView<'a>>,
+        implicature: Box<ExprView<'a>>,
+    },
     SpeechAct {
         performer: &'a str,
         act_type: &'a str,
@@ -160,6 +172,10 @@ pub enum ExprView<'a> {
     Causal {
         effect: Box<ExprView<'a>>,
         cause: Box<ExprView<'a>>,
+    },
+    Concessive {
+        main: Box<ExprView<'a>>,
+        concession: Box<ExprView<'a>>,
     },
     Comparative {
         adjective: &'a str,
@@ -235,6 +251,7 @@ impl<'a, 'b> Resolve<'a> for Term<'b> {
             },
             Term::Sigma(predicate) => TermView::Sigma(interner.resolve(*predicate)),
             Term::Intension(predicate) => TermView::Intension(interner.resolve(*predicate)),
+            Term::Kind(kind) => TermView::Kind(interner.resolve(*kind)),
             Term::Proposition(expr) => {
                 TermView::Proposition(Box::new(expr.resolve(interner)))
             }
@@ -366,6 +383,17 @@ impl<'a, 'b> Resolve<'a> for LogicExpr<'b> {
             LogicExpr::Imperative { action } => ExprView::Imperative {
                 action: Box::new(action.resolve(interner)),
             },
+            LogicExpr::Exclamative { degree_var, body } => ExprView::Exclamative {
+                degree_var: interner.resolve(*degree_var),
+                body: Box::new(body.resolve(interner)),
+            },
+            LogicExpr::Optative { wish } => ExprView::Optative {
+                wish: Box::new(wish.resolve(interner)),
+            },
+            LogicExpr::Implicature { assertion, implicature } => ExprView::Implicature {
+                assertion: Box::new(assertion.resolve(interner)),
+                implicature: Box::new(implicature.resolve(interner)),
+            },
             LogicExpr::SpeechAct {
                 performer,
                 act_type,
@@ -383,7 +411,11 @@ impl<'a, 'b> Resolve<'a> for LogicExpr<'b> {
                 effect: Box::new(effect.resolve(interner)),
                 cause: Box::new(cause.resolve(interner)),
             },
-            LogicExpr::Comparative { adjective, subject, object, difference } => ExprView::Comparative {
+            LogicExpr::Concessive { main, concession } => ExprView::Concessive {
+                main: Box::new(main.resolve(interner)),
+                concession: Box::new(concession.resolve(interner)),
+            },
+            LogicExpr::Comparative { adjective, subject, object, difference, .. } => ExprView::Comparative {
                 adjective: interner.resolve(*adjective),
                 subject: subject.resolve(interner),
                 object: object.resolve(interner),
@@ -698,7 +730,7 @@ mod expr_view_tests {
             vector: ModalVector {
                 domain: ModalDomain::Alethic,
                 force: 1.0,
-                flavor: ModalFlavor::Root,
+                flavor: ModalFlavor::Root, modal_base: None, ordering_source: None
             },
             operand: expr_arena.alloc(LogicExpr::Atom(rain)),
         };
@@ -709,7 +741,7 @@ mod expr_view_tests {
                 vector: ModalVector {
                     domain: ModalDomain::Alethic,
                     force: 1.0,
-                    flavor: ModalFlavor::Root,
+                    flavor: ModalFlavor::Root, modal_base: None, ordering_source: None
                 },
                 operand: Box::new(ExprView::Atom("Rain")),
             }
@@ -722,17 +754,17 @@ mod expr_view_tests {
         let v1 = ModalVector {
             domain: ModalDomain::Alethic,
             force: 0.5,
-            flavor: ModalFlavor::Root,
+            flavor: ModalFlavor::Root, modal_base: None, ordering_source: None
         };
         let v2 = ModalVector {
             domain: ModalDomain::Alethic,
             force: 0.5,
-            flavor: ModalFlavor::Root,
+            flavor: ModalFlavor::Root, modal_base: None, ordering_source: None
         };
         let v3 = ModalVector {
             domain: ModalDomain::Alethic,
             force: 0.51,
-            flavor: ModalFlavor::Root,
+            flavor: ModalFlavor::Root, modal_base: None, ordering_source: None
         };
 
         assert_eq!(v1, v2);

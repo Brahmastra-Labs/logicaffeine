@@ -1,0 +1,33 @@
+CLASSIFICATION: ActionableLexiconGap | subsystem Lexicon | gate Auto | confidence 0.75
+
+═══ Sentence 4 ═══
+INPUT: It is the only species in the genus Nipponanthemum, formerly considered part of Chrysanthemum.
+
+TOKENS:
+    0..2   "It"         Pronoun
+    3..5   "is"         Other
+    6..9   "the"        Determiner
+   10..14  "only"       Other
+   15..22  "species"    Noun
+   23..25  "in"         Preposition
+   26..29  "the"        Determiner
+   30..35  "genus"      Adjective
+   36..50  "Nipponanthemum" Proper
+   50..51  ","          Punctuation
+   52..60  "formerly"   Other
+   61..71  "considered" Verb
+   72..76  "part"       Noun
+   77..79  "of"         Preposition
+   80..93  "Chrysanthemum" Proper
+   93..94  "."          Punctuation
+   94..94  ""           Other
+
+FOL:
+  unicode: The(It)
+  simple : The(It)
+  kripke : The(It, w0)
+
+AST (2 nodes, 0 unhandled):
+  └─ the(1) [predicate]
+     └─ It [constant]
+

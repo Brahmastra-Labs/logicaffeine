@@ -1,0 +1,91 @@
+CLASSIFICATION: ActionableLexiconGap | subsystem Lexicon | gate Auto | confidence 0.75
+ISOLATED: "II"(Abbreviation), "(now a walkway)"(Parenthetical)
+
+═══ Sentence 3 ═══
+INPUT: Its course follows a roughly south-easterly direction, passing through the grounds of Lordswood Boys' School and then Harborne Nature Reserve and the Grade II listed Westbourne Road Town Gardens, underneath the former Harborne Railway (now a walkway), crosses the campus of the University of Birmingham and the grounds of Edgbaston Hall where it feeds Edgbaston Pool, then leading to its confluence with the Bourn Brook.
+
+TOKENS:
+    0..3   "Its"        Pronoun
+    4..10  "course"     Noun
+   11..18  "follows"    Verb
+   19..20  "a"          Determiner
+   21..28  "roughly"    Other
+   29..34  "south"      Adjective
+   34..35  "-"          Other
+   35..43  "easterly"   Other
+   44..53  "direction"  Noun
+   53..54  ","          Punctuation
+   55..62  "passing"    Verb
+   63..70  "through"    Preposition
+   71..74  "the"        Determiner
+   75..82  "grounds"    Adjective
+   83..85  "of"         Preposition
+   86..95  "Lordswood"  Proper
+   96..100 "Boys"       Proper
+  102..108 "School"     Proper
+  109..112 "and"        Connective
+  113..117 "then"       Connective
+  118..126 "Harborne"   Proper
+  127..133 "Nature"     Proper
+  134..141 "Reserve"    Proper
+  142..145 "and"        Connective
+  146..149 "the"        Determiner
+  150..155 "Grade"      Proper
+  156..158 "II"         Proper
+  159..165 "listed"     Verb
+  166..176 "Westbourne" Proper
+  177..181 "Road"       Proper
+  182..186 "Town"       Proper
+  187..194 "Gardens"    Proper
+  194..195 ","          Punctuation
+  196..206 "underneath" Adjective
+  207..210 "the"        Determiner
+  211..217 "former"     Adjective
+  218..226 "Harborne"   Proper
+  227..234 "Railway"    Proper
+  235..236 "("          Other
+  236..239 "now"        Other
+  240..241 "a"          Determiner
+  242..249 "walkway"    Adjective
+  249..250 ")"          Other
+  250..251 ","          Punctuation
+  252..259 "crosses"    Adjective
+  260..263 "the"        Determiner
+  264..270 "campus"     Noun
+  271..273 "of"         Preposition
+  274..277 "the"        Determiner
+  278..288 "University" Proper
+  289..291 "of"         Preposition
+  292..302 "Birmingham" Proper
+  303..306 "and"        Connective
+  307..310 "the"        Determiner
+  311..318 "grounds"    Adjective
+  319..321 "of"         Preposition
+  322..331 "Edgbaston"  Proper
+  332..336 "Hall"       Proper
+  337..342 "where"      Other
+  343..345 "it"         Pronoun
+  346..351 "feeds"      Verb
+  352..361 "Edgbaston"  Proper
+  362..366 "Pool"       Proper
+  366..367 ","          Punctuation
+  368..372 "then"       Connective
+  373..380 "leading"    Verb
+  381..383 "to"         Preposition
+  384..387 "its"        Pronoun
+  388..398 "confluence" Adjective
+  399..403 "with"       Preposition
+  404..407 "the"        Determiner
+  408..413 "Bourn"      Proper
+  414..419 "Brook"      Proper
+  419..420 "."          Punctuation
+  420..420 ""           Other
+
+FOL:
+  unicode: It
+  simple : It
+  kripke : It
+
+AST (1 nodes, 1 unhandled):
+  └─ Atom(Symbol(81)) [other]
+
