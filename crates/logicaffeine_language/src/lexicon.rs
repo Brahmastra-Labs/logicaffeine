@@ -101,10 +101,7 @@ impl Lexicon {
                 return None;
             }
 
-            let stem = self.strip_s(&lower);
-            if !is_base_verb(&stem) {
-                return None;
-            }
+            let stem = Self::third_person_stem(&lower)?;
             let lemma = Self::capitalize(&stem);
             let class = self.lookup_verb_class(&lemma.to_lowercase());
             return Some(VerbEntry {
@@ -210,26 +207,46 @@ impl Lexicon {
         base.to_string()
     }
 
-    fn strip_s(&self, word: &str) -> String {
-        if word.ends_with("ies") {
-            // Verbs ending in -ie add only "s": "dies" → "die", "ties" → "tie".
-            // Only then the y-restoring rule: "studies" → "study".
-            let with_e = &word[..word.len() - 1];
-            if is_base_verb(with_e) {
-                return with_e.to_string();
-            }
-            return format!("{}y", &word[..word.len() - 3]);
+    /// The generative third-person-singular rule: sibilant and -o stems take
+    /// "es" ("push" → "pushes", "go" → "goes"), consonant+y becomes "ies"
+    /// ("study" → "studies"), everything else takes "s" ("plan" → "plans").
+    fn third_person_of(stem: &str) -> String {
+        if stem.ends_with('s')
+            || stem.ends_with('x')
+            || stem.ends_with('z')
+            || stem.ends_with("ch")
+            || stem.ends_with("sh")
+            || stem.ends_with('o')
+        {
+            format!("{stem}es")
+        } else if stem.ends_with('y')
+            && !stem.ends_with("ay")
+            && !stem.ends_with("ey")
+            && !stem.ends_with("oy")
+            && !stem.ends_with("uy")
+        {
+            format!("{}ies", &stem[..stem.len() - 1])
+        } else {
+            format!("{stem}s")
         }
-        // Silent-e verbs add "s" ("hopes" → "hope"); sibilant stems add "es"
-        // ("pushes" → "push", "fixes" → "fix"). Try the longer stem first.
+    }
+
+    /// Inverse of [`Self::third_person_of`]: the stem is whichever known base
+    /// verb regenerates the surface form under the forward rule. Deriving the
+    /// inverse from the generative rule means the two can never disagree —
+    /// "pushes" → "push" and "dies" → "die" resolve, while "planes" stays a
+    /// plural noun because "plan" forms "plans", never "planes".
+    fn third_person_stem(word: &str) -> Option<String> {
+        let mut candidates = vec![word[..word.len() - 1].to_string()];
         if word.ends_with("es") {
-            let base_minus_s = &word[..word.len() - 1];
-            if is_base_verb(base_minus_s) {
-                return base_minus_s.to_string();
-            }
-            return word[..word.len() - 2].to_string();
+            candidates.push(word[..word.len() - 2].to_string());
         }
-        word[..word.len() - 1].to_string()
+        if word.ends_with("ies") {
+            candidates.push(format!("{}y", &word[..word.len() - 3]));
+        }
+        candidates
+            .into_iter()
+            .find(|stem| is_base_verb(stem) && Self::third_person_of(stem) == word)
     }
 
     fn capitalize(s: &str) -> String {
