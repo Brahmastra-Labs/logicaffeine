@@ -916,6 +916,7 @@ fn real_literal_negative_exp() {
 
 // ── VerifyType::Real ──
 
+#[cfg(feature = "verification")]
 #[test]
 fn verify_type_real_exists() {
     use logicaffeine_verify::ir::VerifyType;
@@ -923,6 +924,7 @@ fn verify_type_real_exists() {
     assert!(matches!(t, VerifyType::Real));
 }
 
+#[cfg(feature = "verification")]
 #[test]
 fn verify_type_real_distinct() {
     use logicaffeine_verify::ir::VerifyType;
@@ -1085,6 +1087,7 @@ fn cross_real_with_local_var() {
     assert!(matches!(rv.var_type, RandVarType::Real));
 }
 
+#[cfg(feature = "verification")]
 #[test]
 fn cross_all_2023_compose() {
     // Single test exercising all Sprint 22-24 features together

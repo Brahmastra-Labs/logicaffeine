@@ -85,6 +85,7 @@ fn simple_tier_has_two_scope_readings() {
         "No user who lacks a key can enter the room.",
         logicaffeine_language::CompileOptions {
             format: logicaffeine_language::OutputFormat::SimpleFOL,
+            pragmatic: false,
         },
     );
 

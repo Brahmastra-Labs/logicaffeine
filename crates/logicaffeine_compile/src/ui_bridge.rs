@@ -47,7 +47,7 @@ use logicaffeine_language::{
     token::TokenType,
     CompileOptions, OutputFormat, ParseError,
 };
-use logicaffeine_proof::{BackwardChainer, DerivationTree, ProofExpr};
+use logicaffeine_proof::{DerivationTree, ProofExpr};
 
 // Re-export interpreter result from our interpreter module
 pub use crate::interpreter::InterpreterResult;
@@ -272,6 +272,17 @@ pub fn expr_to_ast_node(expr: &LogicExpr, interner: &Interner) -> AstNode {
                 vec![expr_to_ast_node(body, interner)],
             )
         }
+        LogicExpr::SpeechAct { performer, act_type, content } => {
+            AstNode::with_children(
+                &format!(
+                    "{}!{}",
+                    interner.resolve(*act_type),
+                    interner.resolve(*performer)
+                ),
+                "speech_act",
+                vec![expr_to_ast_node(content, interner)],
+            )
+        }
         _ => AstNode::leaf(&format!("{:?}", expr), "other"),
     }
 }
@@ -331,13 +342,13 @@ pub fn compile_for_ui(input: &str) -> CompileResult {
 
     // Generate Simple readings (modals stripped) - deduplicated
     let simple_readings: Vec<String> = {
-        let raw = compile_forest_with_options(input, CompileOptions { format: OutputFormat::SimpleFOL });
+        let raw = compile_forest_with_options(input, CompileOptions { format: OutputFormat::SimpleFOL, pragmatic: false });
         let mut seen = HashSet::new();
         raw.into_iter().filter(|r| seen.insert(r.clone())).collect()
     };
 
     // Generate Kripke readings with explicit world quantification
-    let kripke_readings = compile_forest_with_options(input, CompileOptions { format: OutputFormat::Kripke });
+    let kripke_readings = compile_forest_with_options(input, CompileOptions { format: OutputFormat::Kripke, pragmatic: false });
 
     let mut interner = Interner::new();
     let mut lexer = Lexer::new(input, &mut interner);
@@ -509,6 +520,11 @@ pub struct TheoremCompileResult {
     pub goal_string: Option<String>,
     /// Derivation tree from backward chaining, if proof found.
     pub derivation: Option<DerivationTree>,
+    /// True iff the derivation was certified AND kernel type-checked.
+    /// A derivation alone (`derivation.is_some()`) never implies this.
+    pub verified: bool,
+    /// Where verification broke (certification or type-check), if it did.
+    pub verification_error: Option<String>,
     /// Error message if compilation or proof failed.
     pub error: Option<String>,
 }
@@ -557,6 +573,8 @@ pub fn compile_theorem_for_ui(input: &str) -> TheoremCompileResult {
                 goal: None,
                 goal_string: None,
                 derivation: None,
+                verified: false,
+                verification_error: None,
                 error: Some(format!("Parse error: {:?}", e)),
             };
         }
@@ -577,6 +595,8 @@ pub fn compile_theorem_for_ui(input: &str) -> TheoremCompileResult {
                 goal: None,
                 goal_string: None,
                 derivation: None,
+                verified: false,
+                verification_error: None,
                 error: Some("No theorem block found".to_string()),
             };
         }
@@ -593,15 +613,13 @@ pub fn compile_theorem_for_ui(input: &str) -> TheoremCompileResult {
     let mut registry = SymbolRegistry::new();
     let goal_string = theorem.goal.transpile(&mut registry, &interner, OutputFormat::SimpleFOL);
 
-    let derivation = if matches!(theorem.strategy, ast::theorem::ProofStrategy::Auto) {
-        let mut engine = BackwardChainer::new();
-        for premise in &premises {
-            engine.add_axiom(premise.clone());
-        }
-        engine.prove(goal.clone()).ok()
-    } else {
-        None
-    };
+    let (derivation, verified, verification_error) =
+        if matches!(theorem.strategy, ast::theorem::ProofStrategy::Auto) {
+            let outcome = logicaffeine_proof::verify::prove_certify_check(&premises, &goal);
+            (outcome.derivation, outcome.verified, outcome.verification_error)
+        } else {
+            (None, false, None)
+        };
 
     TheoremCompileResult {
         name: theorem.name.clone(),
@@ -609,6 +627,8 @@ pub fn compile_theorem_for_ui(input: &str) -> TheoremCompileResult {
         goal: Some(goal),
         goal_string: Some(goal_string),
         derivation,
+        verified,
+        verification_error,
         error: None,
     }
 }
@@ -673,7 +693,23 @@ pub fn generate_rust_code(source: &str) -> Result<String, ParseError> {
 // ═══════════════════════════════════════════════════════════════════
 
 /// Interpret LOGOS imperative code and return output lines.
+///
+/// Same engine dispatch as [`interpret_for_ui_sync`]: the bytecode VM runs
+/// synchronous programs (with the tree-walker as the debug shadow oracle);
+/// programs needing async (file I/O, sleep, mount) run on the tree-walker's
+/// async executor.
 pub async fn interpret_for_ui(input: &str) -> InterpreterResult {
+    // The synchronous dispatcher covers every non-async program; for async
+    // ones it uses block_on, which would nest inside this future — so handle
+    // the async case here with a real await.
+    let needs_async = with_parsed_program(input, |parsed, _| match parsed {
+        Ok((stmts, _, _)) => crate::interpreter::needs_async(stmts),
+        Err(_) => false,
+    });
+    if !needs_async {
+        return interpret_for_ui_sync(input);
+    }
+
     use logicaffeine_language::ast::stmt::{Stmt, Expr, TypeExpr};
 
     let mut interner = Interner::new();
@@ -741,12 +777,30 @@ pub async fn interpret_for_ui(input: &str) -> InterpreterResult {
     }
 }
 
-/// Interpret LOGOS imperative code synchronously (no async runtime needed).
+/// The execution front-end shared by every engine: lex → MWE → discovery →
+/// parse. The tree-walker and the bytecode VM MUST both come through here so
+/// they see the identical token stream, type registry, and policies — a
+/// differential test that parses differently per engine is comparing two
+/// different programs.
 ///
-/// Uses the sync execution path when the program has no async operations
-/// (no file I/O, sleep, or mount). Falls back to async via block_on otherwise.
-pub fn interpret_for_ui_sync(input: &str) -> InterpreterResult {
-    use logicaffeine_language::ast::stmt::{Stmt, Expr, TypeExpr};
+/// Parsed statements borrow stack-local arenas, so they are handed to the
+/// closure rather than returned. A parse failure is delivered as
+/// `Err(socratic advice text)` — also identical for both engines.
+pub fn with_parsed_program<R>(
+    input: &str,
+    f: impl for<'a> FnOnce(
+        Result<
+            (
+                &'a [logicaffeine_language::ast::stmt::Stmt<'a>],
+                &'a logicaffeine_language::analysis::TypeRegistry,
+                logicaffeine_language::analysis::PolicyRegistry,
+            ),
+            String,
+        >,
+        &'a Interner,
+    ) -> R,
+) -> R {
+    use logicaffeine_language::ast::stmt::{Expr, Stmt, TypeExpr};
 
     let mut interner = Interner::new();
     let mut lexer = Lexer::new(input, &mut interner);
@@ -784,49 +838,93 @@ pub fn interpret_for_ui_sync(input: &str) -> InterpreterResult {
     );
 
     let mut world_state = drs::WorldState::new();
-    let type_registry_for_interp = type_registry.clone();
-    let mut parser = Parser::new(tokens, &mut world_state, &mut interner, ctx, type_registry);
+    let type_registry_for_engines = type_registry.clone();
+    let parsed = {
+        let mut parser = Parser::new(tokens, &mut world_state, &mut interner, ctx, type_registry);
+        parser.parse_program()
+    };
 
-    match parser.parse_program() {
-        Ok(stmts) => {
-            let mut interp = crate::interpreter::Interpreter::new(&interner)
-                .with_type_registry(&type_registry_for_interp)
-                .with_policies(policy_registry);
-
-            if crate::interpreter::needs_async(&stmts) {
-                // Fall back to async path
-                use futures::executor::block_on;
-                match block_on(interp.run(&stmts)) {
-                    Ok(()) => InterpreterResult {
-                        lines: interp.output,
-                        error: None,
-                    },
-                    Err(e) => InterpreterResult {
-                        lines: interp.output,
-                        error: Some(e),
-                    },
-                }
-            } else {
-                // Use sync path — no Future allocation overhead
-                match interp.run_sync(&stmts) {
-                    Ok(()) => InterpreterResult {
-                        lines: interp.output,
-                        error: None,
-                    },
-                    Err(e) => InterpreterResult {
-                        lines: interp.output,
-                        error: Some(e),
-                    },
-                }
-            }
-        }
+    match parsed {
+        Ok(stmts) => f(Ok((&stmts, &type_registry_for_engines, policy_registry)), &interner),
         Err(e) => {
             let advice = socratic_explanation(&e, &interner);
-            InterpreterResult {
-                lines: vec![],
-                error: Some(advice),
+            f(Err(advice), &interner)
+        }
+    }
+}
+
+/// Interpret LOGOS imperative code synchronously (no async runtime needed).
+///
+/// The bytecode VM is the LIVE engine for the synchronous path (which is also
+/// the browser/WASM path). The tree-walker remains fully wired as: the async
+/// path (file I/O, sleep, mount), the shadow oracle in debug builds (every
+/// program the corpus runs is differentially checked against it), and the
+/// fallback for anything the VM compiler rejects.
+pub fn interpret_for_ui_sync(input: &str) -> InterpreterResult {
+    with_parsed_program(input, |parsed, interner| match parsed {
+        Ok((stmts, type_registry, policies)) => {
+            if crate::interpreter::needs_async(stmts) {
+                return run_treewalker(stmts, type_registry, policies, interner, true);
+            }
+            match crate::vm::Compiler::compile_with_types(stmts, interner, Some(type_registry)) {
+                Ok(program) => {
+                    let mut vm = crate::vm::Vm::new(&program).with_policy_ctx(&policies, interner);
+                    if let Some(tier) = crate::vm::installed_native_tier() {
+                        vm = vm.with_native_tier(tier);
+                    }
+                    let error = vm.run().err();
+                    let result = InterpreterResult { lines: vm.into_lines(), error };
+
+                    // Debug-build shadow oracle: the SAME program runs on the
+                    // tree-walker and the full outcome must match — this turns
+                    // the entire existing test corpus into a differential
+                    // suite. (Skipped on wasm to keep dev builds light.)
+                    #[cfg(all(debug_assertions, not(target_arch = "wasm32")))]
+                    {
+                        let shadow = run_treewalker(
+                            stmts,
+                            type_registry,
+                            policies.clone(),
+                            interner,
+                            false,
+                        );
+                        assert_eq!(
+                            (&result.lines, &result.error),
+                            (&shadow.lines, &shadow.error),
+                            "VM diverged from the tree-walker oracle for:\n{input}"
+                        );
+                    }
+                    result
+                }
+                // The VM compiler rejects only constructs outside the parser's
+                // reach; run them on the tree-walker rather than failing.
+                Err(_) => run_treewalker(stmts, type_registry, policies, interner, false),
             }
         }
+        Err(advice) => InterpreterResult { lines: vec![], error: Some(advice) },
+    })
+}
+
+/// Run a parsed program on the TREE-WALKER (the oracle engine). `force_async`
+/// selects the async executor; otherwise the sync path is used.
+pub(crate) fn run_treewalker<'a>(
+    stmts: &'a [logicaffeine_language::ast::stmt::Stmt<'a>],
+    type_registry: &logicaffeine_language::analysis::TypeRegistry,
+    policies: logicaffeine_language::analysis::PolicyRegistry,
+    interner: &'a Interner,
+    force_async: bool,
+) -> InterpreterResult {
+    let mut interp = crate::interpreter::Interpreter::new(interner)
+        .with_type_registry(type_registry)
+        .with_policies(policies);
+    let run_result = if force_async {
+        futures::executor::block_on(interp.run(stmts))
+    } else {
+        interp.run_sync(stmts)
+    };
+    match run_result {
+        Ok(()) => InterpreterResult { lines: interp.output, error: None },
+        Err(e) => InterpreterResult { lines: interp.output, error: Some(e) },
     }
 }
 
@@ -949,6 +1047,145 @@ use crate::kernel;
 /// 5. Type-check the term
 /// 6. Return (proof_term, context)
 pub fn verify_theorem(input: &str) -> Result<(kernel::Term, kernel::Context), ParseError> {
+    let (proof_exprs, goal_expr) = theorem_proof_exprs(input)?;
+
+    // === STEPS 3-6: Prove → certify → type-check (the one canonical pipeline) ===
+    let outcome = logicaffeine_proof::verify::prove_certify_check(&proof_exprs, &goal_expr);
+    if outcome.verified {
+        Ok((
+            outcome
+                .proof_term
+                .expect("a verified outcome always carries a proof term"),
+            outcome.kernel_ctx,
+        ))
+    } else {
+        Err(ParseError {
+            kind: logicaffeine_language::error::ParseErrorKind::Custom(
+                outcome
+                    .verification_error
+                    .unwrap_or_else(|| "Theorem verification failed".to_string()),
+            ),
+            span: logicaffeine_language::token::Span::default(),
+        })
+    }
+}
+
+/// Ask the Z3 oracle whether a theorem's premises semantically entail its goal.
+///
+/// Same `## Theorem:` block format as [`verify_theorem`], but the answer is an
+/// [`SmtVerdict`](logicaffeine_proof::oracle::SmtVerdict) over the standard
+/// translation (modal frame axioms, similarity relations, lattice axioms) —
+/// **not** a kernel-certified proof. Use this for entailment questions the
+/// monotonic kernel cannot express (modality, counterfactuals, mereology).
+/// Assemble the lexicon-derived [`SmtTheory`](logicaffeine_proof::oracle::SmtTheory)
+/// for a theorem: every mentioned predicate the lexicon tags as a MASS noun
+/// becomes a cumulative (Link-lattice) predicate.
+#[cfg(feature = "verification")]
+fn smt_theory_for(
+    premises: &[ProofExpr],
+    goal: Option<&ProofExpr>,
+) -> logicaffeine_proof::oracle::SmtTheory {
+    let mut exprs: Vec<ProofExpr> = premises.to_vec();
+    if let Some(g) = goal {
+        exprs.push(g.clone());
+    }
+    let cumulative_predicates = logicaffeine_proof::oracle::predicate_names(&exprs)
+        .into_iter()
+        .filter(|name| logicaffeine_language::lexicon::is_mass_noun(name))
+        .collect();
+    logicaffeine_proof::oracle::SmtTheory {
+        cumulative_predicates,
+    }
+}
+
+#[cfg(feature = "verification")]
+pub fn check_theorem_smt(
+    input: &str,
+) -> Result<logicaffeine_proof::oracle::SmtVerdict, ParseError> {
+    let (proof_exprs, goal_expr) = theorem_proof_exprs(input)?;
+    let theory = smt_theory_for(&proof_exprs, Some(&goal_expr));
+    Ok(logicaffeine_proof::oracle::oracle_entails_with_theory(
+        &proof_exprs,
+        &goal_expr,
+        &theory,
+    ))
+}
+
+/// Ask the Z3 oracle whether a theorem's premises are jointly satisfiable
+/// (the goal is parsed but ignored).
+///
+/// Every non-entailment claim in the test suite pairs with this check so an
+/// inconsistent premise set cannot fake a `NotEntailed` via vacuity.
+#[cfg(feature = "verification")]
+pub fn check_theorem_premises_consistent(
+    input: &str,
+) -> Result<logicaffeine_proof::oracle::SmtConsistency, ParseError> {
+    let (proof_exprs, _goal) = theorem_proof_exprs(input)?;
+    let theory = smt_theory_for(&proof_exprs, None);
+    Ok(logicaffeine_proof::oracle::oracle_consistent_with_theory(
+        &proof_exprs,
+        &theory,
+    ))
+}
+
+/// Ask the defeasible (non-monotonic) layer whether a theorem's premises
+/// defeasibly entail its goal: generics and implicatures license cancellable
+/// inferences via circumscription over per-rule abnormality predicates.
+///
+/// The verdict is **not kernel-certified** and is strictly weaker than
+/// classical entailment — a defeated default reads as `NotEntailed` while the
+/// premise set stays [`SmtConsistency::Consistent`].
+#[cfg(feature = "verification")]
+pub fn check_theorem_defeasible(
+    input: &str,
+) -> Result<logicaffeine_proof::oracle::SmtVerdict, ParseError> {
+    let (proof_exprs, goal, defaults) = theorem_problem(input, true)?;
+    let theory = smt_theory_for(&proof_exprs, Some(&goal));
+    Ok(crate::defeasible::defeasible_entails(
+        &proof_exprs,
+        &goal,
+        &defaults,
+        &theory,
+    ))
+}
+
+/// Consistency under the defeasible layer: defaults defeated by exceptions
+/// must NOT read as contradictions.
+#[cfg(feature = "verification")]
+pub fn check_theorem_defeasible_consistent(
+    input: &str,
+) -> Result<logicaffeine_proof::oracle::SmtConsistency, ParseError> {
+    let (proof_exprs, _goal, defaults) = theorem_problem(input, true)?;
+    let theory = smt_theory_for(&proof_exprs, None);
+    Ok(crate::defeasible::defeasible_consistent(
+        &proof_exprs,
+        &defaults,
+        &theory,
+    ))
+}
+
+/// Parse a `## Theorem:` block and convert its premises and goal to
+/// [`ProofExpr`]s — the shared front half of [`verify_theorem`] and
+/// [`check_theorem_smt`].
+fn theorem_proof_exprs(input: &str) -> Result<(Vec<ProofExpr>, ProofExpr), ParseError> {
+    let (premises, goal, _defaults) = theorem_problem(input, false)?;
+    Ok((premises, goal))
+}
+
+/// [`theorem_proof_exprs`] with optional DEFEASIBLE conversion: premises keep
+/// their generics/implicatures as abnormality-guarded defaults (returned for
+/// the circumscription pass); the goal always converts strictly.
+fn theorem_problem(
+    input: &str,
+    defeasible: bool,
+) -> Result<
+    (
+        Vec<ProofExpr>,
+        ProofExpr,
+        Vec<logicaffeine_language::proof_convert::DefaultRule>,
+    ),
+    ParseError,
+> {
     // === STEP 1: Parse ===
     let mut interner = Interner::new();
     let mut lexer = Lexer::new(input, &mut interner);
@@ -980,6 +1217,11 @@ pub fn verify_theorem(input: &str) -> Result<(kernel::Term, kernel::Context), Pa
 
     let mut world_state = drs::WorldState::new();
     let mut parser = Parser::new(tokens, &mut world_state, &mut interner, ctx, type_registry);
+    if defeasible {
+        // The defeasible layer reasons over the pragmatic channel too:
+        // scalar implicatures become guarded defaults.
+        parser.set_pragmatic_mode(true);
+    }
     let statements = parser.parse_program()?;
 
     let theorem = statements
@@ -996,271 +1238,24 @@ pub fn verify_theorem(input: &str) -> Result<(kernel::Term, kernel::Context), Pa
             span: logicaffeine_language::token::Span::default(),
         })?;
 
-    // === STEP 2: Build Kernel Context ===
-    let mut kernel_ctx = kernel::Context::new();
-    kernel::prelude::StandardLibrary::register(&mut kernel_ctx);
-
-    // Convert premises and goal to ProofExpr
-    let mut proof_exprs: Vec<ProofExpr> = Vec::new();
-    for premise in &theorem.premises {
-        let proof_expr = logic_expr_to_proof_expr(premise, &interner);
-        proof_exprs.push(proof_expr);
-    }
+    // === STEP 2: Convert premises and goal to ProofExpr ===
+    let mut defaults = Vec::new();
+    let proof_exprs: Vec<ProofExpr> = theorem
+        .premises
+        .iter()
+        .map(|premise| {
+            if defeasible {
+                logicaffeine_language::proof_convert::logic_expr_to_proof_expr_defeasible(
+                    premise,
+                    &interner,
+                    &mut defaults,
+                )
+            } else {
+                logic_expr_to_proof_expr(premise, &interner)
+            }
+        })
+        .collect();
     let goal_expr = logic_expr_to_proof_expr(theorem.goal, &interner);
 
-    // Collect symbols from all expressions
-    let mut collector = SymbolCollector::new();
-    for expr in &proof_exprs {
-        collector.collect(expr);
-    }
-    collector.collect(&goal_expr);
-
-    // Register predicates: P : Entity → Prop
-    for pred_name in collector.predicates() {
-        register_predicate(&mut kernel_ctx, pred_name);
-    }
-
-    // Register constants: Socrates : Entity
-    for const_name in collector.constants() {
-        register_constant(&mut kernel_ctx, const_name);
-    }
-
-    // Register axiom hypotheses and build engine
-    let mut engine = BackwardChainer::new();
-    for (i, proof_expr) in proof_exprs.iter().enumerate() {
-        let hyp_name = format!("h{}", i + 1);
-        let hyp_type = proof_expr_to_kernel_type(proof_expr)?;
-        kernel_ctx.add_declaration(&hyp_name, hyp_type);
-        engine.add_axiom(proof_expr.clone());
-    }
-
-    // === STEP 3: Prove ===
-    let derivation = engine.prove(goal_expr.clone()).map_err(|e| ParseError {
-        kind: logicaffeine_language::error::ParseErrorKind::Custom(format!("Proof failed: {}", e)),
-        span: logicaffeine_language::token::Span::default(),
-    })?;
-
-    // === STEP 4: Certify ===
-    let cert_ctx = logicaffeine_proof::certifier::CertificationContext::new(&kernel_ctx);
-    let proof_term = logicaffeine_proof::certifier::certify(&derivation, &cert_ctx).map_err(|e| ParseError {
-        kind: logicaffeine_language::error::ParseErrorKind::Custom(format!("Certification failed: {}", e)),
-        span: logicaffeine_language::token::Span::default(),
-    })?;
-
-    // === STEP 5: Type-Check ===
-    let _ = kernel::infer_type(&kernel_ctx, &proof_term).map_err(|e| ParseError {
-        kind: logicaffeine_language::error::ParseErrorKind::Custom(format!("Type check failed: {}", e)),
-        span: logicaffeine_language::token::Span::default(),
-    })?;
-
-    // === STEP 6: Return ===
-    Ok((proof_term, kernel_ctx))
-}
-
-/// Collects predicates and constants from ProofExpr
-struct SymbolCollector {
-    predicates: HashSet<String>,
-    constants: HashSet<String>,
-}
-
-impl SymbolCollector {
-    fn new() -> Self {
-        SymbolCollector {
-            predicates: HashSet::new(),
-            constants: HashSet::new(),
-        }
-    }
-
-    fn collect(&mut self, expr: &ProofExpr) {
-        match expr {
-            ProofExpr::Predicate { name, args, .. } => {
-                self.predicates.insert(name.clone());
-                for arg in args {
-                    self.collect_term(arg);
-                }
-            }
-            ProofExpr::And(l, r)
-            | ProofExpr::Or(l, r)
-            | ProofExpr::Implies(l, r)
-            | ProofExpr::Iff(l, r) => {
-                self.collect(l);
-                self.collect(r);
-            }
-            ProofExpr::Not(inner) => {
-                self.collect(inner);
-            }
-            ProofExpr::ForAll { body, .. } | ProofExpr::Exists { body, .. } => {
-                self.collect(body);
-            }
-            ProofExpr::Atom(_) => {
-                // Atoms are propositional constants, not FOL predicates
-            }
-            ProofExpr::Identity(l, r) => {
-                // Collect constants from identity terms
-                self.collect_term(l);
-                self.collect_term(r);
-            }
-            _ => {}
-        }
-    }
-
-    fn collect_term(&mut self, term: &logicaffeine_proof::ProofTerm) {
-        match term {
-            logicaffeine_proof::ProofTerm::Constant(name) => {
-                // Only add if it looks like a proper name (capitalized)
-                if name.chars().next().map(|c| c.is_uppercase()).unwrap_or(false) {
-                    self.constants.insert(name.clone());
-                }
-            }
-            logicaffeine_proof::ProofTerm::Function(name, args) => {
-                self.predicates.insert(name.clone());
-                for arg in args {
-                    self.collect_term(arg);
-                }
-            }
-            _ => {}
-        }
-    }
-
-    fn predicates(&self) -> impl Iterator<Item = &String> {
-        self.predicates.iter()
-    }
-
-    fn constants(&self) -> impl Iterator<Item = &String> {
-        self.constants.iter()
-    }
-}
-
-/// Register a predicate in the kernel context.
-/// P : Entity → Prop
-fn register_predicate(ctx: &mut kernel::Context, name: &str) {
-    // Don't re-register if already present
-    if ctx.get_global(name).is_some() {
-        return;
-    }
-
-    let pred_type = kernel::Term::Pi {
-        param: "_".to_string(),
-        param_type: Box::new(kernel::Term::Global("Entity".to_string())),
-        body_type: Box::new(kernel::Term::Sort(kernel::Universe::Prop)),
-    };
-    ctx.add_declaration(name, pred_type);
-}
-
-/// Register a constant in the kernel context.
-/// Socrates : Entity
-fn register_constant(ctx: &mut kernel::Context, name: &str) {
-    // Don't re-register if already present
-    if ctx.get_global(name).is_some() {
-        return;
-    }
-
-    ctx.add_declaration(name, kernel::Term::Global("Entity".to_string()));
-}
-
-/// Convert ProofExpr (engine) to kernel Term (type)
-fn proof_expr_to_kernel_type(expr: &ProofExpr) -> Result<kernel::Term, ParseError> {
-    match expr {
-        ProofExpr::Predicate { name, args, .. } => {
-            // P(a, b, c) → ((P a) b) c
-            let mut term = kernel::Term::Global(name.clone());
-            for arg in args {
-                let arg_term = proof_term_to_kernel_term(arg)?;
-                term = kernel::Term::App(Box::new(term), Box::new(arg_term));
-            }
-            Ok(term)
-        }
-        ProofExpr::ForAll { variable, body } => {
-            // ∀x.P(x) → Π(x:Entity). P(x)
-            let body_type = proof_expr_to_kernel_type(body)?;
-            Ok(kernel::Term::Pi {
-                param: variable.clone(),
-                param_type: Box::new(kernel::Term::Global("Entity".to_string())),
-                body_type: Box::new(body_type),
-            })
-        }
-        ProofExpr::Implies(ante, cons) => {
-            // P → Q → Π(_:P). Q
-            let ante_type = proof_expr_to_kernel_type(ante)?;
-            let cons_type = proof_expr_to_kernel_type(cons)?;
-            Ok(kernel::Term::Pi {
-                param: "_".to_string(),
-                param_type: Box::new(ante_type),
-                body_type: Box::new(cons_type),
-            })
-        }
-        ProofExpr::And(l, r) => {
-            // P ∧ Q → And P Q
-            let l_type = proof_expr_to_kernel_type(l)?;
-            let r_type = proof_expr_to_kernel_type(r)?;
-            Ok(kernel::Term::App(
-                Box::new(kernel::Term::App(
-                    Box::new(kernel::Term::Global("And".to_string())),
-                    Box::new(l_type),
-                )),
-                Box::new(r_type),
-            ))
-        }
-        ProofExpr::Or(l, r) => {
-            // P ∨ Q → Or P Q
-            let l_type = proof_expr_to_kernel_type(l)?;
-            let r_type = proof_expr_to_kernel_type(r)?;
-            Ok(kernel::Term::App(
-                Box::new(kernel::Term::App(
-                    Box::new(kernel::Term::Global("Or".to_string())),
-                    Box::new(l_type),
-                )),
-                Box::new(r_type),
-            ))
-        }
-        ProofExpr::Atom(name) => {
-            // Propositional atoms: P → P (as a global)
-            Ok(kernel::Term::Global(name.clone()))
-        }
-        ProofExpr::Identity(l, r) => {
-            // a = b → Eq Entity a b
-            let l_term = proof_term_to_kernel_term(l)?;
-            let r_term = proof_term_to_kernel_term(r)?;
-            Ok(kernel::Term::App(
-                Box::new(kernel::Term::App(
-                    Box::new(kernel::Term::App(
-                        Box::new(kernel::Term::Global("Eq".to_string())),
-                        Box::new(kernel::Term::Global("Entity".to_string())),
-                    )),
-                    Box::new(l_term),
-                )),
-                Box::new(r_term),
-            ))
-        }
-        _ => Err(ParseError {
-            kind: logicaffeine_language::error::ParseErrorKind::Custom(format!(
-                "Unsupported ProofExpr for kernel type: {:?}",
-                expr
-            )),
-            span: logicaffeine_language::token::Span::default(),
-        }),
-    }
-}
-
-/// Convert ProofTerm to kernel Term
-fn proof_term_to_kernel_term(term: &logicaffeine_proof::ProofTerm) -> Result<kernel::Term, ParseError> {
-    match term {
-        logicaffeine_proof::ProofTerm::Constant(name) => Ok(kernel::Term::Global(name.clone())),
-        logicaffeine_proof::ProofTerm::Variable(name) => Ok(kernel::Term::Var(name.clone())),
-        logicaffeine_proof::ProofTerm::Function(name, args) => {
-            let mut t = kernel::Term::Global(name.clone());
-            for arg in args {
-                let arg_term = proof_term_to_kernel_term(arg)?;
-                t = kernel::Term::App(Box::new(t), Box::new(arg_term));
-            }
-            Ok(t)
-        }
-        _ => Err(ParseError {
-            kind: logicaffeine_language::error::ParseErrorKind::Custom(format!(
-                "Unsupported ProofTerm for kernel: {:?}",
-                term
-            )),
-            span: logicaffeine_language::token::Span::default(),
-        }),
-    }
+    Ok((proof_exprs, goal_expr, defaults))
 }

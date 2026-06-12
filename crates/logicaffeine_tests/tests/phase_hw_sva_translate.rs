@@ -1,3 +1,5 @@
+#![cfg(feature = "verification")]
+
 //! Sprint 2: SVA → Bounded Verification IR Translation
 //!
 //! Tests that SvaExpr is correctly translated to bounded timestep model

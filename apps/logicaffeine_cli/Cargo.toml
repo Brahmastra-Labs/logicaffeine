@@ -1,6 +1,6 @@
 [package]
 name = "logicaffeine-cli"
-version = "0.9.16"
+version = "0.9.17"
 edition.workspace = true
 authors.workspace = true
 repository.workspace = true
@@ -22,10 +22,10 @@ path = "src/main.rs"
 
 [dependencies]
 # Core language crates
-logicaffeine-base = { version = "0.9.16", path = "../../crates/logicaffeine_base" }
-logicaffeine-kernel = { version = "0.9.16", path = "../../crates/logicaffeine_kernel" }
-logicaffeine-language = { version = "0.9.16", path = "../../crates/logicaffeine_language" }
-logicaffeine-compile = { version = "0.9.16", path = "../../crates/logicaffeine_compile" }
+logicaffeine-base = { version = "0.9.17", path = "../../crates/logicaffeine_base" }
+logicaffeine-kernel = { version = "0.9.17", path = "../../crates/logicaffeine_kernel" }
+logicaffeine-language = { version = "0.9.17", path = "../../crates/logicaffeine_language" }
+logicaffeine-compile = { version = "0.9.17", path = "../../crates/logicaffeine_compile" }
 
 # CLI dependencies
 clap = { version = "4.4", features = ["derive"] }
@@ -38,6 +38,10 @@ tar = "0.4"
 dirs = "5.0"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
+
+# The native tier (copy-and-patch JIT) — native targets only.
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+logicaffeine-jit = { version = "0.9.17", path = "../../crates/logicaffeine_jit" }
 
 [dev-dependencies]
 tempfile = "3"

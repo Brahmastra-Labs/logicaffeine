@@ -1,0 +1,96 @@
+name: Forge JIT
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'crates/logicaffeine_forge/**'
+      - 'crates/logicaffeine_tests/tests/jit_*.rs'
+      - '.github/workflows/forge.yml'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'crates/logicaffeine_forge/**'
+      - 'crates/logicaffeine_tests/tests/jit_*.rs'
+      - '.github/workflows/forge.yml'
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  # Runtime tests: the copy-and-patch JIT mmaps executable pages and runs
+  # real machine code, so every OS/arch pair exercises a distinct W^X path:
+  #   ubuntu x64        — mprotect, ELF stencils, x64 rel32 patching
+  #   ubuntu arm64      — the inline-asm icache flush (mprotect does NOT
+  #                       flush the instruction cache on ARM Linux)
+  #   macos arm64       — MAP_JIT + pthread_jit_write_protect_np, Mach-O
+  #                       stencils, literal-pool const holes
+  #   windows x64       — VirtualAlloc/VirtualProtect/FlushInstructionCache,
+  #                       COFF stencils (__imp_ GOT-indirection)
+  runtime:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, ubuntu-24.04-arm, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            target/
+          key: ${{ runner.os }}-${{ runner.arch }}-forge-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Run forge unit tests
+        run: cargo test -p logicaffeine-forge --verbose
+
+      # The JIT integration suites live in the tests crate (all integration
+      # tests do). They need no Z3 — the verification feature stays off.
+      - name: Run JIT integration tests
+        run: cargo test -p logicaffeine-tests --test jit_micro --test jit_exec --test jit_control_flow --test jit_bisect --test jit_vm_differential
+
+  # Cross-compilation gates: stencil extraction happens at build time via
+  # `rustc --emit=obj` (no linker needed), so one host can verify codegen,
+  # object-format parsing (ELF/COFF/Mach-O), the reloc whitelist, and the
+  # tail-call + leaf-purity gates for every supported target.
+  cross-check:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        target:
+          - x86_64-unknown-linux-gnu
+          - aarch64-unknown-linux-gnu
+          - x86_64-apple-darwin
+          - aarch64-apple-darwin
+          - x86_64-pc-windows-msvc
+          - x86_64-pc-windows-gnu
+          - wasm32-unknown-unknown
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            target/
+          key: cross-${{ matrix.target }}-forge-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Check forge for target
+        run: cargo check -p logicaffeine-forge --target ${{ matrix.target }} --verbose

@@ -148,6 +148,64 @@ pub fn interpret_program(source: &str) -> Result<String, ParseError> {
     }
 }
 
+/// Parse LOGOS source and execute it on the register bytecode VM, returning the
+/// captured output. Uses the SAME front-end as the tree-walker
+/// ([`crate::ui_bridge::with_parsed_program`]: lex → MWE → discovery → parse),
+/// so differential tests compare two engines on one program, never two
+/// programs. Returns `Err` for programs outside the VM's supported subset (the
+/// compiler reports `vm: unsupported …`).
+pub fn vm_run_source(source: &str) -> Result<String, String> {
+    crate::ui_bridge::with_parsed_program(source, |parsed, interner| match parsed {
+        Ok((stmts, types, policies)) => {
+            let (output, error) =
+                crate::vm::run_to_outcome(stmts, interner, Some(types), Some(&policies));
+            match error {
+                None => Ok(output),
+                Some(e) => Err(e),
+            }
+        }
+        Err(advice) => Err(advice),
+    })
+}
+
+/// What a program run produced: every output line emitted before completion or
+/// failure, plus the error if it failed. The differential contract is
+/// `vm_outcome(src) == tw_outcome(src)` — output AND error.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RunOutcome {
+    pub output: String,
+    pub error: Option<String>,
+}
+
+/// Run `source` on the TREE-WALKER (the oracle), capturing partial output and
+/// the error, if any. This entry point always uses the tree-walker — the
+/// dispatching `interpret_for_ui_sync` now runs the VM for the sync path, and
+/// the differential suites need the oracle by itself.
+pub fn tw_outcome(source: &str) -> RunOutcome {
+    crate::ui_bridge::with_parsed_program(source, |parsed, interner| match parsed {
+        Ok((stmts, types, policies)) => {
+            let force_async = crate::interpreter::needs_async(stmts);
+            let result =
+                crate::ui_bridge::run_treewalker(stmts, types, policies, interner, force_async);
+            RunOutcome { output: result.lines.join("\n"), error: result.error }
+        }
+        Err(advice) => RunOutcome { output: String::new(), error: Some(advice) },
+    })
+}
+
+/// Run `source` on the bytecode VM, capturing partial output and the error,
+/// if any. Same front-end as [`tw_outcome`].
+pub fn vm_outcome(source: &str) -> RunOutcome {
+    crate::ui_bridge::with_parsed_program(source, |parsed, interner| match parsed {
+        Ok((stmts, types, policies)) => {
+            let (output, error) =
+                crate::vm::run_to_outcome(stmts, interner, Some(types), Some(&policies));
+            RunOutcome { output, error }
+        }
+        Err(advice) => RunOutcome { output: String::new(), error: Some(advice) },
+    })
+}
+
 /// Compile LOGOS source to Rust source code.
 ///
 /// This is the basic compilation function that runs lexing, parsing, and
@@ -1662,34 +1720,30 @@ fn encode_expr_compact(expr: &Expr, counter: &mut usize, output: &mut String, in
             if parts.is_empty() {
                 output.push_str(&format!("Let {} be (a new CText with value \"\").\n", var));
             } else {
-                let mut part_vars: Vec<String> = Vec::new();
+                // Preserve as a first-class CInterpolatedString rather than desugaring to a
+                // lossy `+` chain (see encode_expr_src for the rationale).
+                let parts_var = format!("isparts_{}", *counter);
+                *counter += 1;
+                output.push_str(&format!("Let {} be a new Seq of CStringPart.\n", parts_var));
                 for part in parts {
                     match part {
                         StringPart::Literal(sym) => {
                             let text = interner.resolve(*sym);
-                            part_vars.push(format!("(a new CText with value \"{}\")", text));
+                            output.push_str(&format!(
+                                "Push a new CLiteralPart with value \"{}\" to {}.\n", text, parts_var
+                            ));
                         }
                         StringPart::Expr { value, .. } => {
                             let pv = encode_expr_compact(value, counter, output, interner, variants);
-                            part_vars.push(pv);
+                            output.push_str(&format!(
+                                "Push a new CExprPart with expr {} to {}.\n", pv, parts_var
+                            ));
                         }
                     }
                 }
-                if part_vars.len() == 1 {
-                    output.push_str(&format!("Let {} be {}.\n", var, part_vars[0]));
-                } else {
-                    let mut acc = part_vars[0].clone();
-                    for pv in &part_vars[1..] {
-                        let concat_var = format!("e_{}", *counter);
-                        *counter += 1;
-                        output.push_str(&format!(
-                            "Let {} be a new CBinOp with op \"+\" and left {} and right {}.\n",
-                            concat_var, acc, pv
-                        ));
-                        acc = concat_var;
-                    }
-                    output.push_str(&format!("Let {} be {}.\n", var, acc));
-                }
+                output.push_str(&format!(
+                    "Let {} be a new CInterpolatedString with parts {}.\n", var, parts_var
+                ));
             }
         }
         Expr::Range { start, end } => {
@@ -2099,7 +2153,16 @@ fn encode_expr_src(expr: &Expr, counter: &mut usize, output: &mut String, intern
                 output.push_str(&format!("Let {} be a new CText with value \"{}\".\n", var, text));
             }
             Literal::Float(f) => {
-                output.push_str(&format!("Let {} be a new CFloat with value {}.\n", var, f));
+                // Format faithfully: Rust's `{}` prints integer-valued floats without a
+                // decimal point (9.0 -> "9"), which would re-parse as an Int and silently
+                // turn float ops into integer ops. Guarantee a decimal point.
+                let fs = format!("{}", f);
+                let fs = if fs.contains('.') || fs.contains('e') || fs.contains('E') {
+                    fs
+                } else {
+                    format!("{}.0", fs)
+                };
+                output.push_str(&format!("Let {} be a new CFloat with value {}.\n", var, fs));
             }
             Literal::Duration(nanos) => {
                 let millis = nanos / 1_000_000;
@@ -2278,37 +2341,33 @@ fn encode_expr_src(expr: &Expr, counter: &mut usize, output: &mut String, intern
             if parts.is_empty() {
                 output.push_str(&format!("Let {} be a new CText with value \"\".\n", var));
             } else {
-                let mut part_vars: Vec<String> = Vec::new();
+                // Preserve the interpolation as a first-class CInterpolatedString — the IR,
+                // PE (peExpr), decompiler, and self-interpreter (coreEval) all handle it and
+                // coerce each part via valToText. Desugaring to a `+` chain was lossy: a
+                // non-Text leading part produced `Int + Text`, which evalBinOp/applyBinOp do
+                // not fold (→ VNothing → __unresolvable in the residual).
+                let parts_var = format!("isparts_{}", *counter);
+                *counter += 1;
+                output.push_str(&format!("Let {} be a new Seq of CStringPart.\n", parts_var));
                 for part in parts {
                     match part {
                         StringPart::Literal(sym) => {
                             let text = interner.resolve(*sym);
-                            let pv = format!("e_{}", *counter);
-                            *counter += 1;
-                            output.push_str(&format!("Let {} be a new CText with value \"{}\".\n", pv, text));
-                            part_vars.push(pv);
+                            output.push_str(&format!(
+                                "Push a new CLiteralPart with value \"{}\" to {}.\n", text, parts_var
+                            ));
                         }
                         StringPart::Expr { value, .. } => {
                             let pv = encode_expr_src(value, counter, output, interner, variants);
-                            part_vars.push(pv);
+                            output.push_str(&format!(
+                                "Push a new CExprPart with expr {} to {}.\n", pv, parts_var
+                            ));
                         }
                     }
                 }
-                if part_vars.len() == 1 {
-                    output.push_str(&format!("Let {} be {}.\n", var, part_vars[0]));
-                } else {
-                    let mut acc = part_vars[0].clone();
-                    for pv in &part_vars[1..] {
-                        let concat_var = format!("e_{}", *counter);
-                        *counter += 1;
-                        output.push_str(&format!(
-                            "Let {} be a new CBinOp with op \"+\" and left {} and right {}.\n",
-                            concat_var, acc, pv
-                        ));
-                        acc = concat_var;
-                    }
-                    output.push_str(&format!("Let {} be {}.\n", var, acc));
-                }
+                output.push_str(&format!(
+                    "Let {} be a new CInterpolatedString with parts {}.\n", var, parts_var
+                ));
             }
         }
         Expr::Range { start, end } => {
@@ -3954,6 +4013,174 @@ fn check_expr_overhead(expr: &Expr, interner: &Interner) -> Result<(), String> {
     Ok(())
 }
 
+/// Names whose appearance as a call function in a residual betrays surviving
+/// interpreter dispatch — the residual is still threading through the PE or the
+/// self-interpreter instead of having been specialized away.
+const DISPATCH_FN_NAMES: &[&str] = &[
+    "peExpr", "peBlock", "coreEval", "coreExecBlock", "applyBinOp",
+];
+
+/// The Jones-optimality oracle: count the units of interpreter dispatch remaining
+/// in a residual program.
+///
+/// A residual that is genuinely Jones-optimal has dissolved the interpreter entirely
+/// and returns zero. One unit is counted for each of:
+/// - an `Inspect` arm dispatching on a Core IR variant (`CInt`, `CIf`, …);
+/// - an environment/function-map lookup `item <literal> of env` / `... of funcs`;
+/// - a Core IR constructor (`new CInt`, a `CInt(...)` call, a `VInt` variant, …);
+/// - a call to a known dispatch function ([`DISPATCH_FN_NAMES`]).
+///
+/// Unlike [`verify_no_overhead_source`], this walks the whole tree and accumulates a
+/// count rather than short-circuiting on the first violation.
+pub fn count_dispatch(source: &str) -> usize {
+    let mut interner = Interner::new();
+    let mut lexer = Lexer::new(source, &mut interner);
+    let tokens = lexer.tokenize();
+
+    let type_registry = {
+        let mut discovery = DiscoveryPass::new(&tokens, &mut interner);
+        let result = discovery.run_full();
+        result.types
+    };
+
+    let mut world_state = WorldState::new();
+    let expr_arena = Arena::new();
+    let term_arena = Arena::new();
+    let np_arena = Arena::new();
+    let sym_arena = Arena::new();
+    let role_arena = Arena::new();
+    let pp_arena = Arena::new();
+    let stmt_arena: Arena<Stmt> = Arena::new();
+    let imperative_expr_arena: Arena<Expr> = Arena::new();
+    let type_expr_arena: Arena<TypeExpr> = Arena::new();
+
+    let ast_ctx = AstContext::with_types(
+        &expr_arena, &term_arena, &np_arena, &sym_arena,
+        &role_arena, &pp_arena, &stmt_arena, &imperative_expr_arena,
+        &type_expr_arena,
+    );
+
+    let mut parser = crate::parser::Parser::new(
+        tokens, &mut world_state, &mut interner, ast_ctx, type_registry,
+    );
+    let stmts = match parser.parse_program() {
+        Ok(s) => s,
+        // A residual we cannot parse cannot be asserted Jones-optimal; surface that as
+        // a non-zero count rather than a false clean bill of health.
+        Err(_) => return usize::MAX,
+    };
+
+    let mut count = 0usize;
+    for stmt in &stmts {
+        count_stmt_dispatch(stmt, &interner, &mut count);
+    }
+    count
+}
+
+fn count_stmt_dispatch(stmt: &Stmt, interner: &Interner, count: &mut usize) {
+    match stmt {
+        Stmt::Inspect { target, arms, .. } => {
+            count_expr_dispatch(target, interner, count);
+            for arm in arms {
+                if let Some(variant) = arm.variant {
+                    if CORE_VARIANT_NAMES.contains(&interner.resolve(variant)) {
+                        *count += 1;
+                    }
+                }
+                for s in arm.body.iter() {
+                    count_stmt_dispatch(s, interner, count);
+                }
+            }
+        }
+        Stmt::If { cond, then_block, else_block } => {
+            count_expr_dispatch(cond, interner, count);
+            for s in then_block.iter() {
+                count_stmt_dispatch(s, interner, count);
+            }
+            if let Some(els) = else_block {
+                for s in els.iter() {
+                    count_stmt_dispatch(s, interner, count);
+                }
+            }
+        }
+        Stmt::While { cond, body, .. } => {
+            count_expr_dispatch(cond, interner, count);
+            for s in body.iter() {
+                count_stmt_dispatch(s, interner, count);
+            }
+        }
+        Stmt::FunctionDef { body, .. } => {
+            for s in body.iter() {
+                count_stmt_dispatch(s, interner, count);
+            }
+        }
+        Stmt::Repeat { body, .. } => {
+            for s in body.iter() {
+                count_stmt_dispatch(s, interner, count);
+            }
+        }
+        Stmt::Let { value, .. } | Stmt::Set { value, .. } | Stmt::Show { object: value, .. } => {
+            count_expr_dispatch(value, interner, count);
+        }
+        Stmt::Return { value } => {
+            if let Some(v) = value {
+                count_expr_dispatch(v, interner, count);
+            }
+        }
+        _ => {}
+    }
+}
+
+fn count_expr_dispatch(expr: &Expr, interner: &Interner, count: &mut usize) {
+    match expr {
+        Expr::Index { collection, index } => {
+            if let Expr::Identifier(coll_sym) = collection {
+                let coll_name = interner.resolve(*coll_sym);
+                if (coll_name == "env" || coll_name == "funcs")
+                    && matches!(index, Expr::Literal(Literal::Text(_)))
+                {
+                    *count += 1;
+                }
+            }
+            count_expr_dispatch(collection, interner, count);
+            count_expr_dispatch(index, interner, count);
+        }
+        Expr::New { type_name, .. } => {
+            if CORE_VARIANT_NAMES.contains(&interner.resolve(*type_name)) {
+                *count += 1;
+            }
+        }
+        Expr::NewVariant { variant, .. } => {
+            if CORE_VARIANT_NAMES.contains(&interner.resolve(*variant)) {
+                *count += 1;
+            }
+        }
+        Expr::Call { function, args } => {
+            let fn_name = interner.resolve(*function);
+            if CORE_VARIANT_NAMES.contains(&fn_name) || DISPATCH_FN_NAMES.contains(&fn_name) {
+                *count += 1;
+            }
+            for a in args {
+                count_expr_dispatch(a, interner, count);
+            }
+        }
+        Expr::BinaryOp { left, right, .. } => {
+            count_expr_dispatch(left, interner, count);
+            count_expr_dispatch(right, interner, count);
+        }
+        Expr::Not { operand } => {
+            count_expr_dispatch(operand, interner, count);
+        }
+        Expr::Length { collection } => {
+            count_expr_dispatch(collection, interner, count);
+        }
+        Expr::FieldAccess { object, .. } => {
+            count_expr_dispatch(object, interner, count);
+        }
+        _ => {}
+    }
+}
+
 /// Returns the source text of the partial evaluator written in LogicAffeine.
 ///
 /// This PE operates on CProgram representations using explicit environments
@@ -4330,7 +4557,124 @@ pub fn projection1_source_real(core_types: &str, _interpreter: &str, program: &s
     }
 
     // Check if the residual already has function definitions
-    if trimmed.contains("## To ") {
+    if trimmed.contains("## To ") || trimmed.starts_with("## Main") {
+        Ok(trimmed.to_string())
+    } else {
+        Ok(format!("## Main\n{}", trimmed))
+    }
+}
+
+/// In-process variant of [`projection1_source_real`].
+///
+/// Identical in every respect except that the combined PE source is executed by the
+/// tree-walking interpreter via [`interpret_program`] rather than compiled to Rust and
+/// run through `cargo` ([`run_logos_source`]). This makes the genuine LOGOS partial
+/// evaluator cheap enough to drive a generative/differential test corpus.
+pub fn projection1_source_real_fast(core_types: &str, _interpreter: &str, program: &str) -> Result<String, String> {
+    let combined = pe_combined_source(core_types, program)?;
+
+    let raw_residual = interpret_program(&combined)
+        .map_err(|e| format!("PE execution failed: {:?}", e))?;
+    finish_projection1_residual(raw_residual)
+}
+
+/// Assemble the full PE-run source (core types + PE + decompiler + encoded
+/// input + driver) — the exact program [`projection1_source_real_fast`]
+/// executes. Public so differential harnesses can run it on a specific engine.
+pub fn pe_combined_source(core_types: &str, program: &str) -> Result<String, String> {
+    let full_source = if program.contains("## Main") || program.contains("## To ") {
+        program.to_string()
+    } else {
+        format!("## Main\n{}", program)
+    };
+
+    let encoded = encode_program_source(&full_source)
+        .map_err(|e| format!("Failed to encode program: {:?}", e))?;
+
+    let pe_source = pe_source_text();
+    let decompile_source = decompile_source_text();
+
+    let actual_core_types = if core_types.is_empty() { CORE_TYPES_FOR_PE } else { core_types };
+
+    // Driver: run PE, then transitively decompile every referenced function (specialized
+    // or original) so residual calls — e.g. an MSG-generalized recursive loop — resolve.
+    // For fully-inlined residuals (no calls) this emits nothing and matches the bare form.
+    let driver = r#"
+    Let state be makePeState(a new Map of Text to CVal, encodedFuncMap, 200).
+    Let residual be peBlock(encodedMain, state).
+    Let nl be chr(10).
+    Let mutable output be "".
+    Let specFuncs be peFuncs(state).
+    Let mutable allNames be collectCallNames(residual).
+    Let mutable emitted be a new Map of Text to Bool.
+    Let mutable changed be true.
+    While changed:
+        Set changed to false.
+        Let mutable toAdd be a new Seq of Text.
+        Repeat for fnKey in allNames:
+            Let fkStr be "{fnKey}".
+            If emitted contains fkStr:
+                Let skipE be true.
+            Otherwise:
+                Set item fkStr of emitted to true.
+                Let fkStr2 be "{fnKey}".
+                If specFuncs contains fkStr2:
+                    Let fdef be item fkStr2 of specFuncs.
+                    Inspect fdef:
+                        When CFuncDef (fn0, ps0, pt0, rt0, body0):
+                            Let children be collectCallNames(body0).
+                            Repeat for child in children:
+                                Let childStr be "{child}".
+                                If not emitted contains childStr:
+                                    Push child to toAdd.
+                                    Set changed to true.
+                        Otherwise:
+                            Let skipF be true.
+        Repeat for ta in toAdd:
+            Push ta to allNames.
+    Repeat for fnKey in allNames:
+        Let fkStr be "{fnKey}".
+        If specFuncs contains fkStr:
+            Let fdef be item fkStr of specFuncs.
+            Let funcSrc be decompileFunc(fdef).
+            If the length of funcSrc is greater than 0:
+                Set output to "{output}{funcSrc}{nl}".
+    Let mainSrc be decompileBlock(residual, 0).
+    Set output to "{output}## Main{nl}{mainSrc}".
+    Show output.
+"#;
+
+    let combined = format!(
+        "{}\n{}\n{}\n## Main\n{}\n{}",
+        actual_core_types,
+        pe_source,
+        decompile_source,
+        encoded,
+        driver,
+    );
+
+    Ok(combined)
+}
+
+/// The post-processing applied to a raw PE residual (the `Any`-type safety
+/// net + `## Main` normalization).
+pub fn finish_projection1_residual(raw_residual: String) -> Result<String, String> {
+    // Safety net (mirrors `fix_decompiled_types` on the P2/P3 path): specialized functions
+    // whose param/return types the PE could not propagate are emitted as `Any`, which the
+    // parser rejects. The tree-walker is dynamically typed, so a concrete placeholder type
+    // is cosmetic at runtime — rewrite `Any` annotations so the residual re-parses.
+    let fixed = raw_residual
+        .replace(": Any)", ": Int)")
+        .replace("-> Any:", "-> Int:")
+        .replace(" of Any", " of Int")
+        .replace(" to Any", " to Int");
+    let trimmed = fixed.trim();
+
+    if trimmed.is_empty() {
+        return Ok("## Main\n".to_string());
+    }
+
+    if trimmed.contains("## To ") || trimmed.starts_with("## Main") {
         Ok(trimmed.to_string())
     } else {
         Ok(format!("## Main\n{}", trimmed))

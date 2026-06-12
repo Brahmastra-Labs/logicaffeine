@@ -142,8 +142,18 @@ pub mod optimize;
 // Interpreter
 pub mod interpreter;
 
+// Shared semantics kernel — ONE implementation of value semantics used by the
+// tree-walker, the bytecode VM, and (later) the JIT slow paths.
+pub mod semantics;
+
+// Register bytecode VM (fast portable interpreter — WASM engine + JIT substrate).
+pub mod vm;
+
 // UI Bridge - high-level compilation for web interface
 pub mod ui_bridge;
+
+#[cfg(feature = "verification")]
+pub mod defeasible;
 
 // Verification pass (Z3-based, requires verification feature)
 #[cfg(feature = "verification")]
@@ -159,6 +169,11 @@ pub use ui_bridge::{
 };
 #[cfg(feature = "codegen")]
 pub use ui_bridge::generate_rust_code;
+#[cfg(feature = "verification")]
+pub use ui_bridge::{
+    check_theorem_defeasible, check_theorem_defeasible_consistent,
+    check_theorem_premises_consistent, check_theorem_smt,
+};
 
 // Provide module aliases for internal code
 pub mod intern {

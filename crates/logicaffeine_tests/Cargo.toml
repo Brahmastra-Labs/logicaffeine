@@ -1,6 +1,6 @@
 [package]
 name = "logicaffeine-tests"
-version = "0.9.16"
+version = "0.9.17"
 edition = "2021"
 publish = false
 
@@ -9,23 +9,37 @@ path = "src/lib.rs"
 
 [features]
 default = []
-verification = ["logicaffeine-compile/verification", "logicaffeine-proof/verification"]
+verification = [
+    "logicaffeine-compile/verification",
+    "logicaffeine-proof/verification",
+    "dep:logicaffeine-verify",
+    "dep:logicaffeine-tv",
+]
 ffi-link-tests = []
 web-tests = ["dep:logicaffeine-web"]
 
+# Z3-backed crates are OPTIONAL (gated behind `verification`) so the default
+# test path needs no Z3 toolchain. They sit in [dependencies] rather than
+# [dev-dependencies] because Cargo forbids optional dev-dependencies;
+# integration tests can use both sections.
 [dependencies]
 logicaffeine-web = { path = "../../apps/logicaffeine_web", optional = true }
+logicaffeine-verify = { path = "../logicaffeine_verify", optional = true }
+logicaffeine-tv = { path = "../logicaffeine_tv", optional = true }
+
+[target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
+logicaffeine-forge = { path = "../logicaffeine_forge" }
+logicaffeine-jit = { path = "../logicaffeine_jit" }
 
 [dev-dependencies]
 logicaffeine-base = { path = "../logicaffeine_base" }
-logicaffeine-kernel = { path = "../logicaffeine_kernel" }
+logicaffeine-kernel = { path = "../logicaffeine_kernel", features = ["serde"] }
 logicaffeine-language = { path = "../logicaffeine_language" }
 logicaffeine-compile = { path = "../logicaffeine_compile" }
 logicaffeine-proof = { path = "../logicaffeine_proof" }
 logicaffeine-data = { path = "../logicaffeine_data" }
 logicaffeine-system = { path = "../logicaffeine_system", features = ["full"] }
 logicaffeine-lexicon = { path = "../logicaffeine_lexicon" }
-logicaffeine-verify = { path = "../logicaffeine_verify" }
 tempfile = "3"
 futures = "0.3"
 tokio = { version = "1", features = ["rt-multi-thread", "macros"] }

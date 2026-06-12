@@ -292,7 +292,7 @@ impl AppState {
     }
 
     fn process_logic(&mut self, input: String) {
-        let options = CompileOptions { format: OutputFormat::Unicode };
+        let options = CompileOptions { format: OutputFormat::Unicode, pragmatic: false };
 
         let response = match compile_with_options(&input, options) {
             Ok(logic) => ChatMessage {

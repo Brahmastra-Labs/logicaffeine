@@ -348,6 +348,11 @@ fn synthesize_from_ast<'a>(
             format!("({} && {})", c, e)
         }
 
+        // Concessive: "main, although concession" → the main clause is asserted.
+        LogicExpr::Concessive { main, .. } => {
+            synthesize_from_ast(main, interner, clock, fol_signals)
+        }
+
         // Atom: bare symbol → treat as signal name
         LogicExpr::Atom(sym) => {
             let name = interner.resolve(*sym).to_string();

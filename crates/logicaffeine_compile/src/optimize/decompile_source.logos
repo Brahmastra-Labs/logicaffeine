@@ -27,6 +27,12 @@
         Return " and ".
     If op equals "||":
         Return " or ".
+    If op equals "^":
+        Return " xor ".
+    If op equals "<<":
+        Return " shifted left by ".
+    If op equals ">>":
+        Return " shifted right by ".
     Return " {op} ".
 
 ## To joinExprs (parts: Seq of Text, sep: Text) -> Text:
@@ -145,6 +151,10 @@
             Return "intersection of {ls} and {rs}".
         When CNew (typeName, fieldNames, fields):
             If length of fieldNames equals 0:
+                If typeName equals "Map":
+                    Return "a new Map of Text to Int".
+                If typeName equals "Set":
+                    Return "a new Set of Int".
                 Return "a new {typeName}".
             Let fParts be a new Seq of Text.
             Let mutable fi be 1.
@@ -175,8 +185,21 @@
                     When CLiteralPart (v):
                         Set result to "{result}{v}".
                     When CExprPart (expr):
-                        Let es be decompileExpr(expr).
-                        Set result to "{result}{lb}{es}{rb}".
+                        Inspect expr:
+                            When CInt (iv):
+                                Set result to "{result}{iv}".
+                            When CText (tv):
+                                Set result to "{result}{tv}".
+                            When CBool (bv):
+                                If bv:
+                                    Set result to "{result}true".
+                                Otherwise:
+                                    Set result to "{result}false".
+                            When CFloat (fv):
+                                Set result to "{result}{fv}".
+                            Otherwise:
+                                Let es be decompileExpr(expr).
+                                Set result to "{result}{lb}{es}{rb}".
             Let q be chr(34).
             Return "{q}{result}{q}".
         When CDuration (amount, unit):

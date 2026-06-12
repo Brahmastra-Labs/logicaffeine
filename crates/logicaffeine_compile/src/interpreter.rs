@@ -434,17 +434,70 @@ pub struct FunctionDef<'a> {
 /// Phase 55: Now async with optional VFS for file operations.
 /// Phase 102: Kernel context for inductive type support.
 /// Flat environment with O(1) lookup and undo-log scoping.
+/// LEXICALLY scoped environment.
+///
+/// Main's top-level bindings are globals, visible (and assignable) everywhere.
+/// Each function call swaps in a fresh `locals` frame — a callee sees its
+/// parameters, its own bindings, and the globals, but NEVER its caller's
+/// locals. Block scopes (If/While/Repeat bodies, Zone, Inspect arms) are
+/// undo-logged: `define`s inside a block are reverted when it ends, while
+/// `assign`s persist (mutation is not binding).
 struct Environment {
-    values: HashMap<Symbol, RuntimeValue>,
+    /// Main TOP-LEVEL bindings — the program's globals, visible everywhere.
+    globals: HashMap<Symbol, RuntimeValue>,
+    /// Main BLOCK-scoped bindings (Let inside an If/While/Repeat at Main
+    /// level). Lexically NOT visible to called functions.
+    main_block: HashMap<Symbol, RuntimeValue>,
+    /// The current function frame's bindings.
+    locals: HashMap<Symbol, RuntimeValue>,
     save_stack: Vec<Vec<(Symbol, Option<RuntimeValue>)>>,
+    // Shelved (locals, save_stack) of each caller. The save stack is shelved
+    // WITH the locals so a callee's defines can never be recorded into a
+    // caller's undo frame.
+    frame_stack: Vec<(HashMap<Symbol, RuntimeValue>, Vec<Vec<(Symbol, Option<RuntimeValue>)>>)>,
 }
 
 impl Environment {
     fn new() -> Self {
         Environment {
-            values: HashMap::new(),
+            globals: HashMap::new(),
+            main_block: HashMap::new(),
+            locals: HashMap::new(),
             save_stack: Vec::new(),
+            frame_stack: Vec::new(),
         }
+    }
+
+    fn in_function(&self) -> bool {
+        !self.frame_stack.is_empty()
+    }
+
+    /// The map `define` writes to in the current context: function locals, or
+    /// at Main level the block map (inside a block) vs the globals (at root).
+    fn define_map(&mut self) -> &mut HashMap<Symbol, RuntimeValue> {
+        if !self.frame_stack.is_empty() {
+            &mut self.locals
+        } else if !self.save_stack.is_empty() {
+            &mut self.main_block
+        } else {
+            &mut self.globals
+        }
+    }
+
+    /// Enter a function frame: the caller's locals and undo log are shelved;
+    /// the callee starts with neither (the lexical barrier).
+    fn push_frame(&mut self) {
+        self.frame_stack.push((
+            std::mem::take(&mut self.locals),
+            std::mem::take(&mut self.save_stack),
+        ));
+    }
+
+    /// Leave a function frame, restoring the caller's locals and undo log.
+    fn pop_frame(&mut self) {
+        let (locals, saves) = self.frame_stack.pop().unwrap_or_default();
+        self.locals = locals;
+        self.save_stack = saves;
     }
 
     fn push_scope(&mut self) {
@@ -453,29 +506,50 @@ impl Environment {
 
     fn pop_scope(&mut self) {
         if let Some(saves) = self.save_stack.pop() {
+            let map = if !self.frame_stack.is_empty() {
+                &mut self.locals
+            } else {
+                // Main level: block-scoped defines live in main_block (a
+                // define at Main ROOT records no undo — save_stack was empty).
+                &mut self.main_block
+            };
             for (sym, old_val) in saves.into_iter().rev() {
                 match old_val {
-                    Some(val) => { self.values.insert(sym, val); }
-                    None => { self.values.remove(&sym); }
+                    Some(val) => { map.insert(sym, val); }
+                    None => { map.remove(&sym); }
                 }
             }
         }
     }
 
     fn define(&mut self, name: Symbol, value: RuntimeValue) {
-        let old = self.values.insert(name, value);
+        let map = self.define_map();
+        let old = map.insert(name, value);
         if let Some(frame) = self.save_stack.last_mut() {
             frame.push((name, old));
         }
     }
 
     fn lookup(&self, name: Symbol) -> Option<&RuntimeValue> {
-        self.values.get(&name)
+        if self.in_function() {
+            self.locals.get(&name).or_else(|| self.globals.get(&name))
+        } else {
+            self.main_block.get(&name).or_else(|| self.globals.get(&name))
+        }
     }
 
     fn assign(&mut self, name: Symbol, value: RuntimeValue) -> bool {
-        if self.values.contains_key(&name) {
-            self.values.insert(name, value);
+        if self.in_function() {
+            if self.locals.contains_key(&name) {
+                self.locals.insert(name, value);
+                return true;
+            }
+        } else if self.main_block.contains_key(&name) {
+            self.main_block.insert(name, value);
+            return true;
+        }
+        if self.globals.contains_key(&name) {
+            self.globals.insert(name, value);
             true
         } else {
             false
@@ -504,6 +578,8 @@ pub struct Interpreter<'a> {
     /// Side-table for closure body AST references.
     /// Indexed by `ClosureValue::body_index`.
     closure_bodies: Vec<ClosureBodyRef<'a>>,
+    /// Live LOGOS call depth, bounded by `semantics::MAX_CALL_DEPTH`.
+    call_depth: usize,
     // Pre-interned builtin function symbols for O(1) dispatch
     sym_show: Option<Symbol>,
     sym_length: Option<Symbol>,
@@ -519,6 +595,7 @@ pub struct Interpreter<'a> {
     sym_round: Option<Symbol>,
     sym_pow: Option<Symbol>,
     sym_copy: Option<Symbol>,
+    sym_chr: Option<Symbol>,
 }
 
 impl<'a> Interpreter<'a> {
@@ -534,6 +611,7 @@ impl<'a> Interpreter<'a> {
             policy_registry: None,
             output_callback: None,
             closure_bodies: Vec::new(),
+            call_depth: 0,
             sym_show: interner.lookup("show"),
             sym_length: interner.lookup("length"),
             sym_format: interner.lookup("format"),
@@ -548,6 +626,7 @@ impl<'a> Interpreter<'a> {
             sym_round: interner.lookup("round"),
             sym_pow: interner.lookup("pow"),
             sym_copy: interner.lookup("copy"),
+            sym_chr: interner.lookup("chr"),
         }
     }
 
@@ -704,19 +783,7 @@ impl<'a> Interpreter<'a> {
                 use crate::ast::stmt::Pattern;
 
                 let iter_val = self.evaluate_expr(iterable).await?;
-                let items: Vec<RuntimeValue> = match &iter_val {
-                    RuntimeValue::List(list) => list.borrow().clone(),
-                    RuntimeValue::Set(set) => set.borrow().clone(),
-                    RuntimeValue::Text(s) => {
-                        s.chars().map(|c| RuntimeValue::Text(Rc::new(c.to_string()))).collect()
-                    }
-                    RuntimeValue::Map(map) => {
-                        map.borrow().iter()
-                            .map(|(k, v)| RuntimeValue::Tuple(Rc::new(vec![k.clone(), v.clone()])))
-                            .collect()
-                    }
-                    _ => return Err(format!("Cannot iterate over {}", iter_val.type_name())),
-                };
+                let items = crate::semantics::collections::iteration_snapshot(&iter_val)?;
 
                 self.push_scope();
                 for item in items {
@@ -795,24 +862,12 @@ impl<'a> Interpreter<'a> {
                 let val = self.evaluate_expr(value).await?;
                 if let Expr::Identifier(coll_sym) = collection {
                     let coll_val = self.lookup(*coll_sym)?;
-                    if let RuntimeValue::List(items) = coll_val {
-                        items.borrow_mut().push(val);
-                    } else {
-                        return Err("Can only push to a List".to_string());
-                    }
+                    crate::semantics::collections::list_push(&coll_val, val)?;
                 } else if let Expr::FieldAccess { object, field } = collection {
                     if let Expr::Identifier(obj_sym) = *object {
                         let obj_val = self.lookup(*obj_sym)?;
-                        if let RuntimeValue::Struct(s) = obj_val {
-                            let field_name = self.interner.resolve(*field).to_string();
-                            if let Some(RuntimeValue::List(items)) = s.fields.get(&field_name) {
-                                items.borrow_mut().push(val);
-                            } else {
-                                return Err(format!("Field '{}' is not a List", field_name));
-                            }
-                        } else {
-                            return Err("Cannot push to field of non-struct".to_string());
-                        }
+                        let field_name = self.interner.resolve(*field);
+                        crate::semantics::collections::push_to_struct_field(&obj_val, field_name, val)?;
                     } else {
                         return Err("Push to nested field access not supported".to_string());
                     }
@@ -825,13 +880,9 @@ impl<'a> Interpreter<'a> {
             Stmt::Pop { collection, into } => {
                 if let Expr::Identifier(coll_sym) = collection {
                     let coll_val = self.lookup(*coll_sym)?;
-                    if let RuntimeValue::List(items) = coll_val {
-                        let popped = items.borrow_mut().pop().unwrap_or(RuntimeValue::Nothing);
-                        if let Some(into_var) = into {
-                            self.define(*into_var, popped);
-                        }
-                    } else {
-                        return Err("Can only pop from a List".to_string());
+                    let popped = crate::semantics::collections::list_pop(&coll_val)?;
+                    if let Some(into_var) = into {
+                        self.define(*into_var, popped);
                     }
                 } else {
                     return Err("Pop collection must be an identifier".to_string());
@@ -843,14 +894,7 @@ impl<'a> Interpreter<'a> {
                 let val = self.evaluate_expr(value).await?;
                 if let Expr::Identifier(coll_sym) = collection {
                     let coll_val = self.lookup(*coll_sym)?;
-                    if let RuntimeValue::Set(items) = coll_val {
-                        let already_present = items.borrow().iter().any(|x| self.values_equal(x, &val));
-                        if !already_present {
-                            items.borrow_mut().push(val);
-                        }
-                    } else {
-                        return Err("Can only add to a Set".to_string());
-                    }
+                    crate::semantics::collections::set_add(&coll_val, val)?;
                 } else {
                     return Err("Add collection must be an identifier".to_string());
                 }
@@ -861,11 +905,7 @@ impl<'a> Interpreter<'a> {
                 let val = self.evaluate_expr(value).await?;
                 if let Expr::Identifier(coll_sym) = collection {
                     let coll_val = self.lookup(*coll_sym)?;
-                    if let RuntimeValue::Set(items) = coll_val {
-                        items.borrow_mut().retain(|x| !self.values_equal(x, &val));
-                    } else {
-                        return Err("Can only remove from a Set".to_string());
-                    }
+                    crate::semantics::collections::remove_from(&coll_val, &val)?;
                 } else {
                     return Err("Remove collection must be an identifier".to_string());
                 }
@@ -876,26 +916,19 @@ impl<'a> Interpreter<'a> {
                 let idx_val = self.evaluate_expr(index).await?;
                 let new_val = self.evaluate_expr(value).await?;
                 if let Expr::Identifier(coll_sym) = collection {
-                    let coll_val = self.lookup(*coll_sym)?;
-                    match (coll_val, &idx_val) {
-                        (RuntimeValue::List(items), RuntimeValue::Int(n)) => {
-                            let idx = *n as usize;
-                            let mut items = items.borrow_mut();
-                            if idx == 0 || idx > items.len() {
-                                return Err(format!("Index {} out of bounds for list of length {}", idx, items.len()));
-                            }
-                            items[idx - 1] = new_val;
-                        }
-                        (RuntimeValue::Map(map), key) => {
-                            map.borrow_mut().insert(key.clone(), new_val);
-                        }
-                        (RuntimeValue::List(_), _) => {
-                            return Err("List index must be an integer".to_string());
-                        }
-                        _ => {
-                            return Err(format!("Cannot index into {}", coll_val.type_name()));
+                    // Struct field set via index syntax: `Set item "field" of structVar to v`.
+                    // Mirrors the read side (`item "field" of struct`) so struct-field
+                    // mutation round-trips through the decompiler's CMapSet rendering.
+                    if let RuntimeValue::Text(field) = &idx_val {
+                        let cur = self.lookup(*coll_sym)?.clone();
+                        if let RuntimeValue::Struct(mut s) = cur {
+                            s.fields.insert(field.to_string(), new_val);
+                            self.assign(*coll_sym, RuntimeValue::Struct(s))?;
+                            return Ok(ControlFlow::Continue);
                         }
                     }
+                    let coll_val = self.lookup(*coll_sym)?;
+                    crate::semantics::collections::index_set(&coll_val, &idx_val, new_val)?;
                 } else {
                     return Err("SetIndex collection must be an identifier".to_string());
                 }
@@ -1022,12 +1055,8 @@ impl<'a> Interpreter<'a> {
                                 .cloned()
                                 .unwrap_or(RuntimeValue::Int(0));
 
-                            let merged = match (&current, &source_field_val) {
-                                (RuntimeValue::Int(a), RuntimeValue::Int(b)) => {
-                                    RuntimeValue::Int(a + b)
-                                }
-                                _ => source_field_val,
-                            };
+                            let merged =
+                                crate::semantics::arith::crdt_merge_field(&current, source_field_val);
                             s.fields.insert(field_name, merged);
                         }
                         self.assign(*target_sym, target_val)?;
@@ -1056,11 +1085,8 @@ impl<'a> Interpreter<'a> {
                             .cloned()
                             .unwrap_or(RuntimeValue::Int(0));
 
-                        let new_val = match current {
-                            RuntimeValue::Int(n) => RuntimeValue::Int(n + amount_int),
-                            RuntimeValue::Nothing => RuntimeValue::Int(amount_int),
-                            _ => return Err(format!("Field '{}' is not a counter", field_name)),
-                        };
+                        let new_val =
+                            crate::semantics::arith::crdt_counter_bump(current, amount_int, &field_name)?;
                         s.fields.insert(field_name, new_val);
                         self.assign(*obj_sym, obj_val)?;
                     } else {
@@ -1088,11 +1114,11 @@ impl<'a> Interpreter<'a> {
                             .cloned()
                             .unwrap_or(RuntimeValue::Int(0));
 
-                        let new_val = match current {
-                            RuntimeValue::Int(n) => RuntimeValue::Int(n - amount_int),
-                            RuntimeValue::Nothing => RuntimeValue::Int(-amount_int),
-                            _ => return Err(format!("Field '{}' is not a counter", field_name)),
-                        };
+                        let new_val = crate::semantics::arith::crdt_counter_bump(
+                            current,
+                            amount_int.wrapping_neg(),
+                            &field_name,
+                        )?;
                         s.fields.insert(field_name, new_val);
                         self.assign(*obj_sym, obj_val)?;
                     } else {
@@ -1183,7 +1209,7 @@ impl<'a> Interpreter<'a> {
                 let val = self.evaluate_expr(milliseconds).await?;
                 let nanos = match val {
                     RuntimeValue::Duration(nanos) => nanos,
-                    RuntimeValue::Int(ms) => ms * 1_000_000, // Convert ms to nanos
+                    RuntimeValue::Int(ms) => ms.wrapping_mul(1_000_000), // ms → nanos
                     _ => return Err(format!("Sleep requires Duration or Int, got {}", val.type_name())),
                 };
 
@@ -1345,33 +1371,13 @@ impl<'a> Interpreter<'a> {
 
             Expr::Identifier(sym) => {
                 let name = self.interner.resolve(*sym);
-                // Handle temporal builtins
+                // Handle temporal builtins (the NAME wins, even when shadowed)
                 match name {
                     "today" => {
-                        #[cfg(not(target_arch = "wasm32"))]
-                        {
-                            use std::time::{SystemTime, UNIX_EPOCH};
-                            let duration = SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default();
-                            let days = (duration.as_secs() / 86400) as i32;
-                            return Ok(RuntimeValue::Date(days));
-                        }
-                        #[cfg(target_arch = "wasm32")]
-                        {
-                            return Ok(RuntimeValue::Date(0)); // Placeholder for WASM
-                        }
+                        return Ok(crate::semantics::temporal::today());
                     }
                     "now" => {
-                        #[cfg(not(target_arch = "wasm32"))]
-                        {
-                            use std::time::{SystemTime, UNIX_EPOCH};
-                            let duration = SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default();
-                            let nanos = duration.as_nanos() as i64;
-                            return Ok(RuntimeValue::Moment(nanos));
-                        }
-                        #[cfg(target_arch = "wasm32")]
-                        {
-                            return Ok(RuntimeValue::Moment(0)); // Placeholder for WASM
-                        }
+                        return Ok(crate::semantics::temporal::now());
                     }
                     _ => {}
                 }
@@ -1419,54 +1425,14 @@ impl<'a> Interpreter<'a> {
             Expr::Index { collection, index } => {
                 let coll_val = self.evaluate_expr(collection).await?;
                 let idx_val = self.evaluate_expr(index).await?;
-                match (&coll_val, &idx_val) {
-                    (RuntimeValue::List(items), RuntimeValue::Int(idx)) => {
-                        let idx = *idx as usize;
-                        let items = items.borrow();
-                        if idx == 0 || idx > items.len() {
-                            return Err(format!("Index {} out of bounds", idx));
-                        }
-                        Ok(items[idx - 1].clone())
-                    }
-                    (RuntimeValue::Tuple(items), RuntimeValue::Int(idx)) => {
-                        let idx = *idx as usize;
-                        if idx == 0 || idx > items.len() {
-                            return Err(format!("Index {} out of bounds", idx));
-                        }
-                        Ok(items[idx - 1].clone())
-                    }
-                    (RuntimeValue::Text(s), RuntimeValue::Int(idx)) => {
-                        let idx = *idx as usize;
-                        if idx == 0 || idx > s.chars().count() {
-                            return Err(format!("Index {} out of bounds", idx));
-                        }
-                        Ok(RuntimeValue::Text(Rc::new(s.chars().nth(idx - 1).unwrap().to_string())))
-                    }
-                    (RuntimeValue::Map(map), key) => {
-                        let map = map.borrow();
-                        match map.get(key) {
-                            Some(val) => Ok(val.clone()),
-                            None => Err(format!("Key '{}' not found in map", key.to_display_string())),
-                        }
-                    }
-                    _ => Err(format!("Cannot index {} with {}", coll_val.type_name(), idx_val.type_name())),
-                }
+                crate::semantics::collections::index_get(&coll_val, &idx_val)
             }
 
             Expr::Slice { collection, start, end } => {
                 let coll_val = self.evaluate_expr(collection).await?;
                 let start_val = self.evaluate_expr(start).await?;
                 let end_val = self.evaluate_expr(end).await?;
-                match (&coll_val, &start_val, &end_val) {
-                    (RuntimeValue::List(items), RuntimeValue::Int(s), RuntimeValue::Int(e)) => {
-                        let items = items.borrow();
-                        let start = (*s as usize).saturating_sub(1);
-                        let end = *e as usize;
-                        let slice: Vec<RuntimeValue> = items.get(start..end).unwrap_or(&[]).to_vec();
-                        Ok(RuntimeValue::List(Rc::new(RefCell::new(slice))))
-                    }
-                    _ => Err("Slice requires List and Int indices".to_string()),
-                }
+                crate::semantics::collections::slice(&coll_val, &start_val, &end_val)
             }
 
             Expr::Copy { expr: inner } => {
@@ -1481,80 +1447,25 @@ impl<'a> Interpreter<'a> {
 
             Expr::Length { collection } => {
                 let coll_val = self.evaluate_expr(collection).await?;
-                match &coll_val {
-                    RuntimeValue::List(items) => Ok(RuntimeValue::Int(items.borrow().len() as i64)),
-                    RuntimeValue::Tuple(items) => Ok(RuntimeValue::Int(items.len() as i64)),
-                    RuntimeValue::Set(items) => Ok(RuntimeValue::Int(items.borrow().len() as i64)),
-                    RuntimeValue::Text(s) => Ok(RuntimeValue::Int(s.len() as i64)),
-                    RuntimeValue::Map(map) => Ok(RuntimeValue::Int(map.borrow().len() as i64)),
-                    _ => Err(format!("Cannot get length of {}", coll_val.type_name())),
-                }
+                crate::semantics::collections::length_of(&coll_val)
             }
 
             Expr::Contains { collection, value } => {
                 let coll_val = self.evaluate_expr(collection).await?;
                 let val = self.evaluate_expr(value).await?;
-                match &coll_val {
-                    RuntimeValue::Set(items) => {
-                        let items = items.borrow();
-                        let found = items.iter().any(|item| self.values_equal(item, &val));
-                        Ok(RuntimeValue::Bool(found))
-                    }
-                    RuntimeValue::List(items) => {
-                        let items = items.borrow();
-                        let found = items.iter().any(|item| self.values_equal(item, &val));
-                        Ok(RuntimeValue::Bool(found))
-                    }
-                    RuntimeValue::Map(entries) => {
-                        Ok(RuntimeValue::Bool(entries.borrow().contains_key(&val)))
-                    }
-                    RuntimeValue::Text(s) => {
-                        if let RuntimeValue::Text(needle) = &val {
-                            Ok(RuntimeValue::Bool(s.contains(needle.as_str())))
-                        } else if let RuntimeValue::Char(c) = &val {
-                            Ok(RuntimeValue::Bool(s.contains(*c)))
-                        } else {
-                            Err(format!("Cannot check if Text contains {}", val.type_name()))
-                        }
-                    }
-                    _ => Err(format!("Cannot check contains on {}", coll_val.type_name())),
-                }
+                crate::semantics::collections::contains(&coll_val, &val)
             }
 
             Expr::Union { left, right } => {
                 let left_val = self.evaluate_expr(left).await?;
                 let right_val = self.evaluate_expr(right).await?;
-                match (&left_val, &right_val) {
-                    (RuntimeValue::Set(a), RuntimeValue::Set(b)) => {
-                        let a = a.borrow();
-                        let b = b.borrow();
-                        let mut result = a.clone();
-                        for item in b.iter() {
-                            if !result.iter().any(|x| self.values_equal(x, item)) {
-                                result.push(item.clone());
-                            }
-                        }
-                        Ok(RuntimeValue::Set(Rc::new(RefCell::new(result))))
-                    }
-                    _ => Err(format!("Cannot union {} and {}", left_val.type_name(), right_val.type_name())),
-                }
+                crate::semantics::collections::union(&left_val, &right_val)
             }
 
             Expr::Intersection { left, right } => {
                 let left_val = self.evaluate_expr(left).await?;
                 let right_val = self.evaluate_expr(right).await?;
-                match (&left_val, &right_val) {
-                    (RuntimeValue::Set(a), RuntimeValue::Set(b)) => {
-                        let a = a.borrow();
-                        let b = b.borrow();
-                        let result: Vec<RuntimeValue> = a.iter()
-                            .filter(|item| b.iter().any(|x| self.values_equal(x, item)))
-                            .cloned()
-                            .collect();
-                        Ok(RuntimeValue::Set(Rc::new(RefCell::new(result))))
-                    }
-                    _ => Err(format!("Cannot intersect {} and {}", left_val.type_name(), right_val.type_name())),
-                }
+                crate::semantics::collections::intersection(&left_val, &right_val)
             }
 
             Expr::List(items) => {
@@ -1576,15 +1487,7 @@ impl<'a> Interpreter<'a> {
             Expr::Range { start, end } => {
                 let start_val = self.evaluate_expr(start).await?;
                 let end_val = self.evaluate_expr(end).await?;
-                match (&start_val, &end_val) {
-                    (RuntimeValue::Int(s), RuntimeValue::Int(e)) => {
-                        let range: Vec<RuntimeValue> = (*s..=*e)
-                            .map(RuntimeValue::Int)
-                            .collect();
-                        Ok(RuntimeValue::List(Rc::new(RefCell::new(range))))
-                    }
-                    _ => Err("Range requires Int bounds".to_string()),
-                }
+                crate::semantics::collections::range(&start_val, &end_val)
             }
 
             Expr::FieldAccess { object, field } => {
@@ -1687,11 +1590,7 @@ impl<'a> Interpreter<'a> {
 
             Expr::Not { operand } => {
                 let val = self.evaluate_expr(operand).await?;
-                match val {
-                    RuntimeValue::Bool(b) => Ok(RuntimeValue::Bool(!b)),
-                    RuntimeValue::Int(n) => Ok(RuntimeValue::Int(!n)),
-                    other => Err(format!("Cannot apply 'not' to {}", other.type_name())),
-                }
+                crate::semantics::arith::not_value(val)
             }
 
             Expr::InterpolatedString(parts) => {
@@ -1788,245 +1687,9 @@ impl<'a> Interpreter<'a> {
         }
     }
 
-    /// Apply a binary operator.
+    /// Apply a binary operator (delegates to the shared semantics kernel).
     fn apply_binary_op(&self, op: BinaryOpKind, left: RuntimeValue, right: RuntimeValue) -> Result<RuntimeValue, String> {
-        match op {
-            BinaryOpKind::Add => self.apply_add(left, right),
-            BinaryOpKind::Subtract => self.apply_subtract(left, right),
-            BinaryOpKind::Multiply => self.apply_multiply(left, right),
-            BinaryOpKind::Divide => self.apply_divide(left, right),
-            BinaryOpKind::Modulo => self.apply_modulo(left, right),
-            BinaryOpKind::Eq => Ok(RuntimeValue::Bool(self.values_equal(&left, &right))),
-            BinaryOpKind::NotEq => Ok(RuntimeValue::Bool(!self.values_equal(&left, &right))),
-            BinaryOpKind::Lt => self.apply_comparison(left, right, |a, b| a < b),
-            BinaryOpKind::Gt => self.apply_comparison(left, right, |a, b| a > b),
-            BinaryOpKind::LtEq => self.apply_comparison(left, right, |a, b| a <= b),
-            BinaryOpKind::GtEq => self.apply_comparison(left, right, |a, b| a >= b),
-            BinaryOpKind::And => match (&left, &right) {
-                (RuntimeValue::Int(a), RuntimeValue::Int(b)) => Ok(RuntimeValue::Int(a & b)),
-                _ => Ok(RuntimeValue::Bool(left.is_truthy() && right.is_truthy())),
-            },
-            BinaryOpKind::Or => match (&left, &right) {
-                (RuntimeValue::Int(a), RuntimeValue::Int(b)) => Ok(RuntimeValue::Int(a | b)),
-                _ => Ok(RuntimeValue::Bool(left.is_truthy() || right.is_truthy())),
-            },
-            // Phase 53: String concatenation
-            BinaryOpKind::Concat => self.apply_concat(left, right),
-            BinaryOpKind::BitXor => match (left, right) {
-                (RuntimeValue::Int(a), RuntimeValue::Int(b)) => Ok(RuntimeValue::Int(a ^ b)),
-                _ => Err("Bitwise XOR requires integer operands".to_string()),
-            },
-            BinaryOpKind::Shl => match (left, right) {
-                (RuntimeValue::Int(a), RuntimeValue::Int(b)) => Ok(RuntimeValue::Int(a << b)),
-                _ => Err("Left shift requires integer operands".to_string()),
-            },
-            BinaryOpKind::Shr => match (left, right) {
-                (RuntimeValue::Int(a), RuntimeValue::Int(b)) => Ok(RuntimeValue::Int(a >> b)),
-                _ => Err("Right shift requires integer operands".to_string()),
-            },
-        }
-    }
-
-    fn apply_add(&self, left: RuntimeValue, right: RuntimeValue) -> Result<RuntimeValue, String> {
-        match (&left, &right) {
-            (RuntimeValue::Int(a), RuntimeValue::Int(b)) => Ok(RuntimeValue::Int(a + b)),
-            (RuntimeValue::Float(a), RuntimeValue::Float(b)) => Ok(RuntimeValue::Float(a + b)),
-            (RuntimeValue::Int(a), RuntimeValue::Float(b)) => Ok(RuntimeValue::Float(*a as f64 + b)),
-            (RuntimeValue::Float(a), RuntimeValue::Int(b)) => Ok(RuntimeValue::Float(a + *b as f64)),
-            (RuntimeValue::Text(a), RuntimeValue::Text(b)) => Ok(RuntimeValue::Text(Rc::new(format!("{}{}", a, b)))),
-            (RuntimeValue::Text(a), other) => Ok(RuntimeValue::Text(Rc::new(format!("{}{}", a, other.to_display_string())))),
-            (other, RuntimeValue::Text(b)) => Ok(RuntimeValue::Text(Rc::new(format!("{}{}", other.to_display_string(), b)))),
-            (RuntimeValue::Duration(a), RuntimeValue::Duration(b)) => Ok(RuntimeValue::Duration(a + b)),
-            (RuntimeValue::Date(days), RuntimeValue::Span { months, days: span_days }) => {
-                let result_days = Self::date_add_span(*days, *months, *span_days);
-                Ok(RuntimeValue::Date(result_days))
-            }
-            _ => Err(format!("Cannot add {} and {}", left.type_name(), right.type_name())),
-        }
-    }
-
-    fn apply_concat(&self, left: RuntimeValue, right: RuntimeValue) -> Result<RuntimeValue, String> {
-        Ok(RuntimeValue::Text(Rc::new(format!("{}{}", left.to_display_string(), right.to_display_string()))))
-    }
-
-    fn apply_subtract(&self, left: RuntimeValue, right: RuntimeValue) -> Result<RuntimeValue, String> {
-        match (&left, &right) {
-            (RuntimeValue::Int(a), RuntimeValue::Int(b)) => Ok(RuntimeValue::Int(a - b)),
-            (RuntimeValue::Float(a), RuntimeValue::Float(b)) => Ok(RuntimeValue::Float(a - b)),
-            (RuntimeValue::Int(a), RuntimeValue::Float(b)) => Ok(RuntimeValue::Float(*a as f64 - b)),
-            (RuntimeValue::Float(a), RuntimeValue::Int(b)) => Ok(RuntimeValue::Float(a - *b as f64)),
-            // Duration subtraction
-            (RuntimeValue::Duration(a), RuntimeValue::Duration(b)) => Ok(RuntimeValue::Duration(a - b)),
-            // Date - Span → Date (calendar-aware)
-            (RuntimeValue::Date(days), RuntimeValue::Span { months, days: span_days }) => {
-                let result_days = Self::date_add_span(*days, -*months, -*span_days);
-                Ok(RuntimeValue::Date(result_days))
-            }
-            _ => Err(format!("Cannot subtract {} from {}", right.type_name(), left.type_name())),
-        }
-    }
-
-    fn apply_multiply(&self, left: RuntimeValue, right: RuntimeValue) -> Result<RuntimeValue, String> {
-        match (&left, &right) {
-            (RuntimeValue::Int(a), RuntimeValue::Int(b)) => Ok(RuntimeValue::Int(a * b)),
-            (RuntimeValue::Float(a), RuntimeValue::Float(b)) => Ok(RuntimeValue::Float(a * b)),
-            (RuntimeValue::Int(a), RuntimeValue::Float(b)) => Ok(RuntimeValue::Float(*a as f64 * b)),
-            (RuntimeValue::Float(a), RuntimeValue::Int(b)) => Ok(RuntimeValue::Float(a * *b as f64)),
-            _ => Err(format!("Cannot multiply {} and {}", left.type_name(), right.type_name())),
-        }
-    }
-
-    fn apply_divide(&self, left: RuntimeValue, right: RuntimeValue) -> Result<RuntimeValue, String> {
-        match (&left, &right) {
-            (RuntimeValue::Int(a), RuntimeValue::Int(b)) => {
-                if *b == 0 {
-                    return Err("Division by zero".to_string());
-                }
-                Ok(RuntimeValue::Int(a / b))
-            }
-            (RuntimeValue::Float(a), RuntimeValue::Float(b)) => {
-                if *b == 0.0 {
-                    return Err("Division by zero".to_string());
-                }
-                Ok(RuntimeValue::Float(a / b))
-            }
-            (RuntimeValue::Int(a), RuntimeValue::Float(b)) => {
-                if *b == 0.0 {
-                    return Err("Division by zero".to_string());
-                }
-                Ok(RuntimeValue::Float(*a as f64 / b))
-            }
-            (RuntimeValue::Float(a), RuntimeValue::Int(b)) => {
-                if *b == 0 {
-                    return Err("Division by zero".to_string());
-                }
-                Ok(RuntimeValue::Float(a / *b as f64))
-            }
-            _ => Err(format!("Cannot divide {} by {}", left.type_name(), right.type_name())),
-        }
-    }
-
-    fn apply_modulo(&self, left: RuntimeValue, right: RuntimeValue) -> Result<RuntimeValue, String> {
-        match (&left, &right) {
-            (RuntimeValue::Int(a), RuntimeValue::Int(b)) => {
-                if *b == 0 {
-                    return Err("Modulo by zero".to_string());
-                }
-                Ok(RuntimeValue::Int(a % b))
-            }
-            _ => Err(format!("Cannot compute modulo of {} and {}", left.type_name(), right.type_name())),
-        }
-    }
-
-    /// Add months and days to a date (calendar-aware).
-    /// Uses Howard Hinnant's date algorithms for correct month-end handling.
-    fn date_add_span(days_since_epoch: i32, months: i32, days: i32) -> i32 {
-        // Convert days since epoch to (year, month, day)
-        // Using Howard Hinnant's algorithm (same as in to_display_string)
-        let z = days_since_epoch + 719468;
-        let era = if z >= 0 { z / 146097 } else { (z - 146096) / 146097 };
-        let doe = (z - era * 146097) as u32;
-        let yoe = (doe - doe / 1460 + doe / 36524 - doe / 146096) / 365;
-        let y = yoe as i32 + era * 400;
-        let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
-        let mp = (5 * doy + 2) / 153;
-        let d = doy - (153 * mp + 2) / 5 + 1;
-        let m = if mp < 10 { mp + 3 } else { mp - 9 };
-        let mut year = y + if m <= 2 { 1 } else { 0 };
-        let mut month = m as i32;
-        let mut day = d as i32;
-
-        // Add months
-        let total_months = (year * 12 + month - 1) + months;
-        year = total_months / 12;
-        month = total_months % 12 + 1;
-        if month <= 0 {
-            month += 12;
-            year -= 1;
-        }
-
-        // Clamp day to valid range for new month
-        let days_in_month = Self::days_in_month(year, month);
-        if day > days_in_month {
-            day = days_in_month;
-        }
-
-        // Convert back to days since epoch
-        let yp = year - if month <= 2 { 1 } else { 0 };
-        let era2 = if yp >= 0 { yp / 400 } else { (yp - 399) / 400 };
-        let yoe2 = (yp - era2 * 400) as u32;
-        let mp2 = if month > 2 { month as u32 - 3 } else { month as u32 + 9 };
-        let doy2 = (153 * mp2 + 2) / 5 + day as u32 - 1;
-        let doe2 = yoe2 * 365 + yoe2 / 4 - yoe2 / 100 + doy2;
-        let result = era2 * 146097 + doe2 as i32 - 719468;
-
-        // Add days
-        result + days
-    }
-
-    /// Get the number of days in a given month (1-indexed).
-    fn days_in_month(year: i32, month: i32) -> i32 {
-        match month {
-            1 | 3 | 5 | 7 | 8 | 10 | 12 => 31,
-            4 | 6 | 9 | 11 => 30,
-            2 => {
-                // Leap year check
-                let is_leap = (year % 4 == 0 && year % 100 != 0) || (year % 400 == 0);
-                if is_leap { 29 } else { 28 }
-            }
-            _ => 30, // Fallback
-        }
-    }
-
-    fn apply_comparison<F>(&self, left: RuntimeValue, right: RuntimeValue, cmp: F) -> Result<RuntimeValue, String>
-    where
-        F: Fn(i64, i64) -> bool,
-    {
-        match (&left, &right) {
-            (RuntimeValue::Int(a), RuntimeValue::Int(b)) => Ok(RuntimeValue::Bool(cmp(*a, *b))),
-            // Float comparison: map f64 to order-preserving i64
-            (RuntimeValue::Float(a), RuntimeValue::Float(b)) => {
-                let to_ord = |f: f64| -> i64 {
-                    let bits = f.to_bits() as i64;
-                    if bits >= 0 { bits } else { bits ^ i64::MAX }
-                };
-                Ok(RuntimeValue::Bool(cmp(to_ord(*a), to_ord(*b))))
-            }
-            (RuntimeValue::Int(a), RuntimeValue::Float(b)) => {
-                let to_ord = |f: f64| -> i64 {
-                    let bits = f.to_bits() as i64;
-                    if bits >= 0 { bits } else { bits ^ i64::MAX }
-                };
-                Ok(RuntimeValue::Bool(cmp(to_ord(*a as f64), to_ord(*b))))
-            }
-            (RuntimeValue::Float(a), RuntimeValue::Int(b)) => {
-                let to_ord = |f: f64| -> i64 {
-                    let bits = f.to_bits() as i64;
-                    if bits >= 0 { bits } else { bits ^ i64::MAX }
-                };
-                Ok(RuntimeValue::Bool(cmp(to_ord(*a), to_ord(*b as f64))))
-            }
-            // Duration comparison (nanoseconds)
-            (RuntimeValue::Duration(a), RuntimeValue::Duration(b)) => Ok(RuntimeValue::Bool(cmp(*a, *b))),
-            // Date comparison (days)
-            (RuntimeValue::Date(a), RuntimeValue::Date(b)) => Ok(RuntimeValue::Bool(cmp(*a as i64, *b as i64))),
-            // Moment comparison (nanoseconds)
-            (RuntimeValue::Moment(a), RuntimeValue::Moment(b)) => Ok(RuntimeValue::Bool(cmp(*a, *b))),
-            // Time-of-day comparison (nanoseconds from midnight)
-            (RuntimeValue::Time(a), RuntimeValue::Time(b)) => Ok(RuntimeValue::Bool(cmp(*a, *b))),
-            // Moment vs Time: extract time-of-day from Moment
-            (RuntimeValue::Moment(m), RuntimeValue::Time(t)) => {
-                let nanos_per_day = 86_400_000_000_000i64;
-                let moment_tod = *m % nanos_per_day;
-                Ok(RuntimeValue::Bool(cmp(moment_tod, *t)))
-            }
-            (RuntimeValue::Time(t), RuntimeValue::Moment(m)) => {
-                let nanos_per_day = 86_400_000_000_000i64;
-                let moment_tod = *m % nanos_per_day;
-                Ok(RuntimeValue::Bool(cmp(*t, moment_tod)))
-            }
-            _ => Err(format!("Cannot compare {} and {}", left.type_name(), right.type_name())),
-        }
+        crate::semantics::arith::binary_op(op, left, right)
     }
 
     pub fn values_equal_pub(&self, left: &RuntimeValue, right: &RuntimeValue) -> bool {
@@ -2034,27 +1697,7 @@ impl<'a> Interpreter<'a> {
     }
 
     fn values_equal(&self, left: &RuntimeValue, right: &RuntimeValue) -> bool {
-        match (left, right) {
-            (RuntimeValue::Int(a), RuntimeValue::Int(b)) => a == b,
-            (RuntimeValue::Float(a), RuntimeValue::Float(b)) => (a - b).abs() < f64::EPSILON,
-            (RuntimeValue::Bool(a), RuntimeValue::Bool(b)) => a == b,
-            (RuntimeValue::Text(a), RuntimeValue::Text(b)) => **a == **b,
-            (RuntimeValue::Char(a), RuntimeValue::Char(b)) => a == b,
-            (RuntimeValue::Nothing, RuntimeValue::Nothing) => true,
-            (RuntimeValue::Duration(a), RuntimeValue::Duration(b)) => a == b,
-            (RuntimeValue::Date(a), RuntimeValue::Date(b)) => a == b,
-            (RuntimeValue::Moment(a), RuntimeValue::Moment(b)) => a == b,
-            (RuntimeValue::Span { months: m1, days: d1 }, RuntimeValue::Span { months: m2, days: d2 }) => {
-                m1 == m2 && d1 == d2
-            }
-            (RuntimeValue::Time(a), RuntimeValue::Time(b)) => a == b,
-            (RuntimeValue::Inductive(a), RuntimeValue::Inductive(b)) => {
-                a.inductive_type == b.inductive_type && a.constructor == b.constructor &&
-                a.args.len() == b.args.len() &&
-                a.args.iter().zip(b.args.iter()).all(|(x, y)| self.values_equal(x, y))
-            }
-            _ => false,
-        }
+        crate::semantics::compare::values_equal(left, right)
     }
 
     /// Call a function (built-in or user-defined).
@@ -2068,144 +1711,23 @@ impl<'a> Interpreter<'a> {
                 self.emit_output(val.to_display_string());
             }
             return Ok(RuntimeValue::Nothing);
-        } else if func_sym == self.sym_length {
-            if args.len() != 1 {
-                return Err("length() takes exactly 1 argument".to_string());
-            }
-            let val = self.evaluate_expr(args[0]).await?;
-            return match &val {
-                RuntimeValue::List(items) => Ok(RuntimeValue::Int(items.borrow().len() as i64)),
-                RuntimeValue::Text(s) => Ok(RuntimeValue::Int(s.len() as i64)),
-                RuntimeValue::Map(map) => Ok(RuntimeValue::Int(map.borrow().len() as i64)),
-                _ => Err(format!("Cannot get length of {}", val.type_name())),
-            };
-        } else if func_sym == self.sym_format {
-            if args.is_empty() {
-                return Ok(RuntimeValue::Text(Rc::new(String::new())));
-            }
-            let val = self.evaluate_expr(args[0]).await?;
-            return Ok(RuntimeValue::Text(Rc::new(val.to_display_string())));
-        } else if func_sym == self.sym_parse_int {
-            if args.len() != 1 {
-                return Err("parseInt() takes exactly 1 argument".to_string());
-            }
-            let val = self.evaluate_expr(args[0]).await?;
-            if let RuntimeValue::Text(s) = &val {
-                return Ok(RuntimeValue::Int(s.trim().parse::<i64>()
-                    .map_err(|_| format!("Cannot parse '{}' as Int", s))?));
-            }
-            return Err("parseInt requires a Text argument".to_string());
-        } else if func_sym == self.sym_parse_float {
-            if args.len() != 1 {
-                return Err("parseFloat() takes exactly 1 argument".to_string());
-            }
-            let val = self.evaluate_expr(args[0]).await?;
-            if let RuntimeValue::Text(s) = &val {
-                return Ok(RuntimeValue::Float(s.trim().parse::<f64>()
-                    .map_err(|_| format!("Cannot parse '{}' as Float", s))?));
-            }
-            return Err("parseFloat requires a Text argument".to_string());
-        } else if func_sym == self.sym_abs {
-            if args.len() != 1 {
-                return Err("abs() takes exactly 1 argument".to_string());
-            }
-            let val = self.evaluate_expr(args[0]).await?;
-            return match val {
-                RuntimeValue::Int(n) => Ok(RuntimeValue::Int(n.abs())),
-                RuntimeValue::Float(f) => Ok(RuntimeValue::Float(f.abs())),
-                _ => Err(format!("abs() requires a number, got {}", val.type_name())),
-            };
-        } else if func_sym == self.sym_sqrt {
-            if args.len() != 1 {
-                return Err("sqrt() takes exactly 1 argument".to_string());
-            }
-            let val = self.evaluate_expr(args[0]).await?;
-            return match val {
-                RuntimeValue::Float(f) => Ok(RuntimeValue::Float(f.sqrt())),
-                RuntimeValue::Int(n) => Ok(RuntimeValue::Float((n as f64).sqrt())),
-                _ => Err(format!("sqrt() requires a number, got {}", val.type_name())),
-            };
-        } else if func_sym == self.sym_min {
-            if args.len() != 2 {
-                return Err("min() takes exactly 2 arguments".to_string());
-            }
-            let a = self.evaluate_expr(args[0]).await?;
-            let b = self.evaluate_expr(args[1]).await?;
-            return match (&a, &b) {
-                (RuntimeValue::Int(x), RuntimeValue::Int(y)) => Ok(RuntimeValue::Int(*x.min(y))),
-                (RuntimeValue::Float(x), RuntimeValue::Float(y)) => Ok(RuntimeValue::Float(x.min(*y))),
-                (RuntimeValue::Int(x), RuntimeValue::Float(y)) => Ok(RuntimeValue::Float((*x as f64).min(*y))),
-                (RuntimeValue::Float(x), RuntimeValue::Int(y)) => Ok(RuntimeValue::Float(x.min(*y as f64))),
-                _ => Err("min() requires numbers".to_string()),
-            };
-        } else if func_sym == self.sym_max {
-            if args.len() != 2 {
-                return Err("max() takes exactly 2 arguments".to_string());
-            }
-            let a = self.evaluate_expr(args[0]).await?;
-            let b = self.evaluate_expr(args[1]).await?;
-            return match (&a, &b) {
-                (RuntimeValue::Int(x), RuntimeValue::Int(y)) => Ok(RuntimeValue::Int(*x.max(y))),
-                (RuntimeValue::Float(x), RuntimeValue::Float(y)) => Ok(RuntimeValue::Float(x.max(*y))),
-                (RuntimeValue::Int(x), RuntimeValue::Float(y)) => Ok(RuntimeValue::Float((*x as f64).max(*y))),
-                (RuntimeValue::Float(x), RuntimeValue::Int(y)) => Ok(RuntimeValue::Float(x.max(*y as f64))),
-                _ => Err("max() requires numbers".to_string()),
-            };
-        } else if func_sym == self.sym_floor {
-            if args.len() != 1 {
-                return Err("floor() takes exactly 1 argument".to_string());
-            }
-            let val = self.evaluate_expr(args[0]).await?;
-            return match val {
-                RuntimeValue::Float(f) => Ok(RuntimeValue::Int(f.floor() as i64)),
-                RuntimeValue::Int(n) => Ok(RuntimeValue::Int(n)),
-                _ => Err(format!("floor() requires a number, got {}", val.type_name())),
-            };
-        } else if func_sym == self.sym_ceil {
-            if args.len() != 1 {
-                return Err("ceil() takes exactly 1 argument".to_string());
-            }
-            let val = self.evaluate_expr(args[0]).await?;
-            return match val {
-                RuntimeValue::Float(f) => Ok(RuntimeValue::Int(f.ceil() as i64)),
-                RuntimeValue::Int(n) => Ok(RuntimeValue::Int(n)),
-                _ => Err(format!("ceil() requires a number, got {}", val.type_name())),
-            };
-        } else if func_sym == self.sym_round {
-            if args.len() != 1 {
-                return Err("round() takes exactly 1 argument".to_string());
-            }
-            let val = self.evaluate_expr(args[0]).await?;
-            return match val {
-                RuntimeValue::Float(f) => Ok(RuntimeValue::Int(f.round() as i64)),
-                RuntimeValue::Int(n) => Ok(RuntimeValue::Int(n)),
-                _ => Err(format!("round() requires a number, got {}", val.type_name())),
-            };
-        } else if func_sym == self.sym_pow {
-            if args.len() != 2 {
-                return Err("pow() takes exactly 2 arguments".to_string());
-            }
-            let base = self.evaluate_expr(args[0]).await?;
-            let exp = self.evaluate_expr(args[1]).await?;
-            return match (&base, &exp) {
-                (RuntimeValue::Int(b), RuntimeValue::Int(e)) => {
-                    if *e >= 0 {
-                        Ok(RuntimeValue::Int(b.pow(*e as u32)))
-                    } else {
-                        Ok(RuntimeValue::Float((*b as f64).powi(*e as i32)))
-                    }
+        } else if let Some(id) = self.builtin_id(function) {
+            // Arity is checked BEFORE evaluating arguments (kernel rule).
+            crate::semantics::builtins::check_arity(id, args.len())?;
+            // `format` reads only its first argument; preserve its laziness.
+            let vals = if id == crate::semantics::builtins::BuiltinId::Format {
+                match args.first() {
+                    Some(a) => vec![self.evaluate_expr(a).await?],
+                    None => Vec::new(),
                 }
-                (RuntimeValue::Float(b), RuntimeValue::Int(e)) => Ok(RuntimeValue::Float(b.powi(*e as i32))),
-                (RuntimeValue::Float(b), RuntimeValue::Float(e)) => Ok(RuntimeValue::Float(b.powf(*e))),
-                (RuntimeValue::Int(b), RuntimeValue::Float(e)) => Ok(RuntimeValue::Float((*b as f64).powf(*e))),
-                _ => Err("pow() requires numbers".to_string()),
+            } else {
+                let mut v = Vec::with_capacity(args.len());
+                for arg in args {
+                    v.push(self.evaluate_expr(arg).await?);
+                }
+                v
             };
-        } else if func_sym == self.sym_copy {
-            if args.len() != 1 {
-                return Err("copy() takes exactly 1 argument".to_string());
-            }
-            let val = self.evaluate_expr(args[0]).await?;
-            return Ok(val.deep_clone());
+            return crate::semantics::builtins::call_builtin(id, vals);
         }
 
         // User-defined function lookup — extract metadata without cloning params
@@ -2228,8 +1750,13 @@ impl<'a> Interpreter<'a> {
                 arg_values.push(self.evaluate_expr(arg).await?);
             }
 
-            // Bind parameters — re-borrow self.functions for param names (no clone needed)
-            self.push_scope();
+            // Bind parameters in a FRESH frame — the lexical barrier: the body
+            // sees params, its own bindings, and globals; never caller locals.
+            if self.call_depth >= crate::semantics::MAX_CALL_DEPTH {
+            return Err(crate::semantics::CALL_DEPTH_ERR.to_string());
+        }
+        self.call_depth += 1;
+        self.env.push_frame();
             for i in 0..param_count {
                 let param_name = self.functions[&function].params[i].0;
                 self.env.define(param_name, std::mem::replace(&mut arg_values[i], RuntimeValue::Nothing));
@@ -2237,19 +1764,28 @@ impl<'a> Interpreter<'a> {
 
             // Execute function body
             let mut return_value = RuntimeValue::Nothing;
+            let mut body_err = None;
             for stmt in body.iter() {
-                match self.execute_stmt(stmt).await? {
-                    ControlFlow::Return(val) => {
+                match self.execute_stmt(stmt).await {
+                    Ok(ControlFlow::Return(val)) => {
                         return_value = val;
                         break;
                     }
-                    ControlFlow::Break => break,
-                    ControlFlow::Continue => {}
+                    Ok(ControlFlow::Break) => break,
+                    Ok(ControlFlow::Continue) => {}
+                    Err(e) => {
+                        body_err = Some(e);
+                        break;
+                    }
                 }
             }
 
-            self.pop_scope();
-            Ok(return_value)
+            self.env.pop_frame();
+        self.call_depth -= 1;
+            match body_err {
+                Some(e) => Err(e),
+                None => Ok(return_value),
+            }
         } else {
             // Fallback: check if the function name is a variable holding a closure
             let maybe_closure = self.env.lookup(function)
@@ -2290,26 +1826,39 @@ impl<'a> Interpreter<'a> {
                 ));
             }
 
-            self.push_scope();
+            if self.call_depth >= crate::semantics::MAX_CALL_DEPTH {
+            return Err(crate::semantics::CALL_DEPTH_ERR.to_string());
+        }
+        self.call_depth += 1;
+        self.env.push_frame();
             for i in 0..param_count {
                 let param_name = self.functions[&function].params[i].0;
                 self.env.define(param_name, std::mem::replace(&mut args[i], RuntimeValue::Nothing));
             }
 
             let mut return_value = RuntimeValue::Nothing;
+            let mut body_err = None;
             for stmt in body.iter() {
-                match self.execute_stmt(stmt).await? {
-                    ControlFlow::Return(val) => {
+                match self.execute_stmt(stmt).await {
+                    Ok(ControlFlow::Return(val)) => {
                         return_value = val;
                         break;
                     }
-                    ControlFlow::Break => break,
-                    ControlFlow::Continue => {}
+                    Ok(ControlFlow::Break) => break,
+                    Ok(ControlFlow::Continue) => {}
+                    Err(e) => {
+                        body_err = Some(e);
+                        break;
+                    }
                 }
             }
 
-            self.pop_scope();
-            Ok(return_value)
+            self.env.pop_frame();
+        self.call_depth -= 1;
+            match body_err {
+                Some(e) => Err(e),
+                None => Ok(return_value),
+            }
         } else {
             let maybe_closure = self.env.lookup(function)
                 .and_then(|v| if let RuntimeValue::Function(c) = v { Some((**c).clone()) } else { None });
@@ -2319,6 +1868,43 @@ impl<'a> Interpreter<'a> {
             } else {
                 Err(format!("Unknown function: {}", self.interner.resolve(function)))
             }
+        }
+    }
+
+    /// Map a function symbol to its kernel builtin, via the cached symbols.
+    fn builtin_id(&self, f: Symbol) -> Option<crate::semantics::builtins::BuiltinId> {
+        use crate::semantics::builtins::BuiltinId as B;
+        let s = Some(f);
+        if s == self.sym_length {
+            Some(B::Length)
+        } else if s == self.sym_format {
+            Some(B::Format)
+        } else if s == self.sym_parse_int {
+            Some(B::ParseInt)
+        } else if s == self.sym_parse_float {
+            Some(B::ParseFloat)
+        } else if s == self.sym_chr {
+            Some(B::Chr)
+        } else if s == self.sym_abs {
+            Some(B::Abs)
+        } else if s == self.sym_sqrt {
+            Some(B::Sqrt)
+        } else if s == self.sym_min {
+            Some(B::Min)
+        } else if s == self.sym_max {
+            Some(B::Max)
+        } else if s == self.sym_floor {
+            Some(B::Floor)
+        } else if s == self.sym_ceil {
+            Some(B::Ceil)
+        } else if s == self.sym_round {
+            Some(B::Round)
+        } else if s == self.sym_pow {
+            Some(B::Pow)
+        } else if s == self.sym_copy {
+            Some(B::Copy)
+        } else {
+            None
         }
     }
 
@@ -2356,90 +1942,13 @@ impl<'a> Interpreter<'a> {
         subject: &RuntimeValue,
         object: Option<&RuntimeValue>,
     ) -> bool {
-        match condition {
-            PolicyCondition::FieldEquals { field, value, is_string_literal } => {
-                if let RuntimeValue::Struct(s) = subject {
-                    let field_name = self.interner.resolve(*field);
-                    if let Some(field_val) = s.fields.get(field_name) {
-                        let expected = self.interner.resolve(*value);
-                        match field_val {
-                            RuntimeValue::Text(s) => s.as_str() == expected,
-                            RuntimeValue::Int(n) => {
-                                if *is_string_literal {
-                                    false
-                                } else {
-                                    expected.parse::<i64>().map(|e| *n == e).unwrap_or(false)
-                                }
-                            }
-                            RuntimeValue::Bool(b) => {
-                                if *is_string_literal {
-                                    false
-                                } else {
-                                    expected.parse::<bool>().map(|e| *b == e).unwrap_or(false)
-                                }
-                            }
-                            _ => false,
-                        }
-                    } else {
-                        false
-                    }
-                } else {
-                    false
-                }
-            }
-            PolicyCondition::FieldBool { field, value } => {
-                if let RuntimeValue::Struct(s) = subject {
-                    let field_name = self.interner.resolve(*field);
-                    if let Some(RuntimeValue::Bool(b)) = s.fields.get(field_name) {
-                        *b == *value
-                    } else {
-                        false
-                    }
-                } else {
-                    false
-                }
-            }
-            PolicyCondition::Predicate { predicate, .. } => {
-                if let Some(registry) = &self.policy_registry {
-                    if let RuntimeValue::Struct(s) = subject {
-                        if let Some(subj_type_sym) = self.interner.lookup(&s.type_name) {
-                            if let Some(preds) = registry.get_predicates(subj_type_sym) {
-                                if let Some(pred) = preds.iter().find(|p| p.predicate_name == *predicate) {
-                                    return self.evaluate_policy_condition(&pred.condition, subject, object);
-                                }
-                            }
-                        }
-                    }
-                }
-                false
-            }
-            PolicyCondition::ObjectFieldEquals { subject: subj_field, object: obj_sym, field } => {
-                let obj = match object {
-                    Some(o) => o,
-                    None => return false,
-                };
-                if let (RuntimeValue::Struct(subj_s), RuntimeValue::Struct(obj_s)) = (subject, obj) {
-                    let subj_field_name = self.interner.resolve(*subj_field);
-                    let obj_field_name = self.interner.resolve(*field);
-                    if let (Some(subj_val), Some(obj_val)) = (subj_s.fields.get(subj_field_name), obj_s.fields.get(obj_field_name)) {
-                        self.values_equal(subj_val, obj_val)
-                    } else {
-                        let _obj_sym_name = self.interner.resolve(*obj_sym);
-                        false
-                    }
-                } else {
-                    false
-                }
-            }
-            PolicyCondition::Or(left, right) => {
-                self.evaluate_policy_condition(left, subject, object)
-                    || self.evaluate_policy_condition(right, subject, object)
-            }
-            PolicyCondition::And(left, right) => {
-                self.evaluate_policy_condition(left, subject, object)
-                    && self.evaluate_policy_condition(right, subject, object)
-            }
-        }
+        crate::semantics::policy::evaluate_policy_condition(
+            self.policy_registry.as_ref(),
+            self.interner,
+            condition,
+            subject,
+            object,
+        )
     }
 
     // =========================================================================
@@ -2513,19 +2022,7 @@ impl<'a> Interpreter<'a> {
                 use crate::ast::stmt::Pattern;
 
                 let iter_val = self.evaluate_expr_sync(iterable)?;
-                let items: Vec<RuntimeValue> = match &iter_val {
-                    RuntimeValue::List(list) => list.borrow().clone(),
-                    RuntimeValue::Set(set) => set.borrow().clone(),
-                    RuntimeValue::Text(s) => {
-                        s.chars().map(|c| RuntimeValue::Text(Rc::new(c.to_string()))).collect()
-                    }
-                    RuntimeValue::Map(map) => {
-                        map.borrow().iter()
-                            .map(|(k, v)| RuntimeValue::Tuple(Rc::new(vec![k.clone(), v.clone()])))
-                            .collect()
-                    }
-                    _ => return Err(format!("Cannot iterate over {}", iter_val.type_name())),
-                };
+                let items = crate::semantics::collections::iteration_snapshot(&iter_val)?;
 
                 self.push_scope();
                 for item in items {
@@ -2603,24 +2100,12 @@ impl<'a> Interpreter<'a> {
                 let val = self.evaluate_expr_sync(value)?;
                 if let Expr::Identifier(coll_sym) = collection {
                     let coll_val = self.lookup(*coll_sym)?;
-                    if let RuntimeValue::List(items) = coll_val {
-                        items.borrow_mut().push(val);
-                    } else {
-                        return Err("Can only push to a List".to_string());
-                    }
+                    crate::semantics::collections::list_push(&coll_val, val)?;
                 } else if let Expr::FieldAccess { object, field } = collection {
                     if let Expr::Identifier(obj_sym) = *object {
                         let obj_val = self.lookup(*obj_sym)?;
-                        if let RuntimeValue::Struct(s) = obj_val {
-                            let field_name = self.interner.resolve(*field).to_string();
-                            if let Some(RuntimeValue::List(items)) = s.fields.get(&field_name) {
-                                items.borrow_mut().push(val);
-                            } else {
-                                return Err(format!("Field '{}' is not a List", field_name));
-                            }
-                        } else {
-                            return Err("Cannot push to field of non-struct".to_string());
-                        }
+                        let field_name = self.interner.resolve(*field);
+                        crate::semantics::collections::push_to_struct_field(&obj_val, field_name, val)?;
                     } else {
                         return Err("Push to nested field access not supported".to_string());
                     }
@@ -2633,13 +2118,9 @@ impl<'a> Interpreter<'a> {
             Stmt::Pop { collection, into } => {
                 if let Expr::Identifier(coll_sym) = collection {
                     let coll_val = self.lookup(*coll_sym)?;
-                    if let RuntimeValue::List(items) = coll_val {
-                        let popped = items.borrow_mut().pop().unwrap_or(RuntimeValue::Nothing);
-                        if let Some(into_var) = into {
-                            self.define(*into_var, popped);
-                        }
-                    } else {
-                        return Err("Can only pop from a List".to_string());
+                    let popped = crate::semantics::collections::list_pop(&coll_val)?;
+                    if let Some(into_var) = into {
+                        self.define(*into_var, popped);
                     }
                 } else {
                     return Err("Pop collection must be an identifier".to_string());
@@ -2651,14 +2132,7 @@ impl<'a> Interpreter<'a> {
                 let val = self.evaluate_expr_sync(value)?;
                 if let Expr::Identifier(coll_sym) = collection {
                     let coll_val = self.lookup(*coll_sym)?;
-                    if let RuntimeValue::Set(items) = coll_val {
-                        let already_present = items.borrow().iter().any(|x| self.values_equal(x, &val));
-                        if !already_present {
-                            items.borrow_mut().push(val);
-                        }
-                    } else {
-                        return Err("Can only add to a Set".to_string());
-                    }
+                    crate::semantics::collections::set_add(&coll_val, val)?;
                 } else {
                     return Err("Add collection must be an identifier".to_string());
                 }
@@ -2669,11 +2143,7 @@ impl<'a> Interpreter<'a> {
                 let val = self.evaluate_expr_sync(value)?;
                 if let Expr::Identifier(coll_sym) = collection {
                     let coll_val = self.lookup(*coll_sym)?;
-                    if let RuntimeValue::Set(items) = coll_val {
-                        items.borrow_mut().retain(|x| !self.values_equal(x, &val));
-                    } else {
-                        return Err("Can only remove from a Set".to_string());
-                    }
+                    crate::semantics::collections::remove_from(&coll_val, &val)?;
                 } else {
                     return Err("Remove collection must be an identifier".to_string());
                 }
@@ -2684,26 +2154,18 @@ impl<'a> Interpreter<'a> {
                 let idx_val = self.evaluate_expr_sync(index)?;
                 let new_val = self.evaluate_expr_sync(value)?;
                 if let Expr::Identifier(coll_sym) = collection {
-                    let coll_val = self.lookup(*coll_sym)?;
-                    match (coll_val, &idx_val) {
-                        (RuntimeValue::List(items), RuntimeValue::Int(n)) => {
-                            let idx = *n as usize;
-                            let mut items = items.borrow_mut();
-                            if idx == 0 || idx > items.len() {
-                                return Err(format!("Index {} out of bounds for list of length {}", idx, items.len()));
-                            }
-                            items[idx - 1] = new_val;
-                        }
-                        (RuntimeValue::Map(map), key) => {
-                            map.borrow_mut().insert(key.clone(), new_val);
-                        }
-                        (RuntimeValue::List(_), _) => {
-                            return Err("List index must be an integer".to_string());
-                        }
-                        _ => {
-                            return Err(format!("Cannot index into {}", coll_val.type_name()));
+                    // Struct field set via index syntax (mirrors the read side); see the
+                    // async SetIndex handler for rationale.
+                    if let RuntimeValue::Text(field) = &idx_val {
+                        let cur = self.lookup(*coll_sym)?.clone();
+                        if let RuntimeValue::Struct(mut s) = cur {
+                            s.fields.insert(field.to_string(), new_val);
+                            self.assign(*coll_sym, RuntimeValue::Struct(s))?;
+                            return Ok(ControlFlow::Continue);
                         }
                     }
+                    let coll_val = self.lookup(*coll_sym)?;
+                    crate::semantics::collections::index_set(&coll_val, &idx_val, new_val)?;
                 } else {
                     return Err("SetIndex collection must be an identifier".to_string());
                 }
@@ -2811,12 +2273,8 @@ impl<'a> Interpreter<'a> {
                                 .cloned()
                                 .unwrap_or(RuntimeValue::Int(0));
 
-                            let merged = match (&current, &source_field_val) {
-                                (RuntimeValue::Int(a), RuntimeValue::Int(b)) => {
-                                    RuntimeValue::Int(a + b)
-                                }
-                                _ => source_field_val,
-                            };
+                            let merged =
+                                crate::semantics::arith::crdt_merge_field(&current, source_field_val);
                             s.fields.insert(field_name, merged);
                         }
                         self.assign(*target_sym, target_val)?;
@@ -2845,11 +2303,8 @@ impl<'a> Interpreter<'a> {
                             .cloned()
                             .unwrap_or(RuntimeValue::Int(0));
 
-                        let new_val = match current {
-                            RuntimeValue::Int(n) => RuntimeValue::Int(n + amount_int),
-                            RuntimeValue::Nothing => RuntimeValue::Int(amount_int),
-                            _ => return Err(format!("Field '{}' is not a counter", field_name)),
-                        };
+                        let new_val =
+                            crate::semantics::arith::crdt_counter_bump(current, amount_int, &field_name)?;
                         s.fields.insert(field_name, new_val);
                         self.assign(*obj_sym, obj_val)?;
                     } else {
@@ -2877,11 +2332,11 @@ impl<'a> Interpreter<'a> {
                             .cloned()
                             .unwrap_or(RuntimeValue::Int(0));
 
-                        let new_val = match current {
-                            RuntimeValue::Int(n) => RuntimeValue::Int(n - amount_int),
-                            RuntimeValue::Nothing => RuntimeValue::Int(-amount_int),
-                            _ => return Err(format!("Field '{}' is not a counter", field_name)),
-                        };
+                        let new_val = crate::semantics::arith::crdt_counter_bump(
+                            current,
+                            amount_int.wrapping_neg(),
+                            &field_name,
+                        )?;
                         s.fields.insert(field_name, new_val);
                         self.assign(*obj_sym, obj_val)?;
                     } else {
@@ -2908,50 +2363,25 @@ impl<'a> Interpreter<'a> {
                 };
 
                 let subj_val = self.lookup(*subject)?.clone();
-                let subj_type_name = match &subj_val {
-                    RuntimeValue::Struct(s) => s.type_name.clone(),
-                    _ => return Err(format!("Check subject must be a struct, got {}", subj_val.type_name())),
-                };
-
-                let subj_type_sym = match self.interner.lookup(&subj_type_name) {
-                    Some(sym) => sym,
-                    None => return Err(format!("Unknown type '{}' in Check statement", subj_type_name)),
-                };
-
-                let passed = if *is_capability {
-                    let obj_val = match object {
+                // The object is only consulted (and only looked up) for
+                // capability checks.
+                let obj_val = if *is_capability {
+                    match object {
                         Some(obj_sym) => Some(self.lookup(*obj_sym)?.clone()),
                         None => None,
-                    };
-
-                    let caps = registry.get_capabilities(subj_type_sym);
-                    let cap = caps
-                        .and_then(|caps| caps.iter().find(|c| c.action == *predicate));
-
-                    match cap {
-                        Some(cap) => self.evaluate_policy_condition(&cap.condition, &subj_val, obj_val.as_ref()),
-                        None => {
-                            let pred_name = self.interner.resolve(*predicate);
-                            return Err(format!("No capability '{}' defined for type '{}'", pred_name, subj_type_name));
-                        }
                     }
                 } else {
-                    let preds = registry.get_predicates(subj_type_sym);
-                    let pred_def = preds
-                        .and_then(|preds| preds.iter().find(|p| p.predicate_name == *predicate));
-
-                    match pred_def {
-                        Some(pred) => self.evaluate_policy_condition(&pred.condition, &subj_val, None),
-                        None => {
-                            let pred_name = self.interner.resolve(*predicate);
-                            return Err(format!("No predicate '{}' defined for type '{}'", pred_name, subj_type_name));
-                        }
-                    }
+                    None
                 };
-
-                if !passed {
-                    return Err(format!("Security Check Failed: {}", source_text));
-                }
+                crate::semantics::policy::check_policy(
+                    registry,
+                    self.interner,
+                    &subj_val,
+                    *predicate,
+                    *is_capability,
+                    obj_val.as_ref(),
+                    source_text,
+                )?;
                 Ok(ControlFlow::Continue)
             }
 
@@ -3076,32 +2506,13 @@ impl<'a> Interpreter<'a> {
 
             Expr::Identifier(sym) => {
                 let name = self.interner.resolve(*sym);
+                // Handle temporal builtins (the NAME wins, even when shadowed)
                 match name {
                     "today" => {
-                        #[cfg(not(target_arch = "wasm32"))]
-                        {
-                            use std::time::{SystemTime, UNIX_EPOCH};
-                            let duration = SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default();
-                            let days = (duration.as_secs() / 86400) as i32;
-                            return Ok(RuntimeValue::Date(days));
-                        }
-                        #[cfg(target_arch = "wasm32")]
-                        {
-                            return Ok(RuntimeValue::Date(0));
-                        }
+                        return Ok(crate::semantics::temporal::today());
                     }
                     "now" => {
-                        #[cfg(not(target_arch = "wasm32"))]
-                        {
-                            use std::time::{SystemTime, UNIX_EPOCH};
-                            let duration = SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default();
-                            let nanos = duration.as_nanos() as i64;
-                            return Ok(RuntimeValue::Moment(nanos));
-                        }
-                        #[cfg(target_arch = "wasm32")]
-                        {
-                            return Ok(RuntimeValue::Moment(0));
-                        }
+                        return Ok(crate::semantics::temporal::now());
                     }
                     _ => {}
                 }
@@ -3149,54 +2560,14 @@ impl<'a> Interpreter<'a> {
             Expr::Index { collection, index } => {
                 let coll_val = self.evaluate_expr_sync(collection)?;
                 let idx_val = self.evaluate_expr_sync(index)?;
-                match (&coll_val, &idx_val) {
-                    (RuntimeValue::List(items), RuntimeValue::Int(idx)) => {
-                        let idx = *idx as usize;
-                        let items = items.borrow();
-                        if idx == 0 || idx > items.len() {
-                            return Err(format!("Index {} out of bounds", idx));
-                        }
-                        Ok(items[idx - 1].clone())
-                    }
-                    (RuntimeValue::Tuple(items), RuntimeValue::Int(idx)) => {
-                        let idx = *idx as usize;
-                        if idx == 0 || idx > items.len() {
-                            return Err(format!("Index {} out of bounds", idx));
-                        }
-                        Ok(items[idx - 1].clone())
-                    }
-                    (RuntimeValue::Text(s), RuntimeValue::Int(idx)) => {
-                        let idx = *idx as usize;
-                        if idx == 0 || idx > s.chars().count() {
-                            return Err(format!("Index {} out of bounds", idx));
-                        }
-                        Ok(RuntimeValue::Text(Rc::new(s.chars().nth(idx - 1).unwrap().to_string())))
-                    }
-                    (RuntimeValue::Map(map), key) => {
-                        let map = map.borrow();
-                        match map.get(key) {
-                            Some(val) => Ok(val.clone()),
-                            None => Err(format!("Key '{}' not found in map", key.to_display_string())),
-                        }
-                    }
-                    _ => Err(format!("Cannot index {} with {}", coll_val.type_name(), idx_val.type_name())),
-                }
+                crate::semantics::collections::index_get(&coll_val, &idx_val)
             }
 
             Expr::Slice { collection, start, end } => {
                 let coll_val = self.evaluate_expr_sync(collection)?;
                 let start_val = self.evaluate_expr_sync(start)?;
                 let end_val = self.evaluate_expr_sync(end)?;
-                match (&coll_val, &start_val, &end_val) {
-                    (RuntimeValue::List(items), RuntimeValue::Int(s), RuntimeValue::Int(e)) => {
-                        let items = items.borrow();
-                        let start = (*s as usize).saturating_sub(1);
-                        let end = *e as usize;
-                        let slice: Vec<RuntimeValue> = items.get(start..end).unwrap_or(&[]).to_vec();
-                        Ok(RuntimeValue::List(Rc::new(RefCell::new(slice))))
-                    }
-                    _ => Err("Slice requires List and Int indices".to_string()),
-                }
+                crate::semantics::collections::slice(&coll_val, &start_val, &end_val)
             }
 
             Expr::Copy { expr: inner } => {
@@ -3210,80 +2581,25 @@ impl<'a> Interpreter<'a> {
 
             Expr::Length { collection } => {
                 let coll_val = self.evaluate_expr_sync(collection)?;
-                match &coll_val {
-                    RuntimeValue::List(items) => Ok(RuntimeValue::Int(items.borrow().len() as i64)),
-                    RuntimeValue::Tuple(items) => Ok(RuntimeValue::Int(items.len() as i64)),
-                    RuntimeValue::Set(items) => Ok(RuntimeValue::Int(items.borrow().len() as i64)),
-                    RuntimeValue::Text(s) => Ok(RuntimeValue::Int(s.len() as i64)),
-                    RuntimeValue::Map(map) => Ok(RuntimeValue::Int(map.borrow().len() as i64)),
-                    _ => Err(format!("Cannot get length of {}", coll_val.type_name())),
-                }
+                crate::semantics::collections::length_of(&coll_val)
             }
 
             Expr::Contains { collection, value } => {
                 let coll_val = self.evaluate_expr_sync(collection)?;
                 let val = self.evaluate_expr_sync(value)?;
-                match &coll_val {
-                    RuntimeValue::Set(items) => {
-                        let items = items.borrow();
-                        let found = items.iter().any(|item| self.values_equal(item, &val));
-                        Ok(RuntimeValue::Bool(found))
-                    }
-                    RuntimeValue::List(items) => {
-                        let items = items.borrow();
-                        let found = items.iter().any(|item| self.values_equal(item, &val));
-                        Ok(RuntimeValue::Bool(found))
-                    }
-                    RuntimeValue::Map(entries) => {
-                        Ok(RuntimeValue::Bool(entries.borrow().contains_key(&val)))
-                    }
-                    RuntimeValue::Text(s) => {
-                        if let RuntimeValue::Text(needle) = &val {
-                            Ok(RuntimeValue::Bool(s.contains(needle.as_str())))
-                        } else if let RuntimeValue::Char(c) = &val {
-                            Ok(RuntimeValue::Bool(s.contains(*c)))
-                        } else {
-                            Err(format!("Cannot check if Text contains {}", val.type_name()))
-                        }
-                    }
-                    _ => Err(format!("Cannot check contains on {}", coll_val.type_name())),
-                }
+                crate::semantics::collections::contains(&coll_val, &val)
             }
 
             Expr::Union { left, right } => {
                 let left_val = self.evaluate_expr_sync(left)?;
                 let right_val = self.evaluate_expr_sync(right)?;
-                match (&left_val, &right_val) {
-                    (RuntimeValue::Set(a), RuntimeValue::Set(b)) => {
-                        let a = a.borrow();
-                        let b = b.borrow();
-                        let mut result = a.clone();
-                        for item in b.iter() {
-                            if !result.iter().any(|x| self.values_equal(x, item)) {
-                                result.push(item.clone());
-                            }
-                        }
-                        Ok(RuntimeValue::Set(Rc::new(RefCell::new(result))))
-                    }
-                    _ => Err(format!("Cannot union {} and {}", left_val.type_name(), right_val.type_name())),
-                }
+                crate::semantics::collections::union(&left_val, &right_val)
             }
 
             Expr::Intersection { left, right } => {
                 let left_val = self.evaluate_expr_sync(left)?;
                 let right_val = self.evaluate_expr_sync(right)?;
-                match (&left_val, &right_val) {
-                    (RuntimeValue::Set(a), RuntimeValue::Set(b)) => {
-                        let a = a.borrow();
-                        let b = b.borrow();
-                        let result: Vec<RuntimeValue> = a.iter()
-                            .filter(|item| b.iter().any(|x| self.values_equal(x, item)))
-                            .cloned()
-                            .collect();
-                        Ok(RuntimeValue::Set(Rc::new(RefCell::new(result))))
-                    }
-                    _ => Err(format!("Cannot intersect {} and {}", left_val.type_name(), right_val.type_name())),
-                }
+                crate::semantics::collections::intersection(&left_val, &right_val)
             }
 
             Expr::List(items) => {
@@ -3305,15 +2621,7 @@ impl<'a> Interpreter<'a> {
             Expr::Range { start, end } => {
                 let start_val = self.evaluate_expr_sync(start)?;
                 let end_val = self.evaluate_expr_sync(end)?;
-                match (&start_val, &end_val) {
-                    (RuntimeValue::Int(s), RuntimeValue::Int(e)) => {
-                        let range: Vec<RuntimeValue> = (*s..=*e)
-                            .map(RuntimeValue::Int)
-                            .collect();
-                        Ok(RuntimeValue::List(Rc::new(RefCell::new(range))))
-                    }
-                    _ => Err("Range requires Int bounds".to_string()),
-                }
+                crate::semantics::collections::range(&start_val, &end_val)
             }
 
             Expr::FieldAccess { object, field } => {
@@ -3414,11 +2722,7 @@ impl<'a> Interpreter<'a> {
 
             Expr::Not { operand } => {
                 let val = self.evaluate_expr_sync(operand)?;
-                match val {
-                    RuntimeValue::Bool(b) => Ok(RuntimeValue::Bool(!b)),
-                    RuntimeValue::Int(n) => Ok(RuntimeValue::Int(!n)),
-                    other => Err(format!("Cannot apply 'not' to {}", other.type_name())),
-                }
+                crate::semantics::arith::not_value(val)
             }
 
             Expr::InterpolatedString(parts) => {
@@ -3507,144 +2811,23 @@ impl<'a> Interpreter<'a> {
                 self.emit_output(val.to_display_string());
             }
             return Ok(RuntimeValue::Nothing);
-        } else if func_sym == self.sym_length {
-            if args.len() != 1 {
-                return Err("length() takes exactly 1 argument".to_string());
-            }
-            let val = self.evaluate_expr_sync(args[0])?;
-            return match &val {
-                RuntimeValue::List(items) => Ok(RuntimeValue::Int(items.borrow().len() as i64)),
-                RuntimeValue::Text(s) => Ok(RuntimeValue::Int(s.len() as i64)),
-                RuntimeValue::Map(map) => Ok(RuntimeValue::Int(map.borrow().len() as i64)),
-                _ => Err(format!("Cannot get length of {}", val.type_name())),
-            };
-        } else if func_sym == self.sym_format {
-            if args.is_empty() {
-                return Ok(RuntimeValue::Text(Rc::new(String::new())));
-            }
-            let val = self.evaluate_expr_sync(args[0])?;
-            return Ok(RuntimeValue::Text(Rc::new(val.to_display_string())));
-        } else if func_sym == self.sym_parse_int {
-            if args.len() != 1 {
-                return Err("parseInt() takes exactly 1 argument".to_string());
-            }
-            let val = self.evaluate_expr_sync(args[0])?;
-            if let RuntimeValue::Text(s) = &val {
-                return Ok(RuntimeValue::Int(s.trim().parse::<i64>()
-                    .map_err(|_| format!("Cannot parse '{}' as Int", s))?));
-            }
-            return Err("parseInt requires a Text argument".to_string());
-        } else if func_sym == self.sym_parse_float {
-            if args.len() != 1 {
-                return Err("parseFloat() takes exactly 1 argument".to_string());
-            }
-            let val = self.evaluate_expr_sync(args[0])?;
-            if let RuntimeValue::Text(s) = &val {
-                return Ok(RuntimeValue::Float(s.trim().parse::<f64>()
-                    .map_err(|_| format!("Cannot parse '{}' as Float", s))?));
-            }
-            return Err("parseFloat requires a Text argument".to_string());
-        } else if func_sym == self.sym_abs {
-            if args.len() != 1 {
-                return Err("abs() takes exactly 1 argument".to_string());
-            }
-            let val = self.evaluate_expr_sync(args[0])?;
-            return match val {
-                RuntimeValue::Int(n) => Ok(RuntimeValue::Int(n.abs())),
-                RuntimeValue::Float(f) => Ok(RuntimeValue::Float(f.abs())),
-                _ => Err(format!("abs() requires a number, got {}", val.type_name())),
-            };
-        } else if func_sym == self.sym_sqrt {
-            if args.len() != 1 {
-                return Err("sqrt() takes exactly 1 argument".to_string());
-            }
-            let val = self.evaluate_expr_sync(args[0])?;
-            return match val {
-                RuntimeValue::Float(f) => Ok(RuntimeValue::Float(f.sqrt())),
-                RuntimeValue::Int(n) => Ok(RuntimeValue::Float((n as f64).sqrt())),
-                _ => Err(format!("sqrt() requires a number, got {}", val.type_name())),
-            };
-        } else if func_sym == self.sym_min {
-            if args.len() != 2 {
-                return Err("min() takes exactly 2 arguments".to_string());
-            }
-            let a = self.evaluate_expr_sync(args[0])?;
-            let b = self.evaluate_expr_sync(args[1])?;
-            return match (&a, &b) {
-                (RuntimeValue::Int(x), RuntimeValue::Int(y)) => Ok(RuntimeValue::Int(*x.min(y))),
-                (RuntimeValue::Float(x), RuntimeValue::Float(y)) => Ok(RuntimeValue::Float(x.min(*y))),
-                (RuntimeValue::Int(x), RuntimeValue::Float(y)) => Ok(RuntimeValue::Float((*x as f64).min(*y))),
-                (RuntimeValue::Float(x), RuntimeValue::Int(y)) => Ok(RuntimeValue::Float(x.min(*y as f64))),
-                _ => Err("min() requires numbers".to_string()),
-            };
-        } else if func_sym == self.sym_max {
-            if args.len() != 2 {
-                return Err("max() takes exactly 2 arguments".to_string());
-            }
-            let a = self.evaluate_expr_sync(args[0])?;
-            let b = self.evaluate_expr_sync(args[1])?;
-            return match (&a, &b) {
-                (RuntimeValue::Int(x), RuntimeValue::Int(y)) => Ok(RuntimeValue::Int(*x.max(y))),
-                (RuntimeValue::Float(x), RuntimeValue::Float(y)) => Ok(RuntimeValue::Float(x.max(*y))),
-                (RuntimeValue::Int(x), RuntimeValue::Float(y)) => Ok(RuntimeValue::Float((*x as f64).max(*y))),
-                (RuntimeValue::Float(x), RuntimeValue::Int(y)) => Ok(RuntimeValue::Float(x.max(*y as f64))),
-                _ => Err("max() requires numbers".to_string()),
-            };
-        } else if func_sym == self.sym_floor {
-            if args.len() != 1 {
-                return Err("floor() takes exactly 1 argument".to_string());
-            }
-            let val = self.evaluate_expr_sync(args[0])?;
-            return match val {
-                RuntimeValue::Float(f) => Ok(RuntimeValue::Int(f.floor() as i64)),
-                RuntimeValue::Int(n) => Ok(RuntimeValue::Int(n)),
-                _ => Err(format!("floor() requires a number, got {}", val.type_name())),
-            };
-        } else if func_sym == self.sym_ceil {
-            if args.len() != 1 {
-                return Err("ceil() takes exactly 1 argument".to_string());
-            }
-            let val = self.evaluate_expr_sync(args[0])?;
-            return match val {
-                RuntimeValue::Float(f) => Ok(RuntimeValue::Int(f.ceil() as i64)),
-                RuntimeValue::Int(n) => Ok(RuntimeValue::Int(n)),
-                _ => Err(format!("ceil() requires a number, got {}", val.type_name())),
-            };
-        } else if func_sym == self.sym_round {
-            if args.len() != 1 {
-                return Err("round() takes exactly 1 argument".to_string());
-            }
-            let val = self.evaluate_expr_sync(args[0])?;
-            return match val {
-                RuntimeValue::Float(f) => Ok(RuntimeValue::Int(f.round() as i64)),
-                RuntimeValue::Int(n) => Ok(RuntimeValue::Int(n)),
-                _ => Err(format!("round() requires a number, got {}", val.type_name())),
-            };
-        } else if func_sym == self.sym_pow {
-            if args.len() != 2 {
-                return Err("pow() takes exactly 2 arguments".to_string());
-            }
-            let base = self.evaluate_expr_sync(args[0])?;
-            let exp = self.evaluate_expr_sync(args[1])?;
-            return match (&base, &exp) {
-                (RuntimeValue::Int(b), RuntimeValue::Int(e)) => {
-                    if *e >= 0 {
-                        Ok(RuntimeValue::Int(b.pow(*e as u32)))
-                    } else {
-                        Ok(RuntimeValue::Float((*b as f64).powi(*e as i32)))
-                    }
+        } else if let Some(id) = self.builtin_id(function) {
+            // Arity is checked BEFORE evaluating arguments (kernel rule).
+            crate::semantics::builtins::check_arity(id, args.len())?;
+            // `format` reads only its first argument; preserve its laziness.
+            let vals = if id == crate::semantics::builtins::BuiltinId::Format {
+                match args.first() {
+                    Some(a) => vec![self.evaluate_expr_sync(a)?],
+                    None => Vec::new(),
                 }
-                (RuntimeValue::Float(b), RuntimeValue::Int(e)) => Ok(RuntimeValue::Float(b.powi(*e as i32))),
-                (RuntimeValue::Float(b), RuntimeValue::Float(e)) => Ok(RuntimeValue::Float(b.powf(*e))),
-                (RuntimeValue::Int(b), RuntimeValue::Float(e)) => Ok(RuntimeValue::Float((*b as f64).powf(*e))),
-                _ => Err("pow() requires numbers".to_string()),
+            } else {
+                let mut v = Vec::with_capacity(args.len());
+                for arg in args {
+                    v.push(self.evaluate_expr_sync(arg)?);
+                }
+                v
             };
-        } else if func_sym == self.sym_copy {
-            if args.len() != 1 {
-                return Err("copy() takes exactly 1 argument".to_string());
-            }
-            let val = self.evaluate_expr_sync(args[0])?;
-            return Ok(val.deep_clone());
+            return crate::semantics::builtins::call_builtin(id, vals);
         }
 
         // User-defined function lookup — extract metadata without cloning params
@@ -3666,26 +2849,39 @@ impl<'a> Interpreter<'a> {
                 arg_values.push(self.evaluate_expr_sync(arg)?);
             }
 
-            self.push_scope();
+            if self.call_depth >= crate::semantics::MAX_CALL_DEPTH {
+            return Err(crate::semantics::CALL_DEPTH_ERR.to_string());
+        }
+        self.call_depth += 1;
+        self.env.push_frame();
             for i in 0..param_count {
                 let param_name = self.functions[&function].params[i].0;
                 self.env.define(param_name, std::mem::replace(&mut arg_values[i], RuntimeValue::Nothing));
             }
 
             let mut return_value = RuntimeValue::Nothing;
+            let mut body_err = None;
             for stmt in body.iter() {
-                match self.execute_stmt_sync(stmt)? {
-                    ControlFlow::Return(val) => {
+                match self.execute_stmt_sync(stmt) {
+                    Ok(ControlFlow::Return(val)) => {
                         return_value = val;
                         break;
                     }
-                    ControlFlow::Break => break,
-                    ControlFlow::Continue => {}
+                    Ok(ControlFlow::Break) => break,
+                    Ok(ControlFlow::Continue) => {}
+                    Err(e) => {
+                        body_err = Some(e);
+                        break;
+                    }
                 }
             }
 
-            self.pop_scope();
-            Ok(return_value)
+            self.env.pop_frame();
+        self.call_depth -= 1;
+            match body_err {
+                Some(e) => Err(e),
+                None => Ok(return_value),
+            }
         } else {
             // Fallback: check if the function name is a variable holding a closure
             let maybe_closure = self.env.lookup(function)
@@ -3723,26 +2919,39 @@ impl<'a> Interpreter<'a> {
                 ));
             }
 
-            self.push_scope();
+            if self.call_depth >= crate::semantics::MAX_CALL_DEPTH {
+            return Err(crate::semantics::CALL_DEPTH_ERR.to_string());
+        }
+        self.call_depth += 1;
+        self.env.push_frame();
             for i in 0..param_count {
                 let param_name = self.functions[&function].params[i].0;
                 self.env.define(param_name, std::mem::replace(&mut args[i], RuntimeValue::Nothing));
             }
 
             let mut return_value = RuntimeValue::Nothing;
+            let mut body_err = None;
             for stmt in body.iter() {
-                match self.execute_stmt_sync(stmt)? {
-                    ControlFlow::Return(val) => {
+                match self.execute_stmt_sync(stmt) {
+                    Ok(ControlFlow::Return(val)) => {
                         return_value = val;
                         break;
                     }
-                    ControlFlow::Break => break,
-                    ControlFlow::Continue => {}
+                    Ok(ControlFlow::Break) => break,
+                    Ok(ControlFlow::Continue) => {}
+                    Err(e) => {
+                        body_err = Some(e);
+                        break;
+                    }
                 }
             }
 
-            self.pop_scope();
-            Ok(return_value)
+            self.env.pop_frame();
+        self.call_depth -= 1;
+            match body_err {
+                Some(e) => Err(e),
+                None => Ok(return_value),
+            }
         } else {
             let maybe_closure = self.env.lookup(function)
                 .and_then(|v| if let RuntimeValue::Function(c) = v { Some((**c).clone()) } else { None });
@@ -3761,8 +2970,19 @@ impl<'a> Interpreter<'a> {
 
     /// Collect free variable symbols from a closure body.
     /// Returns all Identifier symbols referenced in the body that are not parameter names.
-    fn collect_free_vars_in_closure(
+    /// Shared with the bytecode VM's compiler — both engines MUST agree on the
+    /// capture set, so there is exactly one implementation.
+    pub(crate) fn collect_free_vars_in_closure(
         &self,
+        params: &[(Symbol, &TypeExpr<'a>)],
+        body: &ClosureBody<'a>,
+    ) -> Vec<Symbol> {
+        Self::free_vars_in_closure(params, body)
+    }
+
+    /// Static form of [`Self::collect_free_vars_in_closure`] (the VM compiler
+    /// has no interpreter instance).
+    pub(crate) fn free_vars_in_closure(
         params: &[(Symbol, &TypeExpr<'a>)],
         body: &ClosureBody<'a>,
     ) -> Vec<Symbol> {
@@ -3981,7 +3201,13 @@ impl<'a> Interpreter<'a> {
         let body_index = closure.body_index;
         let is_block = matches!(self.closure_bodies.get(body_index), Some(ClosureBodyRef::Block(_)));
 
-        self.push_scope();
+        // A closure body is a fresh frame (lexical barrier): it sees its
+        // captures, its parameters, and globals — never the caller's locals.
+        if self.call_depth >= crate::semantics::MAX_CALL_DEPTH {
+            return Err(crate::semantics::CALL_DEPTH_ERR.to_string());
+        }
+        self.call_depth += 1;
+        self.env.push_frame();
 
         // Bind captured environment
         for (sym, val) in &closure.captured_env {
@@ -3998,18 +3224,22 @@ impl<'a> Interpreter<'a> {
                 ClosureBodyRef::Block(b) => *b,
                 _ => unreachable!(),
             };
-            let mut return_value = RuntimeValue::Nothing;
+            let mut outcome = Ok(RuntimeValue::Nothing);
             for stmt in block.iter() {
-                match self.execute_stmt(stmt).await? {
-                    ControlFlow::Return(val) => {
-                        return_value = val;
+                match self.execute_stmt(stmt).await {
+                    Ok(ControlFlow::Return(val)) => {
+                        outcome = Ok(val);
                         break;
                     }
-                    ControlFlow::Break => break,
-                    ControlFlow::Continue => {}
+                    Ok(ControlFlow::Break) => break,
+                    Ok(ControlFlow::Continue) => {}
+                    Err(e) => {
+                        outcome = Err(e);
+                        break;
+                    }
                 }
             }
-            Ok(return_value)
+            outcome
         } else {
             let expr = match &self.closure_bodies[body_index] {
                 ClosureBodyRef::Expression(e) => *e,
@@ -4018,7 +3248,8 @@ impl<'a> Interpreter<'a> {
             self.evaluate_expr(expr).await
         };
 
-        self.pop_scope();
+        self.env.pop_frame();
+        self.call_depth -= 1;
         result
     }
 
@@ -4039,7 +3270,12 @@ impl<'a> Interpreter<'a> {
         let body_index = closure.body_index;
         let is_block = matches!(self.closure_bodies.get(body_index), Some(ClosureBodyRef::Block(_)));
 
-        self.push_scope();
+        // A closure body is a fresh frame (lexical barrier); see the async twin.
+        if self.call_depth >= crate::semantics::MAX_CALL_DEPTH {
+            return Err(crate::semantics::CALL_DEPTH_ERR.to_string());
+        }
+        self.call_depth += 1;
+        self.env.push_frame();
 
         for (sym, val) in &closure.captured_env {
             self.env.define(*sym, val.deep_clone());
@@ -4054,18 +3290,22 @@ impl<'a> Interpreter<'a> {
                 ClosureBodyRef::Block(b) => *b,
                 _ => unreachable!(),
             };
-            let mut return_value = RuntimeValue::Nothing;
+            let mut outcome = Ok(RuntimeValue::Nothing);
             for stmt in block.iter() {
-                match self.execute_stmt_sync(stmt)? {
-                    ControlFlow::Return(val) => {
-                        return_value = val;
+                match self.execute_stmt_sync(stmt) {
+                    Ok(ControlFlow::Return(val)) => {
+                        outcome = Ok(val);
                         break;
                     }
-                    ControlFlow::Break => break,
-                    ControlFlow::Continue => {}
+                    Ok(ControlFlow::Break) => break,
+                    Ok(ControlFlow::Continue) => {}
+                    Err(e) => {
+                        outcome = Err(e);
+                        break;
+                    }
                 }
             }
-            Ok(return_value)
+            outcome
         } else {
             let expr = match &self.closure_bodies[body_index] {
                 ClosureBodyRef::Expression(e) => *e,
@@ -4074,7 +3314,8 @@ impl<'a> Interpreter<'a> {
             self.evaluate_expr_sync(expr)
         };
 
-        self.pop_scope();
+        self.env.pop_frame();
+        self.call_depth -= 1;
         result
     }
 }
@@ -4084,46 +3325,7 @@ impl<'a> Interpreter<'a> {
 /// Only 4 statement types need async: ReadFrom (file), WriteFile, Sleep, Mount.
 /// If none are present, the sync execution path can be used for better performance.
 fn apply_format_spec(val: &RuntimeValue, spec: &str) -> String {
-    // Currency: $
-    if spec == "$" {
-        let f = match val {
-            RuntimeValue::Float(f) => *f,
-            RuntimeValue::Int(n) => *n as f64,
-            _ => return format!("${}", val.to_display_string()),
-        };
-        return format!("${:.2}", f);
-    }
-    // Precision: .N
-    if spec.starts_with('.') {
-        if let Ok(precision) = spec[1..].parse::<usize>() {
-            match val {
-                RuntimeValue::Float(f) => return format!("{:.prec$}", f, prec = precision),
-                RuntimeValue::Int(n) => return format!("{:.prec$}", *n as f64, prec = precision),
-                _ => return val.to_display_string(),
-            }
-        }
-    }
-    // Alignment: >N, <N, ^N
-    if spec.len() >= 2 {
-        let first = spec.as_bytes()[0];
-        if first == b'>' || first == b'<' || first == b'^' {
-            if let Ok(width) = spec[1..].parse::<usize>() {
-                let s = val.to_display_string();
-                return match first {
-                    b'>' => format!("{:>w$}", s, w = width),
-                    b'<' => format!("{:<w$}", s, w = width),
-                    b'^' => format!("{:^w$}", s, w = width),
-                    _ => unreachable!(),
-                };
-            }
-        }
-    }
-    // Bare width: N (right-align by default, matching Rust's behavior)
-    if let Ok(width) = spec.parse::<usize>() {
-        let s = val.to_display_string();
-        return format!("{:>w$}", s, w = width);
-    }
-    val.to_display_string()
+    crate::semantics::format::apply_format_spec(val, spec)
 }
 
 pub fn needs_async(stmts: &[Stmt]) -> bool {
@@ -4171,4 +3373,43 @@ pub struct InterpreterResult {
     pub lines: Vec<String>,
     /// Error message if execution failed, or `None` on success.
     pub error: Option<String>,
+}
+
+#[cfg(test)]
+mod float_comparison_tests {
+    use super::*;
+
+    fn expect_bool(r: Result<RuntimeValue, String>, want: bool, label: &str) {
+        match r {
+            Ok(RuntimeValue::Bool(b)) => assert_eq!(b, want, "{label}"),
+            other => panic!("{label}: expected Bool, got {:?}", other.map(|v| v.type_name().to_string())),
+        }
+    }
+
+    #[test]
+    fn float_relational_uses_ieee_semantics() {
+        use RuntimeValue::{Float, Int};
+        let interner = Interner::new();
+        let interp = Interpreter::new(&interner);
+        let nan = f64::NAN;
+
+        // -0.0 and +0.0 are equal under IEEE 754.
+        expect_bool(interp.apply_binary_op(BinaryOpKind::Lt, Float(-0.0), Float(0.0)), false, "-0.0 < 0.0");
+        expect_bool(interp.apply_binary_op(BinaryOpKind::Gt, Float(0.0), Float(-0.0)), false, "0.0 > -0.0");
+        expect_bool(interp.apply_binary_op(BinaryOpKind::LtEq, Float(-0.0), Float(0.0)), true, "-0.0 <= 0.0");
+        expect_bool(interp.apply_binary_op(BinaryOpKind::GtEq, Float(-0.0), Float(0.0)), true, "-0.0 >= 0.0");
+
+        // NaN is unordered: every relational comparison is false.
+        expect_bool(interp.apply_binary_op(BinaryOpKind::Lt, Float(nan), Float(1.0)), false, "NaN < 1");
+        expect_bool(interp.apply_binary_op(BinaryOpKind::Gt, Float(nan), Float(1.0)), false, "NaN > 1");
+        expect_bool(interp.apply_binary_op(BinaryOpKind::LtEq, Float(nan), Float(nan)), false, "NaN <= NaN");
+        expect_bool(interp.apply_binary_op(BinaryOpKind::GtEq, Float(1.0), Float(nan)), false, "1 >= NaN");
+
+        // Ordinary comparisons still work, including mixed Int/Float and pure Int.
+        expect_bool(interp.apply_binary_op(BinaryOpKind::Lt, Float(1.5), Float(2.5)), true, "1.5 < 2.5");
+        expect_bool(interp.apply_binary_op(BinaryOpKind::Lt, Int(2), Float(2.5)), true, "2 < 2.5");
+        expect_bool(interp.apply_binary_op(BinaryOpKind::GtEq, Float(2.5), Int(2)), true, "2.5 >= 2");
+        expect_bool(interp.apply_binary_op(BinaryOpKind::Lt, Int(3), Int(5)), true, "3 < 5");
+        expect_bool(interp.apply_binary_op(BinaryOpKind::GtEq, Int(5), Int(5)), true, "5 >= 5");
+    }
 }
