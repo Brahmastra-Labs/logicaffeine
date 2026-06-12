@@ -212,19 +212,22 @@ impl Lexicon {
 
     fn strip_s(&self, word: &str) -> String {
         if word.ends_with("ies") {
+            // Verbs ending in -ie add only "s": "dies" → "die", "ties" → "tie".
+            // Only then the y-restoring rule: "studies" → "study".
+            let with_e = &word[..word.len() - 1];
+            if is_base_verb(with_e) {
+                return with_e.to_string();
+            }
             return format!("{}y", &word[..word.len() - 3]);
         }
-        // For verbs ending in silent 'e': hopes → hope, decides → decide
-        // These add "s" not "es", so stripping just "s" gives correct lemma
+        // Silent-e verbs add "s" ("hopes" → "hope"); sibilant stems add "es"
+        // ("pushes" → "push", "fixes" → "fix"). Try the longer stem first.
         if word.ends_with("es") {
-            let base_minus_es = &word[..word.len() - 2];
             let base_minus_s = &word[..word.len() - 1];
-            // If base-1 ends in 'e', probably a silent-e verb: hopes → hope
-            if base_minus_s.ends_with('e') {
+            if is_base_verb(base_minus_s) {
                 return base_minus_s.to_string();
             }
-            // Otherwise it's a sibilant ending: watches → watch, fixes → fix
-            return base_minus_es.to_string();
+            return word[..word.len() - 2].to_string();
         }
         word[..word.len() - 1].to_string()
     }

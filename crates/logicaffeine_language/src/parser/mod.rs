@@ -8374,16 +8374,7 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                     && !self.is_followed_by_np_object()
                     && self.is_followed_by_gerund()
                 {
-                    let presup_kind = match self.advance().kind {
-                        TokenType::PresupTrigger(kind) => kind,
-                        TokenType::Verb { lemma, .. } => {
-                            let s = self.interner.resolve(lemma).to_lowercase();
-                            crate::lexicon::lookup_presup_trigger(&s).expect(
-                                "Lexicon mismatch: Verb flagged as trigger but lookup failed",
-                            )
-                        }
-                        _ => unreachable!("guarded by check_presup_trigger"),
-                    };
+                    let presup_kind = self.consume_presup_trigger();
                     self.negative_depth -= 1; // parse_presupposition handles the negation
                     return self.parse_presupposition(&subject, presup_kind, true);
                 }
@@ -8606,15 +8597,7 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
         // Only trigger presupposition if followed by a gerund (e.g., "stopped smoking")
         // "John stopped." alone should parse as intransitive verb, not presupposition
         if self.check_presup_trigger() && !self.is_followed_by_np_object() && self.is_followed_by_gerund() {
-            let presup_kind = match self.advance().kind {
-                TokenType::PresupTrigger(kind) => kind,
-                TokenType::Verb { lemma, .. } => {
-                    let s = self.interner.resolve(lemma).to_lowercase();
-                    crate::lexicon::lookup_presup_trigger(&s)
-                        .expect("Lexicon mismatch: Verb flagged as trigger but lookup failed")
-                }
-                _ => panic!("Expected presupposition trigger"),
-            };
+            let presup_kind = self.consume_presup_trigger();
             return self.parse_presupposition(&subject, presup_kind, false);
         }
 
@@ -8762,16 +8745,7 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                 && !self.is_followed_by_np_object()
                 && self.is_followed_by_gerund()
             {
-                let presup_kind = match self.advance().kind {
-                    TokenType::PresupTrigger(kind) => kind,
-                    TokenType::Verb { lemma, .. } => {
-                        let s = self.interner.resolve(lemma).to_lowercase();
-                        crate::lexicon::lookup_presup_trigger(&s).expect(
-                            "Lexicon mismatch: Verb flagged as trigger but lookup failed",
-                        )
-                    }
-                    _ => unreachable!("guarded by check_presup_trigger"),
-                };
+                let presup_kind = self.consume_presup_trigger();
                 return self.parse_presupposition(&subject, presup_kind, is_negated);
             }
 
@@ -11548,8 +11522,30 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                 let s = self.interner.resolve(*lemma).to_lowercase();
                 crate::lexicon::lookup_presup_trigger(&s).is_some()
             }
+            TokenType::Ambiguous { primary, .. } => match primary.as_ref() {
+                TokenType::Verb { lemma, .. } => {
+                    let s = self.interner.resolve(*lemma).to_lowercase();
+                    crate::lexicon::lookup_presup_trigger(&s).is_some()
+                }
+                _ => false,
+            },
             _ => false,
         }
+    }
+
+    fn consume_presup_trigger(&mut self) -> crate::token::PresupKind {
+        let lemma = match self.advance().kind.clone() {
+            TokenType::PresupTrigger(kind) => return kind,
+            TokenType::Verb { lemma, .. } => lemma,
+            TokenType::Ambiguous { primary, .. } => match *primary {
+                TokenType::Verb { lemma, .. } => lemma,
+                other => unreachable!("guarded by check_presup_trigger, got {other:?}"),
+            },
+            other => unreachable!("guarded by check_presup_trigger, got {other:?}"),
+        };
+        let s = self.interner.resolve(lemma).to_lowercase();
+        crate::lexicon::lookup_presup_trigger(&s)
+            .expect("Lexicon mismatch: Verb flagged as trigger but lookup failed")
     }
 
     fn is_followed_by_np_object(&self) -> bool {

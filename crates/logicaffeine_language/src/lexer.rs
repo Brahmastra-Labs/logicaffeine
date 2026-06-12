@@ -2260,7 +2260,7 @@ impl<'a> Lexer<'a> {
             return TokenType::ScopalAdverb(sym);
         }
 
-        if lexicon::is_temporal_adverb(&lower) {
+        if lexicon::is_temporal_adverb(&lower) && !self.prev_token_is_determiner() {
             let sym = self.interner.intern(&Self::capitalize(&lower));
             return TokenType::TemporalAdverb(sym);
         }

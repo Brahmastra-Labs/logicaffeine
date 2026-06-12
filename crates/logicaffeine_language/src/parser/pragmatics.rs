@@ -429,6 +429,50 @@ impl<'a, 'ctx, 'int> PragmaticsParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int
                 args: self.ctx.terms.alloc_slice(args),
                 world: None,
             }))
+        } else if matches!(self.peek().kind, TokenType::Is | TokenType::Are) {
+            // Copular predication under focus: "Only dogs are red." →
+            // Only(D, Red(Dogs)), mirroring the verbal "Only dogs bark."
+            self.advance();
+            if self.check_article() {
+                self.advance();
+            }
+            let predicate = match self.advance().kind.clone() {
+                TokenType::Adjective(sym)
+                | TokenType::Noun(sym)
+                | TokenType::ProperName(sym) => sym,
+                TokenType::Ambiguous { primary, alternatives } => {
+                    let as_predicate = |t: &TokenType| match t {
+                        TokenType::Adjective(sym)
+                        | TokenType::Noun(sym)
+                        | TokenType::ProperName(sym) => Some(*sym),
+                        _ => None,
+                    };
+                    match as_predicate(&primary)
+                        .or_else(|| alternatives.iter().find_map(as_predicate))
+                    {
+                        Some(sym) => sym,
+                        None => {
+                            return Err(ParseError {
+                                kind: ParseErrorKind::ExpectedContentWord {
+                                    found: *primary,
+                                },
+                                span: self.current_span(),
+                            });
+                        }
+                    }
+                }
+                found => {
+                    return Err(ParseError {
+                        kind: ParseErrorKind::ExpectedContentWord { found },
+                        span: self.current_span(),
+                    });
+                }
+            };
+            Ok(self.ctx.exprs.alloc(LogicExpr::Predicate {
+                name: predicate,
+                args: self.ctx.terms.alloc_slice([Term::Constant(subject.noun)]),
+                world: None,
+            }))
         } else {
             Ok(self.ctx.exprs.alloc(LogicExpr::Atom(subject.noun)))
         }
