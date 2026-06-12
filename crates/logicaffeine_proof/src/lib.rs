@@ -22,14 +22,18 @@
 //! The conversion from `LogicExpr` → [`ProofExpr`] lives in the language crate,
 //! ensuring the proof engine remains pure and reusable.
 
+pub mod arith;
 pub mod certifier;
 pub mod engine;
 pub mod error;
 pub mod hints;
 pub mod unify;
+pub mod verify;
 
 #[cfg(feature = "verification")]
 pub mod oracle;
+#[cfg(feature = "verification")]
+mod modal_translation;
 
 pub use engine::BackwardChainer;
 pub use error::ProofError;
@@ -177,6 +181,14 @@ pub enum ProofExpr {
         body: Box<ProofExpr>,
     },
 
+    /// Counterfactual conditional: P □→ Q. Quantifies the consequent over the
+    /// closest antecedent-worlds (a similarity ordering), so it is strictly
+    /// distinct from material implication in both directions.
+    Counterfactual {
+        antecedent: Box<ProofExpr>,
+        consequent: Box<ProofExpr>,
+    },
+
     // --- Temporal Logic ---
 
     /// Temporal operator: Past(P), Future(P), Always(P), Eventually(P), Next(P)
@@ -309,6 +321,9 @@ impl fmt::Display for ProofExpr {
             ProofExpr::Exists { variable, body } => write!(f, "∃{} {}", variable, body),
             ProofExpr::Modal { domain, force, flavor, body } => {
                 write!(f, "□[{}/{}/{}]{}", domain, force, flavor, body)
+            }
+            ProofExpr::Counterfactual { antecedent, consequent } => {
+                write!(f, "({} □→ {})", antecedent, consequent)
             }
             ProofExpr::Temporal { operator, body } => write!(f, "{}({})", operator, body),
             ProofExpr::TemporalBinary { operator, left, right } => {
@@ -482,6 +497,11 @@ pub enum InferenceRule {
     /// Used when both sides of an identity reduce to the same normal form.
     Reflexivity,
 
+    /// Arithmetic decision: an `Int` equality discharged by the proof-producing
+    /// arithmetic oracle ([`crate::arith::prove_int_eq`]) into a kernel-checked
+    /// proof (computation + the ring axioms). The conclusion is the `Identity`.
+    ArithDecision,
+
     // --- Fallbacks ---
 
     /// "The User Said So." Used for top-level axioms.
@@ -507,10 +527,15 @@ pub enum InferenceRule {
     /// The witness c must be fresh (not appearing in Goal).
     ExistentialElim { witness: String },
 
-    /// Case Analysis (Tertium Non Datur / Law of Excluded Middle)
-    /// Logic: (P → ⊥), (¬P → ⊥) ⊢ ⊥
-    /// Used for self-referential paradoxes like the Barber Paradox.
-    CaseAnalysis { case_formula: String },
+    /// Case Analysis on a formula `C` whose two cases both reach absurdity.
+    /// Logic: (C → ⊥), (¬C → ⊥) ⊢ ⊥ — note this is the *intuitionistic* form
+    /// (build `¬C` and `¬¬C`, then apply), so certifying it needs no excluded
+    /// middle. Used for self-referential paradoxes like the Barber Paradox.
+    ///
+    /// `case_formula` carries the actual proposition `C` (not a rendered string)
+    /// so the certifier can build the case lambdas' parameter types and bind `C`
+    /// / `¬C` as local hypotheses in each branch.
+    CaseAnalysis { case_formula: Box<ProofExpr> },
 }
 
 // =============================================================================

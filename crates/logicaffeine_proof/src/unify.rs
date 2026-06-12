@@ -214,6 +214,10 @@ pub fn beta_reduce(expr: &ProofExpr) -> ProofExpr {
             flavor: flavor.clone(),
             body: Box::new(beta_reduce(body)),
         },
+        ProofExpr::Counterfactual { antecedent, consequent } => ProofExpr::Counterfactual {
+            antecedent: Box::new(beta_reduce(antecedent)),
+            consequent: Box::new(beta_reduce(consequent)),
+        },
         ProofExpr::Temporal { operator, body } => ProofExpr::Temporal {
             operator: operator.clone(),
             body: Box::new(beta_reduce(body)),
@@ -369,6 +373,11 @@ fn substitute_expr_for_var(body: &ProofExpr, var: &str, replacement: &ProofExpr)
             force: *force,
             flavor: flavor.clone(),
             body: Box::new(substitute_expr_for_var(inner, var, replacement)),
+        },
+
+        ProofExpr::Counterfactual { antecedent, consequent } => ProofExpr::Counterfactual {
+            antecedent: Box::new(substitute_expr_for_var(antecedent, var, replacement)),
+            consequent: Box::new(substitute_expr_for_var(consequent, var, replacement)),
         },
 
         ProofExpr::Temporal { operator, body: inner } => ProofExpr::Temporal {
@@ -1077,6 +1086,10 @@ pub fn apply_subst_to_expr(expr: &ProofExpr, subst: &Substitution) -> ProofExpr 
             force: *force,
             flavor: flavor.clone(),
             body: Box::new(apply_subst_to_expr(body, subst)),
+        },
+        ProofExpr::Counterfactual { antecedent, consequent } => ProofExpr::Counterfactual {
+            antecedent: Box::new(apply_subst_to_expr(antecedent, subst)),
+            consequent: Box::new(apply_subst_to_expr(consequent, subst)),
         },
         ProofExpr::Temporal { operator, body } => ProofExpr::Temporal {
             operator: operator.clone(),

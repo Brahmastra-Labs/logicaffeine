@@ -106,7 +106,7 @@ fn expr_to_smtlib(expr: &VerifyExpr) -> String {
                 .collect();
             format!("(exists ({}) {})", bindings.join(" "), expr_to_smtlib(body))
         }
-        VerifyExpr::Apply { name, args } => {
+        VerifyExpr::Apply { name, args } | VerifyExpr::ApplyInt { name, args } => {
             let arg_strs: Vec<String> = args.iter().map(expr_to_smtlib).collect();
             if arg_strs.is_empty() {
                 name.clone()
@@ -131,6 +131,8 @@ fn expr_to_smtlib(expr: &VerifyExpr) -> String {
                 BitVecOp::Add => "bvadd",
                 BitVecOp::Sub => "bvsub",
                 BitVecOp::Mul => "bvmul",
+                BitVecOp::SDiv => "bvsdiv",
+                BitVecOp::SRem => "bvsrem",
                 BitVecOp::ULt => "bvult",
                 BitVecOp::SLt => "bvslt",
                 BitVecOp::ULe => "bvule",

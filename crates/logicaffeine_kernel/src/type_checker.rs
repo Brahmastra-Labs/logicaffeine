@@ -432,55 +432,56 @@ fn compute_case_type(motive: &Term, ctor_name: &str, ctor_type: &Term, disc_type
         current = body_type;
     }
 
-    // Split into type parameters (to skip) and value parameters (to bind)
-    let (type_params, value_params): (Vec<_>, Vec<_>) = all_params
+    // Split into type parameters (fixed by the discriminant) and value
+    // parameters (bound by the case). The type parameters are the first
+    // `num_type_args` constructor arguments.
+    let type_params: Vec<(String, Term)> = all_params
+        .iter()
+        .take(num_type_args)
+        .map(|(n, t)| (n.clone(), t.clone()))
+        .collect();
+    // For each value parameter keep (original name, fresh name, type). The
+    // original name matters: a *dependent* constructor (e.g. `Ex`'s
+    // `witness : … Π(x:A). P x → Ex A P`) has later argument types that mention
+    // earlier value parameters, so those references must be rewritten to the
+    // fresh names too — not just the type parameters.
+    let value_named: Vec<(String, String, Term)> = all_params
         .into_iter()
+        .skip(num_type_args)
         .enumerate()
-        .partition(|(i, _)| *i < num_type_args);
-
-    // Generate unique names for value parameters to avoid shadowing issues
-    // Use pattern: __arg0, __arg1, etc.
-    let named_value_params: Vec<(usize, (String, Term))> = value_params
-        .into_iter()
-        .enumerate()
-        .map(|(i, (idx, (_, param_type)))| {
-            (idx, (format!("__arg{}", i), param_type))
-        })
+        .map(|(i, (orig, ty))| (orig, format!("__arg{}", i), ty))
         .collect();
 
-    // Build C(type_args..., value_params...)
+    // Build `C type_args… value_args…` with the fresh value-arg names.
     let mut ctor_applied = Term::Global(ctor_name.to_string());
-
-    // Apply type arguments (from discriminant type)
     for type_arg in &type_args {
         ctor_applied = Term::App(Box::new(ctor_applied), Box::new(type_arg.clone()));
     }
-
-    // Apply value parameters (as bound variables with unique names)
-    for (_, (param_name, _)) in &named_value_params {
-        ctor_applied = Term::App(
-            Box::new(ctor_applied),
-            Box::new(Term::Var(param_name.clone())),
-        );
+    for (_, new_name, _) in &value_named {
+        ctor_applied = Term::App(Box::new(ctor_applied), Box::new(Term::Var(new_name.clone())));
     }
 
-    // Build P(C type_args value_params) and beta-reduce it
-    let motive_applied = Term::App(Box::new(motive.clone()), Box::new(ctor_applied));
-    let result_type = beta_reduce(&motive_applied);
+    // `motive (C …)`, beta-reduced.
+    let result_type = beta_reduce(&Term::App(Box::new(motive.clone()), Box::new(ctor_applied)));
 
-    // Wrap in Πa₁:A₁. Πa₂:A₂. ... for value parameters only
-    // (in reverse order to get correct nesting)
+    // Wrap in Π over the value parameters (reverse order for correct nesting).
+    // Each parameter's type is closed by substituting the type parameters and
+    // every *earlier* value parameter (original → fresh), then beta-reduced so a
+    // dependent type like `P x` collapses to its applied form (e.g. `evil x`).
     let mut case_type = result_type;
-    for (_, (param_name, param_type)) in named_value_params.into_iter().rev() {
-        // Substitute type arguments into parameter type
-        let mut subst_param_type = param_type;
-        for ((_, (type_param_name, _)), type_arg) in type_params.iter().zip(type_args.iter()) {
-            subst_param_type = substitute(&subst_param_type, type_param_name, type_arg);
+    for k in (0..value_named.len()).rev() {
+        let (_, new_name, ty_k) = &value_named[k];
+        let mut pty = ty_k.clone();
+        for ((tp_name, _), type_arg) in type_params.iter().zip(type_args.iter()) {
+            pty = substitute(&pty, tp_name, type_arg);
         }
-
+        for (orig_j, new_j, _) in value_named.iter().take(k) {
+            pty = substitute(&pty, orig_j, &Term::Var(new_j.clone()));
+        }
+        let pty = beta_reduce(&pty);
         case_type = Term::Pi {
-            param: param_name,
-            param_type: Box::new(subst_param_type),
+            param: new_name.clone(),
+            param_type: Box::new(pty),
             body_type: Box::new(case_type),
         };
     }

@@ -201,6 +201,10 @@ fn rename_timestep(expr: &VerifyExpr, suffix: &str, step: u32) -> VerifyExpr {
             vars.clone(),
             rename_timestep(body, suffix, step),
         ),
+        VerifyExpr::ApplyInt { name, args } => VerifyExpr::apply_int(
+            name.clone(),
+            args.iter().map(|a| rename_timestep(a, suffix, step)).collect(),
+        ),
         VerifyExpr::Apply { name, args } => VerifyExpr::apply(
             name.clone(),
             args.iter().map(|a| rename_timestep(a, suffix, step)).collect(),

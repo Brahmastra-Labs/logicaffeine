@@ -8,7 +8,7 @@
 //! - And, Or: logical connectives
 
 use crate::context::Context;
-use crate::term::{Term, Universe};
+use crate::term::{Literal, Term, Universe};
 
 /// Standard library definitions.
 pub struct StandardLibrary;
@@ -28,8 +28,114 @@ impl StandardLibrary {
         Self::register_or(ctx);
         Self::register_ex(ctx);
         Self::register_primitives(ctx);
+        Self::register_int_ring_axioms(ctx);
         Self::register_reflection(ctx);
         Self::register_hardware(ctx);
+    }
+
+    /// The commutative-ring axioms for `Int` — the ENTIRE trusted arithmetic base.
+    ///
+    /// `Int` is an opaque type (no constructors, `register_primitives`), so these
+    /// standard ring laws are not derivable in-kernel; they are the axiomatization
+    /// of `(Int, add, mul, 0, 1)` as a commutative ring — the textbook foundation,
+    /// not a soundness shortcut. The proof-producing arithmetic procedure builds
+    /// every arithmetic proof from these (closed/literal goals need none — they
+    /// hold by `add`/`mul` computation + `refl`). They are the *only* arithmetic
+    /// things trusted beyond the kernel; `phase98`'s TCB-inventory test locks the
+    /// exact set so it can never silently grow. Replaceable later (without any
+    /// downstream churn) by defining `Int` from `Nat` and proving them.
+    fn register_int_ring_axioms(ctx: &mut Context) {
+        let int = || Term::Global("Int".to_string());
+        let lit = |n: i64| Term::Lit(Literal::Int(n));
+        // (op a b)
+        let bin = |op: &str, a: Term, b: Term| {
+            Term::App(
+                Box::new(Term::App(Box::new(Term::Global(op.to_string())), Box::new(a))),
+                Box::new(b),
+            )
+        };
+        // Eq Int l r
+        let eq_int = |l: Term, r: Term| {
+            Term::App(
+                Box::new(Term::App(
+                    Box::new(Term::App(
+                        Box::new(Term::Global("Eq".to_string())),
+                        Box::new(Term::Global("Int".to_string())),
+                    )),
+                    Box::new(l),
+                )),
+                Box::new(r),
+            )
+        };
+        // Π over the given Int-typed parameter names, body = eq.
+        let forall_ints = |names: &[&str], body: Term| {
+            names.iter().rev().fold(body, |acc, name| Term::Pi {
+                param: name.to_string(),
+                param_type: Box::new(int()),
+                body_type: Box::new(acc),
+            })
+        };
+        let v = |s: &str| Term::Var(s.to_string());
+
+        // add_comm : Π a b. Eq Int (add a b) (add b a)
+        ctx.add_declaration(
+            "add_comm",
+            forall_ints(
+                &["a", "b"],
+                eq_int(bin("add", v("a"), v("b")), bin("add", v("b"), v("a"))),
+            ),
+        );
+        // add_assoc : Π a b c. Eq Int (add (add a b) c) (add a (add b c))
+        ctx.add_declaration(
+            "add_assoc",
+            forall_ints(
+                &["a", "b", "c"],
+                eq_int(
+                    bin("add", bin("add", v("a"), v("b")), v("c")),
+                    bin("add", v("a"), bin("add", v("b"), v("c"))),
+                ),
+            ),
+        );
+        // add_zero : Π a. Eq Int (add a 0) a
+        ctx.add_declaration(
+            "add_zero",
+            forall_ints(&["a"], eq_int(bin("add", v("a"), lit(0)), v("a"))),
+        );
+        // mul_comm : Π a b. Eq Int (mul a b) (mul b a)
+        ctx.add_declaration(
+            "mul_comm",
+            forall_ints(
+                &["a", "b"],
+                eq_int(bin("mul", v("a"), v("b")), bin("mul", v("b"), v("a"))),
+            ),
+        );
+        // mul_assoc : Π a b c. Eq Int (mul (mul a b) c) (mul a (mul b c))
+        ctx.add_declaration(
+            "mul_assoc",
+            forall_ints(
+                &["a", "b", "c"],
+                eq_int(
+                    bin("mul", bin("mul", v("a"), v("b")), v("c")),
+                    bin("mul", v("a"), bin("mul", v("b"), v("c"))),
+                ),
+            ),
+        );
+        // mul_one : Π a. Eq Int (mul a 1) a
+        ctx.add_declaration(
+            "mul_one",
+            forall_ints(&["a"], eq_int(bin("mul", v("a"), lit(1)), v("a"))),
+        );
+        // mul_distrib_add : Π a b c. Eq Int (mul a (add b c)) (add (mul a b) (mul a c))
+        ctx.add_declaration(
+            "mul_distrib_add",
+            forall_ints(
+                &["a", "b", "c"],
+                eq_int(
+                    bin("mul", v("a"), bin("add", v("b"), v("c"))),
+                    bin("add", bin("mul", v("a"), v("b")), bin("mul", v("a"), v("c"))),
+                ),
+            ),
+        );
     }
 
     /// Primitive types and operations.

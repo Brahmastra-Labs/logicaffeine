@@ -95,7 +95,7 @@ fn collect_constraints(
             collect_constraints(body, constraints)
         }
 
-        VerifyExpr::Apply { args, .. } => {
+        VerifyExpr::Apply { args, .. } | VerifyExpr::ApplyInt { args, .. } => {
             for arg in args {
                 collect_constraints(arg, constraints)?;
             }

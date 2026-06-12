@@ -1,0 +1,16 @@
+[package]
+name = "logicaffeine-tv"
+version = "0.9.17"
+edition.workspace = true
+authors.workspace = true
+repository.workspace = true
+homepage.workspace = true
+keywords.workspace = true
+categories.workspace = true
+rust-version.workspace = true
+license = "BUSL-1.1"
+description = "SMT translation validation: prove emitted Rust is observationally equivalent to LOGOS source"
+
+[dependencies]
+logicaffeine-compile = { version = "0.9.17", path = "../logicaffeine_compile" }
+logicaffeine-verify = { version = "0.9.17", path = "../logicaffeine_verify" }

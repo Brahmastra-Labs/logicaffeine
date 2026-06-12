@@ -259,7 +259,7 @@ fn collect_vars(expr: &VerifyExpr, vars: &mut HashSet<String>) {
         }
         VerifyExpr::ForAll { body, .. } => collect_vars(body, vars),
         VerifyExpr::Exists { body, .. } => collect_vars(body, vars),
-        VerifyExpr::Apply { args, .. } => {
+        VerifyExpr::Apply { args, .. } | VerifyExpr::ApplyInt { args, .. } => {
             for arg in args { collect_vars(arg, vars); }
         }
         // Bitvector and array variants
@@ -332,7 +332,7 @@ fn collect_int_vars<'ctx>(expr: &VerifyExpr, int_vars: &mut HashMap<String, Int<
         VerifyExpr::ForAll { body, .. } | VerifyExpr::Exists { body, .. } => {
             collect_int_vars(body, int_vars, ctx);
         }
-        VerifyExpr::Apply { args, .. } => {
+        VerifyExpr::Apply { args, .. } | VerifyExpr::ApplyInt { args, .. } => {
             for arg in args { collect_int_vars(arg, int_vars, ctx); }
         }
         _ => {}
@@ -386,7 +386,7 @@ fn collect_bv_vars<'ctx>(expr: &VerifyExpr, bv_vars: &mut HashMap<String, z3::as
         VerifyExpr::ForAll { body, .. } | VerifyExpr::Exists { body, .. } => {
             collect_bv_vars(body, bv_vars, ctx);
         }
-        VerifyExpr::Apply { args, .. } => {
+        VerifyExpr::Apply { args, .. } | VerifyExpr::ApplyInt { args, .. } => {
             for arg in args { collect_bv_vars(arg, bv_vars, ctx); }
         }
         VerifyExpr::Select { array, index } => {
@@ -788,6 +788,16 @@ impl<'ctx> EquivEncoder<'ctx> {
                 }
             }
 
+            VerifyExpr::ApplyInt { name, args } => {
+                let encoded_args: Vec<Dynamic<'ctx>> = args.iter().map(|a| self.encode(a)).collect();
+                let arg_sorts: Vec<z3::Sort<'ctx>> = encoded_args.iter().map(|a| a.get_sort()).collect();
+                let arg_sort_refs: Vec<&z3::Sort<'ctx>> = arg_sorts.iter().collect();
+                let int_sort = z3::Sort::int(self.ctx);
+                let func_decl = z3::FuncDecl::new(self.ctx, name.as_str(), &arg_sort_refs, &int_sort);
+                let arg_refs: Vec<&dyn z3::ast::Ast<'ctx>> = encoded_args.iter().map(|a| a as &dyn z3::ast::Ast<'ctx>).collect();
+                func_decl.apply(&arg_refs)
+            }
+
             // Uninterpreted functions: create unique Z3 function symbol per name
             VerifyExpr::Apply { name, args } => {
                 let encoded_args: Vec<Dynamic<'ctx>> = args.iter().map(|a| self.encode(a)).collect();
@@ -943,6 +953,8 @@ impl<'ctx> EquivEncoder<'ctx> {
                 BitVecOp::Add => Dynamic::from_ast(&lb.bvadd(&rb)),
                 BitVecOp::Sub => Dynamic::from_ast(&lb.bvsub(&rb)),
                 BitVecOp::Mul => Dynamic::from_ast(&lb.bvmul(&rb)),
+                BitVecOp::SDiv => Dynamic::from_ast(&lb.bvsdiv(&rb)),
+                BitVecOp::SRem => Dynamic::from_ast(&lb.bvsrem(&rb)),
                 BitVecOp::ULt => Dynamic::from_ast(&lb.bvult(&rb)),
                 BitVecOp::SLt => Dynamic::from_ast(&lb.bvslt(&rb)),
                 BitVecOp::ULe => Dynamic::from_ast(&lb.bvule(&rb)),

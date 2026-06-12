@@ -233,18 +233,19 @@ fn check_match_cases_guarded(
             smaller_than: guard_ctx.smaller_than.clone(),
         };
 
-        // Only add variables that are of the same inductive type (recursive arguments)
-        // For Succ : Nat -> Nat, the param `k` is smaller
-        // For Zero : Nat, no smaller vars
-        let recursive_params = get_recursive_params(ctx, &guard_ctx.struct_type, ctor_type);
-        for (idx, _) in recursive_params {
-            if idx < smaller_vars.len() {
-                extended_ctx.smaller_than.insert(smaller_vars[idx].clone());
-            }
-        }
-
-        // Also mark ALL constructor params as smaller (conservative approach)
-        // This handles cases like `Succ k` where k is the direct subterm
+        // Mark every constructor parameter as structurally smaller.
+        //
+        // Soundness: we only reach here when the discriminant is the structural
+        // parameter itself (see `check_guarded`'s `Match` arm), so the matched
+        // value is `ctor x1 … xn` and each `xi` is a *direct argument* of that
+        // constructor — hence a genuine structural subterm of the parameter.
+        // Recursing on any `xi` therefore decreases. Parameters of a foreign
+        // type are still marked, but a recursive call on one cannot type-check
+        // (the fixpoint expects the structural type), and complex (non-variable)
+        // recursive arguments are rejected outright — so the over-approximation
+        // never admits a non-terminating fixpoint. `ctor_name`/`ctor_type` are
+        // bound for the constructor-arity computation above.
+        let _ = ctor_name;
         for var in &smaller_vars {
             extended_ctx.smaller_than.insert(var.clone());
         }
@@ -280,27 +281,3 @@ fn extract_lambda_params(term: &Term, count: usize) -> (Vec<String>, &Term) {
     }
 }
 
-/// Get indices of parameters that are of the inductive type (recursive positions).
-fn get_recursive_params(ctx: &Context, inductive: &str, ctor_type: &Term) -> Vec<(usize, String)> {
-    let mut result = Vec::new();
-    let mut current = ctor_type;
-    let mut idx = 0;
-
-    while let Term::Pi {
-        param,
-        param_type,
-        body_type,
-    } = current
-    {
-        // Check if param_type is the inductive type (handles polymorphic types like List A)
-        if let Some(type_name) = extract_inductive_name(ctx, param_type) {
-            if type_name == inductive {
-                result.push((idx, param.clone()));
-            }
-        }
-        idx += 1;
-        current = body_type;
-    }
-
-    result
-}

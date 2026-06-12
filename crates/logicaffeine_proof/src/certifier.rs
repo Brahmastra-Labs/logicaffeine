@@ -63,6 +63,12 @@ pub struct CertificationContext<'a> {
     kernel_ctx: &'a Context,
     /// Local variables in scope (from lambda abstractions)
     locals: Vec<String>,
+    /// Local *hypotheses* in scope, keyed by the proposition they prove.
+    /// Introduced by reductio (the assumed proposition) and case analysis (the
+    /// case formula / its negation in each branch). A `PremiseMatch` whose
+    /// conclusion matches one of these resolves to its bound variable rather
+    /// than to a global axiom.
+    local_hyps: Vec<(ProofExpr, String)>,
     /// Induction state for IH resolution (only set during step case)
     induction_state: Option<InductionState>,
 }
@@ -72,6 +78,7 @@ impl<'a> CertificationContext<'a> {
         Self {
             kernel_ctx,
             locals: Vec::new(),
+            local_hyps: Vec::new(),
             induction_state: None,
         }
     }
@@ -83,8 +90,36 @@ impl<'a> CertificationContext<'a> {
         Self {
             kernel_ctx: self.kernel_ctx,
             locals: new_locals,
+            local_hyps: self.local_hyps.clone(),
             induction_state: self.induction_state.clone(),
         }
+    }
+
+    /// Create a new context with an additional local hypothesis: a proof of
+    /// `prop` is available under the name `var`.
+    fn with_local_hyp(&self, prop: &ProofExpr, var: &str) -> Self {
+        let mut new_hyps = self.local_hyps.clone();
+        new_hyps.push((prop.clone(), var.to_string()));
+        Self {
+            kernel_ctx: self.kernel_ctx,
+            locals: self.locals.clone(),
+            local_hyps: new_hyps,
+            induction_state: self.induction_state.clone(),
+        }
+    }
+
+    /// A fresh hypothesis variable name, unique along the current branch.
+    fn fresh_hyp_name(&self) -> String {
+        format!("_hyp{}", self.local_hyps.len())
+    }
+
+    /// If `conclusion` is proved by a local hypothesis, return its variable.
+    fn get_local_hyp(&self, conclusion: &ProofExpr) -> Option<Term> {
+        self.local_hyps
+            .iter()
+            .rev()
+            .find(|(prop, _)| prop == conclusion)
+            .map(|(_, var)| Term::Var(var.clone()))
     }
 
     /// Create a new context with induction state for step case certification.
@@ -92,6 +127,7 @@ impl<'a> CertificationContext<'a> {
         Self {
             kernel_ctx: self.kernel_ctx,
             locals: self.locals.clone(),
+            local_hyps: self.local_hyps.clone(),
             induction_state: Some(InductionState {
                 fix_name: fix_name.to_string(),
                 step_var: step_var.to_string(),
@@ -408,6 +444,75 @@ pub fn certify(tree: &DerivationTree, ctx: &CertificationContext) -> KernelResul
             Ok(applied)
         }
 
+        // Existential Elimination: from ∃x.P(x) and a proof of ⊥ that uses a
+        // fresh witness `c` with hypothesis P(c), eliminate the existential.
+        // Curry-Howard: pattern-match the existential —
+        //   match ex return (λ_:Ex Entity P. False) with witness c h => <⊥ proof>
+        // The witness `c` is the Match-bound variable, so within the body we turn
+        // the placeholder constant `c` into that bound variable.
+        InferenceRule::ExistentialElim { witness } => {
+            if tree.premises.len() != 2 {
+                return Err(KernelError::CertificationError(
+                    "ExistentialElim requires exactly 2 premises (existential, body)".to_string(),
+                ));
+            }
+            let exist_premise = &tree.premises[0];
+            let body = &tree.premises[1];
+
+            let (var, p_body) = match &exist_premise.conclusion {
+                ProofExpr::Exists { variable, body } => (variable.clone(), body.as_ref().clone()),
+                _ => {
+                    return Err(KernelError::CertificationError(
+                        "ExistentialElim first premise must conclude an Exists".to_string(),
+                    ))
+                }
+            };
+
+            // P(c) as a ProofExpr — the witness substituted for the bound var.
+            let mut subst = crate::unify::Substitution::new();
+            subst.insert(var.clone(), ProofTerm::Constant(witness.clone()));
+            let p_c_expr = crate::unify::apply_subst_to_expr(&p_body, &subst);
+
+            // Discriminant: the proof of the existential (type Ex Entity P).
+            let disc = certify(exist_premise, ctx)?;
+
+            // Body: certify with P(c) available as a local hypothesis, then bind
+            // the witness by rewriting the placeholder Global(c) to Var(c).
+            let h = ctx.fresh_hyp_name();
+            let body_ctx = ctx.with_local_hyp(&p_c_expr, &h);
+            let body_raw = certify(body, &body_ctx)?;
+            let c_global = Term::Global(witness.clone());
+            let c_var = Term::Var(witness.clone());
+            let body_term = substitute_term_in_kernel(&body_raw, &c_global, &c_var);
+            let p_c_type =
+                substitute_term_in_kernel(&proof_expr_to_type(&p_c_expr)?, &c_global, &c_var);
+
+            // Motive: λ_:(Ex Entity P). False  (the goal ⊥ ignores the witness).
+            let ex_type = proof_expr_to_type(&exist_premise.conclusion)?;
+            let motive = Term::Lambda {
+                param: "_".to_string(),
+                param_type: Box::new(ex_type),
+                body: Box::new(Term::Global("False".to_string())),
+            };
+
+            // Case for `witness`: λ(c:Entity). λ(h:P(c)). <⊥ proof>
+            let case = Term::Lambda {
+                param: witness.clone(),
+                param_type: Box::new(Term::Global("Entity".to_string())),
+                body: Box::new(Term::Lambda {
+                    param: h,
+                    param_type: Box::new(p_c_type),
+                    body: Box::new(body_term),
+                }),
+            };
+
+            Ok(Term::Match {
+                discriminant: Box::new(disc),
+                motive: Box::new(motive),
+                cases: vec![case],
+            })
+        }
+
         // Equality Rewriting (Leibniz's Law)
         // a = b, P(a) ⊢ P(b)
         // Uses: Eq_rec A x P proof y eq_proof
@@ -552,11 +657,145 @@ pub fn certify(tree: &DerivationTree, ctx: &CertificationContext) -> KernelResul
             ))
         }
 
+        // Arithmetic decision: discharge an Int equality with the proof-producing
+        // oracle. The oracle is untrusted — the term it returns is type-checked by
+        // the kernel (here, by the caller's `infer_type`), so a wrong proof is
+        // rejected. Proofs are built from computation + the registered ring axioms.
+        InferenceRule::ArithDecision => match &tree.conclusion {
+            ProofExpr::Identity(l, r) => {
+                let kl = proof_term_to_kernel_term(l)?;
+                let kr = proof_term_to_kernel_term(r)?;
+                crate::arith::prove_int_eq(ctx.kernel_ctx, &kl, &kr).ok_or_else(|| {
+                    KernelError::CertificationError(
+                        "ArithDecision: arithmetic oracle found no proof".to_string(),
+                    )
+                })
+            }
+            _ => Err(KernelError::CertificationError(
+                "ArithDecision conclusion must be an Identity".to_string(),
+            )),
+        },
+
+        // Contradiction: P and ¬P jointly yield ⊥.
+        // Curry-Howard: ¬P is `P → False`, so applying the proof of ¬P to the
+        // proof of P gives `False`. We detect which premise is the negation.
+        InferenceRule::Contradiction => {
+            if tree.premises.len() != 2 {
+                return Err(KernelError::CertificationError(
+                    "Contradiction requires exactly 2 premises (P and ¬P)".to_string(),
+                ));
+            }
+            let a = &tree.premises[0];
+            let b = &tree.premises[1];
+            let (pos, neg) = if is_negation_of(&b.conclusion, &a.conclusion) {
+                (a, b)
+            } else if is_negation_of(&a.conclusion, &b.conclusion) {
+                (b, a)
+            } else {
+                return Err(KernelError::CertificationError(format!(
+                    "Contradiction premises are not a proposition and its negation: {:?} vs {:?}",
+                    a.conclusion, b.conclusion
+                )));
+            };
+            let pos_term = certify(pos, ctx)?;
+            let neg_term = certify(neg, ctx)?;
+            // (¬P) P : False
+            Ok(Term::App(Box::new(neg_term), Box::new(pos_term)))
+        }
+
+        // Reductio ad absurdum: assume P, derive ⊥, conclude ¬P.
+        // Curry-Howard: λ(h:P). <⊥-proof using h> : P → False = Not P.
+        // The assumption becomes a local hypothesis available to the ⊥-derivation.
+        InferenceRule::ReductioAdAbsurdum => {
+            if tree.premises.len() != 2 {
+                return Err(KernelError::CertificationError(
+                    "ReductioAdAbsurdum requires exactly 2 premises (assumption, ⊥-derivation)"
+                        .to_string(),
+                ));
+            }
+            let assumed = &tree.premises[0].conclusion;
+            let contradiction = &tree.premises[1];
+            let hyp_name = ctx.fresh_hyp_name();
+            let branch_ctx = ctx.with_local_hyp(assumed, &hyp_name);
+            let body = certify(contradiction, &branch_ctx)?;
+            Ok(Term::Lambda {
+                param: hyp_name,
+                param_type: Box::new(proof_expr_to_type(assumed)?),
+                body: Box::new(body),
+            })
+        }
+
+        // Case analysis where both cases reach ⊥. Intuitionistic form, needing
+        // NO excluded middle: from the C-branch build `¬C : C → False`, from the
+        // ¬C-branch build `¬¬C : (Not C) → False`, then `(¬¬C) (¬C) : False`.
+        InferenceRule::CaseAnalysis { case_formula } => {
+            if tree.premises.len() != 2 {
+                return Err(KernelError::CertificationError(
+                    "CaseAnalysis requires exactly 2 premises (C-branch, ¬C-branch)".to_string(),
+                ));
+            }
+            let c = case_formula.as_ref();
+            let not_c = ProofExpr::Not(Box::new(c.clone()));
+
+            let branch_c = unwrap_case_branch(&tree.premises[0]);
+            let branch_nc = unwrap_case_branch(&tree.premises[1]);
+
+            // ¬C : C → False
+            let h1 = ctx.fresh_hyp_name();
+            let ctx_c = ctx.with_local_hyp(c, &h1);
+            let neg_c = Term::Lambda {
+                param: h1,
+                param_type: Box::new(proof_expr_to_type(c)?),
+                body: Box::new(certify(branch_c, &ctx_c)?),
+            };
+
+            // ¬¬C : (Not C) → False  (fresh name distinct from h1)
+            let h2 = ctx_c.fresh_hyp_name();
+            let ctx_nc = ctx.with_local_hyp(&not_c, &h2);
+            let neg_neg_c = Term::Lambda {
+                param: h2,
+                param_type: Box::new(proof_expr_to_type(&not_c)?),
+                body: Box::new(certify(branch_nc, &ctx_nc)?),
+            };
+
+            // (¬¬C) (¬C) : False
+            Ok(Term::App(Box::new(neg_neg_c), Box::new(neg_c)))
+        }
+
+        // Z3 oracle results are deliberately NOT certifiable. The oracle attests
+        // *satisfiability* but hands back no checkable proof term — so it can
+        // never be turned into a kernel certificate, and a goal discharged only
+        // by the oracle is reported as unverified by the trusted door. (For
+        // arithmetic, the proof-producing `ArithDecision` path yields a real
+        // certificate instead.) Making this explicit keeps Z3 firmly outside the
+        // trusted base.
+        InferenceRule::OracleVerification(detail) => Err(KernelError::CertificationError(format!(
+            "oracle (Z3) results are not kernel-certifiable — they attest \
+             satisfiability but produce no checkable proof term ({})",
+            detail
+        ))),
+
         // Fallback for unimplemented rules
         rule => Err(KernelError::CertificationError(format!(
             "Certification not implemented for {:?}",
             rule
         ))),
+    }
+}
+
+/// Whether `neg` is syntactically the negation of `pos` (i.e. `neg = ¬pos`).
+fn is_negation_of(neg: &ProofExpr, pos: &ProofExpr) -> bool {
+    matches!(neg, ProofExpr::Not(inner) if inner.as_ref() == pos)
+}
+
+/// Unwrap a case-analysis branch. The engine wraps each branch's ⊥-derivation
+/// in a trivial `PremiseMatch(⊥)` node with a single child; the real proof is
+/// that child. Any other shape is returned as-is.
+fn unwrap_case_branch(tree: &DerivationTree) -> &DerivationTree {
+    if matches!(tree.rule, InferenceRule::PremiseMatch) && tree.premises.len() == 1 {
+        &tree.premises[0]
+    } else {
+        tree
     }
 }
 
@@ -645,6 +884,12 @@ fn certify_hypothesis(conclusion: &ProofExpr, ctx: &CertificationContext) -> Ker
         return Ok(ih_term);
     }
 
+    // A locally-assumed proposition (from reductio / case analysis) resolves to
+    // its bound variable, regardless of the proposition's shape.
+    if let Some(hyp) = ctx.get_local_hyp(conclusion) {
+        return Ok(hyp);
+    }
+
     match conclusion {
         ProofExpr::Atom(name) => {
             // Check locals first (for lambda-bound variables)
@@ -682,12 +927,17 @@ fn certify_hypothesis(conclusion: &ProofExpr, ctx: &CertificationContext) -> Ker
                 conclusion
             )))
         }
-        // For ForAll, Implies, and Identity hypotheses, look up by type in kernel context
-        ProofExpr::ForAll { .. } | ProofExpr::Implies(_, _) | ProofExpr::Identity(_, _) => {
-            // Convert the ProofExpr to a kernel type
-            let target_type = proof_expr_to_type(conclusion)?;
+        // Any other proposition (ForAll, Implies, Identity, Not, Or, And, …):
+        // convert to its kernel type and look it up among the registered
+        // hypotheses by structural match.
+        _ => {
+            let target_type = proof_expr_to_type(conclusion).map_err(|_| {
+                KernelError::CertificationError(format!(
+                    "Cannot certify hypothesis: {:?}",
+                    conclusion
+                ))
+            })?;
 
-            // Search declarations for one with matching type
             for (name, decl_type) in ctx.kernel_ctx.iter_declarations() {
                 if types_structurally_match(&target_type, decl_type) {
                     return Ok(Term::Global(name.to_string()));
@@ -699,10 +949,6 @@ fn certify_hypothesis(conclusion: &ProofExpr, ctx: &CertificationContext) -> Ker
                 conclusion
             )))
         }
-        _ => Err(KernelError::CertificationError(format!(
-            "Cannot certify hypothesis: {:?}",
-            conclusion
-        ))),
     }
 }
 
@@ -799,9 +1045,23 @@ fn extract_and_types(conclusion: &ProofExpr) -> KernelResult<(Term, Term)> {
 }
 
 /// Convert a ProofExpr (proposition) to a kernel Term (type).
-fn proof_expr_to_type(expr: &ProofExpr) -> KernelResult<Term> {
+pub(crate) fn proof_expr_to_type(expr: &ProofExpr) -> KernelResult<Term> {
     match expr {
+        // Falsum maps to the kernel's `False : Prop`; other atoms are
+        // propositional constants named directly.
+        ProofExpr::Atom(name) if name == "⊥" || name == "False" || name == "false" => {
+            Ok(Term::Global("False".to_string()))
+        }
         ProofExpr::Atom(name) => Ok(Term::Global(name.clone())),
+        // ¬P is `Not P`, which the kernel *defines* as `P → False`. We emit the
+        // unfolded Pi form directly so the proposition is syntactically a
+        // function in every position (application, hypothesis lookup, lambda
+        // parameter types) without relying on delta-unfolding mid-typecheck.
+        ProofExpr::Not(p) => Ok(Term::Pi {
+            param: "_".to_string(),
+            param_type: Box::new(proof_expr_to_type(p)?),
+            body_type: Box::new(Term::Global("False".to_string())),
+        }),
         ProofExpr::And(p, q) => Ok(Term::App(
             Box::new(Term::App(
                 Box::new(Term::Global("And".to_string())),
@@ -854,10 +1114,11 @@ fn proof_expr_to_type(expr: &ProofExpr) -> KernelResult<Term> {
                 Box::new(r_term),
             ))
         }
-        // Exists ∃x.P(x) becomes Ex ? (λx.P(x))
-        // Note: Variable type defaults to Nat - use ExistentialIntro handler for explicit types
+        // Exists ∃x.P(x) becomes Ex Entity (λx.P(x)). FOL quantifies over
+        // entities (matching the ForAll arm); `ExistentialIntro` may still carry
+        // an explicit witness type for other domains.
         ProofExpr::Exists { variable, body } => {
-            let var_type = Term::Global("Nat".to_string()); // Default type
+            let var_type = Term::Global("Entity".to_string());
             let body_type = proof_expr_to_type(body)?;
 
             // Build: Ex VarType (λvar. body_type)
@@ -886,7 +1147,7 @@ fn proof_expr_to_type(expr: &ProofExpr) -> KernelResult<Term> {
 ///
 /// This bridges the proof engine's term representation to the kernel's.
 /// Used for converting witness terms in quantifier instantiation.
-fn proof_term_to_kernel_term(term: &ProofTerm) -> KernelResult<Term> {
+pub(crate) fn proof_term_to_kernel_term(term: &ProofTerm) -> KernelResult<Term> {
     match term {
         ProofTerm::Constant(name) => Ok(Term::Global(name.clone())),
         ProofTerm::Variable(name) => Ok(Term::Var(name.clone())),

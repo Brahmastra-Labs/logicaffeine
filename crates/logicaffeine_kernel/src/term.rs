@@ -9,6 +9,7 @@ use std::fmt;
 ///
 /// These are opaque values that compute via hardware ALU, not recursion.
 #[derive(Debug, Clone, PartialEq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum Literal {
     /// 64-bit signed integer
     Int(i64),
@@ -98,6 +99,7 @@ fn days_to_ymd(days: i64) -> (i64, u8, u8) {
 /// - `Prop` is the universe of propositions (proof-irrelevant in full CIC)
 /// - `Type(n)` is the universe of types at level n
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum Universe {
     /// Prop - the universe of propositions
     Prop,
@@ -149,6 +151,7 @@ impl Universe {
 /// - `Lambda` - functions: λ(x:A). t
 /// - `App` - application: f x
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum Term {
     /// Universe: Type n or Prop
     Sort(Universe),

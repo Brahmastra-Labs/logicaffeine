@@ -69,6 +69,8 @@
 //! is purely logical and language-agnostic.
 
 mod context;
+#[cfg(feature = "serde")]
+pub mod certificate;
 mod error;
 pub mod interface;
 pub mod positivity;

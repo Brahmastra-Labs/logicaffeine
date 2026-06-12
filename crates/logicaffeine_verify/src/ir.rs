@@ -117,6 +117,10 @@ pub enum BitVecOp {
     Add,
     Sub,
     Mul,
+    /// Signed division, truncating toward zero (matches Rust `i64` `/`).
+    SDiv,
+    /// Signed remainder, sign following the dividend (matches Rust `i64` `%`).
+    SRem,
 
     // ---- Comparison ----
     /// Unsigned less than.
@@ -177,6 +181,16 @@ pub enum VerifyExpr {
     /// - `Mortal(socrates)` -> `Apply { name: "Mortal", args: [Var("socrates")] }`
     /// - `Possible(P)` -> `Apply { name: "Possible", args: [P] }`
     Apply {
+        name: String,
+        args: Vec<VerifyExpr>,
+    },
+
+    /// Uninterpreted INT-valued function application: `Int^n → Int`.
+    ///
+    /// For function symbols in TERM position — `sum(a, b)` (the Link-lattice
+    /// join ⊕), `GovernmentOf(x)`, `has(x, y)` — where [`VerifyExpr::Apply`]
+    /// (which encodes as `Int^n → Bool`) would be ill-sorted.
+    ApplyInt {
         name: String,
         args: Vec<VerifyExpr>,
     },
@@ -350,6 +364,16 @@ impl VerifyExpr {
     /// ```
     pub fn apply(name: impl Into<String>, args: Vec<VerifyExpr>) -> Self {
         VerifyExpr::Apply {
+            name: name.into(),
+            args,
+        }
+    }
+
+    /// Create an uninterpreted INT-valued function application (`Int^n → Int`)
+    /// for function symbols in term position, e.g. the lattice join
+    /// `sum(a, b)`.
+    pub fn apply_int(name: impl Into<String>, args: Vec<VerifyExpr>) -> Self {
+        VerifyExpr::ApplyInt {
             name: name.into(),
             args,
         }

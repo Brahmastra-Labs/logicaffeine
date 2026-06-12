@@ -1,6 +1,6 @@
 [package]
 name = "logicaffeine-kernel"
-version = "0.9.16"
+version = "0.9.17"
 edition.workspace = true
 authors.workspace = true
 repository.workspace = true
@@ -13,5 +13,24 @@ description = "Pure Calculus of Constructions type theory - NO LEXICON"
 readme = "README.md"
 
 [dependencies]
-logicaffeine-base = { version = "0.9.16", path = "../logicaffeine_base" }
+logicaffeine-base = { version = "0.9.17", path = "../logicaffeine_base" }
 # CRITICAL: NO LEXICON DEPENDENCY - Milner Invariant
+# Optional serde, off by default so the trusted core stays dependency-free
+# unless proof certificates are being (de)serialized.
+serde = { version = "1", features = ["derive"], optional = true }
+
+[features]
+serde = ["dep:serde"]
+
+# serde_json is dev-only: it powers the example re-checker and the certificate
+# tests, but never enters the published library's dependency graph — the trusted
+# kernel stays pure.
+[dev-dependencies]
+serde_json = "1"
+
+# The standalone, independently-auditable proof re-checker. Its only trusted
+# inputs are this kernel and a JSON parser. Run with:
+#   cargo run -p logicaffeine-kernel --example recheck --features serde -- cert.json
+[[example]]
+name = "recheck"
+required-features = ["serde"]

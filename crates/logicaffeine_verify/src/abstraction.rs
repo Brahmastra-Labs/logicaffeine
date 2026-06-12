@@ -190,6 +190,10 @@ fn replace_t_with_t1(expr: &VerifyExpr) -> VerifyExpr {
             vars.clone(),
             replace_t_with_t1(body),
         ),
+        VerifyExpr::ApplyInt { name, args } => VerifyExpr::apply_int(
+            name.clone(),
+            args.iter().map(|a| replace_t_with_t1(a)).collect(),
+        ),
         VerifyExpr::Apply { name, args } => VerifyExpr::apply(
             name.clone(),
             args.iter().map(|a| replace_t_with_t1(a)).collect(),
