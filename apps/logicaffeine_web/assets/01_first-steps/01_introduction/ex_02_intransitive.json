@@ -3,7 +3,7 @@
   "type": "translation",
   "difficulty": 1,
   "prompt": "Translate this action:",
-  "template": "{ProperName} {Verb}.",
+  "template": "{ProperName} {Verb:Present3s}.",
   "constraints": {
     "Verb": ["Intransitive"]
   },

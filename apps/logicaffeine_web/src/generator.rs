@@ -111,6 +111,12 @@ pub enum AnswerType {
 }
 
 impl Generator {
+    /// How many sentences a generator may draw before giving up on an
+    /// exercise. Lexicon pools contain words the compiler rejects in some
+    /// frames, so generation rejection-samples; the bound keeps a
+    /// misconfigured template from looping forever.
+    const MAX_DRAWS: usize = 32;
+
     /// Creates a new generator with a fresh lexicon index.
     pub fn new() -> Self {
         Self {
@@ -134,18 +140,28 @@ impl Generator {
 
     fn generate_translation(&self, exercise: &ExerciseConfig, rng: &mut impl Rng) -> Option<Challenge> {
         let template = exercise.template.as_ref()?;
-        let sentence = self.fill_template(template, &exercise.constraints, rng)?;
 
-        let golden_logic = compile(&sentence).ok()?;
+        // Rejection sampling: a draw whose sentence the compiler rejects is
+        // discarded and redrawn, so one unparseable word in a pool can never
+        // sink the exercise.
+        for _ in 0..Self::MAX_DRAWS {
+            let Some(sentence) = self.fill_template(template, &exercise.constraints, rng) else {
+                return None;
+            };
+            let Ok(golden_logic) = compile(&sentence) else {
+                continue;
+            };
 
-        Some(Challenge {
-            exercise_id: exercise.id.clone(),
-            prompt: exercise.prompt.clone(),
-            sentence,
-            answer: AnswerType::FreeForm { golden_logic },
-            hint: exercise.hint.clone(),
-            explanation: exercise.explanation.clone(),
-        })
+            return Some(Challenge {
+                exercise_id: exercise.id.clone(),
+                prompt: exercise.prompt.clone(),
+                sentence,
+                answer: AnswerType::FreeForm { golden_logic },
+                hint: exercise.hint.clone(),
+                explanation: exercise.explanation.clone(),
+            });
+        }
+        None
     }
 
     fn generate_multiple_choice(&self, exercise: &ExerciseConfig, rng: &mut impl Rng) -> Option<Challenge> {
@@ -170,18 +186,25 @@ impl Generator {
 
     fn generate_ambiguity(&self, exercise: &ExerciseConfig, rng: &mut impl Rng) -> Option<Challenge> {
         let template = exercise.template.as_ref()?;
-        let sentence = self.fill_template(template, &exercise.constraints, rng)?;
 
-        let readings = compile_all_scopes(&sentence).ok()?;
+        for _ in 0..Self::MAX_DRAWS {
+            let Some(sentence) = self.fill_template(template, &exercise.constraints, rng) else {
+                return None;
+            };
+            let Ok(readings) = compile_all_scopes(&sentence) else {
+                continue;
+            };
 
-        Some(Challenge {
-            exercise_id: exercise.id.clone(),
-            prompt: exercise.prompt.clone(),
-            sentence,
-            answer: AnswerType::Ambiguity { readings },
-            hint: exercise.hint.clone(),
-            explanation: exercise.explanation.clone(),
-        })
+            return Some(Challenge {
+                exercise_id: exercise.id.clone(),
+                prompt: exercise.prompt.clone(),
+                sentence,
+                answer: AnswerType::Ambiguity { readings },
+                hint: exercise.hint.clone(),
+                explanation: exercise.explanation.clone(),
+            });
+        }
+        None
     }
 
     fn fill_template(&self, template: &str, constraints: &HashMap<String, Vec<String>>, rng: &mut impl Rng) -> Option<String> {
@@ -475,8 +498,10 @@ mod tests {
             }
         }
 
-        // Allow some failures for now, but ensure most work
-        let success_rate = successful as f64 / total_exercises as f64;
-        assert!(success_rate >= 0.8, "At least 80% of exercises should generate (got {:.1}%)", success_rate * 100.0);
+        assert!(
+            failed_exercises.is_empty(),
+            "every exercise must generate a challenge; failed: {:?}",
+            failed_exercises
+        );
     }
 }

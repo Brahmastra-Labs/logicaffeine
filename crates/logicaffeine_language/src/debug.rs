@@ -6,11 +6,17 @@
 //!
 //! Use the `.with(interner)` method to create a displayable wrapper:
 //!
-//! ```ignore
+//! ```
+//! use logicaffeine_base::Interner;
+//! use logicaffeine_language::ast::{LogicExpr, Term};
 //! use logicaffeine_language::debug::DisplayWith;
 //!
-//! let expr: LogicExpr = ...;
-//! println!("{}", expr.with(&interner));
+//! let mut interner = Interner::new();
+//! let mortal = interner.intern("Mortal");
+//! let socrates = interner.intern("Socrates");
+//! let args = [Term::Constant(socrates)];
+//! let expr = LogicExpr::Predicate { name: mortal, args: &args, world: None };
+//! assert_eq!(expr.with(&interner).to_string(), "Mortal(Socrates)");
 //! ```
 
 use std::fmt;

@@ -101,7 +101,10 @@ pub struct CycleState {
 ///
 /// # Example
 ///
-/// ```ignore
+/// ```
+/// use logicaffeine_verify::ir::{VerifyExpr, VerifyOp};
+/// use logicaffeine_verify::equivalence::{check_equivalence, EquivalenceResult};
+///
 /// let fol = VerifyExpr::binary(VerifyOp::Implies,
 ///     VerifyExpr::Var("req@0".into()),
 ///     VerifyExpr::Var("ack@0".into()),
