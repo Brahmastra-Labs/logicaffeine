@@ -233,6 +233,152 @@ fn build_formula<'a>(
     }
 }
 
+/// True if `value` is exactly `counter + 1`.
+fn is_counter_plus_one(value: &Expr, counter: Symbol) -> bool {
+    if let Expr::BinaryOp { op: BinaryOpKind::Add, left, right } = value {
+        if let (Expr::Identifier(l), Expr::Literal(Literal::Number(1))) = (&**left, &**right) {
+            return *l == counter;
+        }
+    }
+    false
+}
+
+/// O8a — modulus deferral. Rewrite a counted loop whose body is exactly
+/// `Set acc to (acc + counter) % p` + `Set counter to counter + 1` into a
+/// guarded chunked form that applies `% p` once per K iterations instead of
+/// every iteration. Sound because, with `acc` and `counter` starting ≥ 0,
+/// every partial sum is non-negative, so truncated remainder equals
+/// mathematical mod and deferring the reduction is value-preserving. The
+/// `If limit <= K_SAFE` guard ensures the K-deep accumulation cannot
+/// overflow i64; otherwise the original loop runs unchanged.
+fn try_defer_modulus<'a>(
+    cond: &'a Expr<'a>,
+    body: Block<'a>,
+    preceding: &[Stmt<'a>],
+    ea: &'a Arena<Expr<'a>>,
+    sa: &'a Arena<Stmt<'a>>,
+    interner: &mut Interner,
+) -> Option<Vec<Stmt<'a>>> {
+    const K: i64 = 16;
+
+    let counter = match cond {
+        Expr::BinaryOp { left, .. } => match &**left {
+            Expr::Identifier(s) => *s,
+            _ => return None,
+        },
+        _ => return None,
+    };
+    let (limit_expr, inclusive) = extract_while_limit(cond, counter)?;
+
+    // Body must be exactly the accumulate + the unit counter increment.
+    if body.len() != 2 {
+        return None;
+    }
+    let mut accum: Option<(Symbol, &'a Expr<'a>)> = None;
+    let mut counter_inc = false;
+    for s in body {
+        match s {
+            Stmt::Set { target, value } if *target == counter => {
+                if is_counter_plus_one(value, counter) {
+                    counter_inc = true;
+                } else {
+                    return None;
+                }
+            }
+            Stmt::Set { target, value } => accum = Some((*target, value)),
+            _ => return None,
+        }
+    }
+    if !counter_inc {
+        return None;
+    }
+    let (acc, acc_value) = accum?;
+
+    // acc_value must be `(acc + counter) % p` with p a literal ≥ 1.
+    let (add_expr, p) = match acc_value {
+        Expr::BinaryOp { op: BinaryOpKind::Modulo, left, right } => match &**right {
+            Expr::Literal(Literal::Number(n)) if *n >= 1 => (&**left, *n),
+            _ => return None,
+        },
+        _ => return None,
+    };
+    // add_expr must be `acc + counter` (the addend is the counter, which is
+    // non-negative throughout, and is not the accumulator).
+    match add_expr {
+        Expr::BinaryOp { op: BinaryOpKind::Add, left, right } => {
+            let acc_lhs = matches!(&**left, Expr::Identifier(s) if *s == acc);
+            let counter_rhs = matches!(&**right, Expr::Identifier(s) if *s == counter);
+            if !(acc_lhs && counter_rhs) {
+                return None;
+            }
+        }
+        _ => return None,
+    }
+
+    // Non-negative seeds make truncated remainder equal mathematical mod.
+    if find_init_value(preceding, acc)? < 0 {
+        return None;
+    }
+    if find_init_value(preceding, counter)? < 0 {
+        return None;
+    }
+
+    // K_SAFE: largest `limit` for which (p-1) + K*limit still fits in i64.
+    let k_safe = (i64::MAX - (p - 1)) / K;
+
+    let acc_id = ea.alloc(Expr::Identifier(acc));
+    let counter_id = ea.alloc(Expr::Identifier(counter));
+    let inc_value = mk_binop(BinaryOpKind::Add, counter_id, mk_int(1, ea), ea);
+    let inc_stmt = || Stmt::Set { target: counter, value: inc_value };
+
+    // Inner mod-free accumulation loop, run K times per chunk.
+    let stop_sym = interner.intern("__defer_stop");
+    let stop_id = ea.alloc(Expr::Identifier(stop_sym));
+    let inner_body = sa.alloc_slice(vec![
+        Stmt::Set { target: acc, value: mk_binop(BinaryOpKind::Add, acc_id, counter_id, ea) },
+        inc_stmt(),
+    ]);
+    let inner_while = Stmt::While {
+        cond: mk_binop(BinaryOpKind::Lt, counter_id, stop_id, ea),
+        body: inner_body,
+        decreasing: None,
+    };
+    let chunk_body = sa.alloc_slice(vec![
+        Stmt::Let {
+            var: stop_sym,
+            ty: None,
+            value: mk_binop(BinaryOpKind::Add, counter_id, mk_int(K, ea), ea),
+            mutable: false,
+        },
+        inner_while,
+        Stmt::Set { target: acc, value: mk_binop(BinaryOpKind::Modulo, acc_id, mk_int(p, ea), ea) },
+    ]);
+    let chunk_limit = mk_binop(BinaryOpKind::Subtract, limit_expr, mk_int(K - 1, ea), ea);
+    let chunk_cmp = if inclusive { BinaryOpKind::LtEq } else { BinaryOpKind::Lt };
+    let chunk_while = Stmt::While {
+        cond: mk_binop(chunk_cmp, counter_id, chunk_limit, ea),
+        body: chunk_body,
+        decreasing: None,
+    };
+
+    // Remainder + the untouched fallback both reuse the original body shape.
+    let orig_body = sa.alloc_slice(vec![
+        Stmt::Set { target: acc, value: acc_value },
+        inc_stmt(),
+    ]);
+    let remainder_while = Stmt::While { cond, body: orig_body, decreasing: None };
+    let fallback_while = Stmt::While { cond, body: orig_body, decreasing: None };
+
+    let then_block = sa.alloc_slice(vec![chunk_while, remainder_while]);
+    let else_block = sa.alloc_slice(vec![fallback_while]);
+    let guarded = Stmt::If {
+        cond: mk_binop(BinaryOpKind::LtEq, limit_expr, mk_int(k_safe, ea), ea),
+        then_block,
+        else_block: Some(else_block),
+    };
+    Some(vec![guarded])
+}
+
 pub fn closed_form_stmts<'a>(
     stmts: Vec<Stmt<'a>>,
     expr_arena: &'a Arena<Expr<'a>>,
@@ -249,6 +395,13 @@ pub fn closed_form_stmts<'a>(
                 );
                 if let Some(replacement_stmts) = replaced {
                     result.extend(replacement_stmts);
+                    continue;
+                }
+
+                if let Some(deferred) = try_defer_modulus(
+                    cond, body, &result, expr_arena, stmt_arena, interner,
+                ) {
+                    result.extend(deferred);
                     continue;
                 }
 

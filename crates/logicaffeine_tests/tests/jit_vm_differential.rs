@@ -27,7 +27,7 @@ fn jit_run(source: &str) -> Option<i64> {
                 adapt(&program.code, &program.constants, program.register_count)?;
             let chain = compile_straightline(&micro).ok()?;
             let mut frame = vec![0i64; frame_size.max(1)];
-            Some(chain.run_with_frame(&mut frame))
+            Some(chain.run_with_frame(&mut frame).expect_return())
         }
         Err(_) => None,
     })
@@ -108,11 +108,20 @@ fn jit_loops_and_ifs_from_source() {
 
 #[test]
 fn jit_bails_outside_the_subset() {
-    // Division (error semantics), text, and bool observation are bails.
-    assert_eq!(jit_run("## Main\nShow 7 / 2.\n"), None);
+    // Text and bool observation are bails.
     assert_eq!(jit_run("## Main\nShow \"hi\".\n"), None);
     // Showing a comparison result must bail (VM prints `true`, not 1).
     assert_eq!(jit_run("## Main\nLet a be 1.\nLet b be 2.\nShow a is less than b.\n"), None);
+}
+
+#[test]
+fn jit_division_compiles_with_checked_semantics() {
+    // M2 (EXODIA Forge deopt protocol) moved Div/Mod INTO the subset: the
+    // checked stencil side-exits on a zero divisor instead of bailing the
+    // whole program — so division now compiles and must match the VM.
+    assert_jit_matches_vm("## Main\nShow 7 / 2.\n");
+    assert_jit_matches_vm("## Main\nShow 7 % 2.\n");
+    assert_jit_matches_vm("## Main\nLet a be -9223372036854775808.\nShow a / -1.\n");
 }
 
 struct SplitMix64 {
@@ -578,9 +587,10 @@ While i is less than 150:
 }
 
 #[test]
-fn main_float_loop_fails_closed() {
-    // Float constants are outside the integer subset — the adapter must bail,
-    // never producing a region that would corrupt float registers.
+fn main_float_loop_compiles_with_typed_speculation() {
+    // M5 (EXODIA float tier): float loops are IN the subset — the region
+    // speculates on the observed register kinds, guards them per entry, and
+    // computes natively with bit-exact IEEE semantics.
     let src = "\
 ## Main
 Let mutable x be 0.5.
@@ -592,7 +602,7 @@ Show x.
 ";
     let (tiered, pure, compiles) = tiered_vs_pure_regions(src);
     assert_eq!(tiered, pure, "float-loop region run diverged");
-    assert_eq!(compiles.1, 0, "a float loop must never compile as a region");
+    assert!(compiles.1 >= 1, "the float loop must now compile as a region");
 }
 
 #[test]
@@ -668,4 +678,56 @@ fn region_seeded_main_loops_match_pure_bytecode() {
         assert_eq!(tiered, pure, "seed {seed} diverged:\n{src}");
         assert_eq!(compiles, (1, 1), "seed {seed} must region-tier:\n{src}");
     }
+}
+
+/// Regression: the JIT lowered an in-loop `Let curr be a new Seq` on a PINNED
+/// list into an in-place buffer REUSE (`ListClear`). That is unsound when the
+/// list is ALIASED — knapsack's `Set prev to curr` makes `prev` point at curr's
+/// buffer, so the next iteration's reuse wiped prev's live DP row (the JIT
+/// produced 395*n instead of the real knapsack value; the VM was correct). The
+/// fix bails such a function to the VM. The tiered (JIT) run must match the
+/// pure-bytecode (VM) run.
+#[test]
+fn knapsack_list_reuse_with_alias_jit_matches_vm() {
+    let src = r#"## Main
+Let n be 300.
+Let capacity be n * 5.
+Let mutable weights be a new Seq of Int.
+Let mutable vals be a new Seq of Int.
+Let mutable i be 0.
+While i is less than n:
+    Push (i * 17 + 3) % 50 + 1 to weights.
+    Push (i * 31 + 7) % 100 + 1 to vals.
+    Set i to i + 1.
+Let cols be capacity + 1.
+Let mutable prev be a new Seq of Int.
+Set i to 0.
+While i is less than cols:
+    Push 0 to prev.
+    Set i to i + 1.
+Set i to 0.
+While i is less than n:
+    Let mutable curr be a new Seq of Int.
+    Let wi be item (i + 1) of weights.
+    Let vi be item (i + 1) of vals.
+    Let mutable w be 0.
+    While w is at most capacity:
+        Let mutable best be item (w + 1) of prev.
+        If w is at least wi:
+            Let take be item (w - wi + 1) of prev + vi.
+            If take is greater than best:
+                Set best to take.
+        Push best to curr.
+        Set w to w + 1.
+    Set prev to curr.
+    Set i to i + 1.
+Show item (capacity + 1) of prev.
+"#;
+    let (tiered, pure, _compiles) = tiered_vs_pure_regions(src);
+    assert_eq!(tiered.1, None, "tiered (JIT) run errored: {:?}", tiered.1);
+    assert_eq!(pure.1, None, "pure (VM) run errored: {:?}", pure.1);
+    assert_eq!(
+        tiered.0, pure.0,
+        "JIT (tiered) diverged from VM (pure) on knapsack list-reuse+alias"
+    );
 }

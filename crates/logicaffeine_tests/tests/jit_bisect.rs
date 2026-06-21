@@ -22,7 +22,7 @@ fn chains_run_correctly_across_the_4k_page_boundary() {
 
         let chain = compile_straightline(&ops).expect("compile");
         let mut jit_frame = vec![0i64; 8];
-        let jit = chain.run_with_frame(&mut jit_frame);
+        let jit = chain.run_with_frame(&mut jit_frame).expect_return();
 
         let mut ref_frame = vec![0i64; 8];
         let reference = reference_eval(&ops, &mut ref_frame, 1_000_000).expect("fuel");

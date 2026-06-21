@@ -1204,8 +1204,11 @@ impl StandardLibrary {
 
     /// syn_beta : Syntax -> Syntax -> Syntax
     ///
-    /// Beta reduction: substitute arg for variable 0 in body.
-    /// - syn_beta body arg = syn_subst arg 0 body
+    /// Beta reduction: substitute arg for variable 0 in body, then decrement the
+    /// surviving free variables (the λ binder is removed, so references past it
+    /// drop one de Bruijn level). `syn_beta body arg = syn_subst arg 0 body`
+    /// composed with that shift — a FAITHFUL reflection of real beta (unlike the
+    /// raw, non-shifting `syn_subst` primitive).
     /// Computational behavior defined in reduction.rs.
     fn register_syn_beta(ctx: &mut Context) {
         let syntax = Term::Global("Syntax".to_string());

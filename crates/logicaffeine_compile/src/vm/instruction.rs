@@ -29,8 +29,10 @@ pub enum Constant {
     Time(i64),
 }
 
-/// A bytecode instruction.
-#[derive(Clone, Debug)]
+/// A bytecode instruction. Every field is a small `Copy` scalar (registers,
+/// constant-pool indices, interned symbols), so the dispatch loop reads each
+/// op by value instead of `clone()`-ing through the `Clone` machinery.
+#[derive(Clone, Copy, Debug)]
 pub enum Op {
     /// `R[dst] = constants[idx]`
     LoadConst { dst: Reg, idx: ConstIdx },
@@ -38,10 +40,35 @@ pub enum Op {
     Move { dst: Reg, src: Reg },
 
     Add { dst: Reg, lhs: Reg, rhs: Reg },
+    /// `R[dst] = R[dst] + R[src]` — the `Set x to x + …` shape. Semantically
+    /// identical to `Add { dst, lhs: dst, rhs: src }`; the dedicated form lets
+    /// the VM append in place when `R[dst]` is a sole-owner Text (turning the
+    /// O(n²) build-a-string-by-concatenation loop into amortized O(n)).
+    AddAssign { dst: Reg, src: Reg },
     Sub { dst: Reg, lhs: Reg, rhs: Reg },
     Mul { dst: Reg, lhs: Reg, rhs: Reg },
     Div { dst: Reg, lhs: Reg, rhs: Reg },
     Mod { dst: Reg, lhs: Reg, rhs: Reg },
+    /// `dst = lhs / 2^k` (signed, round toward zero) — emitted only when the
+    /// divisor is a literal power of two AND the Oracle proved `lhs` is `Int`.
+    /// A single op (the JIT lowers it to the side-exit-free `divpow2` shift
+    /// stencil) so it fires for loop-invariant divisors the in-region JIT
+    /// detector misses, without the scratch-register pressure of an expansion.
+    DivPow2 { dst: Reg, lhs: Reg, k: u8 },
+    /// `dst = lhs / c` (`mul_back == 0`) or `dst = lhs % c` (`mul_back == c`),
+    /// where `c` is a compile-time-constant divisor that is NOT a power of two
+    /// (W5/`DivPow2` handles powers of two), computed by the Granlund–Montgomery
+    /// / libdivide UNSIGNED magic-reciprocal sequence (a `mul`-high + shift,
+    /// ~3 cycles) instead of `idiv` (~25 cycles). `magic`/`more` are the
+    /// precomputed constants (the exact [`logicaffeine_data::LogosDivU64`]
+    /// encoding — low 6 bits of `more` are the shift, `0x40` is the 65-bit
+    /// add-marker path). Emitted ONLY when the Oracle proves `lhs` is `Int` and
+    /// NON-NEGATIVE: the unsigned magic equals the signed truncating `/`/`%`
+    /// only for a non-negative dividend (for `x < 0` the signs disagree, exactly
+    /// as for the `% 2^k → &` rewrite). The remainder is derived as
+    /// `lhs - q*c` (wrapping), bit-exact with the kernel's `wrapping_rem` for
+    /// non-negative `lhs`.
+    MagicDivU { dst: Reg, lhs: Reg, magic: u64, more: u8, mul_back: i64 },
 
     Lt { dst: Reg, lhs: Reg, rhs: Reg },
     Gt { dst: Reg, lhs: Reg, rhs: Reg },
@@ -137,8 +164,32 @@ pub enum Op {
     RemoveFrom { collection: Reg, value: Reg },
     /// `R[collection][R[index]] = R[value]` (1-based list set, or map insert).
     SetIndex { collection: Reg, index: Reg, value: Reg },
+    /// Like [`SetIndex`] but the Oracle PROVED the index in `[1, length]`
+    /// (range analysis, M9) — bounds-check elimination for the STORE. The
+    /// interpreter still checks (free defense-in-depth); the JIT lowers it to
+    /// an UNCHECKED array store (no bounds branch). Only listy collections
+    /// with a stable length earn this, via `index_provably_in_bounds`.
+    SetIndexUnchecked { collection: Reg, index: Reg, value: Reg },
     /// `R[dst] = R[collection][R[index]]` (1-based for ordered collections).
     Index { dst: Reg, collection: Reg, index: Reg },
+    /// Like [`Index`] but the Oracle (range analysis, M9) PROVED the index
+    /// in `[1, length]` at this point — bounds-check elimination, the V8/LLVM
+    /// way. The bytecode interpreter still checks (a sound proof makes the
+    /// check never fire; keeping it is free defense-in-depth), but the JIT
+    /// lowers it to an UNCHECKED array load (no bounds branch, no deopt).
+    /// Only listy collections with a stable length earn this; the compiler
+    /// emits it solely behind `index_provably_in_bounds`.
+    IndexUnchecked { dst: Reg, collection: Reg, index: Reg },
+    /// REGION-ENTRY bounds-check hoist (V8 TurboFan loop bound-check
+    /// elimination). For a loop `while iv </<= bound` reading/writing
+    /// `R[array]` at affine indices, this asserts ONCE — at native region
+    /// entry — that the array is long enough for the whole loop:
+    /// `length(R[array]) >= R[bound] + add_max` and `R[iv] + add_min >= 1`.
+    /// If it holds, the region runs every covered access UNCHECKED; if not,
+    /// the VM declines the region and replays on bytecode (where the accesses
+    /// are checked). A pure no-op in the interpreter and the function tier —
+    /// speculation is region-only, made safe solely by this entry guard.
+    RegionBoundsGuard { array: Reg, bound: Reg, iv: Reg, add_max: i32, add_min: i32 },
     /// `R[dst] = length of R[collection]`.
     Length { dst: Reg, collection: Reg },
     /// `R[dst] = R[collection] contains R[value]`.
@@ -209,6 +260,11 @@ pub enum Op {
 
     /// Emit `R[src].to_display_string()` to the output stream.
     Show { src: Reg },
+    /// `R[dst] = the program argument vector` as a `Seq of Text` (the
+    /// interpreter's `args()` system native, mirroring the compiled binary's
+    /// `env::args()`: index 0 is the program name). Outside the JIT integer
+    /// subset, so the adapters bail on it and it always runs in the VM.
+    Args { dst: Reg },
     /// Fail with the Text constant at `msg` — used for constructs whose
     /// tree-walker semantics are "error WHEN EXECUTED" (an unbound `Set`, an
     /// unsupported statement). Never fails at compile time: dead branches must
@@ -231,6 +287,19 @@ pub struct CompiledFunction {
     /// order. Each entry: the captured name and, when that name is a promoted
     /// global, its global index (the live-fallback source).
     pub captures: Vec<(Symbol, Option<u16>)>,
+    /// Which of THIS frame's registers carry a user-visible name (params,
+    /// captures, Let targets, loop variables) — the region JIT's
+    /// observability map for loops tiering up inside this function.
+    pub named_regs: Vec<bool>,
+    /// DECLARED parameter kinds: scalars (`x: Float`) ride i64 slots,
+    /// `Seq of <scalar>` pins at the boundary; `None` for types native
+    /// code cannot represent (Map, Text, nested Seq, …). Closures (no
+    /// declarations) default to all-Int — exactly the old entry-guard
+    /// contract.
+    pub param_kinds: Vec<Option<super::native_tier::ParamKind>>,
+    /// Declared return kind; `None` falls back to the adapter's Int/Bool
+    /// return inference.
+    pub ret_kind: Option<super::native_tier::SlotKind>,
 }
 
 /// A compiled program: the constant pool, the linear bytecode (Main first, then
@@ -246,4 +315,16 @@ pub struct CompiledProgram {
     /// Names of the promoted globals (Main top-level bindings referenced from
     /// function/closure bodies), for "Undefined variable" errors.
     pub globals: Vec<String>,
+    /// Which Main-frame registers carry a user-visible NAME (Let targets,
+    /// loop variables). Everything else is a statement-local scratch — dead
+    /// at every statement boundary by the allocator's recycling discipline —
+    /// so the region JIT neither writes it back nor preserves its pre-state.
+    pub named_regs: Vec<bool>,
+    /// `loop_locals[head]` = the registers bound INSIDE the loop whose region
+    /// head (back-edge target) is the absolute pc `head` — names lexically dead
+    /// the moment that loop exits. The region JIT subtracts these from the
+    /// write-back set, so copy-prop/CSE/fusion can treat them as true scratch.
+    /// Keyed by absolute pc (one code array); valued by the head's OWNING frame's
+    /// register indices (Main or the enclosing function).
+    pub loop_locals: HashMap<usize, Vec<bool>>,
 }

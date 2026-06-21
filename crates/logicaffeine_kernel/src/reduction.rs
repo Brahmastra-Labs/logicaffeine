@@ -878,6 +878,25 @@ fn try_syn_subst_reduce(
     index: i64,
     term: &Term,
 ) -> Option<Term> {
+    // Plain substitution (no de Bruijn decrement): used by recursor / induction
+    // handling where the binder is NOT eliminated.
+    syn_subst_impl(ctx, replacement, index, term, false)
+}
+
+/// Substitute `replacement` for de Bruijn variable `index` in a Syntax term.
+///
+/// When `decrement` is true this implements the variable part of a BETA step:
+/// because the binder is eliminated, surviving free variables `k` with
+/// `k > index` are lowered to `k - 1`. With `decrement` false it is a plain
+/// substitution that leaves non-matching variables untouched (the semantics the
+/// recursor/induction call sites rely on).
+fn syn_subst_impl(
+    ctx: &Context,
+    replacement: &Term,
+    index: i64,
+    term: &Term,
+    decrement: bool,
+) -> Option<Term> {
     // Check for unary constructor: (Ctor arg)
     if let Term::App(ctor_term, inner_arg) = term {
         if let Term::Global(ctor_name) = ctor_term.as_ref() {
@@ -885,8 +904,15 @@ fn try_syn_subst_reduce(
                 "SVar" => {
                     if let Term::Lit(Literal::Int(k)) = inner_arg.as_ref() {
                         if *k == index {
-                            // Match! Return replacement
+                            // Match! Return replacement (already lifted to this depth).
                             return Some(replacement.clone());
+                        } else if decrement && *k > index {
+                            // Beta: the binder was removed, so a surviving free
+                            // variable above it drops by one level.
+                            return Some(Term::App(
+                                Box::new(Term::Global("SVar".to_string())),
+                                Box::new(Term::Lit(Literal::Int(*k - 1))),
+                            ));
                         } else {
                             // No match, return unchanged
                             return Some(term.clone());
@@ -907,8 +933,8 @@ fn try_syn_subst_reduce(
                 match ctor_name.as_str() {
                     "SApp" => {
                         // No binding, same index and replacement
-                        let a_subst = try_syn_subst_reduce(ctx, replacement, index, a)?;
-                        let b_subst = try_syn_subst_reduce(ctx, replacement, index, inner_arg)?;
+                        let a_subst = syn_subst_impl(ctx, replacement, index, a, decrement)?;
+                        let b_subst = syn_subst_impl(ctx, replacement, index, inner_arg, decrement)?;
                         return Some(Term::App(
                             Box::new(Term::App(
                                 Box::new(Term::Global("SApp".to_string())),
@@ -920,15 +946,16 @@ fn try_syn_subst_reduce(
                     "SLam" | "SPi" => {
                         // Binder: param type at current index, body at index+1
                         // Lift replacement when going under binder
-                        let param_subst = try_syn_subst_reduce(ctx, replacement, index, a)?;
+                        let param_subst = syn_subst_impl(ctx, replacement, index, a, decrement)?;
 
                         // Lift the replacement by 1 when going under the binder
                         let lifted_replacement = try_syn_lift_reduce(ctx, 1, 0, replacement)?;
-                        let body_subst = try_syn_subst_reduce(
+                        let body_subst = syn_subst_impl(
                             ctx,
                             &lifted_replacement,
                             index + 1,
                             inner_arg,
+                            decrement,
                         )?;
 
                         return Some(Term::App(
@@ -952,12 +979,18 @@ fn try_syn_subst_reduce(
 // Computation Builtins
 // -------------------------------------------------------------------------
 
-/// Beta reduction: substitute arg for variable 0 in body.
+/// Beta reduction: substitute arg for variable 0 in body, with the de Bruijn
+/// decrement that removing the binder requires.
 ///
-/// syn_beta body arg = syn_subst arg 0 body
+/// `syn_beta body arg` reflects the kernel's real beta step: substitute `arg`
+/// for index 0 in `body`, AND shift every surviving free variable `k > 0` down
+/// to `k - 1` (the λ binder is gone, so references that pointed PAST it must
+/// drop one level). Without the decrement the reflection would be unfaithful —
+/// `reflected_beta_decrements_surviving_free_vars` pins it: `(λT. SVar 1)(SVar 7)
+/// → SVar 0`. (`syn_subst` itself is the raw, non-shifting substitution
+/// primitive — `syn_beta` is `syn_subst` at index 0 composed with that shift.)
 fn try_syn_beta_reduce(ctx: &Context, body: &Term, arg: &Term) -> Option<Term> {
-    // syn_beta is just syn_subst with index 0
-    try_syn_subst_reduce(ctx, arg, 0, body)
+    syn_subst_impl(ctx, arg, 0, body, true)
 }
 
 /// Try to reduce arithmetic on Syntax literals.

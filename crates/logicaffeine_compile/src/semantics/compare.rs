@@ -82,14 +82,16 @@ pub fn compare(
             Ok(RuntimeValue::Bool(int_rel(*a, *b)))
         }
         (RuntimeValue::Time(a), RuntimeValue::Time(b)) => Ok(RuntimeValue::Bool(int_rel(*a, *b))),
-        // Moment vs Time: extract time-of-day from Moment.
+        // Moment vs Time: extract time-of-day from Moment. Use Euclidean
+        // remainder so a pre-epoch (negative) Moment yields a 0..86399 ns
+        // time-of-day, not a negative one.
         (RuntimeValue::Moment(m), RuntimeValue::Time(t)) => {
             let nanos_per_day = 86_400_000_000_000i64;
-            Ok(RuntimeValue::Bool(int_rel(*m % nanos_per_day, *t)))
+            Ok(RuntimeValue::Bool(int_rel(m.rem_euclid(nanos_per_day), *t)))
         }
         (RuntimeValue::Time(t), RuntimeValue::Moment(m)) => {
             let nanos_per_day = 86_400_000_000_000i64;
-            Ok(RuntimeValue::Bool(int_rel(*t, *m % nanos_per_day)))
+            Ok(RuntimeValue::Bool(int_rel(*t, m.rem_euclid(nanos_per_day))))
         }
         _ => Err(format!(
             "Cannot compare {} and {}",
@@ -115,8 +117,12 @@ mod tests {
     fn collections_are_never_equal() {
         use std::cell::RefCell;
         use std::rc::Rc;
-        let a = RuntimeValue::List(Rc::new(RefCell::new(vec![RuntimeValue::Int(1)])));
-        let b = RuntimeValue::List(Rc::new(RefCell::new(vec![RuntimeValue::Int(1)])));
+        let a = RuntimeValue::List(Rc::new(RefCell::new(
+            crate::interpreter::ListRepr::from_values(vec![RuntimeValue::Int(1)]),
+        )));
+        let b = RuntimeValue::List(Rc::new(RefCell::new(
+            crate::interpreter::ListRepr::from_values(vec![RuntimeValue::Int(1)]),
+        )));
         assert!(!values_equal(&a, &b));
     }
 

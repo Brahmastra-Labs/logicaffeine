@@ -14,6 +14,7 @@ verification = [
     "logicaffeine-proof/verification",
     "dep:logicaffeine-verify",
     "dep:logicaffeine-tv",
+    "dep:logicaffeine-synth",
 ]
 ffi-link-tests = []
 web-tests = ["dep:logicaffeine-web"]
@@ -26,6 +27,7 @@ web-tests = ["dep:logicaffeine-web"]
 logicaffeine-web = { path = "../../apps/logicaffeine_web", optional = true }
 logicaffeine-verify = { path = "../logicaffeine_verify", optional = true }
 logicaffeine-tv = { path = "../logicaffeine_tv", optional = true }
+logicaffeine-synth = { path = "../logicaffeine_synth", optional = true }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
 logicaffeine-forge = { path = "../logicaffeine_forge" }

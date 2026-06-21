@@ -78,6 +78,7 @@ pub mod prelude;
 mod reduction;
 pub mod ring;
 pub mod lia;
+pub mod bitvector;
 pub mod cc;
 pub mod simp;
 pub mod omega;

@@ -323,6 +323,24 @@ pub struct Parser<'a, 'ctx, 'int> {
     /// count quantifier is wrapped in a `Presupposition` whose presupposition is the
     /// superset's `Cardinal` quantifier over the same restriction (§5.3).
     pub(super) pending_partitive: Option<(u32, &'a LogicExpr<'a>, Symbol)>,
+    /// A subject's relative-clause restriction that cannot be carried on the
+    /// `NounPhrase` (it is a full clause, not an adjective/PP/possessor) and so
+    /// is stashed — keyed to the subject noun and expressed over
+    /// `Constant(noun)` — to be folded in at the `wrap_with_definiteness`
+    /// chokepoint when the predicate (e.g. a copula complement) is built over
+    /// the same constant. Without this, "The scent that sold for $75 is the
+    /// white fragrance." silently drops the relative clause.
+    pub(super) pending_subject_restriction: Option<(Symbol, &'a LogicExpr<'a>)>,
+    /// Set while parsing an object NP that a determiner/cardinal/counting
+    /// quantifier has ALREADY established as nominal (e.g. the cardinal was
+    /// consumed by the object-quantifier gate before `parse_noun_phrase` runs).
+    /// A bare verb-word after an adjective is then a DEVERBAL NOUN head ("49
+    /// previous JUMPS", "six previous RUNS") — a cardinal/determiner cannot be
+    /// followed by a finite verb — so `parse_noun_phrase` recovers it as the
+    /// head instead of stranding it. Outside this context the determiner gate
+    /// (`definiteness.is_some()`) is the only signal, to avoid eating a real
+    /// main verb ("studies hard pass").
+    pub(super) nominal_np_context: bool,
 }
 
 impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
@@ -361,6 +379,8 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
             drs: Drs::new(), // Internal DRS for sentence-level scope tracking
             negative_scope_mode: NegativeScopeMode::default(),
             modal_preference: ModalPreference::default(),
+            pending_subject_restriction: None,
+            nominal_np_context: false,
             world_state,
             in_negative_quantifier: false,
             pending_partitive: None,
@@ -796,6 +816,153 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
             non_agent_roles,
             modifiers: modifiers.to_vec(),
         });
+    }
+
+    /// A locative/circumstance relative clause headed by "where" ("the episode WHERE
+    /// the survivor brought the knife"). The head `gap_var` is the LOCATION of the
+    /// clause's event: parse the embedded subject + its full VP, then conjoin
+    /// In(event, gap_var). The event var is the stable discourse "e" the VP builder
+    /// uses, so In(e, gap) sits alongside the ∃e(...) like other event PPs.
+    /// A possessive relative clause headed by "whose" ("the town WHOSE mayor is Kevin
+    /// King", "the team WHOSE final score was 739"). The possessed NP belongs to the
+    /// head `gap_var`; introduce it as a fresh entity m with Noun(m) ∧ Possesses(gap,
+    /// m), then predicate the clause's VP over m, all under ∃m.
+    pub(super) fn parse_whose_relative(&mut self, gap_var: Symbol) -> ParseResult<&'a LogicExpr<'a>> {
+        self.advance(); // "whose"
+        let possessed = self.parse_noun_phrase(false)?;
+        let m = self.next_var_name();
+        let noun_pred = self.ctx.exprs.alloc(LogicExpr::Predicate {
+            name: possessed.noun,
+            args: self.ctx.terms.alloc_slice([Term::Variable(m)]),
+            world: None,
+        });
+        let possesses = self.interner.intern("Possesses");
+        let poss_pred = self.ctx.exprs.alloc(LogicExpr::Predicate {
+            name: possesses,
+            args: self
+                .ctx
+                .terms
+                .alloc_slice([Term::Variable(gap_var), Term::Variable(m)]),
+            world: None,
+        });
+        let mut body = self.ctx.exprs.alloc(LogicExpr::BinaryOp {
+            left: noun_pred,
+            op: TokenType::And,
+            right: poss_pred,
+        });
+        for &adj in possessed.adjectives {
+            let adj_pred = self.ctx.exprs.alloc(LogicExpr::Predicate {
+                name: adj,
+                args: self.ctx.terms.alloc_slice([Term::Variable(m)]),
+                world: None,
+            });
+            body = self.ctx.exprs.alloc(LogicExpr::BinaryOp {
+                left: body,
+                op: TokenType::And,
+                right: adj_pred,
+            });
+        }
+        let vp = self.parse_predicate_with_subject_as_var(m)?;
+        body = self.ctx.exprs.alloc(LogicExpr::BinaryOp {
+            left: body,
+            op: TokenType::And,
+            right: vp,
+        });
+        Ok(self.ctx.exprs.alloc(LogicExpr::Quantifier {
+            kind: QuantifierKind::Existential,
+            variable: m,
+            body,
+            island_id: self.current_island,
+        }))
+    }
+
+    pub(super) fn parse_where_relative(&mut self, gap_var: Symbol) -> ParseResult<&'a LogicExpr<'a>> {
+        self.advance(); // "where"
+        // The embedded clause's own subject: a pronoun ("they"), a definite NP ("the
+        // survivor"), or a proper name. A pronoun is not parsed by parse_noun_phrase,
+        // so take its (capitalized) lexeme as the agent constant.
+        let subj_sym = if self.check_pronoun() {
+            let lex = self.interner.resolve(self.peek().lexeme).to_string();
+            self.advance();
+            let mut chars = lex.chars();
+            let cap = match chars.next() {
+                Some(f) => f.to_uppercase().collect::<String>() + chars.as_str(),
+                None => lex,
+            };
+            self.interner.intern(&cap)
+        } else {
+            self.parse_noun_phrase(true)?.noun
+        };
+        // Bound the embedded VP at the relative-clause boundary so it does not swallow
+        // an OUTER list coordinator ("the town where they met, and the city" / "…, and
+        // Carol"): a comma, or an "and"/"or" that introduces a NEW NP (article / proper
+        // name / quantifier), as opposed to a genuine VP coordinator ("where they met
+        // and left"). Temporarily retag that token as a clause terminator while the VP
+        // parses (the same boundary trick the of-pair path uses), then restore it.
+        let boundary = {
+            let mut found = None;
+            let mut k = self.current;
+            while let Some(tok) = self.tokens.get(k) {
+                match &tok.kind {
+                    TokenType::Comma => {
+                        found = Some(k);
+                        break;
+                    }
+                    TokenType::And | TokenType::Or
+                        if matches!(
+                            self.tokens.get(k + 1).map(|t| &t.kind),
+                            Some(TokenType::Article(_))
+                                | Some(TokenType::ProperName(_))
+                                | Some(TokenType::All)
+                                | Some(TokenType::Some)
+                                | Some(TokenType::Any)
+                                | Some(TokenType::No)
+                                | Some(TokenType::Most)
+                        ) =>
+                    {
+                        found = Some(k);
+                        break;
+                    }
+                    TokenType::Period
+                    | TokenType::EOF
+                    | TokenType::Is
+                    | TokenType::Are
+                    | TokenType::Was
+                    | TokenType::Were => break,
+                    _ => k += 1,
+                }
+            }
+            found
+        };
+        let saved_boundary = boundary.map(|i| (i, self.tokens[i].clone()));
+        if let Some(i) = boundary {
+            let span = self.tokens[i].span;
+            self.tokens[i] = crate::token::Token::new(
+                TokenType::Period,
+                self.interner.intern("."),
+                span,
+            );
+        }
+        let inner_result = self.parse_predicate_with_subject(subj_sym);
+        if let Some((i, tok)) = saved_boundary {
+            self.tokens[i] = tok;
+        }
+        let inner = inner_result?;
+        let ev = self.get_event_var();
+        let loc = self.interner.intern("In");
+        let loc_pred = self.ctx.exprs.alloc(LogicExpr::Predicate {
+            name: loc,
+            args: self
+                .ctx
+                .terms
+                .alloc_slice([Term::Variable(ev), Term::Variable(gap_var)]),
+            world: None,
+        });
+        Ok(self.ctx.exprs.alloc(LogicExpr::BinaryOp {
+            left: inner,
+            op: TokenType::And,
+            right: loc_pred,
+        }))
     }
 
     fn parse_embedded_wh_clause(&mut self) -> ParseResult<&'a LogicExpr<'a>> {
@@ -4869,7 +5036,14 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                     self.peek().kind,
                     TokenType::Some | TokenType::Most | TokenType::Many
                 );
-            let mut premise_expr = self.parse_sentence()?;
+            // An optative wish ("May you prosper!") is a valid premise; the
+            // standalone path tries it before the declarative sentence parser,
+            // so the theorem-premise path must too (it self-backtracks to None
+            // for non-optatives, falling through to `parse_sentence`).
+            let mut premise_expr = match self.try_parse_optative()? {
+                Some(opt) => opt,
+                None => self.parse_sentence()?,
+            };
             if scalar_trigger {
                 if let Some(strengthened) = self.scalar_implicature(premise_expr) {
                     premise_expr = strengthened;
@@ -4900,7 +5074,12 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
 
             self.skip_whitespace_tokens();
 
-            let goal_expr = self.parse_sentence()?;
+            // The goal may itself be an optative ("Prove: May you prosper!" —
+            // identity through the wish encoding), same as the premise path.
+            let goal_expr = match self.try_parse_optative()? {
+                Some(opt) => opt,
+                None => self.parse_sentence()?,
+            };
 
             if self.check(&TokenType::Period) || self.check(&TokenType::Exclamation) {
                 self.advance();
@@ -6616,7 +6795,7 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
         use crate::ast::Literal;
         use crate::token::CalendarUnit;
 
-        let first_num = first_num_str.parse::<i32>().unwrap_or(0);
+        let first_num = first_num_str.parse::<i64>().unwrap_or(0);
 
         // We expect a CalendarUnit after the number
         let unit = match self.peek().kind {
@@ -6630,17 +6809,61 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
         };
         self.advance(); // consume the CalendarUnit
 
-        // Accumulate months and days
-        let mut total_months: i32 = 0;
-        let mut total_days: i32 = 0;
+        // Calendar fields (months/days) feed a `Span`; sub-day CLOCK units
+        // (hour/minute/second) feed a nanosecond `Duration`. A literal built
+        // purely from clock units IS a Duration — `After 5 seconds`,
+        // `Sleep for 2 minutes`; a calendar (or mixed) literal stays a Span,
+        // which models only months/days.
+        let mut total_months: i64 = 0;
+        let mut total_days: i64 = 0;
+        let mut total_nanos: i64 = 0;
+        let mut saw_calendar = false;
+        let mut saw_clock = false;
 
-        // Apply the first unit
-        match unit {
-            CalendarUnit::Day => total_days += first_num,
-            CalendarUnit::Week => total_days += first_num * 7,
-            CalendarUnit::Month => total_months += first_num,
-            CalendarUnit::Year => total_months += first_num * 12,
+        fn apply(
+            unit: CalendarUnit,
+            n: i64,
+            months: &mut i64,
+            days: &mut i64,
+            nanos: &mut i64,
+            cal: &mut bool,
+            clk: &mut bool,
+        ) {
+            match unit {
+                CalendarUnit::Day => {
+                    *days += n;
+                    *cal = true;
+                }
+                CalendarUnit::Week => {
+                    *days += n * 7;
+                    *cal = true;
+                }
+                CalendarUnit::Month => {
+                    *months += n;
+                    *cal = true;
+                }
+                CalendarUnit::Year => {
+                    *months += n * 12;
+                    *cal = true;
+                }
+                CalendarUnit::Hour => {
+                    *nanos += n * 3_600_000_000_000;
+                    *clk = true;
+                }
+                CalendarUnit::Minute => {
+                    *nanos += n * 60_000_000_000;
+                    *clk = true;
+                }
+                CalendarUnit::Second => {
+                    *nanos += n * 1_000_000_000;
+                    *clk = true;
+                }
+            }
         }
+        apply(
+            unit, first_num, &mut total_months, &mut total_days, &mut total_nanos,
+            &mut saw_calendar, &mut saw_clock,
+        );
 
         // Check for "and" followed by more Number + CalendarUnit
         while self.check(&TokenType::And) {
@@ -6651,7 +6874,7 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                 TokenType::Number(sym) => {
                     let num_str = self.interner.resolve(*sym).to_string();
                     self.advance();
-                    num_str.parse::<i32>().unwrap_or(0)
+                    num_str.parse::<i64>().unwrap_or(0)
                 }
                 _ => break, // Not a number, backtrack is complex so just stop
             };
@@ -6665,19 +6888,20 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                 _ => break, // Not a unit, backtrack is complex so just stop
             };
 
-            // Apply the unit
-            match next_unit {
-                CalendarUnit::Day => total_days += next_num,
-                CalendarUnit::Week => total_days += next_num * 7,
-                CalendarUnit::Month => total_months += next_num,
-                CalendarUnit::Year => total_months += next_num * 12,
-            }
+            apply(
+                next_unit, next_num, &mut total_months, &mut total_days, &mut total_nanos,
+                &mut saw_calendar, &mut saw_clock,
+            );
         }
 
-        Ok(self.ctx.alloc_imperative_expr(Expr::Literal(Literal::Span {
-            months: total_months,
-            days: total_days,
-        })))
+        if saw_clock && !saw_calendar {
+            Ok(self.ctx.alloc_imperative_expr(Expr::Literal(Literal::Duration(total_nanos))))
+        } else {
+            Ok(self.ctx.alloc_imperative_expr(Expr::Literal(Literal::Span {
+                months: total_months as i32,
+                days: total_days as i32,
+            })))
+        }
     }
 
     /// Phase 32: Parse function call expression: f(x, y, ...)
@@ -6944,7 +7168,511 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
         }
     }
 
+    /// True when the cursor heads a REDUCED-RELATIVE participle — a non-auxiliary
+    /// verb, optionally behind a single leading ordinal/temporal adverb ("FIRST
+    /// climbed", "originally seen"). The list-subject gate uses it so a first member
+    /// carrying a reduced relative ("The peak CLIMBED in 1845, the dog, and Mt. Quinn
+    /// are three different mountains") routes into the list parser, which consumes
+    /// the reduced relative per member via `try_consume_reduced_relative`.
+    fn peek_heads_reduced_relative_participle(&self) -> bool {
+        let idx = if matches!(
+            self.peek().kind,
+            TokenType::Adverb(_) | TokenType::TemporalAdverb(_)
+        ) && self
+            .tokens
+            .get(self.current + 1)
+            .map_or(false, |t| self.kind_is_verb(&t.kind))
+        {
+            self.current + 1
+        } else {
+            self.current
+        };
+        let Some(t) = self.tokens.get(idx) else {
+            return false;
+        };
+        if !self.kind_is_verb(&t.kind) {
+            return false;
+        }
+        // A perfect/passive/do auxiliary heads a finite matrix VP, not a reduced
+        // relative ("The apple HAS been eaten").
+        if let TokenType::Verb { lemma, .. } = &t.kind {
+            return !matches!(
+                self.interner.resolve(*lemma).to_lowercase().as_str(),
+                "have" | "be" | "do"
+            );
+        }
+        true
+    }
+
+    /// True when a comma appears before the end of the current clause (the next
+    /// Period/EOF). The list-subject gate requires one before speculating on a
+    /// reduced-relative first member — an enumerated list ("A, B, and C are …")
+    /// always has a comma, an ordinary main clause does not.
+    fn has_comma_before_clause_end(&self) -> bool {
+        for i in self.current..self.tokens.len() {
+            match &self.tokens[i].kind {
+                TokenType::Period | TokenType::EOF => return false,
+                TokenType::Comma => return true,
+                _ => {}
+            }
+        }
+        false
+    }
+
+    /// Consume a post-nominal REDUCED RELATIVE — an optional leading ordinal/temporal
+    /// adverb ("first"), a past/-ing participle ("climbed", "seen", "going"), and its
+    /// PP / measure / directional-"to" complements ("in 1845", "by Captain Norris",
+    /// "to Pete's") — as restriction predicates over `term`. Returns their conjunction,
+    /// or None when no participle heads the cursor.
+    ///
+    /// `parse_noun_phrase` attaches reduced relatives only when the participle is
+    /// unambiguous; its conservative, matrix-verb-gated post-subject handler keeps
+    /// "The team won in 1989" a main clause. In a NOMINAL COORDINATION position — a
+    /// list member, an either/or disjunct, an of-pair member — the NP cannot be a
+    /// main-clause subject, so a participle there IS a reduced relative. This helper
+    /// attaches it so the member's restrictor survives, shared so every coordination
+    /// site composes once. Callers gate it to those positions (the participle here is
+    /// committed unconditionally, no matrix-verb lookahead).
+    fn try_consume_reduced_relative(
+        &mut self,
+        term: Term<'a>,
+    ) -> ParseResult<Option<&'a LogicExpr<'a>>> {
+        if !self.peek_heads_reduced_relative_participle() {
+            return Ok(None);
+        }
+        let mut preds: Vec<&'a LogicExpr<'a>> = Vec::new();
+        // Leading ordinal/temporal adverb over the gap ("first climbed" → First(x)).
+        if matches!(
+            self.peek().kind,
+            TokenType::Adverb(_) | TokenType::TemporalAdverb(_)
+        ) {
+            let adv = match self.peek().kind {
+                TokenType::Adverb(s) | TokenType::TemporalAdverb(s) => s,
+                _ => unreachable!(),
+            };
+            self.advance();
+            preds.push(self.ctx.exprs.alloc(LogicExpr::Predicate {
+                name: adv,
+                args: self.ctx.terms.alloc_slice([term]),
+                world: None,
+            }));
+        }
+        let (red_verb, _t, _a, _c) = self.consume_verb_with_metadata();
+        preds.push(self.ctx.exprs.alloc(LogicExpr::Predicate {
+            name: red_verb,
+            args: self.ctx.terms.alloc_slice([term]),
+            world: None,
+        }));
+        // Complements: PP objects ("from a beetle", "in March"), directional
+        // "to <NP>" ("going to Pete's"), numeric measures ("in 1845"). Mirrors the
+        // post-subject reduced-relative handler.
+        loop {
+            let prep = if self.check_preposition() {
+                match self.advance().kind {
+                    TokenType::Preposition(s) => s,
+                    _ => break,
+                }
+            } else if self.check(&TokenType::To)
+                && matches!(
+                    self.tokens.get(self.current + 1).map(|t| &t.kind),
+                    Some(TokenType::Article(_))
+                        | Some(TokenType::Noun(_))
+                        | Some(TokenType::ProperName(_))
+                )
+            {
+                self.advance();
+                self.interner.intern("To")
+            } else {
+                break;
+            };
+            if self.check_number() {
+                let m = self.parse_measure_phrase()?;
+                preds.push(self.ctx.exprs.alloc(LogicExpr::Predicate {
+                    name: prep,
+                    args: self.ctx.terms.alloc_slice([term, *m]),
+                    world: None,
+                }));
+            } else if self.check_article() || self.check_content_word() {
+                let obj = self.parse_noun_phrase(true)?;
+                preds.push(self.ctx.exprs.alloc(LogicExpr::Predicate {
+                    name: prep,
+                    args: self.ctx.terms.alloc_slice([term, Term::Constant(obj.noun)]),
+                    world: None,
+                }));
+            } else {
+                break;
+            }
+        }
+        let mut result = preds[0];
+        for p in &preds[1..] {
+            result = self.ctx.exprs.alloc(LogicExpr::BinaryOp {
+                left: result,
+                op: TokenType::And,
+                right: p,
+            });
+        }
+        Ok(Some(result))
+    }
+
+    /// Lower ONE list member to a distinct entity. A DESCRIPTION (adjectives /
+    /// possessor / PPs / relative clause — and, when `bare_definite_distinct`, a
+    /// bare definite) becomes a fresh ∃-VARIABLE carrying its full restrictor
+    /// (head + adjectives + possessor + PPs + relative, all over the variable);
+    /// anything else is a referring CONSTANT. Returns `(term, ∃-var?, restrictor?)`.
+    ///
+    /// Shared by both list shapes so members lower IDENTICALLY: the list subject
+    /// ("A, B and C are different X") needs every definite member distinct for the
+    /// "different" distinctness (`bare_definite_distinct = true`); the enumerated
+    /// identity ("The four X are A, B and C") keeps a bare named definite ("the
+    /// hustle") a constant but still must not collapse a DESCRIBED member ("the
+    /// person from Spain", "the winner who won") to its head (`= false`).
+    fn parse_list_member_np(
+        &mut self,
+        np: &crate::ast::NounPhrase<'a>,
+        bare_definite_distinct: bool,
+    ) -> ParseResult<(Term<'a>, Option<Symbol>, Option<&'a LogicExpr<'a>>)> {
+        let has_rel = self.check(&TokenType::Who)
+            || self.check(&TokenType::That)
+            || self.check(&TokenType::Where)
+            || self.check(&TokenType::Whose);
+        let is_desc = has_rel
+            || (bare_definite_distinct && np.definiteness.is_some())
+            || !np.adjectives.is_empty()
+            || np.possessor.is_some()
+            || !np.pps.is_empty();
+        if is_desc {
+            let var = self.next_var_name();
+            let term = Term::Variable(var);
+            let mut r = self.nominal_predication(term, np);
+            if let Some(poss) = np.possessor {
+                let possesses = self.interner.intern("Possesses");
+                let pr = self.ctx.exprs.alloc(LogicExpr::Predicate {
+                    name: possesses,
+                    args: self.ctx.terms.alloc_slice([Term::Constant(poss.noun), term]),
+                    world: None,
+                });
+                r = self.ctx.exprs.alloc(LogicExpr::BinaryOp {
+                    left: r,
+                    op: TokenType::And,
+                    right: pr,
+                });
+            }
+            for pp in np.pps {
+                let pp_sub = self.substitute_pp_self_term(pp, term);
+                r = self.ctx.exprs.alloc(LogicExpr::BinaryOp {
+                    left: r,
+                    op: TokenType::And,
+                    right: pp_sub,
+                });
+            }
+            // who/that/where/whose attach uniformly via the shared dispatcher.
+            if let Some(rc) = self.try_attach_relative(term)? {
+                r = self.ctx.exprs.alloc(LogicExpr::BinaryOp {
+                    left: r,
+                    op: TokenType::And,
+                    right: rc,
+                });
+            }
+            // A REDUCED relative ("the peak climbed in 1845", "the island first seen
+            // by Captain Norris") — a participle a list member can carry but
+            // parse_noun_phrase's conservative handler leaves stranded.
+            if let Some(rr) = self.try_consume_reduced_relative(term)? {
+                r = self.ctx.exprs.alloc(LogicExpr::BinaryOp {
+                    left: r,
+                    op: TokenType::And,
+                    right: rr,
+                });
+            }
+            Ok((term, Some(var), Some(r)))
+        } else {
+            Ok((Term::Constant(np.noun), None, None))
+        }
+    }
+
+    /// Assemble an enumerated identity ("The four X are A, B and C") from an
+    /// already-built first member. Parses the remaining comma/and-separated members
+    /// through the shared distinct-entity builder, identifies the plural subject
+    /// with the group of member terms, conjoins every member restrictor, and binds
+    /// the described members' ∃ variables around the whole result.
+    fn finish_enumerated_identity(
+        &mut self,
+        subject: &crate::ast::NounPhrase<'a>,
+        is_negated: bool,
+        first: (Term<'a>, Option<Symbol>, Option<&'a LogicExpr<'a>>),
+    ) -> ParseResult<&'a LogicExpr<'a>> {
+        let mut members: Vec<Term<'a>> = Vec::new();
+        let mut member_vars: Vec<Symbol> = Vec::new();
+        let mut member_restrictors: Vec<&'a LogicExpr<'a>> = Vec::new();
+        let (t0, v0, r0) = first;
+        members.push(t0);
+        if let Some(v) = v0 {
+            member_vars.push(v);
+        }
+        if let Some(r) = r0 {
+            member_restrictors.push(r);
+        }
+        while self.check(&TokenType::Comma) || self.check(&TokenType::And) {
+            // Consume separators ("," / "and" / ", and").
+            while self.check(&TokenType::Comma) || self.check(&TokenType::And) {
+                self.advance();
+            }
+            if !(self.check_article() || self.check_content_word()) {
+                break;
+            }
+            let item = self.parse_noun_phrase(true)?;
+            let (t, v, r) = self.parse_list_member_np(&item, false)?;
+            members.push(t);
+            if let Some(vv) = v {
+                member_vars.push(vv);
+            }
+            if let Some(rr) = r {
+                member_restrictors.push(rr);
+            }
+        }
+        let group = Term::Group(self.ctx.terms.alloc_slice(members));
+        let identity: &'a LogicExpr<'a> = self.ctx.exprs.alloc(LogicExpr::Identity {
+            left: self.ctx.terms.alloc(Term::Constant(subject.noun)),
+            right: self.ctx.terms.alloc(group),
+        });
+        let mut result = if is_negated {
+            &*self.ctx.exprs.alloc(LogicExpr::UnaryOp {
+                op: TokenType::Not,
+                operand: identity,
+            })
+        } else {
+            identity
+        };
+        for rc in member_restrictors {
+            result = self.ctx.exprs.alloc(LogicExpr::BinaryOp {
+                left: result,
+                op: TokenType::And,
+                right: rc,
+            });
+        }
+        for v in member_vars.into_iter().rev() {
+            result = self.ctx.exprs.alloc(LogicExpr::Quantifier {
+                kind: QuantifierKind::Existential,
+                variable: v,
+                body: result,
+                island_id: self.current_island,
+            });
+        }
+        self.wrap_with_definiteness_full(subject, result)
+    }
+
+    /// Comma-coordinated list subject: "A, B and C are reptiles" / "A, B and C
+    /// are all different animals". Distributes the predicate over each member;
+    /// "(all) different" yields pairwise distinctness — the AllDifferent
+    /// constraint the puzzle solver depends on. Returns `None` (restoring) when
+    /// the comma does not open such a list (e.g. topicalization / apposition).
+    fn try_parse_list_subject(
+        &mut self,
+        first: &crate::ast::NounPhrase<'a>,
+    ) -> ParseResult<Option<&'a LogicExpr<'a>>> {
+        let cp = self.checkpoint();
+        // Each member becomes a DISTINCT entity: a DESCRIPTION (determiner /
+        // adjectives / possessor / PPs / relative clause) is a fresh ∃-VARIABLE
+        // carrying its restrictor (head + adjectives + possessor + PPs + rel clause,
+        // all over the variable); a bare proper name is a referring CONSTANT
+        // (distinct by unique-name). This makes "three different boxes" a MEANINGFUL
+        // ¬x=y instead of the vacuous ¬Box=Box a shared head-noun constant gives.
+        let mut member_terms: Vec<Term<'a>> = Vec::new();
+        let mut member_vars: Vec<Symbol> = Vec::new();
+        let mut member_restrictors: Vec<&'a LogicExpr<'a>> = Vec::new();
+        macro_rules! add_member {
+            ($np:expr) => {{
+                let np = $np;
+                match self.parse_list_member_np(&np, true) {
+                    Ok((term, var, restrictor)) => {
+                        member_terms.push(term);
+                        if let Some(v) = var {
+                            member_vars.push(v);
+                        }
+                        if let Some(r) = restrictor {
+                            member_restrictors.push(r);
+                        }
+                    }
+                    Err(_) => {
+                        self.restore(cp);
+                        return Ok(None);
+                    }
+                }
+            }};
+        }
+        add_member!(*first);
+        // The list gate: a comma OR "and" must follow the first member (and its
+        // optional relative clause, "The juggler WHO USED BATONS, …"). A bare
+        // 2-member "A and B verb"/"A and B are happy" with NO relative reaches
+        // try_parse_plural_subject FIRST (the "and"-directly-after-subject gate),
+        // so this path only sees DESCRIPTIVE members (a relativizer routed us
+        // here) — those need the list parser's member restrictors + distinctness.
+        if !self.check(&TokenType::Comma) && !self.check(&TokenType::And) {
+            self.restore(cp);
+            return Ok(None);
+        }
+        let mut saw_and = false;
+        loop {
+            let mut advanced = false;
+            if self.check(&TokenType::Comma) {
+                self.advance();
+                advanced = true;
+            }
+            if self.check(&TokenType::And) {
+                self.advance();
+                saw_and = true;
+                advanced = true;
+            }
+            if !advanced {
+                break;
+            }
+            if !(self.check_article() || self.check_content_word()) {
+                break;
+            }
+            let np = match self.parse_noun_phrase(true) {
+                Ok(np) => np,
+                Err(_) => {
+                    self.restore(cp);
+                    return Ok(None);
+                }
+            };
+            add_member!(np);
+        }
+
+        // A genuine coordination needs the final "and" and ≥2 members. The
+        // simple 2-member "A and B" (no relative) is try_parse_plural_subject's
+        // job and never reaches here; a 2-member list that DID reach here has a
+        // descriptive (relative-clause) member that the plural path can't carry,
+        // so handle it ("The cat that purrs and the dog that barks are different
+        // animals").
+        if !saw_and || member_terms.len() < 2 {
+            self.restore(cp);
+            return Ok(None);
+        }
+
+        let copula_past = self.check(&TokenType::Were);
+        if !(self.check(&TokenType::Are)
+            || self.check(&TokenType::Were)
+            || self.check(&TokenType::Is))
+        {
+            self.restore(cp);
+            return Ok(None);
+        }
+        self.advance(); // copula
+
+        if self.check(&TokenType::All) {
+            self.advance();
+        }
+
+        // "are THREE different vegetables" — a cardinal that restates the member
+        // count before "different" is subsumed by the pairwise distinctness, so
+        // skip it (only when "different" actually follows, to stay conservative).
+        if matches!(self.peek().kind, TokenType::Cardinal(_))
+            && self
+                .tokens
+                .get(self.current + 1)
+                .map(|t| self.interner.resolve(t.lexeme).eq_ignore_ascii_case("different"))
+                .unwrap_or(false)
+        {
+            self.advance();
+        }
+
+        // Each member's restrictor (head + adjectives + possessor + PPs + relative
+        // clause, over its entity term) was built during parsing — start the
+        // conjunction with them so nothing is dropped.
+        let mut conjuncts: Vec<&'a LogicExpr<'a>> = member_restrictors;
+
+        let is_different = self
+            .interner
+            .resolve(self.peek().lexeme)
+            .eq_ignore_ascii_case("different");
+        if is_different {
+            self.advance(); // "different"
+            // Optional type noun ("animals"): predicate it of each member entity.
+            if self.check_content_word() {
+                let type_noun = self.consume_content_word()?;
+                for t in &member_terms {
+                    conjuncts.push(self.ctx.exprs.alloc(LogicExpr::Predicate {
+                        name: type_noun,
+                        args: self.ctx.terms.alloc_slice([*t]),
+                        world: None,
+                    }));
+                    // A category DECLARATION ("2001, 2002, 2003, and 2004 are four
+                    // different years.") records item→category in the shared
+                    // discourse DRS, so a later definite LABEL ("the 2003 holiday")
+                    // can recover the category and un-fuse to the same relation the
+                    // prepositional-phrase form yields. Only a referring CONSTANT
+                    // member names an item the label can match.
+                    if let Term::Constant(item) = t {
+                        self.drs.register_item_category(*item, type_noun);
+                    }
+                }
+            }
+            // Pairwise distinctness — the AllDifferent constraint over the DISTINCT
+            // member entities (variables / constants), so it is non-vacuous.
+            for i in 0..member_terms.len() {
+                for j in (i + 1)..member_terms.len() {
+                    let id = self.ctx.exprs.alloc(LogicExpr::Identity {
+                        left: self.ctx.terms.alloc(member_terms[i]),
+                        right: self.ctx.terms.alloc(member_terms[j]),
+                    });
+                    conjuncts.push(self.ctx.exprs.alloc(LogicExpr::UnaryOp {
+                        op: TokenType::Not,
+                        operand: id,
+                    }));
+                }
+            }
+        } else if self.check_article() || self.check_content_word() {
+            // Distributive predication: each member satisfies the predicate NP.
+            let pred_np = self.parse_noun_phrase(true)?;
+            for t in &member_terms {
+                conjuncts.push(self.ctx.exprs.alloc(LogicExpr::Predicate {
+                    name: pred_np.noun,
+                    args: self.ctx.terms.alloc_slice([*t]),
+                    world: None,
+                }));
+            }
+        } else {
+            self.restore(cp);
+            return Ok(None);
+        }
+
+        if conjuncts.is_empty() {
+            self.restore(cp);
+            return Ok(None);
+        }
+        let mut result = conjuncts[0];
+        for c in &conjuncts[1..] {
+            result = self.ctx.exprs.alloc(LogicExpr::BinaryOp {
+                left: result,
+                op: TokenType::And,
+                right: c,
+            });
+        }
+        if copula_past {
+            result = self.ctx.exprs.alloc(LogicExpr::Temporal {
+                operator: TemporalOperator::Past,
+                body: result,
+            });
+        }
+        // Bind each descriptive member's existential variable around the whole
+        // conjunction (∃x∃y∃z(restrictors ∧ types ∧ ¬x=y ∧ …)).
+        for &var in member_vars.iter().rev() {
+            result = self.ctx.exprs.alloc(LogicExpr::Quantifier {
+                kind: QuantifierKind::Existential,
+                variable: var,
+                body: result,
+                island_id: self.current_island,
+            });
+        }
+        Ok(Some(result))
+    }
+
     fn parse_atom(&mut self) -> ParseResult<&'a LogicExpr<'a>> {
+        // A fresh clause starts with no stashed subject restriction — guard
+        // against a prior clause leaking one that its copula branch never
+        // consumed.
+        self.pending_subject_restriction = None;
+
         // Handle Focus particles: "Only John loves Mary", "Even John ran"
         if self.check_focus() {
             return self.parse_focus();
@@ -7259,7 +7987,7 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
         // The existing try_parse_plural_subject will handle the "X and Y" pattern
         let _had_both = self.match_token(&[TokenType::Both]);
 
-        let subject = self.parse_noun_phrase(true)?;
+        let mut subject = self.parse_noun_phrase(true)?;
 
         // Floating (stranded) quantifier: "The boys all left.", "The students each
         // solved a problem.", "The boys both ran." A quantifier stranded after the
@@ -7328,7 +8056,36 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                 op: TokenType::And,
                 right: rc,
             });
-            return self.wrap_with_definiteness(subject.definiteness, subject.noun, conj);
+            return self.wrap_with_definiteness_full(&subject, conj);
+        }
+
+        // Comma-coordinated list subject: "A, B and C are all different animals."
+        // Also fire when a relativizer follows the first member ("The scent THAT
+        // sold for $75, the white fragrance, and the purple perfume are three
+        // different perfumes") — the list parser consumes the first member's
+        // relative clause before the comma gate. It restores cleanly when this is
+        // an ordinary relative-clause subject, so the normal handler still runs.
+        if self.check(&TokenType::Comma)
+            || self.check(&TokenType::Who)
+            || self.check(&TokenType::That)
+            // "and" too: try_parse_plural_subject (called above) handles the simple
+            // "A and B verb"/"A and B are happy" and returned None here only when a
+            // member it can't carry follows (a relative clause on the SECOND member:
+            // "Mr. Gray's timepiece and the timepiece THAT sold for $1,800 were
+            // different clocks"). The list parser carries descriptive members; it
+            // restores cleanly if this is not a coordinated list.
+            || self.check(&TokenType::And)
+            // A reduced-relative participle on the first member ("The peak CLIMBED
+            // in 1845, …, and X are three different mountains") — the bare NP stops
+            // at the head, so the comma is hidden behind the participle; route in so
+            // the list parser consumes the reduced relative per member. An enumerated
+            // list needs a comma before the clause end, so gate on one: a plain main
+            // clause ("The team won in 1989") then never triggers the speculation.
+            || (self.peek_heads_reduced_relative_participle() && self.has_comma_before_clause_end())
+        {
+            if let Some(result) = self.try_parse_list_subject(&subject)? {
+                return Ok(result);
+            }
         }
 
         // Handle topicalization: "The cake, John ate." - first NP is object, not subject
@@ -7435,6 +8192,16 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
             let var_name = self.next_var_name();
             let rel_pred = self.parse_relative_clause(var_name)?;
             relative_clause = Some((var_name, rel_pred));
+        } else if self.check(&TokenType::Where) {
+            // Locative/circumstance relative: "the episode WHERE the survivor brought
+            // the knife", "the trip WHERE they saw 16 stars". Unlike who/that (an
+            // argument gap), the clause has its OWN subject and the head is the
+            // LOCATION/occasion of the event — so parse the embedded subject + its full
+            // VP and conjoin In(event, head) over the gap. Without this the clue
+            // stranded at "where" (TrailingTokens).
+            let var_name = self.next_var_name();
+            let rel_pred = self.parse_where_relative(var_name)?;
+            relative_clause = Some((var_name, rel_pred));
         } else if matches!(self.peek().kind, TokenType::Article(_)) && self.is_contact_clause_pattern() {
             // Contact clause (reduced relative): "The cat the dog chased ran."
             // NP + NP + Verb pattern indicates embedded relative without explicit "that"
@@ -7445,6 +8212,39 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
 
         // Handle main verb after relative clause: "The cat that the dog chased ran."
         if let Some((var_name, rel_clause)) = relative_clause {
+            // Aspectual / presupposition-trigger matrix over a relativized subject
+            // ("the person WHO WON STARTED skydiving 2 years after Leslie") — the
+            // SAME presupposition grammar as a bare subject, via the term-parametric
+            // form, so the feature composes with relative-clause subjects.
+            if self.check_presup_trigger()
+                && !self.is_followed_by_np_object()
+                && self.is_followed_by_gerund()
+            {
+                let presup_kind = self.consume_presup_trigger();
+                let main_pred =
+                    self.parse_presupposition_for_term(Term::Variable(var_name), presup_kind, false)?;
+                let type_pred = self.ctx.exprs.alloc(LogicExpr::Predicate {
+                    name: subject.noun,
+                    args: self.ctx.terms.alloc_slice([Term::Variable(var_name)]),
+                    world: None,
+                });
+                let inner = self.ctx.exprs.alloc(LogicExpr::BinaryOp {
+                    left: type_pred,
+                    op: TokenType::And,
+                    right: rel_clause,
+                });
+                let body = self.ctx.exprs.alloc(LogicExpr::BinaryOp {
+                    left: inner,
+                    op: TokenType::And,
+                    right: main_pred,
+                });
+                return Ok(self.ctx.exprs.alloc(LogicExpr::Quantifier {
+                    kind: QuantifierKind::Existential,
+                    variable: var_name,
+                    body,
+                    island_id: self.current_island,
+                }));
+            }
             if self.check_verb() {
                 let (verb, verb_time, _, _) = self.consume_verb_with_metadata();
                 let var_term = Term::Variable(var_name);
@@ -7603,6 +8403,161 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
             return self.wrap_with_definiteness_full(&subject, modal_pred);
         }
 
+        // Reduced relative clause on the subject before a copular matrix
+        // predicate: "The drug sourced from a beetle is X.", "The mushroom going
+        // to Pete's is Y.", "The raptor belonging to Ivan is trained by Z." A
+        // participle directly after the subject — followed, once its complements
+        // are consumed, by the matrix copula — restricts the subject (it is NOT
+        // the matrix verb). Parse it as restriction predicates over the subject
+        // and fold them into the subject's PPs, so the existing copular path then
+        // predicates the rest. Backtracking: commit only if a copula truly
+        // follows, so a finite main verb ("The drug treats X") is untouched.
+        // An auxiliary (have/be/do) heads a perfect/passive/progressive matrix
+        // ("The apple has been eaten."), NOT a reduced relative — never treat it
+        // as the participle.
+        // A reduced relative may carry a leading ordinal/temporal adverb ("The peak
+        // FIRST climbed in 1845 is tall.", "The island FIRST seen by Captain Norris
+        // is small."). The adverb hides the participle from the verb check below; look
+        // one token past a single leading adverb to find the participle that heads the
+        // relative, and consume it inside the speculative parse so the token survives
+        // as a modifier on the subject.
+        let leading_adverb = if matches!(
+            self.peek().kind,
+            TokenType::Adverb(_) | TokenType::TemporalAdverb(_)
+        ) && self
+            .tokens
+            .get(self.current + 1)
+            .map_or(false, |t| self.kind_is_verb(&t.kind))
+        {
+            match self.peek().kind {
+                TokenType::Adverb(s) | TokenType::TemporalAdverb(s) => Some(s),
+                _ => None,
+            }
+        } else {
+            None
+        };
+        let head_verb_idx = if leading_adverb.is_some() {
+            self.current + 1
+        } else {
+            self.current
+        };
+        let head_verb_is_aux = if let Some(TokenType::Verb { lemma, .. }) =
+            self.tokens.get(head_verb_idx).map(|t| &t.kind)
+        {
+            matches!(
+                self.interner.resolve(*lemma).to_lowercase().as_str(),
+                "have" | "be" | "do"
+            )
+        } else {
+            false
+        };
+        let heads_reduced_rel = self
+            .tokens
+            .get(head_verb_idx)
+            .map_or(false, |t| self.kind_is_verb(&t.kind));
+        if subject.definiteness.is_some()
+            && heads_reduced_rel
+            && self.pending_time.is_none()
+            && !head_verb_is_aux
+        {
+            if let Some(restrs) = self.try_parse(|p| {
+                let placeholder = p.interner.intern("_PP_SELF_");
+                let mut preds: Vec<&'a LogicExpr<'a>> = Vec::new();
+                if let Some(adv) = leading_adverb {
+                    p.advance();
+                    preds.push(p.ctx.exprs.alloc(LogicExpr::Predicate {
+                        name: adv,
+                        args: p.ctx.terms.alloc_slice([Term::Variable(placeholder)]),
+                        world: None,
+                    }));
+                }
+                let (red_verb, _t, _a, _c) = p.consume_verb_with_metadata();
+                preds.push(p.ctx.exprs.alloc(LogicExpr::Predicate {
+                    name: red_verb,
+                    args: p.ctx.terms.alloc_slice([Term::Variable(placeholder)]),
+                    world: None,
+                }));
+                // Complements: PP objects ("from a beetle", "in March"),
+                // directional "to <NP>" ("going to Pete's"), numeric measures.
+                loop {
+                    let prep = if p.check_preposition() {
+                        match p.advance().kind {
+                            TokenType::Preposition(s) => s,
+                            _ => break,
+                        }
+                    } else if p.check(&TokenType::To)
+                        && matches!(
+                            p.tokens.get(p.current + 1).map(|t| &t.kind),
+                            Some(TokenType::Article(_))
+                                | Some(TokenType::Noun(_))
+                                | Some(TokenType::ProperName(_))
+                        )
+                    {
+                        p.advance(); // "to" (directional, NP object follows)
+                        p.interner.intern("To")
+                    } else {
+                        break;
+                    };
+                    if p.check_number() {
+                        let m = p.parse_measure_phrase()?;
+                        preds.push(p.ctx.exprs.alloc(LogicExpr::Predicate {
+                            name: prep,
+                            args: p.ctx.terms.alloc_slice([Term::Variable(placeholder), *m]),
+                            world: None,
+                        }));
+                    } else if p.check_article() || p.check_content_word() {
+                        let obj = p.parse_noun_phrase(true)?;
+                        preds.push(p.ctx.exprs.alloc(LogicExpr::Predicate {
+                            name: prep,
+                            args: p
+                                .ctx
+                                .terms
+                                .alloc_slice([Term::Variable(placeholder), Term::Constant(obj.noun)]),
+                            world: None,
+                        }));
+                    } else {
+                        break;
+                    }
+                }
+                // Commit only if the matrix predicate follows — a copula, a FINITE
+                // main verb, or a do-support / perfect AUXILIARY heading the matrix
+                // VP. The "participle (+ complements) THEN a matrix predicate" pattern
+                // is the reduced-relative signature ("the box [found on May 3] HELD the
+                // ring", "the book [priced at $55] DOESN'T have a cover", "the well
+                // [cut through gravel] HAD a leak"); a lone main verb ("The box found
+                // the key") has no matrix here, so it backtracks and keeps its verb
+                // reading. The matrix verb must be FINITE — an -ing (progressive) form
+                // is not a finite matrix verb but a gerund modifier of the verb's
+                // object ("used BOWLING pins"), so it must NOT trigger the reading.
+                let matrix_finite_verb = matches!(
+                    p.peek().kind,
+                    TokenType::Verb { aspect, .. } if !matches!(aspect, Aspect::Progressive)
+                );
+                if !(p.check(&TokenType::Is)
+                    || p.check(&TokenType::Are)
+                    || p.check(&TokenType::Was)
+                    || p.check(&TokenType::Were)
+                    || p.check(&TokenType::Does)
+                    || p.check(&TokenType::Do)
+                    || p.check(&TokenType::Had)
+                    || matrix_finite_verb)
+                {
+                    return Err(ParseError {
+                        kind: ParseErrorKind::ExpectedCopula,
+                        span: p.current_span(),
+                    });
+                }
+                Ok(preds)
+            }) {
+                let mut pps: Vec<&'a LogicExpr<'a>> = subject.pps.to_vec();
+                pps.extend(restrs);
+                subject = crate::ast::NounPhrase {
+                    pps: self.ctx.pps.alloc_slice(pps),
+                    ..subject
+                };
+            }
+        }
+
         // Bare-plural copular subject = kind predication (§6.1):
         // "Penguins are birds." → Gen x(Penguin(x) → Bird(x)), never the
         // ordinary individual-level copular path.
@@ -7669,6 +8624,21 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                     body,
                     island_id: self.current_island,
                 }));
+            }
+        }
+
+        // A relative-clause subject feeding a copula ("The scent that sold for
+        // $75 is the white fragrance.") — stash the restriction, rewritten over
+        // the subject constant, so the copula's wrap_with_definiteness re-binds
+        // it instead of silently dropping it. The copula branches all key their
+        // predicate on Constant(subject.noun), so the fold unifies cleanly.
+        if let Some((rc_var, rc_pred)) = relative_clause {
+            if self.check(&TokenType::Is) || self.check(&TokenType::Are)
+                || self.check(&TokenType::Was) || self.check(&TokenType::Were)
+            {
+                let restr =
+                    self.substitute_variable_with_constant(rc_pred, rc_var, subject.noun)?;
+                self.pending_subject_restriction = Some((subject.noun, restr));
             }
         }
 
@@ -7746,6 +8716,21 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                     }
                     return self.wrap_with_definiteness_full(&subject, result);
                 }
+            }
+
+            // A degree adverb directly before a comparative ("is somewhat shorter
+            // than", "is slightly wider than") must be skipped here so the
+            // comparative branch fires — otherwise it is read as a bare adjective
+            // complement and the comparative strands. The degree-adverb class is a
+            // closed lexical category (lexicon `degree_adverbs`), not a parser list,
+            // so a real adjective complement ("is happy") is untouched.
+            if matches!(
+                self.tokens.get(self.current + 1).map(|t| &t.kind),
+                Some(TokenType::Comparative(_))
+            ) && lexicon::is_degree_adverb(
+                &self.interner.resolve(self.peek().lexeme).to_lowercase(),
+            ) {
+                self.advance(); // degree adverb
             }
 
             // Check for Number token (measure phrase) before comparative or adjective
@@ -7833,8 +8818,39 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
 
             // Check for predicate NP: "Juliet is the sun" or "John is a man"
             if self.check_article() {
-                let predicate_np = self.parse_noun_phrase(true)?;
+                // The copula is already consumed, so a verb-word in the predicate
+                // NP can never be the matrix verb — it is a deverbal noun head
+                // ("is the orange PACK", "is the Russell Road PROJECT").
+                let saved_ctx = self.nominal_np_context;
+                self.nominal_np_context = true;
+                let predicate_np_result = self.parse_noun_phrase(true);
+                self.nominal_np_context = saved_ctx;
+                let predicate_np = predicate_np_result?;
                 let predicate_noun = predicate_np.noun;
+
+                // Enumerated identity: "The four dances are the hustle, the
+                // lindy, the twist, and the waltz." A genuine comma list (≥3
+                // members) identifies the plural subject with the group; a bare
+                // "is a doctor and wealthy" is predication conjunction, not a
+                // group identity, so a comma is required to enter this path.
+                // A who/that relative on the FIRST member hides the comma that
+                // opens the list ("The four winners are the winner WHO won, the
+                // runner-up, …"). Speculatively consume the member-with-relative and
+                // commit only if a comma actually follows; otherwise restore exactly
+                // so the single "X is the Y who Z" copula path below runs unchanged.
+                if self.check(&TokenType::Who) || self.check(&TokenType::That) {
+                    let rel_cp = self.checkpoint();
+                    if let Ok(first) = self.parse_list_member_np(&predicate_np, false) {
+                        if self.check(&TokenType::Comma) {
+                            return self.finish_enumerated_identity(&subject, is_negated, first);
+                        }
+                    }
+                    self.restore(rel_cp);
+                }
+                if self.check(&TokenType::Comma) {
+                    let first = self.parse_list_member_np(&predicate_np, false)?;
+                    return self.finish_enumerated_identity(&subject, is_negated, first);
+                }
 
                 // Phase 41: Event adjective reading
                 // "beautiful dancer" in event mode → ∃e(Dance(e) ∧ Agent(e, x) ∧ Beautiful(e))
@@ -7894,7 +8910,7 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                                 island_id: self.current_island,
                             });
 
-                            return self.wrap_with_definiteness(subject.definiteness, subject.noun, event_reading);
+                            return self.wrap_with_definiteness_full(&subject, event_reading);
                         }
                     }
                 }
@@ -7916,7 +8932,7 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                         } else {
                             metaphor
                         };
-                        return self.wrap_with_definiteness(subject.definiteness, subject.noun, metaphor);
+                        return self.wrap_with_definiteness_full(&subject, metaphor);
                     }
                 }
 
@@ -7942,8 +8958,32 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                 });
                 predicates.push(noun_pred);
 
+                // A predicate-nominal genitive ("X is the Woodard family's house",
+                // "X is the red team's trophy") binds the possessor to the subject.
+                // Routed through the shared possessor lowering so a MODIFIED possessor
+                // keeps its restrictor (∃p(Team(p) ∧ Red(p) ∧ Possesses(p, X))) instead
+                // of collapsing to a bare constant that drops "red" — a meaning-loss
+                // parse the prover can't use.
+                if let Some(possessor) = predicate_np.possessor {
+                    let poss_pred =
+                        self.possessor_predication(possessor, Term::Constant(subject.noun));
+                    predicates.push(poss_pred);
+                }
+
+                // The predicate nominal's PP restrictors ("X is the gator FROM Lynn",
+                // "the gator CAUGHT in Lynn", "the doll 80 years OLD") are predicated of
+                // the subject; dropping them is meaning loss. Each pp is written over the
+                // _PP_SELF_ placeholder — rebind it to the subject. Only the pps are
+                // merged here (not the whole block via nominal_predication_with_pps),
+                // because the metaphor / sort-incompatibility / event-adjective readings
+                // above are intersective-reading-specific and must stay reachable.
+                for pp in predicate_np.pps {
+                    let pp_sub = self.substitute_pp_self_term(pp, Term::Constant(subject.noun));
+                    predicates.push(pp_sub);
+                }
+
                 // Conjoin all predicates
-                let result = if predicates.len() == 1 {
+                let mut result = if predicates.len() == 1 {
                     predicates[0]
                 } else {
                     let mut combined = predicates[0];
@@ -7957,6 +8997,81 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                     combined
                 };
 
+                // A relative clause on the predicate nominal ("X is the player
+                // WHO played", "X was the one THAT won 9 games") is predicated of
+                // the SUBJECT — being that player entails X played. The gap binds
+                // to the subject constant, and the restriction-VP composes its own
+                // features (objects, counting NPs). Previously "who"/"that" here
+                // stranded (TrailingTokens), failing every "X is the Y who/that Z".
+                let mut result = result;
+                if let Some(rc) = self.try_attach_relative(Term::Constant(subject.noun))? {
+                    result = self.ctx.exprs.alloc(LogicExpr::BinaryOp {
+                        left: result,
+                        op: TokenType::And,
+                        right: rc,
+                    });
+                }
+
+                // Non-parallel copula coordination: "Mary is a doctor and wealthy"
+                // / "is a doctor and a lawyer" — each conjunct predicates the SAME
+                // subject (a comma list ≥3 is group identity, handled above). Stop
+                // at anything that isn't an adjective or article-NP complement so a
+                // genuine clause coordination ("… and Bob runs") is left intact.
+                loop {
+                    if !self.check(&TokenType::And) {
+                        break;
+                    }
+                    let save = self.current;
+                    self.advance(); // "and"
+                    // A bare predicate word (adjective, or a noun the lexicon
+                    // didn't mark adjectival like "wealthy") is a shared predicate;
+                    // a noun is only taken when a clause boundary / "and" follows,
+                    // so "… and Bob runs" / "… and cats sleep" stay separate clauses.
+                    let next_is_boundary = matches!(
+                        self.tokens.get(self.current + 1).map(|t| &t.kind),
+                        Some(TokenType::Period) | Some(TokenType::Comma) | Some(TokenType::And)
+                            | Some(TokenType::EOF) | Some(TokenType::Exclamation) | None
+                    );
+                    let conjunct: Option<&'a LogicExpr<'a>> = match self.peek().kind {
+                        TokenType::Adjective(a) | TokenType::NonIntersectiveAdjective(a) => {
+                            self.advance();
+                            Some(self.ctx.exprs.alloc(LogicExpr::Predicate {
+                                name: a,
+                                args: self.ctx.terms.alloc_slice([Term::Constant(subject.noun)]),
+                                world: None,
+                            }))
+                        }
+                        TokenType::Noun(a) if next_is_boundary => {
+                            self.advance();
+                            Some(self.ctx.exprs.alloc(LogicExpr::Predicate {
+                                name: a,
+                                args: self.ctx.terms.alloc_slice([Term::Constant(subject.noun)]),
+                                world: None,
+                            }))
+                        }
+                        _ if self.check_article() => match self.parse_noun_phrase(true) {
+                            Ok(np) => {
+                                Some(self.nominal_predication(Term::Constant(subject.noun), &np))
+                            }
+                            Err(_) => None,
+                        },
+                        _ => None,
+                    };
+                    match conjunct {
+                        Some(c) => {
+                            result = self.ctx.exprs.alloc(LogicExpr::BinaryOp {
+                                left: result,
+                                op: TokenType::And,
+                                right: c,
+                            });
+                        }
+                        None => {
+                            self.current = save;
+                            break;
+                        }
+                    }
+                }
+
                 // "is NOT a man" negates the whole nominal predication.
                 let result = if is_negated {
                     &*self.ctx.exprs.alloc(LogicExpr::UnaryOp {
@@ -7967,7 +9082,12 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                     result
                 };
 
-                return self.wrap_with_definiteness(subject.definiteness, subject.noun, result);
+                // Use the full NP so the SUBJECT's adjectives / PPs / possessor
+                // survive — "X is the Y" must not drop them (e.g. "Ray Ricardo's
+                // stamp is the Yellownose" keeps the genitive, "The red stamp is
+                // the Yellownose" keeps "red"). Mirrors the enumerated-identity
+                // (above) and adjective-complement (below) sites.
+                return self.wrap_with_definiteness_full(&subject, result);
             }
 
             // After copula, prefer Adjective over simple-aspect Verb for ambiguous tokens
@@ -8009,11 +9129,12 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                     self.advance(); // consume "by"
                     let agent = self.parse_noun_phrase(true)?;
 
-                    // Build args: agent, theme (subject), then any goals
-                    let mut args = vec![
-                        self.noun_phrase_to_term(&agent),
-                        self.noun_phrase_to_term(&subject),
-                    ];
+                    // A DESCRIPTIVE by-agent ("the red team", "the Woodard family")
+                    // becomes its own restrictor-carrying entity scoping the relation
+                    // — `∃p(Restrictor(p) ∧ Verb(p, theme))` — instead of collapsing
+                    // to the bare head. A bare agent keeps the constant form.
+                    let (agent_term, agent_restr) = self.possessor_entity(&agent);
+                    let mut args = vec![agent_term, self.noun_phrase_to_term(&subject)];
                     args.extend(goal_args);
 
                     let predicate = self.ctx.exprs.alloc(LogicExpr::Predicate {
@@ -8021,6 +9142,7 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                         args: self.ctx.terms.alloc_slice(args),
                         world: None,
                     });
+                    let predicate = self.wrap_in_possessor_entity(agent_restr, predicate);
 
                     let with_time = if copula_time == Time::Past {
                         self.ctx.exprs.alloc(LogicExpr::Temporal {
@@ -8031,15 +9153,28 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                         predicate
                     };
 
-                    return self.wrap_with_definiteness(subject.definiteness, subject.noun, with_time);
+                    return self.wrap_with_definiteness_full(&subject, with_time);
                 }
 
                 // Agentless passive: "The book was read" → ∃x.Read(x, Book)
                 // For DEFINITE subjects ("The butler was caught"), use simpler reading
                 // without existential over implicit agent: Past(catch(butler))
                 // This makes negation cleaner for theorem proving: ¬Past(catch(butler))
+                //
+                // The existential-over-type reading is correct for a bare plural /
+                // indefinite ("Drugs were approved", "A book was read") — a known
+                // COMMON noun. A PROPER NAME ("Pluniden was approved") is a specific
+                // referent, not a type, so it falls through to the constant path
+                // below (which also carries trailing PP adjuncts and offsets).
+                let subject_is_common_noun = {
+                    let n = self.interner.resolve(subject.noun);
+                    lexicon::lookup_noun_db(n).is_some()
+                        || (n.ends_with('s')
+                            && lexicon::lookup_noun_db(&n[..n.len() - 1]).is_some())
+                };
                 if copula_time == Time::Past && verb_aspect == Aspect::Simple
-                    && subject.definiteness != Some(Definiteness::Definite) {
+                    && subject.definiteness != Some(Definiteness::Definite)
+                    && subject_is_common_noun {
                     // Indefinite agentless passive - treat as existential over implicit agent
                     let var_name = self.next_var_name();
                     let predicate = self.ctx.exprs.alloc(LogicExpr::Predicate {
@@ -8094,11 +9229,90 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                     Term::Constant(subject.noun)
                 };
 
-                let predicate = self.ctx.exprs.alloc(LogicExpr::Predicate {
+                let mut predicate: &'a LogicExpr<'a> = self.ctx.exprs.alloc(LogicExpr::Predicate {
                     name: verb,
                     args: self.ctx.terms.alloc_slice([subject_term]),
                     world: None,
                 });
+
+                // A PROGRESSIVE transitive ("is paying the rent", "is reading a
+                // book", "is paying $700") takes a DIRECT OBJECT → Verb(subject,
+                // object). A passive past-participle has none (its theme IS the
+                // subject), so gate on Progressive. Not a preposition (that's a PP
+                // adjunct, handled below) and not "by"/"to" (passive/dative above).
+                if verb_aspect == Aspect::Progressive
+                    && !self.check_preposition()
+                    && (self.check_article() || self.check_number() || self.check_content_word())
+                {
+                    let obj_term = if self.check_number() {
+                        *self.parse_measure_phrase()?
+                    } else {
+                        let obj_np = self.parse_noun_phrase(false)?;
+                        self.noun_phrase_to_term(&obj_np)
+                    };
+                    predicate = self.ctx.exprs.alloc(LogicExpr::Predicate {
+                        name: verb,
+                        args: self.ctx.terms.alloc_slice([subject_term, obj_term]),
+                        world: None,
+                    });
+                }
+
+                // Trailing locative/temporal/material PP adjuncts on the passive ("was
+                // taken on May 9", "was found in Spain", "was made OF rosewood") —
+                // predicated of the theme (the subject). "of" after a passive participle
+                // is the MATERIAL complement (Of(x, rosewood)), not a possessive.
+                while self.check_preposition() {
+                    let prep = match self.advance().kind {
+                        TokenType::Preposition(s) => s,
+                        _ => break,
+                    };
+                    let pp = if self.check_number() {
+                        let m = self.parse_measure_phrase()?;
+                        self.ctx.exprs.alloc(LogicExpr::Predicate {
+                            name: prep,
+                            args: self.ctx.terms.alloc_slice([subject_term, *m]),
+                            world: None,
+                        })
+                    } else if self.check_content_word()
+                        || matches!(self.peek().kind, TokenType::Article(_))
+                    {
+                        let obj = self.parse_noun_phrase(true)?;
+                        self.ctx.exprs.alloc(LogicExpr::Predicate {
+                            name: prep,
+                            args: self.ctx.terms.alloc_slice([subject_term, Term::Constant(obj.noun)]),
+                            world: None,
+                        })
+                    } else {
+                        break;
+                    };
+                    predicate = self.ctx.exprs.alloc(LogicExpr::BinaryOp {
+                        left: predicate,
+                        op: TokenType::And,
+                        right: pp,
+                    });
+                }
+
+                // A trailing calendar-unit offset ("was taken 1 month after Y",
+                // "was found 3 days before Z") relates the theme's temporal
+                // position to a distinct standard — solver-ready, shared with the
+                // active VP path.
+                if let Some(constraint) = self.parse_temporal_offset_constraint(subject_term)? {
+                    predicate = self.ctx.exprs.alloc(LogicExpr::BinaryOp {
+                        left: predicate,
+                        op: TokenType::And,
+                        right: constraint,
+                    });
+                }
+                // A bare temporal ordering ("was taken sometime before the photo of
+                // the red panda", "was bought sometime before Faye's pet") relates
+                // the theme to a distinct standard by time.
+                else if let Some(constraint) = self.parse_bare_temporal_constraint(subject_term)? {
+                    predicate = self.ctx.exprs.alloc(LogicExpr::BinaryOp {
+                        left: predicate,
+                        op: TokenType::And,
+                        right: constraint,
+                    });
+                }
 
                 // Manner adverbs after the participle ("was running quickly")
                 // modify the event under the aspect operator.
@@ -8145,26 +9359,106 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                     with_time
                 };
 
-                // For DEFINITE subjects, return directly without Russellian wrapper
-                // "The butler was caught" → Past(catch(butler)) not ∃x(butler(x) ∧ ∀y(...) ∧ catch(x))
-                // This keeps the output simple for theorem proving
-                if subject.definiteness == Some(Definiteness::Definite) {
+                // For a BARE definite subject, return directly without the
+                // Russellian wrapper: "The butler was caught" → Past(catch(butler)),
+                // keeping the output simple for theorem proving. But a definite
+                // subject WITH restrictions (adjectives, PPs like "at 40.5912 N",
+                // a possessor) must go through the full wrapper so those
+                // constraints survive — dropping them is meaning loss.
+                if subject.definiteness == Some(Definiteness::Definite)
+                    && subject.adjectives.is_empty()
+                    && subject.pps.is_empty()
+                    && subject.possessor.is_none()
+                {
                     return Ok(final_expr);
                 }
 
-                return self.wrap_with_definiteness(subject.definiteness, subject.noun, final_expr);
+                return self.wrap_with_definiteness_full(&subject, final_expr);
             }
 
             // Handle relative clause with copula: "The book that John read is good."
+            // The complement uses the same forms as a plain copula — proper-name
+            // identity, "either A or B" disjunction, and (the)-NP predication —
+            // predicated of the relative-clause variable, not just a bare adjective.
             if let Some((var_name, rel_clause)) = relative_clause {
                 let var_term = Term::Variable(var_name);
-                let pred_word = self.consume_content_word()?;
 
-                let main_pred = self.ctx.exprs.alloc(LogicExpr::Predicate {
-                    name: pred_word,
-                    args: self.ctx.terms.alloc_slice([var_term]),
-                    world: None,
-                });
+                let main_pred: &'a LogicExpr<'a> = if self.check(&TokenType::Either) {
+                    self.advance();
+                    let np1 = self.parse_noun_phrase(true)?;
+                    let p1 = self.nominal_predication_with_pps(var_term, &np1);
+                    let p1 = self.conjoin_trailing_relative(p1, var_term)?;
+                    if self.check(&TokenType::Or) {
+                        self.advance();
+                        let np2 = self.parse_noun_phrase(true)?;
+                        let p2 = self.nominal_predication_with_pps(var_term, &np2);
+                        let p2 = self.conjoin_trailing_relative(p2, var_term)?;
+                        self.ctx.exprs.alloc(LogicExpr::BinaryOp {
+                            left: p1,
+                            op: TokenType::Or,
+                            right: p2,
+                        })
+                    } else {
+                        p1
+                    }
+                } else if matches!(self.peek().kind, TokenType::ProperName(_))
+                    && matches!(
+                        self.tokens.get(self.current + 1).map(|t| &t.kind),
+                        Some(TokenType::Possessive)
+                    )
+                {
+                    // "is Kerry's project" — a possessive NP complement.
+                    let np = self.parse_noun_phrase(true)?;
+                    self.nominal_predication_with_pps(var_term, &np)
+                } else if let TokenType::ProperName(pname) = self.peek().kind {
+                    self.advance();
+                    self.ctx.exprs.alloc(LogicExpr::Identity {
+                        left: self.ctx.terms.alloc(var_term),
+                        right: self.ctx.terms.alloc(Term::Constant(pname)),
+                    })
+                } else if self.check_article() {
+                    let np = self.parse_noun_phrase(true)?;
+                    let pred = self.nominal_predication_with_pps(var_term, &np);
+                    self.conjoin_trailing_relative(pred, var_term)?
+                } else if self.check_preposition() && !self.check_by_preposition() {
+                    // PP predicate complement: "… is FROM Australia", "… is ON
+                    // Holly Street", "… is AT 40 degrees" — predicated of the
+                    // relativized variable. Mirrors the plain-copula PP path.
+                    let prep_sym = match self.advance().kind {
+                        TokenType::Preposition(s) => s,
+                        _ => unreachable!("guarded by check_preposition()"),
+                    };
+                    if self.check_number() {
+                        let measure = self.parse_measure_phrase()?;
+                        self.ctx.exprs.alloc(LogicExpr::Predicate {
+                            name: prep_sym,
+                            args: self.ctx.terms.alloc_slice([var_term, *measure]),
+                            world: None,
+                        })
+                    } else {
+                        let obj = self.parse_noun_phrase(true)?;
+                        self.ctx.exprs.alloc(LogicExpr::Predicate {
+                            name: prep_sym,
+                            args: self.ctx.terms.alloc_slice([var_term, Term::Constant(obj.noun)]),
+                            world: None,
+                        })
+                    }
+                } else {
+                    let pred_word = self.consume_content_word()?;
+                    self.ctx.exprs.alloc(LogicExpr::Predicate {
+                        name: pred_word,
+                        args: self.ctx.terms.alloc_slice([var_term]),
+                        world: None,
+                    })
+                };
+                let main_pred = if is_negated {
+                    &*self.ctx.exprs.alloc(LogicExpr::UnaryOp {
+                        op: TokenType::Not,
+                        operand: main_pred,
+                    })
+                } else {
+                    main_pred
+                };
 
                 let type_pred = self.ctx.exprs.alloc(LogicExpr::Predicate {
                     name: subject.noun,
@@ -8194,10 +9488,129 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
 
             // Note: is_negated was already set after copula consumption above
 
+            // Possessive predicate with an elided noun: "The scent is Camille's." →
+            // Possesses(Camille, scent) — the subject BELONGS to the named
+            // possessor. Detected by a "'s" right after the name with no possessed
+            // noun (a clause boundary follows); "X is Camille's perfume" (explicit
+            // noun) falls through to the nominal-predicate paths.
+            if let TokenType::ProperName(predicate_name) = self.peek().kind {
+                let next_is_possessive = matches!(
+                    self.tokens.get(self.current + 1).map(|t| &t.kind),
+                    Some(TokenType::Possessive)
+                );
+                let elided = matches!(
+                    self.tokens.get(self.current + 2).map(|t| &t.kind),
+                    Some(TokenType::Period)
+                        | Some(TokenType::EOF)
+                        | Some(TokenType::Comma)
+                        | Some(TokenType::And)
+                        | Some(TokenType::Or)
+                        | None
+                );
+                if next_is_possessive && elided {
+                    self.advance(); // proper name
+                    self.advance(); // "'s"
+                    let poss = self.ctx.exprs.alloc(LogicExpr::Predicate {
+                        name: self.interner.intern("Possesses"),
+                        args: self.ctx.terms.alloc_slice([
+                            Term::Constant(predicate_name),
+                            Term::Constant(subject.noun),
+                        ]),
+                        world: None,
+                    });
+                    let result = if is_negated {
+                        self.ctx.exprs.alloc(LogicExpr::UnaryOp {
+                            op: TokenType::Not,
+                            operand: poss,
+                        })
+                    } else {
+                        poss
+                    };
+                    return self.wrap_with_definiteness_full(&subject, result);
+                }
+            }
+
+            // Possessive NP predicate with an EXPLICIT noun: "The box is Kerry's
+            // project" → Project(box) ∧ Possesses(Kerry, box). (The elided form "is
+            // Camille's" is handled above; the bare identity below.)
+            if matches!(self.peek().kind, TokenType::ProperName(_))
+                && matches!(
+                    self.tokens.get(self.current + 1).map(|t| &t.kind),
+                    Some(TokenType::Possessive)
+                )
+            {
+                let np = self.parse_noun_phrase(true)?;
+                let pred = self.nominal_predication_with_pps(Term::Constant(subject.noun), &np);
+                let result = if is_negated {
+                    self.ctx.exprs.alloc(LogicExpr::UnaryOp {
+                        op: TokenType::Not,
+                        operand: pred,
+                    })
+                } else {
+                    pred
+                };
+                return self.wrap_with_definiteness_full(&subject, result);
+            }
+
             // Handle identity: "Clark is Superman" - NP copula ProperName → Identity
             // This enables Leibniz's Law: if Clark = Superman and mortal(Clark), then mortal(Superman)
             if let TokenType::ProperName(predicate_name) = self.peek().kind {
                 self.advance(); // consume the proper name
+                // Absorb subsequent capitalized words into one multi-word proper
+                // name ("Porcher Place", "Highland Drive") so the identity does
+                // not strand the second word.
+                let predicate_name = self.absorb_multiword_proper_name(predicate_name);
+
+                // Enumerated identity whose FIRST member is a proper name: "The four
+                // people are Anthony, the waiter, the musician and the dentist." A
+                // comma list (≥2 members) identifies the plural subject with the
+                // group; members may be proper names OR definite descriptions. Mirrors
+                // the common-noun-first enumerated-identity path above so a leading
+                // proper name no longer strands the rest of the list.
+                if self.check(&TokenType::Comma) {
+                    let mut members: Vec<Term<'a>> = vec![Term::Constant(predicate_name)];
+                    let mut member_rels: Vec<&'a LogicExpr<'a>> = Vec::new();
+                    while self.check(&TokenType::Comma) || self.check(&TokenType::And) {
+                        while self.check(&TokenType::Comma) || self.check(&TokenType::And) {
+                            self.advance();
+                        }
+                        if let TokenType::ProperName(pn) = self.peek().kind {
+                            self.advance();
+                            let pn = self.absorb_multiword_proper_name(pn);
+                            members.push(Term::Constant(pn));
+                        } else if self.check_article() || self.check_content_word() {
+                            let item = self.parse_noun_phrase(true)?;
+                            members.push(Term::Constant(item.noun));
+                            if let Some(rc) = self.try_attach_relative(Term::Constant(item.noun))? {
+                                member_rels.push(rc);
+                            }
+                        } else {
+                            break;
+                        }
+                    }
+                    let group = Term::Group(self.ctx.terms.alloc_slice(members));
+                    let identity: &'a LogicExpr<'a> = self.ctx.exprs.alloc(LogicExpr::Identity {
+                        left: self.ctx.terms.alloc(Term::Constant(subject.noun)),
+                        right: self.ctx.terms.alloc(group),
+                    });
+                    let mut result = if is_negated {
+                        &*self.ctx.exprs.alloc(LogicExpr::UnaryOp {
+                            op: TokenType::Not,
+                            operand: identity,
+                        })
+                    } else {
+                        identity
+                    };
+                    for rc in member_rels {
+                        result = self.ctx.exprs.alloc(LogicExpr::BinaryOp {
+                            left: result,
+                            op: TokenType::And,
+                            right: rc,
+                        });
+                    }
+                    return self.wrap_with_definiteness_full(&subject, result);
+                }
+
                 let identity = self.ctx.exprs.alloc(LogicExpr::Identity {
                     left: self.ctx.terms.alloc(Term::Constant(subject.noun)),
                     right: self.ctx.terms.alloc(Term::Constant(predicate_name)),
@@ -8210,12 +9623,307 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                 } else {
                     identity
                 };
-                return self.wrap_with_definiteness(subject.definiteness, subject.noun, result);
+                return self.wrap_with_definiteness_full(&subject, result);
+            }
+
+            // Handle "X is either A or B" — disjunctive predication in copula position.
+            // "The dancer is either Tara or Bessie" → Tara(dancer) ∨ Bessie(dancer)
+            if self.check(&TokenType::Either) {
+                self.advance(); // consume "either"
+                // Parse one disjunct: an NP optionally restricted by a relative
+                // clause predicated of the subject ("the player who wore number
+                // 29" → Player(Frank) ∧ ∃e(Wore(e) ∧ Agent(e, Frank) ∧ …)).
+                let parse_disjunct = |p: &mut Self| -> ParseResult<&'a LogicExpr<'a>> {
+                    // The copula is consumed, so a verb-word in the disjunct NP is a
+                    // deverbal noun head ("either Leroy's PACK or the silver PACK").
+                    let saved_ctx = p.nominal_np_context;
+                    p.nominal_np_context = true;
+                    let np_result = p.parse_noun_phrase(true);
+                    p.nominal_np_context = saved_ctx;
+                    let np = np_result?;
+                    // nominal_predication keeps the disjunct NP's possessor and
+                    // adjectives ("Elodie's perfume" → Perfume(x) ∧
+                    // Possesses(Elodie, x)) — a bare Predicate would drop them and
+                    // collapse "either A's perfume or B's perfume" to Perfume ∨
+                    // Perfume (a vacuous, prover-useless disjunction).
+                    let mut pred: &'a LogicExpr<'a> =
+                        p.nominal_predication_with_pps(Term::Constant(subject.noun), &np);
+                    if let Some(rel) = p.try_attach_relative(Term::Constant(subject.noun))? {
+                        pred = p.ctx.exprs.alloc(LogicExpr::BinaryOp {
+                            left: pred,
+                            op: TokenType::And,
+                            right: rel,
+                        });
+                    }
+                    // A reduced relative on the disjunct ("either the mountain FIRST
+                    // CLIMBED in 1845 or …") restricts the subject — the disjunct NP
+                    // cannot be a main clause here.
+                    if let Some(rr) = p.try_consume_reduced_relative(Term::Constant(subject.noun))? {
+                        pred = p.ctx.exprs.alloc(LogicExpr::BinaryOp {
+                            left: pred,
+                            op: TokenType::And,
+                            right: rr,
+                        });
+                    }
+                    Ok(pred)
+                };
+                let pred1 = parse_disjunct(self)?;
+                if self.check(&TokenType::Or) {
+                    self.advance(); // consume "or"
+                    let pred2 = parse_disjunct(self)?;
+                    let disj = self.ctx.exprs.alloc(LogicExpr::BinaryOp {
+                        left: pred1,
+                        op: TokenType::Or,
+                        right: pred2,
+                    });
+                    let with_time = if copula_time == Time::Past {
+                        self.ctx.exprs.alloc(LogicExpr::Temporal {
+                            operator: TemporalOperator::Past,
+                            body: disj,
+                        })
+                    } else {
+                        disj
+                    };
+                    let result = if is_negated {
+                        self.ctx.exprs.alloc(LogicExpr::UnaryOp {
+                            op: TokenType::Not,
+                            operand: with_time,
+                        })
+                    } else {
+                        with_time
+                    };
+                    // Full NP so the subject's adjectives / PPs / possessor survive
+                    // ("the class with 15 people is either …" must keep the PP).
+                    return self.wrap_with_definiteness_full(&subject, result);
+                }
+            }
+
+            // Handle "X is from Y" / "X is on Y" — PP predicate in copula position.
+            // Excludes "by" which is passive-agent and handled above.
+            if self.check_preposition() && !self.check_by_preposition() {
+                let prep_token = self.advance().clone();
+                let prep_sym = match prep_token.kind {
+                    TokenType::Preposition(s) => s,
+                    _ => unreachable!("guarded by check_preposition()"),
+                };
+                // A numeric PP object is a measure ("is at 40.5912 N", "is at 385
+                // degrees") — keep the amount and its unit/direction; otherwise an
+                // ordinary NP object.
+                let base = if self.check_number() {
+                    let m = self.parse_measure_phrase()?;
+                    self.ctx.exprs.alloc(LogicExpr::Predicate {
+                        name: prep_sym,
+                        args: self.ctx.terms.alloc_slice([Term::Constant(subject.noun), *m]),
+                        world: None,
+                    })
+                } else {
+                    // A copula + preposition rules out the matrix verb, so a
+                    // verb-tagged head in the PP object is a deverbal noun ("was
+                    // after the skydiving TRIP", "is from New Guinea").
+                    let saved_ctx = self.nominal_np_context;
+                    self.nominal_np_context = true;
+                    let pp_obj_result = self.parse_noun_phrase(true);
+                    self.nominal_np_context = saved_ctx;
+                    let pp_obj = pp_obj_result?;
+                    let pred: &'a LogicExpr<'a> = self.ctx.exprs.alloc(LogicExpr::Predicate {
+                        name: prep_sym,
+                        args: self.ctx.terms.alloc_slice([
+                            Term::Constant(subject.noun),
+                            Term::Constant(pp_obj.noun),
+                        ]),
+                        world: None,
+                    });
+                    // The PP object's own ADJECTIVES ("is on the BIG table" →
+                    // On(x, Table) ∧ Big(Table)) and nested PPs survive via the shared
+                    // helper, dropping them would be meaning loss.
+                    self.attach_pp_object_modifiers(pred, &pp_obj)
+                };
+                // Disjunctive PP complement — "is in Florida OR in Maine" / "is in
+                // A or B" → In(x,A) ∨ In(x,B): the domain-closure shape a logic-grid
+                // bijection eliminates over ("not Florida ⇒ Maine"). "or in B"
+                // repeats the preposition; "or B" reuses the first one.
+                let mut base: &'a LogicExpr<'a> = base;
+                while self.check(&TokenType::Or) {
+                    let cp = self.checkpoint();
+                    self.advance(); // "or"
+                    let disj_prep = if self.check_preposition() && !self.check_by_preposition() {
+                        match self.advance().kind {
+                            TokenType::Preposition(s) => s,
+                            _ => prep_sym,
+                        }
+                    } else {
+                        prep_sym
+                    };
+                    if !(self.check_content_word()
+                        || self.check_number()
+                        || matches!(self.peek().kind, TokenType::Article(_)))
+                    {
+                        self.restore(cp);
+                        break;
+                    }
+                    let saved_ctx = self.nominal_np_context;
+                    self.nominal_np_context = true;
+                    let disj_obj_res = self.parse_noun_phrase(true);
+                    self.nominal_np_context = saved_ctx;
+                    let disj_obj = disj_obj_res?;
+                    let disj_pred: &'a LogicExpr<'a> = self.ctx.exprs.alloc(LogicExpr::Predicate {
+                        name: disj_prep,
+                        args: self
+                            .ctx
+                            .terms
+                            .alloc_slice([Term::Constant(subject.noun), Term::Constant(disj_obj.noun)]),
+                        world: None,
+                    });
+                    let disj_pred = self.attach_pp_object_modifiers(disj_pred, &disj_obj);
+                    base = self.ctx.exprs.alloc(LogicExpr::BinaryOp {
+                        left: base,
+                        op: TokenType::Or,
+                        right: disj_pred,
+                    });
+                }
+                let with_time = if copula_time == Time::Past {
+                    self.ctx.exprs.alloc(LogicExpr::Temporal {
+                        operator: TemporalOperator::Past,
+                        body: base,
+                    })
+                } else {
+                    base
+                };
+                let result = if is_negated {
+                    self.ctx.exprs.alloc(LogicExpr::UnaryOp {
+                        op: TokenType::Not,
+                        operand: with_time,
+                    })
+                } else {
+                    with_time
+                };
+                // Use the full NP so a subject genitive ("The Alvarado family's
+                // house is on Cora Street.") keeps its possession presupposition.
+                return self.wrap_with_definiteness_full(&subject, result);
+            }
+
+            // Copula complement led by a temporal/ordinal adverb: "was FIRST", "is
+            // NOW the leader". Shared with parse_predicate's copula path; wrapped here
+            // with parse_atom's own tense / negation / definiteness.
+            if let Some(base) =
+                self.copula_temporal_adverb_complement(Term::Constant(subject.noun))?
+            {
+                let with_time = if copula_time == Time::Past {
+                    self.ctx.exprs.alloc(LogicExpr::Temporal {
+                        operator: TemporalOperator::Past,
+                        body: base,
+                    })
+                } else {
+                    base
+                };
+                let result = if is_negated {
+                    self.ctx.exprs.alloc(LogicExpr::UnaryOp {
+                        op: TokenType::Not,
+                        operand: with_time,
+                    })
+                } else {
+                    with_time
+                };
+                return self.wrap_with_definiteness_full(&subject, result);
             }
 
             // Handle "The king is bald" or "Alice is not guilty" - NP copula (not)? ADJ/NOUN
             // Also handles bare noun predicates like "Time is money"
             let predicate_name = self.consume_content_word()?;
+
+            // Coordinated predicate adjectives — "is black and red" → Black(x) ∧
+            // Red(x). The copula complement must consume the whole coordination;
+            // otherwise "and red" is mis-parsed as a separate clause. Requires an
+            // "and" before each extra adjective (a bare juxtaposed pair is left
+            // alone — it may be a compound shade like "dark green").
+            {
+                let mut coord_adjs: Vec<Symbol> = vec![predicate_name];
+                while self.check(&TokenType::And) {
+                    let cp = self.checkpoint();
+                    self.advance(); // "and"
+                    if let TokenType::Adjective(a) = self.peek().kind {
+                        // "and ADJ is/are/verb …" — ADJ is the SUBJECT of a new
+                        // clause ("valid is high AND ready is high"), not a
+                        // coordinated predicate adjective. Only a clause-final
+                        // adjective ("is black AND red.") coordinates.
+                        if matches!(
+                            self.tokens.get(self.current + 1).map(|t| &t.kind),
+                            Some(TokenType::Is) | Some(TokenType::Are)
+                                | Some(TokenType::Was) | Some(TokenType::Were)
+                                | Some(TokenType::Verb { .. })
+                        ) {
+                            self.restore(cp);
+                            break;
+                        }
+                        self.advance();
+                        coord_adjs.push(a);
+                    } else {
+                        self.restore(cp); // "and X" is not adjective coordination
+                        break;
+                    }
+                }
+                if coord_adjs.len() > 1 {
+                    let mut conj: &'a LogicExpr<'a> = self.ctx.exprs.alloc(LogicExpr::Predicate {
+                        name: coord_adjs[0],
+                        args: self.ctx.terms.alloc_slice([Term::Constant(subject.noun)]),
+                        world: None,
+                    });
+                    for &a in &coord_adjs[1..] {
+                        let p = self.ctx.exprs.alloc(LogicExpr::Predicate {
+                            name: a,
+                            args: self.ctx.terms.alloc_slice([Term::Constant(subject.noun)]),
+                            world: None,
+                        });
+                        conj = self.ctx.exprs.alloc(LogicExpr::BinaryOp {
+                            left: conj,
+                            op: TokenType::And,
+                            right: p,
+                        });
+                    }
+                    let conj = if is_negated {
+                        self.ctx.exprs.alloc(LogicExpr::UnaryOp { op: TokenType::Not, operand: conj })
+                    } else {
+                        conj
+                    };
+                    let conj = if copula_time == Time::Past {
+                        self.ctx.exprs.alloc(LogicExpr::Temporal {
+                            operator: TemporalOperator::Past,
+                            body: conj,
+                        })
+                    } else {
+                        conj
+                    };
+                    return self.wrap_with_definiteness_full(&subject, conj);
+                }
+            }
+
+            // A predicate adjective taking a POSTPOSED measure complement — "is
+            // worth $26 billion", "is worth 5 dollars". The measure-BEFORE-adjective
+            // form ("is 5 feet tall") is handled earlier; here the amount follows
+            // the adjective and is its degree argument: Worth(subject, $26 billion).
+            // A number after a predicate adjective is never a separate clause.
+            if self.check_number() {
+                let measure = self.parse_measure_phrase()?;
+                let pred = self.ctx.exprs.alloc(LogicExpr::Predicate {
+                    name: predicate_name,
+                    args: self.ctx.terms.alloc_slice([Term::Constant(subject.noun), *measure]),
+                    world: None,
+                });
+                let pred = if is_negated {
+                    self.ctx.exprs.alloc(LogicExpr::UnaryOp { op: TokenType::Not, operand: pred })
+                } else {
+                    pred
+                };
+                let pred = if copula_time == Time::Past {
+                    self.ctx.exprs.alloc(LogicExpr::Temporal {
+                        operator: TemporalOperator::Past,
+                        body: pred,
+                    })
+                } else {
+                    pred
+                };
+                return self.wrap_with_definiteness_full(&subject, pred);
+            }
 
             // Check for sort violation (metaphor detection)
             let subject_sort = lexicon::lookup_sort(self.interner.resolve(subject.noun));
@@ -8228,7 +9936,7 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                         tenor: self.ctx.terms.alloc(Term::Constant(subject.noun)),
                         vehicle: self.ctx.terms.alloc(Term::Constant(predicate_name)),
                     });
-                    return self.wrap_with_definiteness(subject.definiteness, subject.noun, metaphor);
+                    return self.wrap_with_definiteness_full(&subject, metaphor);
                 }
             }
 
@@ -8240,7 +9948,7 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                         tenor: self.ctx.terms.alloc(Term::Constant(subject.noun)),
                         vehicle: self.ctx.terms.alloc(Term::Constant(predicate_name)),
                     });
-                    return self.wrap_with_definiteness(subject.definiteness, subject.noun, metaphor);
+                    return self.wrap_with_definiteness_full(&subject, metaphor);
                 }
             }
 
@@ -8347,6 +10055,17 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
             return self.wrap_with_definiteness_full(&subject, result);
         }
 
+        // "did" as a MAIN verb ("Philip did the dishes", "the diver did 49
+        // previous jumps") — an Auxiliary(Past) followed by an object NP, not
+        // do-support. parse_predicate_impl (verb.rs) already handles this; the
+        // simple-clause path here did not, so proper-name-subject "did X"
+        // stranded. (Object NPs only; "did not"/"did run" stay auxiliary.)
+        if self.check_auxiliary_as_main_verb() {
+            let subject_term = self.noun_phrase_to_term(&subject);
+            let result = self.parse_do_as_main_verb(subject_term)?;
+            return self.wrap_with_definiteness_full(&subject, result);
+        }
+
         // Handle auxiliary: set pending_time, handle negation
         // BUT: "did it" should be parsed as verb "do" with object "it"
         // We lookahead to check if this is truly an auxiliary usage
@@ -8379,14 +10098,34 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                     return self.parse_presupposition(&subject, presup_kind, true);
                 }
 
+                // A bare verb the lexicon ALSO lists as a performative ("didn't ORDER")
+                // is the clause's main verb after do-support, not a speech act — re-tag
+                // it so check_verb consumes it (tense comes from the "did" auxiliary).
+                if let TokenType::Performative(_) = self.peek().kind {
+                    let lemma = self
+                        .interner
+                        .intern(&self.interner.resolve(self.peek().lexeme).to_lowercase());
+                    self.tokens[self.current].kind = TokenType::Verb {
+                        lemma,
+                        time: Time::None,
+                        aspect: Aspect::Simple,
+                        class: crate::lexicon::VerbClass::Activity,
+                    };
+                }
                 // Check for verb or "do" (TokenType::Do is separate from TokenType::Verb)
                 if self.check_verb() || self.check(&TokenType::Do) {
-                    let verb = if self.check(&TokenType::Do) {
-                        self.advance(); // consume "do"
-                        self.interner.intern("Do")
-                    } else {
-                        self.consume_verb()
-                    };
+                    let (verb, verb_time, verb_aspect, verb_class) =
+                        if self.check(&TokenType::Do) {
+                            self.advance(); // consume "do"
+                            (
+                                self.interner.intern("Do"),
+                                Time::None,
+                                Aspect::Simple,
+                                crate::lexicon::VerbClass::Activity,
+                            )
+                        } else {
+                            self.consume_verb_with_metadata()
+                        };
                     let subject_term = self.noun_phrase_to_term(&subject);
 
                     // Check for NPI object first: "John did not see anything"
@@ -8539,50 +10278,64 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                         }));
                     }
 
-                    let mut roles: Vec<(ThematicRole, Term<'a>)> = vec![(ThematicRole::Agent, subject_term)];
-
-                    // Add temporal modifier from pending_time
-                    let effective_time = self.pending_time.take().unwrap_or(Time::None);
-                    let mut modifiers: Vec<Symbol> = vec![];
-                    match effective_time {
-                        Time::Past => modifiers.push(self.interner.intern("Past")),
-                        Time::Future => modifiers.push(self.interner.intern("Future")),
-                        _ => {}
-                    }
-
-                    // Check for object: NP, article+NP, or pronoun (like "it")
-                    if self.check_content_word() || self.check_article() || self.check_pronoun() {
-                        if self.check_pronoun() {
-                            // Handle pronoun object like "it" in "did not do it"
-                            let pronoun_token = self.advance();
-                            let pronoun_sym = pronoun_token.lexeme;
-                            roles.push((ThematicRole::Theme, Term::Constant(pronoun_sym)));
-                        } else {
-                            let object = self.parse_noun_phrase(false)?;
-                            let object_term = self.noun_phrase_to_term(&object);
-                            roles.push((ThematicRole::Theme, object_term));
+                    // A pronoun object ("did not do it") stays LITERAL, and the
+                    // negation is returned UNWRAPPED. Resolving the pronoun or
+                    // wrapping the definite subject in a uniqueness clause would
+                    // desync a modus-tollens goal from the conditional antecedent it
+                    // must refute ("if the butler did it …" keeps Theme(e, it)).
+                    if self.check_pronoun() {
+                        let pronoun_token = self.advance();
+                        let pronoun_sym = pronoun_token.lexeme;
+                        let roles = vec![
+                            (ThematicRole::Agent, subject_term.clone()),
+                            (ThematicRole::Theme, Term::Constant(pronoun_sym)),
+                        ];
+                        let effective_time = self.pending_time.take().unwrap_or(Time::None);
+                        let mut modifiers: Vec<Symbol> = vec![];
+                        match effective_time {
+                            Time::Past => modifiers.push(self.interner.intern("Past")),
+                            Time::Future => modifiers.push(self.interner.intern("Future")),
+                            _ => {}
                         }
+                        let event_var = self.get_event_var();
+                        let suppress_existential = self.drs.in_conditional_antecedent();
+                        let neo_event = self.ctx.exprs.alloc(LogicExpr::NeoEvent(Box::new(
+                            NeoEventData {
+                                event_var,
+                                verb,
+                                roles: self.ctx.roles.alloc_slice(roles),
+                                modifiers: self.ctx.syms.alloc_slice(modifiers),
+                                suppress_existential,
+                                world: None,
+                            },
+                        )));
+                        self.negative_depth -= 1;
+                        return Ok(self.ctx.exprs.alloc(LogicExpr::UnaryOp {
+                            op: TokenType::Not,
+                            operand: neo_event,
+                        }));
                     }
 
-                    let event_var = self.get_event_var();
-                    let suppress_existential = self.drs.in_conditional_antecedent();
-                    if suppress_existential {
-                        let event_class = self.interner.intern("Event");
-                        self.drs.introduce_referent(event_var, event_class, Gender::Neuter, Number::Singular);
-                    }
-                    let neo_event = self.ctx.exprs.alloc(LogicExpr::NeoEvent(Box::new(NeoEventData {
-                        event_var,
+                    // The remaining complement forms (NP / measure / PP / aspect)
+                    // fold through the shared finite-verb builder so "did not VERB …"
+                    // folds exactly like the positive path; the auxiliary tense rides
+                    // in via pending_time. The result is returned UNWRAPPED — a
+                    // negated definite subject is not given a uniqueness clause here,
+                    // keeping proof goals structurally clean.
+                    let vp = self.build_verb_vp(
+                        subject.noun,
+                        subject_term,
+                        false,
                         verb,
-                        roles: self.ctx.roles.alloc_slice(roles),
-                        modifiers: self.ctx.syms.alloc_slice(modifiers),
-                        suppress_existential,
-                        world: None,
-                    })));
+                        verb_time,
+                        verb_aspect,
+                        verb_class,
+                    )?;
 
                     self.negative_depth -= 1;
                     return Ok(self.ctx.exprs.alloc(LogicExpr::UnaryOp {
                         op: TokenType::Not,
-                        operand: neo_event,
+                        operand: vp,
                     }));
                 }
 
@@ -8750,7 +10503,8 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
             }
 
             if self.check_verb() {
-                let verb = self.consume_verb();
+                let (verb, verb_time, verb_aspect, verb_class) =
+                    self.consume_verb_with_metadata();
                 let verb_lemma = self.interner.resolve(verb).to_lowercase();
 
                 // Check for embedded wh-clause with negation: "I don't know who"
@@ -8918,11 +10672,30 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                     let object_np = self.parse_noun_phrase(false)?;
                     let obj_var = self.next_var_name();
 
-                    let type_pred = self.ctx.exprs.alloc(LogicExpr::Predicate {
+                    let mut type_pred: &'a LogicExpr<'a> = self.ctx.exprs.alloc(LogicExpr::Predicate {
                         name: object_np.noun,
                         args: self.ctx.terms.alloc_slice([Term::Variable(obj_var)]),
                         world: None,
                     });
+                    // A quantified object's adjectives and PP restrictors ("has a
+                    // RED book", "has a maximum range OF 475 ft") are part of the
+                    // object's description — dropping them is a meaning-loss parse.
+                    for &adj in object_np.adjectives {
+                        let adj_pred = self.adjective_restriction(adj, obj_var, object_np.noun);
+                        type_pred = self.ctx.exprs.alloc(LogicExpr::BinaryOp {
+                            left: type_pred,
+                            op: TokenType::And,
+                            right: adj_pred,
+                        });
+                    }
+                    for pp in object_np.pps {
+                        let pp_sub = self.substitute_pp_placeholder(pp, obj_var);
+                        type_pred = self.ctx.exprs.alloc(LogicExpr::BinaryOp {
+                            left: type_pred,
+                            op: TokenType::And,
+                            right: pp_sub,
+                        });
+                    }
 
                     // Check for relative clause on object
                     let obj_restriction = if self.check(&TokenType::That) || self.check(&TokenType::Who) {
@@ -9018,31 +10791,39 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                     return self.wrap_with_definiteness_full(&subject, result);
                 }
 
-                // Intransitive: "John does (not) run"
-                let roles: Vec<(ThematicRole, Term<'a>)> = vec![(ThematicRole::Agent, subject_term)];
-                let event_var = self.get_event_var();
-                let suppress_existential = self.drs.in_conditional_antecedent();
-                if suppress_existential {
-                    let event_class = self.interner.intern("Event");
-                    self.drs.introduce_referent(event_var, event_class, Gender::Neuter, Number::Singular);
-                }
-
-                let neo_event = self.ctx.exprs.alloc(LogicExpr::NeoEvent(Box::new(NeoEventData {
-                    event_var,
-                    verb,
-                    roles: self.ctx.roles.alloc_slice(roles),
-                    modifiers: self.ctx.syms.alloc_slice(modifiers),
-                    suppress_existential,
-                    world: None,
-                })));
-
+                // Remaining complement forms — bare-noun object ("contain clove"),
+                // measure/money ("cost $29.99", "measure 60 inches"), trailing PPs
+                // ("happen in May", "go to Kansas"), aspect — are folded by the
+                // shared finite-verb builder, exactly as in the positive path. The
+                // negative scope stays open across the complement so NPIs inside it
+                // are licensed; the result is wrapped in ¬ when "not" was present.
                 if is_negated {
-                    return Ok(self.ctx.exprs.alloc(LogicExpr::UnaryOp {
-                        op: TokenType::Not,
-                        operand: neo_event,
-                    }));
+                    self.negative_depth += 1;
                 }
-                return Ok(neo_event);
+                let vp = self.build_verb_vp(
+                    subject.noun,
+                    subject_term,
+                    false,
+                    verb,
+                    verb_time,
+                    verb_aspect,
+                    verb_class,
+                )?;
+                if is_negated {
+                    self.negative_depth -= 1;
+                }
+                // Returned UNWRAPPED: a definite subject is not given a uniqueness
+                // clause here, keeping negated do-support goals structurally clean
+                // for the proof engine (matches the pre-existing intransitive form).
+                let result = if is_negated {
+                    self.ctx.exprs.alloc(LogicExpr::UnaryOp {
+                        op: TokenType::Not,
+                        operand: vp,
+                    })
+                } else {
+                    vp
+                };
+                return Ok(result);
             }
         }
 
@@ -9219,9 +11000,26 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
             }
         }
 
-        // Handle TokenType::Had for past perfect: "John had run"
+        // "John had RUN" is the past perfect; "Bob had THE PORT" (an object, no
+        // participle) is possessive HAVE in the PAST — re-tag "had" as the verb so
+        // the normal verb+object grammar builds ∃e(Have(e) ∧ Agent ∧ Theme ∧ Past)
+        // instead of mis-reading "the port" as a perfect participle.
         if self.check(&TokenType::Had) {
-            return self.parse_aspect_chain(subject.noun);
+            let next_is_participle = matches!(
+                self.tokens.get(self.current + 1).map(|t| &t.kind),
+                Some(TokenType::Verb { .. })
+            );
+            if next_is_participle {
+                return self.parse_aspect_chain(subject.noun);
+            }
+            let have_lemma = self.interner.intern("Have");
+            self.tokens[self.current].kind = TokenType::Verb {
+                lemma: have_lemma,
+                time: Time::Past,
+                aspect: Aspect::Simple,
+                class: VerbClass::State,
+            };
+            // fall through to the normal verb+object handling
         }
 
         // Handle "never" temporal negation: "John never runs"
@@ -9347,8 +11145,32 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                         tenor: self.ctx.terms.alloc(Term::Constant(subject.noun)),
                         vehicle: self.ctx.terms.alloc(Term::Constant(verb)),
                     });
-                    return self.wrap_with_definiteness(subject.definiteness, subject.noun, metaphor);
+                    return self.wrap_with_definiteness_full(&subject, metaphor);
                 }
+            }
+
+            // Arithmetic / vague verbal comparative ("Tara scored 3 points lower
+            // than Bessie"): the same construction parse_predicate_impl handles,
+            // shared so a proper-name / definite subject parsed inline here keeps
+            // the offset and the comparison instead of stranding the comparative.
+            if let Some(cmp) =
+                self.try_arithmetic_comparative(verb, Term::Constant(subject.noun), verb_time)?
+            {
+                return self.wrap_with_definiteness_full(&subject, cmp);
+            }
+
+            // Temporal offset ("Tara performed 2 weeks after Bessie").
+            if let Some(off) =
+                self.try_temporal_offset(verb, Term::Constant(subject.noun), verb_time)?
+            {
+                return self.wrap_with_definiteness_full(&subject, off);
+            }
+
+            // Ordinal-position offset ("finished 2 places ahead of Bob").
+            if let Some(off) =
+                self.try_positional_offset(verb, Term::Constant(subject.noun), verb_time)?
+            {
+                return self.wrap_with_definiteness_full(&subject, off);
             }
 
             // Raising / evidential verbs (seem, appear, look — tagged `Raising` in
@@ -9399,7 +11221,7 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                     .with_base(verb),
                     operand: complement,
                 });
-                return self.wrap_with_definiteness(subject.definiteness, subject.noun, evidential);
+                return self.wrap_with_definiteness_full(&subject, evidential);
             }
 
             // Perception complement (§3.2): a perception verb ("hear", "see" —
@@ -9447,6 +11269,17 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                             | TokenType::Preposition(_)
                             | TokenType::Period
                             | TokenType::Comma => None,
+                            // An ADJECTIVE or NUMBER/CARDINAL before the candidate
+                            // VP means this is NOT a small clause ("saw 6 previous
+                            // JUMPS" — "previous" cannot be a clause subject); the
+                            // verb-word is a deverbal noun head. Bail so the object
+                            // NP path (counting NP / deverbal noun) handles it.
+                            TokenType::Adjective(_)
+                            | TokenType::NonIntersectiveAdjective(_)
+                            | TokenType::Cardinal(_)
+                            | TokenType::Number(_)
+                            | TokenType::AtLeast(_)
+                            | TokenType::AtMost(_) => None,
                             // A content word tokenized otherwise (e.g. a noun-or-verb
                             // ambiguity) — use its lexeme as the entity name.
                             _ => {
@@ -9507,15 +11340,25 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                                     suppress_existential: false,
                                     world: None,
                                 })));
-                            return self
-                                .wrap_with_definiteness(subject.definiteness, subject.noun, neo);
+                            return self.wrap_with_definiteness_full(&subject, neo);
                         }
                     }
                 }
             }
 
             // Check for control verb + infinitive (raising verbs handled above).
-            if self.is_control_verb(verb) {
+            // A SUBJECT-control verb only takes the control structure when an
+            // infinitival complement actually follows ("started TO run"). Used as a
+            // plain eventive verb ("The outing started at Greektown"), it falls
+            // through to the regular VP grammar so its PP adjuncts attach. An
+            // OBJECT-control verb keeps the control path even without an immediate
+            // "to" — its object comes first ("persuaded Mary to be examined").
+            if self.is_control_verb(verb)
+                && (self.check_to()
+                    || lexicon::is_object_control_verb(
+                        &self.interner.resolve(verb).to_lowercase(),
+                    ))
+            {
                 return self.parse_control_structure(&subject, verb, verb_time);
             }
 
@@ -9765,6 +11608,12 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
             }
 
             let mut object_term: Option<Term<'a>> = None;
+            // A definite/constant object's own adjectives and PP restrictors ("ate
+            // the RED apple", "the frat ON Holly Street") — predicated of the
+            // object term in the shared event build below; dropping them loses a
+            // constraint (meaning-loss).
+            let mut object_adjectives: &[Symbol] = &[];
+            let mut object_desc_pps: &[&'a LogicExpr<'a>] = &[];
             // Secondary predication (§3.3): a post-object adjective ("painted the
             // door red", "ate the meat raw") captured during object parsing and
             // attached as a Result (change-of-state verb) or Depictive role below.
@@ -9867,9 +11716,138 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                     }
                     } // end non-deictic pronoun branch
                 }
-            } else if self.check_quantifier() || self.check_article() || self.check_possessive_pronoun() {
+            } else if self.check(&TokenType::Either) {
+                // "Tara danced either the hustle or the lindy." — disjunctive theme
+                self.advance(); // consume "either"
+                let np1 = self.parse_noun_phrase(true)?;
+                if self.check(&TokenType::Or) {
+                    self.advance(); // consume "or"
+                    let np2 = self.parse_noun_phrase(true)?;
+
+                    let effective_time = self.pending_time.take().unwrap_or(verb_time);
+                    let subject_term1 = self.coerce_agent(&subject);
+                    let subject_term2 = self.coerce_agent(&subject);
+                    let suppress_existential = self.drs.in_conditional_antecedent();
+
+                    let past_sym = self.interner.intern("Past");
+                    let future_sym = self.interner.intern("Future");
+                    let mut mods1 = vec![];
+                    let mut mods2 = vec![];
+                    match effective_time {
+                        Time::Past => { mods1.push(past_sym); mods2.push(past_sym); }
+                        Time::Future => { mods1.push(future_sym); mods2.push(future_sym); }
+                        _ => {}
+                    }
+
+                    let event_var1 = self.get_event_var();
+                    let event_var2 = self.get_event_var();
+
+                    let neo1 = self.ctx.exprs.alloc(LogicExpr::NeoEvent(Box::new(NeoEventData {
+                        event_var: event_var1,
+                        verb,
+                        roles: self.ctx.roles.alloc_slice(vec![
+                            (ThematicRole::Agent, subject_term1),
+                            (ThematicRole::Theme, Term::Constant(np1.noun)),
+                        ]),
+                        modifiers: self.ctx.syms.alloc_slice(mods1),
+                        suppress_existential,
+                        world: None,
+                    })));
+                    let neo2 = self.ctx.exprs.alloc(LogicExpr::NeoEvent(Box::new(NeoEventData {
+                        event_var: event_var2,
+                        verb,
+                        roles: self.ctx.roles.alloc_slice(vec![
+                            (ThematicRole::Agent, subject_term2),
+                            (ThematicRole::Theme, Term::Constant(np2.noun)),
+                        ]),
+                        modifiers: self.ctx.syms.alloc_slice(mods2),
+                        suppress_existential,
+                        world: None,
+                    })));
+
+                    // Keep each disjunct object NP's possessor and PPs — "either
+                    // the hustle from Spain or …" must not drop "from Spain";
+                    // "either Tara's routine or …" must not drop the possessor.
+                    let placeholder = self.interner.intern("_PP_SELF_");
+                    let possesses = self.interner.intern("Possesses");
+                    let mut augment = |p: &mut Self, neo: &'a LogicExpr<'a>, np: &crate::ast::NounPhrase<'a>| -> &'a LogicExpr<'a> {
+                        let obj = Term::Constant(np.noun);
+                        let mut e = neo;
+                        if let Some(possessor) = np.possessor {
+                            let poss = p.ctx.exprs.alloc(LogicExpr::Predicate {
+                                name: possesses,
+                                args: p
+                                    .ctx
+                                    .terms
+                                    .alloc_slice([Term::Constant(possessor.noun), obj]),
+                                world: None,
+                            });
+                            e = p.ctx.exprs.alloc(LogicExpr::BinaryOp {
+                                left: e,
+                                op: TokenType::And,
+                                right: poss,
+                            });
+                        }
+                        for pp in np.pps {
+                            let pp_sub = match pp {
+                                LogicExpr::Predicate { name, args, world } => {
+                                    let new_args: Vec<Term<'a>> = args
+                                        .iter()
+                                        .map(|a| match a {
+                                            Term::Variable(v) if *v == placeholder => obj,
+                                            other => *other,
+                                        })
+                                        .collect();
+                                    p.ctx.exprs.alloc(LogicExpr::Predicate {
+                                        name: *name,
+                                        args: p.ctx.terms.alloc_slice(new_args),
+                                        world: *world,
+                                    })
+                                }
+                                other => *other,
+                            };
+                            e = p.ctx.exprs.alloc(LogicExpr::BinaryOp {
+                                left: e,
+                                op: TokenType::And,
+                                right: pp_sub,
+                            });
+                        }
+                        e
+                    };
+                    let neo1 = augment(self, neo1, &np1);
+                    let neo2 = augment(self, neo2, &np2);
+                    let disj = self.ctx.exprs.alloc(LogicExpr::BinaryOp {
+                        left: neo1,
+                        op: TokenType::Or,
+                        right: neo2,
+                    });
+                    return self.wrap_with_definiteness_full(&subject, disj);
+                }
+                return Err(ParseError {
+                    kind: ParseErrorKind::UnexpectedToken {
+                        expected: TokenType::Or,
+                        found: self.peek().kind.clone(),
+                    },
+                    span: self.current_span(),
+                });
+            } else if self.counting_np_lookahead().is_some()
+                || self.check_quantifier()
+                || self.check_article()
+                || self.check_possessive_pronoun()
+            {
                 // Quantified object: "John loves every woman" or "John saw a dog"
-                let (obj_quantifier, was_definite_article) = if self.check_possessive_pronoun() {
+                let (obj_quantifier, was_definite_article) = if let Some(n) =
+                    self.counting_np_lookahead()
+                {
+                    // A digit-led counting NP object ("saw 6 brown manatees"):
+                    // consume the integer and quantify the remaining
+                    // "(adjective)+ noun" as ∃=n, reusing the canonical
+                    // quantified-object construction below. Without this the
+                    // adjective is mis-read as a measure unit (→ a bogus
+                    // Recipient role and a dropped count).
+                    self.advance();
+                    (Some(TokenType::Cardinal(n)), false)
+                } else if self.check_possessive_pronoun() {
                     // Possessive NP object ("her dog"): parse_noun_phrase
                     // consumes the possessor; semantically definite.
                     (None, true)
@@ -9888,7 +11866,12 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                     }
                 };
 
-                let object_np = self.parse_noun_phrase(false)?;
+                // The quantifier/article/cardinal just established this as an NP,
+                // so a verb-word head after an adjective is a deverbal noun.
+                self.nominal_np_context = true;
+                let object_np_result = self.parse_noun_phrase(false);
+                self.nominal_np_context = false;
+                let object_np = object_np_result?;
 
                 // Capture superlative info for constraint generation
                 if let Some(adj) = object_np.superlative {
@@ -10043,6 +12026,26 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                         });
                     }
 
+                    // Preserve the object's adjectives and PP restrictors ("has a
+                    // RED book", "has a maximum range OF 475 ft") — the description
+                    // is part of the object, and dropping it is a meaning-loss parse.
+                    for &adj in object_np.adjectives {
+                        let adj_pred = self.adjective_restriction(adj, obj_var, object_np.noun);
+                        type_pred = self.ctx.exprs.alloc(LogicExpr::BinaryOp {
+                            left: type_pred,
+                            op: TokenType::And,
+                            right: adj_pred,
+                        });
+                    }
+                    for pp in object_np.pps {
+                        let pp_sub = self.substitute_pp_placeholder(pp, obj_var);
+                        type_pred = self.ctx.exprs.alloc(LogicExpr::BinaryOp {
+                            left: type_pred,
+                            op: TokenType::And,
+                            right: pp_sub,
+                        });
+                    }
+
                     let obj_restriction = if self.check(&TokenType::That) || self.check(&TokenType::Who) {
                         self.advance();
                         let rel_clause = self.parse_relative_clause(obj_var)?;
@@ -10166,14 +12169,19 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                             _ => control,
                         }
                     } else {
-                        &*self.ctx.exprs.alloc(LogicExpr::NeoEvent(Box::new(NeoEventData {
+                        let plain = &*self.ctx.exprs.alloc(LogicExpr::NeoEvent(Box::new(NeoEventData {
                             event_var,
                             verb,
                             roles: self.ctx.roles.alloc_slice(roles),
                             modifiers: self.ctx.syms.alloc_slice(modifiers),
                             suppress_existential,
                             world: None,
-                        })))
+                        })));
+                        // Trailing event-PP adjuncts ("takes a holiday WITH a friend
+                        // TO some location") attach to the event INSIDE the object's
+                        // existential scope — the definite-object path consumes these
+                        // inline; without this they strand after an indefinite object.
+                        self.attach_trailing_event_pps(plain, event_var)?
                     };
 
                     let obj_kind = match obj_q {
@@ -10221,6 +12229,33 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                         island_id: self.current_island,
                     });
 
+                    // A trailing temporal offset after an INDEFINITE/quantified
+                    // object ("has a birthday 4 days before Rosemarie") — the
+                    // constraint relates the SUBJECT's position to the standard's,
+                    // so it conjoins OUTSIDE the object quantifier. Mirrors the
+                    // constant-object temporal check; self-guards (no-op without
+                    // an offset).
+                    let obj_quantified = {
+                        let subj = self.coerce_agent(&subject);
+                        // A trailing temporal OFFSET ("4 days before X") or a BARE
+                        // temporal ordering ("after Inez", "sometime before Guy") after
+                        // the quantified object relates the SUBJECT to the standard, so
+                        // it conjoins OUTSIDE the object quantifier. Without this, an
+                        // indefinite object ("has an appointment after Inez") stranded
+                        // the ordering. Both self-guard (no-op when absent).
+                        let temporal = match self.parse_temporal_offset_constraint(subj)? {
+                            Some(off) => Some(off),
+                            None => self.parse_bare_temporal_constraint(subj)?,
+                        };
+                        match temporal {
+                            Some(t) => self.ctx.exprs.alloc(LogicExpr::BinaryOp {
+                                left: obj_quantified,
+                                op: TokenType::And,
+                                right: t,
+                            }),
+                            None => obj_quantified,
+                        }
+                    };
                     // Now wrap the SUBJECT (don't skip it with early return!)
                     return self.wrap_with_definiteness_full(&subject, obj_quantified);
                 } else {
@@ -10241,7 +12276,25 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
 
                     let term = self.noun_phrase_to_term(&object_np);
                     object_term = Some(term.clone());
+                    object_adjectives = object_np.adjectives;
+                    object_desc_pps = object_np.pps;
                     args.push(term);
+
+                    // Ditransitive with a DEFINITE indirect object: "gave the
+                    // winner the prize" — the definite IO took this non-quantified
+                    // branch (a definite article carries no obj_quantifier), so the
+                    // direct object must still be picked up here. The double-object
+                    // builder below then assigns Recipient(IO) ∧ Theme(DO); without
+                    // this the DO strands as a trailing token.
+                    let verb_str = self.interner.resolve(verb);
+                    if Lexer::is_ditransitive_verb(verb_str)
+                        && (self.check_content_word() || self.check_article())
+                    {
+                        let second_np = self.parse_noun_phrase(false)?;
+                        let second_term = Term::Constant(second_np.noun);
+                        second_object_term = Some(second_term);
+                        args.push(second_term);
+                    }
                 }
             } else if self.check_focus() {
                 let focus_kind = if let TokenType::Focus(k) = self.advance().kind {
@@ -10339,8 +12392,10 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                 // Handle "has 3 children" or "has cardinality aleph_0"
                 let measure = self.parse_measure_phrase()?;
 
-                // If there's a noun after the measure (for "3 children" where children wasn't a unit)
-                if self.check_content_word() {
+                // If there's a noun after the measure (for "3 children" where
+                // children wasn't a unit). An ARTICLE is NOT that noun — it begins
+                // a rate denominator ("$700 A month", handled below) — so leave it.
+                if self.check_content_word() && !self.check_article() {
                     let noun_sym = self.consume_content_word()?;
                     // Build: Has(Subject, 3, Children) where 3 is the count
                     let count_term = *measure;
@@ -10443,6 +12498,44 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
             }
 
             let mut pp_predicates: Vec<&'a LogicExpr<'a>> = Vec::new();
+
+            // Rate denominator after a MEASURE object ("$700 A month", "5 miles
+            // PER hour", "$2.50 PER pound") → Per(event, unit), a solver-ready
+            // rate. "a"/"an" or "per" + a CalendarUnit/unit-noun. Guarded to a
+            // measure object so a bare "a <noun>" elsewhere is not a false rate.
+            if matches!(object_term, Some(Term::Value { .. })) {
+                let rate = self.check_preposition_is("per")
+                    || (matches!(
+                        self.peek().kind,
+                        TokenType::Article(Definiteness::Indefinite)
+                    ) && matches!(
+                        self.tokens.get(self.current + 1).map(|t| &t.kind),
+                        Some(TokenType::CalendarUnit(_)) | Some(TokenType::Noun(_))
+                    ));
+                if rate {
+                    self.advance(); // "per" / "a"
+                    let unit_lexeme = self.peek().lexeme;
+                    self.advance(); // the unit
+                    let unit_cap = {
+                        let s = self.interner.resolve(unit_lexeme).to_string();
+                        let mut c = s.chars();
+                        match c.next() {
+                            Some(f) => f.to_uppercase().collect::<String>() + c.as_str(),
+                            None => s,
+                        }
+                    };
+                    let event_sym = self.get_event_var();
+                    pp_predicates.push(self.ctx.exprs.alloc(LogicExpr::Predicate {
+                        name: self.interner.intern("Per"),
+                        args: self.ctx.terms.alloc_slice([
+                            Term::Variable(event_sym),
+                            Term::Constant(self.interner.intern(&unit_cap)),
+                        ]),
+                        world: None,
+                    }));
+                }
+            }
+
             while self.check_preposition() || self.check_to() {
                 // "within N cycles" is a temporal bound, not a PP
                 if self.check_preposition_is("within") && self.current + 1 < self.tokens.len()
@@ -10476,6 +12569,9 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                 } else if self.check_content_word() || self.check_article() {
                     let prep_obj = self.parse_noun_phrase(false)?;
                     self.noun_phrase_to_term(&prep_obj)
+                } else if self.check_number() {
+                    // Numeric PP object ("sold for $105", "sell for $2.60").
+                    *self.parse_measure_phrase()?
                 } else if self.at_clause_boundary()
                     && crate::lexicon::is_particle(
                         &self.interner.resolve(prep_name).to_lowercase(),
@@ -10541,6 +12637,27 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                 let rel_var = self.next_var_name();
                 let rel_pred = self.parse_relative_clause(rel_var)?;
                 pp_predicates.push(rel_pred);
+            }
+
+            // A trailing temporal offset on the VP ("has a birthday 4 days before
+            // Rosemarie", "set sail 2 years after Glenda") — N <unit> after/before
+            // STANDARD relates the subject's position to the standard's
+            // (solver-ready add/sub). It trails the object, so it is checked here
+            // after the object/PP loop. A BARE ordering with no count ("won the prize
+            // before the winner who won in chemistry", "graduated before Orlando")
+            // takes the same slot — the indefinite-object path already chains both, so
+            // the definite/possessive-object path (which falls through here) must too,
+            // or the ordering strands (TrailingTokens at Before/After). Both
+            // self-guard (return None without consuming unless the pattern matches).
+            {
+                let subj = self.coerce_agent(&subject);
+                let off = match self.parse_temporal_offset_constraint(subj)? {
+                    Some(o) => Some(o),
+                    None => self.parse_bare_temporal_constraint(subj)?,
+                };
+                if let Some(off) = off {
+                    pp_predicates.push(off);
+                }
             }
 
             // Collect any trailing adverbs FIRST (before building NeoEvent)
@@ -10636,6 +12753,50 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                     });
                 }
                 combined
+            };
+
+            // Predicate a definite/constant object's adjectives + PP restrictors
+            // of it ("ate the RED apple" → Red(Apple); "is the frat ON Holly
+            // Street" → On(·, Holly Street)). Dropping them is meaning loss.
+            let with_pps = if let Some(obj_term) = object_term {
+                let placeholder = self.interner.intern("_PP_SELF_");
+                let mut combined = with_pps;
+                for &adj in object_adjectives {
+                    let adj_pred = self.ctx.exprs.alloc(LogicExpr::Predicate {
+                        name: adj,
+                        args: self.ctx.terms.alloc_slice([obj_term]),
+                        world: None,
+                    });
+                    combined = self.ctx.exprs.alloc(LogicExpr::BinaryOp {
+                        left: combined,
+                        op: TokenType::And,
+                        right: adj_pred,
+                    });
+                }
+                for pp in object_desc_pps {
+                    if let LogicExpr::Predicate { name, args, world } = pp {
+                        let new_args: Vec<Term<'a>> = args
+                            .iter()
+                            .map(|a| match a {
+                                Term::Variable(v) if *v == placeholder => obj_term,
+                                other => *other,
+                            })
+                            .collect();
+                        let sub = self.ctx.exprs.alloc(LogicExpr::Predicate {
+                            name: *name,
+                            args: self.ctx.terms.alloc_slice(new_args),
+                            world: *world,
+                        });
+                        combined = self.ctx.exprs.alloc(LogicExpr::BinaryOp {
+                            left: combined,
+                            op: TokenType::And,
+                            right: sub,
+                        });
+                    }
+                }
+                combined
+            } else {
+                with_pps
             };
 
             // Apply aspectual operators based on verb class
@@ -10764,7 +12925,25 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
             | TokenType::Verb { .. }
             | TokenType::ProperName(_)
             | TokenType::Article(_)
+            // A quoted string in NL prose is a name ("the \"Yellownose\"").
+            | TokenType::StringLiteral(_)
+            // "May" the MONTH collides with the modal token; in a content-word
+            // position ("in May", "on May 3") it is the month noun.
+            | TokenType::May
+            // A numeric literal heads/fills a noun position ("equal to 42",
+            // "2001, 2002, … are years") — consume_content_word already returns it.
+            | TokenType::Number(_)
             | TokenType::Performative(_) => true,
+            // "item"/"items" are LOGOS collection-index keywords, but in
+            // declarative NL prose they are ordinary nouns ("three different
+            // items", "the item is red"). The lexer keeps the keyword tokens (so
+            // imperative index syntax still lexes); the declarative parser reads
+            // them as nouns here.
+            TokenType::Item | TokenType::Items if self.mode == ParserMode::Declarative => true,
+            // Calendar-unit words ("year", "day", "week") are common nouns in a
+            // noun position ("four different years", "the year was 2001"); the
+            // lexer tokenizes them as CalendarUnit for the temporal grammar.
+            TokenType::CalendarUnit(_) if self.mode == ParserMode::Declarative => true,
             TokenType::Ambiguous { primary, alternatives } => {
                 Self::is_content_word_type(primary)
                     || alternatives.iter().any(Self::is_content_word_type)
@@ -10782,6 +12961,7 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                 | TokenType::Verb { .. }
                 | TokenType::ProperName(_)
                 | TokenType::Article(_)
+                | TokenType::StringLiteral(_)
                 | TokenType::Performative(_)
         )
     }
@@ -10821,6 +13001,36 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
         })
     }
 
+    /// Whether the preposition at the cursor introduces a CYCLE-temporal delay
+    /// ("in the next cycle", "within 3 cycles", "after 2 cycles") rather than a
+    /// locative/temporal PP adjunct. Such constructs are left for the SVA temporal
+    /// wrappers (`try_wrap_next_cycle` / `try_wrap_within_cycles`), so the embedded
+    /// VP parser's PP-adjunct loop must NOT swallow them.
+    pub(super) fn pp_is_cycle_temporal(&self) -> bool {
+        let prep = match &self.peek().kind {
+            TokenType::Preposition(s) => self.interner.resolve(*s).to_lowercase(),
+            _ => return false,
+        };
+        if !matches!(prep.as_str(), "in" | "within" | "after") {
+            return false;
+        }
+        let mut i = self.current + 1;
+        let end = (self.current + 5).min(self.tokens.len());
+        while i < end {
+            match &self.tokens[i].kind {
+                TokenType::Period | TokenType::Comma | TokenType::EOF => return false,
+                _ => {
+                    let w = self.interner.resolve(self.tokens[i].lexeme).to_lowercase();
+                    if matches!(w.as_str(), "cycle" | "cycles" | "tick" | "ticks") {
+                        return true;
+                    }
+                }
+            }
+            i += 1;
+        }
+        false
+    }
+
     /// Check for trailing "in the next cycle" and wrap in Temporal::Next.
     pub(super) fn try_wrap_next_cycle(&mut self, expr: &'a LogicExpr<'a>) -> &'a LogicExpr<'a> {
         if !self.check_preposition_is("in") {
@@ -10854,7 +13064,15 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
     }
 
     fn check_verb(&self) -> bool {
-        match &self.peek().kind {
+        self.kind_is_verb(&self.peek().kind)
+    }
+
+    /// Verb-ness of an arbitrary token kind, mirroring `check_verb` so a look-ahead
+    /// token (e.g. the participle after a leading adverb) is judged the same way the
+    /// current token is — an `Ambiguous` token counts when a verb reading is live and
+    /// noun-priority is off.
+    fn kind_is_verb(&self, kind: &TokenType) -> bool {
+        match kind {
             TokenType::Verb { .. } => true,
             TokenType::Ambiguous { primary, alternatives } => {
                 if self.noun_priority_mode {
@@ -11018,6 +13236,9 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                         | TokenType::Article(_)
                         | TokenType::Noun(_)
                         | TokenType::ProperName(_)
+                        // A numeric object ("did 49 previous jumps", "did 3
+                        // routines") — "did" is the main verb, not do-support.
+                        | TokenType::Number(_)
                 )
             } else {
                 false
@@ -11041,6 +13262,8 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
         // Intern "Do" as the verb lemma
         let verb = self.interner.intern("Do");
 
+        let mut object_cardinal: Option<(u32, crate::intern::Symbol, &'a LogicExpr<'a>)> = None;
+
         // Parse the object - handle pronouns specially
         let object_term = if let TokenType::Pronoun { .. } = self.peek().kind {
             // Pronoun object (like "it" in "did it")
@@ -11049,6 +13272,42 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
             // In the context of "did it", "it" often refers to "the crime" or "the act"
             let it_sym = self.interner.intern("it");
             Term::Constant(it_sym)
+        } else if let Some(n) = self.counting_np_lookahead() {
+            // "did 49 previous jumps" — a counting-NP object: bind ∃=n over the
+            // deverbal noun + adjectives, wrapping the event below.
+            self.advance(); // the number
+            let obj_var = self.next_var_name();
+            self.nominal_np_context = true;
+            let obj_np_result = self.parse_noun_phrase(false);
+            self.nominal_np_context = false;
+            let obj_np = obj_np_result?;
+            let mut restr: &'a LogicExpr<'a> = self.ctx.exprs.alloc(LogicExpr::Predicate {
+                name: obj_np.noun,
+                args: self.ctx.terms.alloc_slice([Term::Variable(obj_var)]),
+                world: None,
+            });
+            for &adj in obj_np.adjectives {
+                let adj_pred = self.adjective_restriction(adj, obj_var, obj_np.noun);
+                restr = self.ctx.exprs.alloc(LogicExpr::BinaryOp {
+                    left: restr,
+                    op: TokenType::And,
+                    right: adj_pred,
+                });
+            }
+            for pp in obj_np.pps {
+                let pp_sub = self.substitute_pp_placeholder(pp, obj_var);
+                restr = self.ctx.exprs.alloc(LogicExpr::BinaryOp {
+                    left: restr,
+                    op: TokenType::And,
+                    right: pp_sub,
+                });
+            }
+            object_cardinal = Some((n, obj_var, restr));
+            Term::Variable(obj_var)
+        } else if self.check_number() {
+            // A bare numeric object with no adjective ("did 49 jumps", "did 3
+            // routines") is a measure-style Theme, like "made 49 jumps".
+            *self.parse_measure_phrase()?
         } else {
             let object = self.parse_noun_phrase(false)?;
             self.noun_phrase_to_term(&object)
@@ -11076,6 +13335,22 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
             suppress_existential,
             world: None,
         })));
+
+        // A counting-NP object binds the event as ∃=n ("did 49 previous jumps"
+        // → ∃=49 j(Jump(j) ∧ Previous(j) ∧ Do-event(…, j))).
+        if let Some((n, obj_var, restr)) = object_cardinal {
+            let body = self.ctx.exprs.alloc(LogicExpr::BinaryOp {
+                left: restr,
+                op: TokenType::And,
+                right: neo_event,
+            });
+            return Ok(self.ctx.exprs.alloc(LogicExpr::Quantifier {
+                kind: QuantifierKind::Cardinal(n),
+                variable: obj_var,
+                body,
+                island_id: self.current_island,
+            }));
+        }
 
         Ok(neo_event)
     }
@@ -11378,14 +13653,86 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
         }
     }
 
+    /// After the first word of a proper name has been consumed, absorb any
+    /// subsequent capitalized content words into one multi-word proper-name
+    /// symbol ("Porcher" + "Place" → "Porcher_Place", "Highland" + "Drive" →
+    /// "Highland_Drive"). The trailing words frequently lex as common
+    /// nouns/verbs/adjectives, so the test is surface capitalization, not token
+    /// class. Stops at the first lowercase word or non-content token.
+    pub(super) fn absorb_multiword_proper_name(&mut self, first: Symbol) -> Symbol {
+        let mut full = self.interner.resolve(first).to_string();
+        loop {
+            let next = self.peek();
+            let is_content = matches!(
+                next.kind,
+                TokenType::ProperName(_)
+                    | TokenType::Noun(_)
+                    | TokenType::Adjective(_)
+                    | TokenType::Verb { .. }
+                    | TokenType::Ambiguous { .. }
+            );
+            let capitalized = self
+                .interner
+                .resolve(next.lexeme)
+                .chars()
+                .next()
+                .map_or(false, |c| c.is_ascii_uppercase());
+            if is_content && capitalized {
+                full.push('_');
+                full.push_str(&self.interner.resolve(self.peek().lexeme));
+                self.advance();
+            } else {
+                break;
+            }
+        }
+        self.interner.intern(&full)
+    }
+
     fn consume_content_word(&mut self) -> ParseResult<Symbol> {
         let t = self.advance().clone();
         match t.kind {
             TokenType::Noun(s) | TokenType::Adjective(s) | TokenType::NonIntersectiveAdjective(s) => Ok(s),
+            // "item"/"items" are LOGOS index keywords but ordinary nouns in
+            // declarative NL — read them as the noun via their (capitalized) lexeme.
+            TokenType::Item | TokenType::Items if self.mode == ParserMode::Declarative => {
+                let lex = self.interner.resolve(t.lexeme);
+                let mut chars = lex.chars();
+                let cap = match chars.next() {
+                    Some(f) => f.to_uppercase().collect::<String>() + chars.as_str(),
+                    None => String::new(),
+                };
+                Ok(self.interner.intern(&cap))
+            }
+            // A quoted string in NL prose names an entity ("the \"Yellownose\"").
+            TokenType::StringLiteral(s) => {
+                let s_str = self.interner.resolve(s);
+                let gender = Self::infer_gender(s_str);
+                self.drs.introduce_proper_name(s, s, gender);
+                Ok(s)
+            }
             // Phase 35: Allow single-letter articles (a, an) to be used as variable names
             TokenType::Article(_) => Ok(t.lexeme),
+            // "May" the month (collides with the modal token) — use its lexeme.
+            TokenType::May => Ok(self.interner.intern("May")),
             // Phase 35: Allow numeric literals as content words (e.g., "equal to 42")
             TokenType::Number(s) => Ok(s),
+            // Calendar-unit words ("year", "day", "week") are common nouns (the
+            // lexicon carries Year/Day/Week/… entries) that the lexer tokenizes as
+            // CalendarUnit for the temporal grammar. In a noun position they are
+            // their singular lemma, so "four different years" → Year(...), "the
+            // year was 2001" → Year. The unit variant IS the lemma.
+            TokenType::CalendarUnit(u) => {
+                let lemma = match u {
+                    crate::token::CalendarUnit::Second => "Second",
+                    crate::token::CalendarUnit::Minute => "Minute",
+                    crate::token::CalendarUnit::Hour => "Hour",
+                    crate::token::CalendarUnit::Day => "Day",
+                    crate::token::CalendarUnit::Week => "Week",
+                    crate::token::CalendarUnit::Month => "Month",
+                    crate::token::CalendarUnit::Year => "Year",
+                };
+                Ok(self.interner.intern(lemma))
+            }
             TokenType::ProperName(s) => {
                 // In imperative mode, proper names are variable references that must be defined
                 if self.mode == ParserMode::Imperative {

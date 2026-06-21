@@ -15,8 +15,16 @@ fn main() {
     // The copy-and-patch JIT becomes the process-wide native tier: every
     // interpreted program the CLI runs gets hot-function and hot-loop
     // tier-up. WASM builds never link this (forge is native-only).
+    // `LOGOS_NO_JIT=1` skips installation so programs run on the VM bytecode
+    // interpreter alone — a fallback when the JIT miscompiles a hot loop, and
+    // the knob the differential gate uses to compare AOT against the unjitted
+    // reference engine.
     #[cfg(not(target_arch = "wasm32"))]
-    logicaffeine_jit::install();
+    logicaffeine_jit::segv_trace_install();
+    #[cfg(not(target_arch = "wasm32"))]
+    if std::env::var_os("LOGOS_NO_JIT").is_none() {
+        logicaffeine_jit::install();
+    }
 
     if let Err(e) = logicaffeine_cli::run_cli() {
         eprintln!("Error: {}", e);

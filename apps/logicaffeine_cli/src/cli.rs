@@ -348,7 +348,7 @@ pub fn run_cli() -> Result<(), Box<dyn std::error::Error>> {
         Commands::New { name } => cmd_new(&name),
         Commands::Init { name } => cmd_init(name.as_deref()),
         Commands::Build { release, verify, license, lib, target } => cmd_build(release, verify, license, lib, target),
-        Commands::Run { interpret, .. } if interpret => cmd_run_interpret(),
+        Commands::Run { interpret, args, .. } if interpret => cmd_run_interpret(&args),
         Commands::Run { release, args, .. } => cmd_run(release, &args),
         Commands::Check => cmd_check(),
         Commands::Verify { license } => cmd_verify(license),
@@ -551,7 +551,7 @@ fn cmd_run(release: bool, args: &[String]) -> Result<(), Box<dyn std::error::Err
     Ok(())
 }
 
-fn cmd_run_interpret() -> Result<(), Box<dyn std::error::Error>> {
+fn cmd_run_interpret(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
     let current_dir = env::current_dir()?;
     let project_root =
         find_project_root(&current_dir).ok_or("Not in a LOGOS project (Largo.toml not found)")?;
@@ -560,7 +560,17 @@ fn cmd_run_interpret() -> Result<(), Box<dyn std::error::Error>> {
     let entry_path = project_root.join(&manifest.package.entry);
     let source = fs::read_to_string(&entry_path)?;
 
-    let result = futures::executor::block_on(logicaffeine_compile::interpret_for_ui(&source));
+    // Build the argv the program's `args()` sees: index 0 is the program name
+    // (the compiled binary's `env::args()[0]`), then the user arguments — so
+    // `item 2 of args()` is the first user argument on the interpreter exactly
+    // as on the native binary.
+    let mut argv = Vec::with_capacity(args.len() + 1);
+    argv.push(manifest.package.name.clone());
+    argv.extend(args.iter().cloned());
+
+    let result = futures::executor::block_on(
+        logicaffeine_compile::interpret_for_ui_with_args(&source, &argv),
+    );
 
     for line in &result.lines {
         println!("{}", line);

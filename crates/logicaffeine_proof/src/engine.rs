@@ -51,6 +51,15 @@ pub struct BackwardChainer {
 
     /// Counter for generating fresh variable names.
     var_counter: usize,
+
+    /// Existentials already opened on the current search branch. Forward
+    /// existential elimination skolemizes `∃x.P(x)` into witness facts; without
+    /// this guard the same existential is re-opened with a fresh constant on
+    /// every recursive `prove_goal`, never adding new reasoning power but
+    /// spinning down to the depth limit (where the oracle, the last resort,
+    /// catches the goal and yields an uncertifiable proof). Recording the
+    /// opened existential collapses that loop to a single elimination.
+    eliminated_existentials: Vec<ProofExpr>,
 }
 
 // =============================================================================
@@ -192,6 +201,139 @@ fn cert_seed_facts(all: &[ProofExpr]) -> Vec<(ProofExpr, DerivationTree)> {
         }
     }
     known
+}
+
+/// Build a certifiable proof that `a = c`, given a directed edge graph in which
+/// each `(b, edge_tree)` in `adj[a]` proves `a = b`. The returned tree chains the
+/// edges along a path from `a` to `c` using `Rewrite` (Leibniz): from a proof of
+/// `a = b` (the running accumulator, `P(b)` for `P = λz. a = z`) and a proof of
+/// `b = d` (the next edge, the equality), `Eq_rec` rewrites `b ↦ d` to yield
+/// `a = d`. A `None` means no path exists. Every node certifies.
+fn cert_eq_path_proof(
+    a: &ProofTerm,
+    c: &ProofTerm,
+    adj: &std::collections::HashMap<String, Vec<(ProofTerm, DerivationTree)>>,
+) -> Option<DerivationTree> {
+    fn term_key(t: &ProofTerm) -> Option<String> {
+        match t {
+            ProofTerm::Constant(s) | ProofTerm::Variable(s) | ProofTerm::BoundVarRef(s) => {
+                Some(s.clone())
+            }
+            _ => None,
+        }
+    }
+    let a_key = term_key(a)?;
+    let c_key = term_key(c)?;
+    if a_key == c_key {
+        return None;
+    }
+    // BFS over constants, carrying the running proof of `a = current`.
+    let start_proof = DerivationTree::leaf(
+        ProofExpr::Identity(a.clone(), a.clone()),
+        InferenceRule::Reflexivity,
+    );
+    let mut queue: std::collections::VecDeque<(String, ProofTerm, DerivationTree)> =
+        std::collections::VecDeque::new();
+    queue.push_back((a_key.clone(), a.clone(), start_proof));
+    let mut visited: std::collections::HashSet<String> = std::collections::HashSet::new();
+    visited.insert(a_key.clone());
+
+    while let Some((cur_key, cur_term, acc_proof)) = queue.pop_front() {
+        if cur_key == c_key {
+            // The accumulator already proves `a = c` once we've stepped onto `c`.
+            // (The start node `a = a` is reflexive and never the target, guarded
+            // above.)
+            return Some(acc_proof);
+        }
+        let Some(edges) = adj.get(&cur_key) else {
+            continue;
+        };
+        for (next_term, edge_tree) in edges {
+            let Some(next_key) = term_key(next_term) else {
+                continue;
+            };
+            if visited.contains(&next_key) {
+                continue;
+            }
+            visited.insert(next_key.clone());
+            // acc_proof : a = cur ;  edge_tree : cur = next.
+            // Rewrite cur ↦ next in `a = cur` to get `a = next`.
+            let new_concl = ProofExpr::Identity(a.clone(), next_term.clone());
+            let step = if cur_key == a_key {
+                // First step: `a = a` rewritten by `a = next` is just the edge.
+                edge_tree.clone()
+            } else {
+                DerivationTree::new(
+                    new_concl,
+                    InferenceRule::Rewrite {
+                        from: cur_term.clone(),
+                        to: next_term.clone(),
+                    },
+                    vec![edge_tree.clone(), acc_proof.clone()],
+                )
+            };
+            queue.push_back((next_key, next_term.clone(), step));
+        }
+    }
+    None
+}
+
+/// Close an equality contradiction: a known `¬(x = y)` paired with a chain of
+/// known equalities that entails `x = y`. The equalities form an undirected
+/// graph (each `a = b` fact also gives `b = a` via `EqualitySymmetry`); if `x`
+/// and `y` lie in one component, a path proof of `x = y` (or `y = x`, then
+/// symmetrised) discharges the negation. Every emitted node certifies.
+fn cert_equality_close(known: &[(ProofExpr, DerivationTree)]) -> Option<DerivationTree> {
+    use std::collections::HashMap;
+    // Build the symmetric adjacency: each known `a = b` contributes the edge
+    // a→b (its own proof) and b→a (its proof, symmetrised).
+    let mut adj: HashMap<String, Vec<(ProofTerm, DerivationTree)>> = HashMap::new();
+    fn key(t: &ProofTerm) -> Option<String> {
+        match t {
+            ProofTerm::Constant(s) | ProofTerm::Variable(s) | ProofTerm::BoundVarRef(s) => {
+                Some(s.clone())
+            }
+            _ => None,
+        }
+    }
+    for (prop, tree) in known {
+        if let ProofExpr::Identity(l, r) = prop {
+            let (Some(lk), Some(rk)) = (key(l), key(r)) else {
+                continue;
+            };
+            if lk == rk {
+                continue;
+            }
+            adj.entry(lk).or_default().push((r.clone(), tree.clone()));
+            let sym = DerivationTree::new(
+                ProofExpr::Identity(r.clone(), l.clone()),
+                InferenceRule::EqualitySymmetry,
+                vec![tree.clone()],
+            );
+            adj.entry(rk).or_default().push((l.clone(), sym));
+        }
+    }
+    if adj.is_empty() {
+        return None;
+    }
+
+    for (prop, neg_tree) in known {
+        let ProofExpr::Not(inner) = prop else {
+            continue;
+        };
+        let ProofExpr::Identity(x, y) = inner.as_ref() else {
+            continue;
+        };
+        // Prove the EXACT polarity the negation refutes: ¬(x = y) needs `x = y`.
+        if let Some(eq_proof) = cert_eq_path_proof(x, y, &adj) {
+            return Some(DerivationTree::new(
+                ProofExpr::Atom("⊥".into()),
+                InferenceRule::Contradiction,
+                vec![eq_proof, neg_tree.clone()],
+            ));
+        }
+    }
+    None
 }
 
 /// Close a `P` / `¬P` pair in the known set into a `Contradiction` (⊥) node.
@@ -336,58 +478,302 @@ fn cert_prove_ante(
     }
 }
 
-/// Forward-chain the known facts to a fixpoint, emitting gapless ModusPonens
-/// (with UniversalInst / ConjunctionIntro sub-proofs) for each derived fact.
+/// The negation of a proposition, collapsing double negation: `¬¬P ↦ P`.
+fn cert_neg(e: &ProofExpr) -> ProofExpr {
+    match e {
+        ProofExpr::Not(inner) => (**inner).clone(),
+        _ => ProofExpr::Not(Box::new(e.clone())),
+    }
+}
+
+/// A proof of `target` from the known set, by exact structural match.
+fn cert_lookup(
+    known: &[(ProofExpr, DerivationTree)],
+    target: &ProofExpr,
+) -> Option<DerivationTree> {
+    known
+        .iter()
+        .find(|(p, _)| exprs_structurally_equal(p, target))
+        .map(|(_, t)| t.clone())
+}
+
+/// The proof of the implication `rule.ante → cons_inst` at this instance — a bare
+/// `PremiseMatch` for a ground rule, or `UniversalInst` of the source `∀` rule.
+fn cert_rule_impl_tree(
+    rule: &CertRule,
+    subst: &Substitution,
+    cons_inst: &ProofExpr,
+) -> Option<DerivationTree> {
+    match &rule.binder {
+        None => Some(DerivationTree::leaf(
+            rule.source.clone(),
+            InferenceRule::PremiseMatch,
+        )),
+        Some(v) => {
+            let witness = match subst.get(v) {
+                Some(ProofTerm::Constant(c)) | Some(ProofTerm::Variable(c)) => c.clone(),
+                _ => return None,
+            };
+            let ante_inst = apply_subst_to_expr(&rule.ante, subst);
+            Some(DerivationTree::new(
+                ProofExpr::Implies(Box::new(ante_inst), Box::new(cons_inst.clone())),
+                InferenceRule::UniversalInst(witness),
+                vec![DerivationTree::leaf(
+                    rule.source.clone(),
+                    InferenceRule::PremiseMatch,
+                )],
+            ))
+        }
+    }
+}
+
+/// n-ary DISJUNCTIVE SYLLOGISM (the heart of unit propagation): peel every refuted
+/// disjunct off a known disjunction by certified `DisjunctionElim`, returning the
+/// surviving sub-formula (a single literal once all but one is refuted). `None` if no
+/// disjunct is refuted (no progress).
+/// Prove `¬d` when the disjunct `d` is REFUTED by the known set — not only when
+/// `¬d` is itself known, but when a CONJUNCT of `d` is false (so the whole
+/// conjunction is), or `d` is a negation of a known fact. This is what lets
+/// disjunctive syllogism collapse an of-pair clue: its disjuncts are conjunctions
+/// (`Hunt(x) ∧ In(y,2004) ∧ …`), and a single false conjunct kills the disjunct.
+/// Every returned tree is certified (`ConjunctionElim` / `Contradiction` / reductio).
+fn cert_refute(d: &ProofExpr, known: &[(ProofExpr, DerivationTree)]) -> Option<DerivationTree> {
+    // Directly known negation.
+    if let Some(t) = cert_lookup(known, &cert_neg(d)) {
+        return Some(t);
+    }
+    match d {
+        // A conjunction is refuted if either conjunct is — assume the conjunction,
+        // ∧-eliminate the false conjunct, contradict its refutation, reductio.
+        ProofExpr::And(l, r) => {
+            for (side, _other_first) in [(l.as_ref(), true), (r.as_ref(), false)] {
+                if let Some(neg_side) = cert_refute(side, known) {
+                    let assume = DerivationTree::leaf(d.clone(), InferenceRule::PremiseMatch);
+                    let elim = DerivationTree::new(
+                        side.clone(),
+                        InferenceRule::ConjunctionElim,
+                        vec![assume.clone()],
+                    );
+                    let contra = DerivationTree::new(
+                        ProofExpr::Atom("⊥".into()),
+                        InferenceRule::Contradiction,
+                        vec![elim, neg_side],
+                    );
+                    return Some(DerivationTree::new(
+                        cert_neg(d),
+                        InferenceRule::ReductioAdAbsurdum,
+                        vec![assume, contra],
+                    ));
+                }
+            }
+            None
+        }
+        // `¬x` is refuted when `x` is known — assume `¬x`, contradict `x`, reductio.
+        ProofExpr::Not(x) => {
+            let x_tree = cert_lookup(known, x)?;
+            let assume = DerivationTree::leaf(d.clone(), InferenceRule::PremiseMatch);
+            let contra = DerivationTree::new(
+                ProofExpr::Atom("⊥".into()),
+                InferenceRule::Contradiction,
+                vec![x_tree, assume.clone()],
+            );
+            Some(DerivationTree::new(
+                cert_neg(d),
+                InferenceRule::ReductioAdAbsurdum,
+                vec![assume, contra],
+            ))
+        }
+        _ => None,
+    }
+}
+
+fn cert_peel_disjunction(
+    or_tree: &DerivationTree,
+    known: &[(ProofExpr, DerivationTree)],
+) -> Option<(ProofExpr, DerivationTree)> {
+    let ProofExpr::Or(l, r) = &or_tree.conclusion else {
+        return None;
+    };
+    let (l, r) = ((**l).clone(), (**r).clone());
+    if let Some(neg_l) = cert_refute(&l, known) {
+        let elim = DerivationTree::new(
+            r.clone(),
+            InferenceRule::DisjunctionElim,
+            vec![or_tree.clone(), neg_l],
+        );
+        return Some(cert_peel_disjunction(&elim, known).unwrap_or((r, elim)));
+    }
+    if let Some(neg_r) = cert_refute(&r, known) {
+        let elim = DerivationTree::new(
+            l.clone(),
+            InferenceRule::DisjunctionElim,
+            vec![or_tree.clone(), neg_r],
+        );
+        return Some(cert_peel_disjunction(&elim, known).unwrap_or((l, elim)));
+    }
+    None
+}
+
+/// Forward UNIT PROPAGATION to a fixpoint — the DPLL inner loop, every step a
+/// certified inference. Four rules drive a grounded logic grid without any
+/// case-splitting:
+///   • **ModusPonens** — a rule whose antecedent is satisfied fires its consequent.
+///   • **ModusTollens** — a rule whose consequent is refuted refutes its antecedent
+///     (via reductio: assume the antecedent, derive the consequent, contradict).
+///   • **Disjunctive syllogism** — a disjunction with all-but-one disjunct refuted
+///     forces the survivor ([`cert_peel_disjunction`]). This collapses domain
+///     closures (`In(t,A) ∨ … ∨ In(t,D)`) as the row fills, with NO branching.
+///   • **Conjunction-negation** — `¬(A ∧ B)` with `A` established refutes `B` (via
+///     reductio). This is how "exactly one in Florida" (an at-most-one rule, refuted
+///     by `ModusTollens`) excludes Florida from every other row.
+/// Together these are the propagation a logic-grid solver runs; case analysis
+/// ([`cert_derive_falsum`]) is only the rare residual decision.
 fn cert_saturate(
     rules: &[CertRule],
     mut known: Vec<(ProofExpr, DerivationTree)>,
 ) -> Vec<(ProofExpr, DerivationTree)> {
     let max_rounds = 64;
+    let mut push_new =
+        |known: &mut Vec<(ProofExpr, DerivationTree)>, fact: ProofExpr, tree: DerivationTree| -> bool {
+            if known.iter().any(|(p, _)| exprs_structurally_equal(p, &fact)) {
+                false
+            } else {
+                known.push((fact, tree));
+                true
+            }
+        };
     for _ in 0..max_rounds {
         let snapshot = known.clone();
         let mut added = false;
+
+        // (1) ModusPonens — fire a rule whose antecedent holds.
         for rule in rules {
             for subst in cert_rule_substs(rule, &snapshot) {
                 let cons_inst = apply_subst_to_expr(&rule.cons, &subst);
-                if known
-                    .iter()
-                    .any(|(p, _)| exprs_structurally_equal(p, &cons_inst))
-                {
+                if known.iter().any(|(p, _)| exprs_structurally_equal(p, &cons_inst)) {
                     continue;
                 }
-                let ante_proof = match cert_prove_ante(&rule.ante, &subst, &snapshot) {
-                    Some(t) => t,
-                    None => continue,
+                let Some(ante_proof) = cert_prove_ante(&rule.ante, &subst, &snapshot) else {
+                    continue;
                 };
-                let impl_tree = match &rule.binder {
-                    None => {
-                        DerivationTree::leaf(rule.source.clone(), InferenceRule::PremiseMatch)
-                    }
-                    Some(v) => {
-                        let witness = match subst.get(v) {
-                            Some(ProofTerm::Constant(c)) | Some(ProofTerm::Variable(c)) => c.clone(),
-                            _ => continue,
-                        };
-                        let ante_inst = apply_subst_to_expr(&rule.ante, &subst);
-                        DerivationTree::new(
-                            ProofExpr::Implies(Box::new(ante_inst), Box::new(cons_inst.clone())),
-                            InferenceRule::UniversalInst(witness),
-                            vec![DerivationTree::leaf(
-                                rule.source.clone(),
-                                InferenceRule::PremiseMatch,
-                            )],
-                        )
-                    }
+                let Some(impl_tree) = cert_rule_impl_tree(rule, &subst, &cons_inst) else {
+                    continue;
                 };
                 let mp = DerivationTree::new(
                     cons_inst.clone(),
                     InferenceRule::ModusPonens,
                     vec![impl_tree, ante_proof],
                 );
-                known.push((cons_inst, mp));
-                added = true;
+                added |= push_new(&mut known, cons_inst, mp);
             }
         }
+
+        // (2) ModusTollens — a ground rule whose consequent is refuted refutes its
+        // antecedent. Built from certified primitives: assume the antecedent, derive
+        // the consequent by ModusPonens, contradict the known negation, reductio.
+        for rule in rules {
+            if rule.binder.is_some() {
+                continue;
+            }
+            let neg_cons = cert_neg(&rule.cons);
+            let Some(nc_tree) = cert_lookup(&snapshot, &neg_cons) else {
+                continue;
+            };
+            let neg_ante = cert_neg(&rule.ante);
+            if cert_lookup(&known, &neg_ante).is_some() {
+                continue;
+            }
+            let assume = DerivationTree::leaf(rule.ante.clone(), InferenceRule::PremiseMatch);
+            let rule_tree =
+                DerivationTree::leaf(rule.source.clone(), InferenceRule::PremiseMatch);
+            let mp = DerivationTree::new(
+                rule.cons.clone(),
+                InferenceRule::ModusPonens,
+                vec![rule_tree, assume.clone()],
+            );
+            let contra = DerivationTree::new(
+                ProofExpr::Atom("⊥".into()),
+                InferenceRule::Contradiction,
+                vec![mp, nc_tree],
+            );
+            let tree = DerivationTree::new(
+                neg_ante.clone(),
+                InferenceRule::ReductioAdAbsurdum,
+                vec![assume, contra],
+            );
+            added |= push_new(&mut known, neg_ante, tree);
+        }
+
+        // (3) Disjunctive syllogism — peel refuted disjuncts off known disjunctions.
+        for (p, or_tree) in &snapshot {
+            if !matches!(p, ProofExpr::Or(..)) {
+                continue;
+            }
+            if let Some((lit, tree)) = cert_peel_disjunction(or_tree, &snapshot) {
+                added |= push_new(&mut known, lit, tree);
+            }
+        }
+
+        // (4) Conjunction-negation — `¬(A ∧ B)` with `A` established refutes `B`
+        // (and symmetrically). Built by reductio: assume B, ∧-introduce A∧B,
+        // contradict ¬(A∧B).
+        for (p, neg_tree) in &snapshot {
+            let ProofExpr::Not(inner) = p else { continue };
+            let ProofExpr::And(a, b) = inner.as_ref() else {
+                continue;
+            };
+            for (known_is_left, known_side, other) in
+                [(true, a.as_ref(), b.as_ref()), (false, b.as_ref(), a.as_ref())]
+            {
+                let Some(side_proof) = cert_prove_ante(known_side, &Substitution::new(), &snapshot)
+                else {
+                    continue;
+                };
+                let neg_other = cert_neg(other);
+                if cert_lookup(&known, &neg_other).is_some() {
+                    continue;
+                }
+                let assume = DerivationTree::leaf(other.clone(), InferenceRule::PremiseMatch);
+                let (l_proof, r_proof) = if known_is_left {
+                    (side_proof.clone(), assume.clone())
+                } else {
+                    (assume.clone(), side_proof.clone())
+                };
+                let conj_intro = DerivationTree::new(
+                    (**inner).clone(),
+                    InferenceRule::ConjunctionIntro,
+                    vec![l_proof, r_proof],
+                );
+                let contra = DerivationTree::new(
+                    ProofExpr::Atom("⊥".into()),
+                    InferenceRule::Contradiction,
+                    vec![conj_intro, neg_tree.clone()],
+                );
+                let tree = DerivationTree::new(
+                    neg_other.clone(),
+                    InferenceRule::ReductioAdAbsurdum,
+                    vec![assume, contra],
+                );
+                added |= push_new(&mut known, neg_other, tree);
+            }
+        }
+
+        // (5) Conjunction decomposition — a known `A ∧ B` yields `A` and `B`
+        // (`ConjunctionElim`). When disjunctive syllogism leaves one surviving
+        // of-pair disjunct (a conjunction), this surfaces its inner either/or as a
+        // top-level disjunction the case-split can then decide.
+        for (p, and_tree) in &snapshot {
+            let ProofExpr::And(a, b) = p else { continue };
+            for side in [a.as_ref(), b.as_ref()] {
+                let elim = DerivationTree::new(
+                    side.clone(),
+                    InferenceRule::ConjunctionElim,
+                    vec![and_tree.clone()],
+                );
+                added |= push_new(&mut known, side.clone(), elim);
+            }
+        }
+
         if !added {
             break;
         }
@@ -482,7 +868,66 @@ fn cert_derive_falsum(
     if let Some(t) = cert_close(&known) {
         return Some(t);
     }
+    if let Some(t) = cert_equality_close(&known) {
+        return Some(t);
+    }
     if depth == 0 {
+        return None;
+    }
+    // Case-split on a disjunction — the DPLL *decision*, taken only after unit
+    // propagation (`cert_saturate`) is exhausted. From `A ∨ B` derive ⊥ in BOTH the
+    // (+A) and (+B) branches; each branch assumes its disjunct's conjuncts, which the
+    // `DisjunctionCases` certifier binds as local hypotheses.
+    //
+    // PRODUCTIVITY GATE (not a structural cap): split a disjunction only when assuming
+    // SOME disjunct IMMEDIATELY closes — saturates to ⊥ at depth 0, with no further
+    // splitting. That is the signature of a genuine case decision (an of-pair /
+    // either-or clue, where one arm is already refuted by what's known). A domain
+    // CLOSURE has no such disjunct — a row may legitimately sit in any value — so it is
+    // only ever propagated, never split. This is what stops the search from exploding
+    // over a grid's many closures while still deciding every real clue branch.
+    let known_has = |x: &ProofExpr, k: &[(ProofExpr, DerivationTree)]| {
+        k.iter().any(|(q, _)| exprs_structurally_equal(q, x))
+    };
+    let seed_with = |d: &ProofExpr| -> Vec<(ProofExpr, DerivationTree)> {
+        let mut s = seed.to_vec();
+        for conj in flatten_conjuncts(d) {
+            if !s.iter().any(|(q, _)| exprs_structurally_equal(q, &conj)) {
+                s.push((conj.clone(), DerivationTree::leaf(conj, InferenceRule::PremiseMatch)));
+            }
+        }
+        s
+    };
+    let established = |x: &ProofExpr, k: &[(ProofExpr, DerivationTree)]| {
+        flatten_conjuncts(x).iter().all(|c| known_has(c, k))
+    };
+    // DECISION (DPLL): GUESS one undetermined disjunction and require BOTH branches to
+    // close. Strong in-saturation propagation (disjunctive syllogism, at-most-one
+    // exclusion, conjunction-negation) prunes each branch; a forced disjunction closes
+    // one branch immediately. ONE decision per level keeps the tree finite-domain
+    // bounded. By DPLL completeness, if premises + ¬goal are unsatisfiable then any
+    // decision's branches both close; if this one's do not, the set is satisfiable and
+    // the goal is not entailed (so don't fall through to the atom split).
+    if let Some((p, tree_or)) = known.iter().find_map(|(p, t)| match p {
+        ProofExpr::Or(a, b) if !(established(a, &known) || established(b, &known)) => {
+            Some((p.clone(), t.clone()))
+        }
+        _ => None,
+    }) {
+        let ProofExpr::Or(a, b) = &p else { unreachable!() };
+        if let (Some(pa), Some(pb)) = (
+            cert_derive_falsum(rules, &seed_with(a), depth - 1, fresh),
+            cert_derive_falsum(rules, &seed_with(b), depth - 1, fresh),
+        ) {
+            return Some(DerivationTree::new(
+                ProofExpr::Atom("⊥".into()),
+                InferenceRule::DisjunctionCases,
+                vec![tree_or, pa, pb],
+            ));
+        }
+        // A disjunction was available to branch on; by DPLL completeness its failure
+        // to close means the set is satisfiable. Don't fall through to the atom split
+        // (that is for disjunction-free paradoxes and would re-explore the grid).
         return None;
     }
     for c in cert_candidates(&known, rules) {
@@ -601,6 +1046,7 @@ impl BackwardChainer {
             knowledge_base: Vec::new(),
             max_depth: DEFAULT_MAX_DEPTH,
             var_counter: 0,
+            eliminated_existentials: Vec::new(),
         }
     }
 
@@ -942,6 +1388,28 @@ impl BackwardChainer {
         // Strategy 1: Direct fact matching
         if let Some(tree) = self.try_match_fact(&goal)? {
             return Ok(tree);
+        }
+
+        // Strategy 1b: a NEGATION goal in a finite-domain (grid) setting is proved
+        // fastest and most completely by the certified contradiction finder — unit
+        // propagation + bounded case analysis. Run it HERE, before the disjunction-
+        // elimination strategy (5b), which can blow up on a clue's nested either/or.
+        // Assume the negated proposition and drive it to ⊥. It only short-circuits
+        // when it actually closes, so a miss leaves the later strategies untouched.
+        // A DIRECT ModusTollens (a rule whose consequent is refuted) is more specific,
+        // so prefer it — the grid contradiction finder only fires when it does not apply.
+        if matches!(goal.target, ProofExpr::Not(_)) {
+            if let Some(tree) = self.try_modus_tollens(&goal, depth)? {
+                return Ok(tree);
+            }
+            // A double-negation goal `¬¬X` is introduced by `DoubleNegation` (prove X);
+            // don't let the grid contradiction finder preempt that more specific rule.
+            let is_double_neg = matches!(&goal.target, ProofExpr::Not(inner) if matches!(inner.as_ref(), ProofExpr::Not(_)));
+            if !is_double_neg {
+                if let Some(tree) = self.try_reductio_ad_absurdum(&goal, depth)? {
+                    return Ok(tree);
+                }
+            }
         }
 
         // Strategy 2: Introduction rules (structural decomposition)
@@ -1637,7 +2105,7 @@ impl BackwardChainer {
     fn try_disjunction_elimination(
         &mut self,
         goal: &ProofGoal,
-        _depth: usize,
+        depth: usize,
     ) -> ProofResult<Option<DerivationTree>> {
         // Collect disjunctions from KB and context
         let disjunctions: Vec<(ProofExpr, ProofExpr, ProofExpr)> = self
@@ -1720,6 +2188,156 @@ impl BackwardChainer {
             }
         }
 
+        // No literal disjunction settled the goal. The disjunction the syllogism
+        // needs is often itself a CONSEQUENCE — "Every color is red or blue" at a
+        // witness yields `Red(c) ∨ Blue(c)` only after universal instantiation +
+        // modus ponens. So, for a goal `B` and each known negation `¬A`, try to
+        // PROVE the disjunction `A ∨ B` (or `B ∨ A`); if it goes through, the
+        // proven disjunction becomes the first premise of the elimination. This
+        // is the general elimination step every disjunctive-syllogism chain over
+        // a closed domain relies on. The conclusion is a single disjunct, never
+        // itself a disjunction — skipping `Or` goals keeps the recursive
+        // disjunction proof from chasing ever-larger `A ∨ (A ∨ …)` targets.
+        if depth < self.max_depth && !matches!(goal.target, ProofExpr::Or(..)) {
+            for negated in &negations {
+                if exprs_structurally_equal(negated, &goal.target) {
+                    continue;
+                }
+                for orient_left in [true, false] {
+                    let disjunction = if orient_left {
+                        ProofExpr::Or(
+                            Box::new(negated.clone()),
+                            Box::new(goal.target.clone()),
+                        )
+                    } else {
+                        ProofExpr::Or(
+                            Box::new(goal.target.clone()),
+                            Box::new(negated.clone()),
+                        )
+                    };
+                    // Already covered by a literal disjunction above.
+                    if disjunctions
+                        .iter()
+                        .any(|(d, _, _)| exprs_structurally_equal(d, &disjunction))
+                    {
+                        continue;
+                    }
+                    let disj_goal =
+                        ProofGoal::with_context(disjunction.clone(), goal.context.clone());
+                    // Derive the disjunction from a FACT or a universal rule's
+                    // consequent only. Routing through full `prove_goal` would
+                    // hand the `A ∨ B` goal to disjunction INTRODUCTION, which
+                    // re-proves a disjunct — bouncing back to this very goal in an
+                    // unbounded `Blue ↦ Red ∨ Blue ↦ Blue` cycle. A closed-domain
+                    // disjunction is always a consequence, never an introduction.
+                    let disj_proof = self
+                        .try_match_fact(&disj_goal)?
+                        .map(Ok)
+                        .or_else(|| self.try_universal_inst(&disj_goal, depth + 1).transpose())
+                        .transpose()?;
+                    if let Some(disj_proof) = disj_proof {
+                        let neg_leaf = DerivationTree::leaf(
+                            ProofExpr::Not(Box::new(negated.clone())),
+                            InferenceRule::PremiseMatch,
+                        );
+                        return Ok(Some(DerivationTree::new(
+                            goal.target.clone(),
+                            InferenceRule::DisjunctionElim,
+                            vec![disj_proof, neg_leaf],
+                        )));
+                    }
+                }
+            }
+        }
+
+        // The negation the syllogism needs may itself have to be PROVED, not just
+        // looked up. A closed-domain rule `∀x(ante(x) → (D₁(x) ∨ D₂(x)))` at a
+        // witness yields `D₁(c) ∨ D₂(c)`; when the goal is one disjunct (say
+        // `D₂(c)`) and the OTHER disjunct is refutable (`¬D₁(c)` follows from a
+        // uniqueness/identity constraint), disjunctive syllogism still applies —
+        // we derive the disjunction from the rule and prove `¬D₁(c)` as a
+        // sub-goal (which the negation strategies discharge by reductio). This is
+        // the elimination step a logic grid leans on once it has pinned a cell.
+        if depth < self.max_depth && !matches!(goal.target, ProofExpr::Or(..)) {
+            let disjunctive_rules: Vec<(ProofExpr, ProofExpr)> = self
+                .knowledge_base
+                .iter()
+                .chain(goal.context.iter())
+                .filter_map(|e| match e {
+                    ProofExpr::ForAll { body, .. } => match body.as_ref() {
+                        ProofExpr::Implies(_, cons) => match cons.as_ref() {
+                            ProofExpr::Or(l, r) => Some(((**l).clone(), (**r).clone())),
+                            _ => None,
+                        },
+                        _ => None,
+                    },
+                    ProofExpr::Implies(_, cons) => match cons.as_ref() {
+                        ProofExpr::Or(l, r) => Some(((**l).clone(), (**r).clone())),
+                        _ => None,
+                    },
+                    ProofExpr::Or(l, r) => Some(((**l).clone(), (**r).clone())),
+                    _ => None,
+                })
+                .collect();
+
+            for (d_left, d_right) in &disjunctive_rules {
+                // Match the goal against one disjunct template; the OTHER, under
+                // the same binding, is the disjunct to refute.
+                for goal_is_right in [true, false] {
+                    let (goal_template, other_template) = if goal_is_right {
+                        (d_right, d_left)
+                    } else {
+                        (d_left, d_right)
+                    };
+                    let Ok(subst) = unify_exprs(&goal.target, goal_template) else {
+                        continue;
+                    };
+                    let other = apply_subst_to_expr(other_template, &subst);
+                    if self.contains_quantifier(&other) {
+                        continue;
+                    }
+                    // The disjunction `A ∨ B` (in the rule's orientation) the
+                    // elimination consumes. Derive it from the rule, never by
+                    // introduction (which would re-enter this goal).
+                    let goal_disjunct = apply_subst_to_expr(goal_template, &subst);
+                    let disjunction = if goal_is_right {
+                        ProofExpr::Or(Box::new(other.clone()), Box::new(goal_disjunct))
+                    } else {
+                        ProofExpr::Or(Box::new(goal_disjunct), Box::new(other.clone()))
+                    };
+                    let disj_goal =
+                        ProofGoal::with_context(disjunction.clone(), goal.context.clone());
+                    let disj_proof = match self.try_match_fact(&disj_goal)? {
+                        Some(p) => Some(p),
+                        None => match self.try_universal_inst(&disj_goal, depth + 1)? {
+                            Some(p) => Some(p),
+                            // A GROUNDED rule `ante → (A ∨ B)` yields the disjunction
+                            // by modus ponens once `ante` is proved. Backward-chain
+                            // into it: the implication's consequent IS the disjunction,
+                            // so this derives it without disjunction introduction (no
+                            // re-proving a single disjunct, no cycle).
+                            None => self.try_backward_chain(&disj_goal, depth + 1)?,
+                        },
+                    };
+                    let Some(disj_proof) = disj_proof else {
+                        continue;
+                    };
+                    // Prove the negation of the other disjunct as a sub-goal.
+                    let neg_goal = ProofGoal::with_context(
+                        ProofExpr::Not(Box::new(other.clone())),
+                        goal.context.clone(),
+                    );
+                    if let Ok(neg_proof) = self.prove_goal(neg_goal, depth + 1) {
+                        return Ok(Some(DerivationTree::new(
+                            goal.target.clone(),
+                            InferenceRule::DisjunctionElim,
+                            vec![disj_proof, neg_proof],
+                        )));
+                    }
+                }
+            }
+        }
+
         Ok(None)
     }
 
@@ -1770,6 +2388,22 @@ impl BackwardChainer {
         let skolemized = self.skolemize_existential(&assumed);
         for sk in &skolemized {
             extended_context.push(sk.clone());
+        }
+
+        // Prefer the gapless certifiable contradiction finder: its ⊥-derivation
+        // certifies end to end (saturation + equality closure + bounded case
+        // split), so the reductio it feeds becomes a kernel-checked `¬P`. Fall
+        // back to the heuristic finder only when the certifiable one cannot close.
+        if let Some(contradiction_proof) =
+            self.find_certifiable_contradiction(&extended_context, depth)?
+        {
+            let assumption_leaf =
+                DerivationTree::leaf(assumed.clone(), InferenceRule::PremiseMatch);
+            return Ok(Some(DerivationTree::new(
+                goal.target.clone(),
+                InferenceRule::ReductioAdAbsurdum,
+                vec![assumption_leaf, contradiction_proof],
+            )));
         }
 
         // Look for contradiction in the extended context + KB
@@ -2552,8 +3186,25 @@ impl BackwardChainer {
 
         // Try eliminating each existential
         for exist_expr in existentials {
-            // Skolemize to get witness facts
-            let witness_facts = self.skolemize_existential(&exist_expr);
+            // Open each existential at most once per branch — re-opening it with a
+            // fresh witness adds no facts the first opening did not, and only feeds
+            // the depth-limit/oracle loop.
+            if self
+                .eliminated_existentials
+                .iter()
+                .any(|e| exprs_structurally_equal(e, &exist_expr))
+            {
+                continue;
+            }
+
+            // Skolemize a single level, keeping the witness constant `c` so the
+            // certificate's `Ex`-match binds the SAME constant the body is proved
+            // over (the certifier mirrors this one elimination as one match).
+            let Some((witness_const, witness_facts)) =
+                self.skolemize_existential_with_const(&exist_expr)
+            else {
+                continue;
+            };
 
             if witness_facts.is_empty() {
                 continue;
@@ -2582,20 +3233,27 @@ impl BackwardChainer {
             // Try to prove the goal with the extended context
             let extended_goal = ProofGoal::with_context(goal.target.clone(), extended_context);
 
-            // Use a fresh engine to avoid polluting our KB
-            // But we need to be careful about depth to prevent loops
-            if let Ok(inner_proof) = self.prove_goal(extended_goal, depth + 1) {
-                // Build proof tree with existential elimination
-                let witness_name = if let ProofExpr::Exists { variable, .. } = &exist_expr {
-                    variable.clone()
-                } else {
-                    "witness".to_string()
-                };
+            // Mark this existential opened for the duration of the inner search,
+            // then restore so sibling branches may open it themselves.
+            self.eliminated_existentials.push(exist_expr.clone());
+            let inner_result = self.prove_goal(extended_goal, depth + 1);
+            self.eliminated_existentials.pop();
+
+            if let Ok(inner_proof) = inner_result {
+                // The existential premise is discharged from the KB/context, so a
+                // `PremiseMatch` leaf carrying `∃x.P(x)` is its derivation. The
+                // certifier consumes `[existential, body]` and produces a single
+                // `Ex`-match bound to `witness_const`, with the witness body's
+                // conjuncts available to the body proof as projected hypotheses.
+                let existential_premise = DerivationTree::leaf(
+                    exist_expr.clone(),
+                    InferenceRule::PremiseMatch,
+                );
 
                 return Ok(Some(DerivationTree::new(
                     goal.target.clone(),
-                    InferenceRule::ExistentialElim { witness: witness_name },
-                    vec![inner_proof],
+                    InferenceRule::ExistentialElim { witness: witness_const },
+                    vec![existential_premise, inner_proof],
                 )));
             }
         }
@@ -2651,6 +3309,30 @@ impl BackwardChainer {
         }
 
         results
+    }
+
+    /// Skolemize a single level of an existential, exposing the witness constant.
+    ///
+    /// Given `∃x.P(x)`, introduce a fresh Skolem constant `c` and return
+    /// `(c, [conjuncts of P(c)])` — the body instantiated at `c` and flattened
+    /// into its top-level conjuncts. Unlike [`skolemize_existential`], this does
+    /// NOT recurse into nested existentials in the result: it eliminates exactly
+    /// one quantifier so the certifier can mirror it with a single `Ex`-match
+    /// bound to `c`. The returned constant is recorded as the `ExistentialElim`
+    /// witness so the certificate's Match-bound variable lines up with the facts
+    /// the body proof references.
+    fn skolemize_existential_with_const(&mut self, expr: &ProofExpr) -> Option<(String, Vec<ProofExpr>)> {
+        if let ProofExpr::Exists { variable, body } = expr {
+            let skolem = format!("sk_{}", self.fresh_var());
+            let mut subst = Substitution::new();
+            subst.insert(variable.clone(), ProofTerm::Constant(skolem.clone()));
+            let instantiated = apply_subst_to_expr(body, &subst);
+            let mut results = Vec::new();
+            self.flatten_conjunction(&instantiated, &mut results);
+            Some((skolem, results))
+        } else {
+            None
+        }
     }
 
     /// Flatten a conjunction into a list of its components.
@@ -3045,10 +3727,11 @@ impl BackwardChainer {
             .collect();
         let rules = cert_extract_rules(&all);
         let seed = cert_seed_facts(&all);
-        // `depth` bounds nested case splits; self-referential paradoxes need 1,
-        // and a small budget covers two-pivot cases without runaway search.
+        // `depth` bounds nested case splits / DPLL decisions. A small grid's
+        // determined cells resolve by propagation within a few decisions; kept
+        // moderate so the per-cell solve stays fast.
         let mut fresh = 0u32;
-        Ok(cert_derive_falsum(&rules, &seed, 2, &mut fresh))
+        Ok(cert_derive_falsum(&rules, &seed, 6, &mut fresh))
     }
 
     fn find_contradiction(

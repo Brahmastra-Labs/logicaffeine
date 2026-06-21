@@ -25,6 +25,168 @@ use crate::token::TokenType;
 // PUBLIC API
 // =============================================================================
 
+/// Map the parser's comparison-predicate names onto the proof oracle's canonical,
+/// case-sensitive vocabulary (`Gt`/`Lt`/`Gte`/`Lte`/`Eq`/`Neq`; see oracle.rs:879
+/// and modal_translation.rs:124). Returns `None` for any non-comparison name,
+/// which then falls through to ordinary noun normalization. The parser only ever
+/// emits these names for binary degree comparisons, so the caller gates on arity 2.
+fn canonical_comparison_name(name: &str) -> Option<&'static str> {
+    match name {
+        "Greater" | "Gt" => Some("Gt"),
+        "Less" | "Lt" => Some("Lt"),
+        "GreaterEqual" | "Gte" => Some("Gte"),
+        "LessEqual" | "Lte" => Some("Lte"),
+        "Equal" | "Eq" => Some("Eq"),
+        "NotEqual" | "Neq" => Some("Neq"),
+        _ => None,
+    }
+}
+
+/// Map the parser's arithmetic-function names onto the oracle's canonical,
+/// case-sensitive `Add`/`Sub`/`Mul`/`Div` (see oracle.rs:1034). Returns `None`
+/// for every other function name so measure functions (`Score`, `Ord`, …) stay
+/// verbatim as uninterpreted integer functions.
+fn canonical_arithmetic_fn(name: &str) -> Option<&'static str> {
+    match name {
+        "add" | "Add" => Some("Add"),
+        "sub" | "Sub" => Some("Sub"),
+        "mul" | "Mul" => Some("Mul"),
+        "div" | "Div" => Some("Div"),
+        _ => None,
+    }
+}
+
+/// Rename a free variable `from` → `to` inside a [`ProofTerm`].
+fn subst_proof_term(t: &ProofTerm, from: &str, to: &str) -> ProofTerm {
+    match t {
+        ProofTerm::Variable(v) if v == from => ProofTerm::Variable(to.to_string()),
+        ProofTerm::BoundVarRef(v) if v == from => ProofTerm::BoundVarRef(to.to_string()),
+        ProofTerm::Function(name, args) => ProofTerm::Function(
+            name.clone(),
+            args.iter().map(|a| subst_proof_term(a, from, to)).collect(),
+        ),
+        ProofTerm::Group(args) => {
+            ProofTerm::Group(args.iter().map(|a| subst_proof_term(a, from, to)).collect())
+        }
+        other => other.clone(),
+    }
+}
+
+/// Rename a free variable `from` → `to` inside a [`ProofExpr`], stopping at a
+/// quantifier that re-binds `from` (capture avoidance). Used to build the
+/// uniqueness clause of an "exactly one" expansion.
+fn subst_proof_var(e: &ProofExpr, from: &str, to: &str) -> ProofExpr {
+    match e {
+        ProofExpr::Predicate { name, args, world } => ProofExpr::Predicate {
+            name: name.clone(),
+            args: args.iter().map(|a| subst_proof_term(a, from, to)).collect(),
+            world: world.clone(),
+        },
+        ProofExpr::Identity(a, b) => {
+            ProofExpr::Identity(subst_proof_term(a, from, to), subst_proof_term(b, from, to))
+        }
+        ProofExpr::And(l, r) => ProofExpr::And(
+            Box::new(subst_proof_var(l, from, to)),
+            Box::new(subst_proof_var(r, from, to)),
+        ),
+        ProofExpr::Or(l, r) => ProofExpr::Or(
+            Box::new(subst_proof_var(l, from, to)),
+            Box::new(subst_proof_var(r, from, to)),
+        ),
+        ProofExpr::Implies(l, r) => ProofExpr::Implies(
+            Box::new(subst_proof_var(l, from, to)),
+            Box::new(subst_proof_var(r, from, to)),
+        ),
+        ProofExpr::Iff(l, r) => ProofExpr::Iff(
+            Box::new(subst_proof_var(l, from, to)),
+            Box::new(subst_proof_var(r, from, to)),
+        ),
+        ProofExpr::Not(x) => ProofExpr::Not(Box::new(subst_proof_var(x, from, to))),
+        ProofExpr::ForAll { variable, body } if variable != from => ProofExpr::ForAll {
+            variable: variable.clone(),
+            body: Box::new(subst_proof_var(body, from, to)),
+        },
+        ProofExpr::Exists { variable, body } if variable != from => ProofExpr::Exists {
+            variable: variable.clone(),
+            body: Box::new(subst_proof_var(body, from, to)),
+        },
+        ProofExpr::Temporal { operator, body } => ProofExpr::Temporal {
+            operator: operator.clone(),
+            body: Box::new(subst_proof_var(body, from, to)),
+        },
+        ProofExpr::Term(t) => ProofExpr::Term(subst_proof_term(t, from, to)),
+        other => other.clone(),
+    }
+}
+
+fn subst_term_with(t: &ProofTerm, from: &str, to: &ProofTerm) -> ProofTerm {
+    match t {
+        ProofTerm::Variable(v) if v == from => to.clone(),
+        ProofTerm::BoundVarRef(v) if v == from => to.clone(),
+        ProofTerm::Function(name, args) => ProofTerm::Function(
+            name.clone(),
+            args.iter().map(|a| subst_term_with(a, from, to)).collect(),
+        ),
+        ProofTerm::Group(args) => {
+            ProofTerm::Group(args.iter().map(|a| subst_term_with(a, from, to)).collect())
+        }
+        other => other.clone(),
+    }
+}
+
+/// Substitute a free variable `from` with the CONSTANT `to` inside a [`ProofExpr`]
+/// — the operation that turns a wh-question body φ(x) into a candidate goal φ(c),
+/// so "who/what is …?" is answered by enumerating domain individuals and proving
+/// each candidate. Stops at a quantifier that re-binds `from` (capture avoidance).
+pub fn instantiate_var_with_constant(e: &ProofExpr, from: &str, to: &str) -> ProofExpr {
+    let c = ProofTerm::Constant(to.to_string());
+    subst_expr_with(e, from, &c)
+}
+
+fn subst_expr_with(e: &ProofExpr, from: &str, to: &ProofTerm) -> ProofExpr {
+    match e {
+        ProofExpr::Predicate { name, args, world } => ProofExpr::Predicate {
+            name: name.clone(),
+            args: args.iter().map(|a| subst_term_with(a, from, to)).collect(),
+            world: world.clone(),
+        },
+        ProofExpr::Identity(a, b) => {
+            ProofExpr::Identity(subst_term_with(a, from, to), subst_term_with(b, from, to))
+        }
+        ProofExpr::And(l, r) => ProofExpr::And(
+            Box::new(subst_expr_with(l, from, to)),
+            Box::new(subst_expr_with(r, from, to)),
+        ),
+        ProofExpr::Or(l, r) => ProofExpr::Or(
+            Box::new(subst_expr_with(l, from, to)),
+            Box::new(subst_expr_with(r, from, to)),
+        ),
+        ProofExpr::Implies(l, r) => ProofExpr::Implies(
+            Box::new(subst_expr_with(l, from, to)),
+            Box::new(subst_expr_with(r, from, to)),
+        ),
+        ProofExpr::Iff(l, r) => ProofExpr::Iff(
+            Box::new(subst_expr_with(l, from, to)),
+            Box::new(subst_expr_with(r, from, to)),
+        ),
+        ProofExpr::Not(x) => ProofExpr::Not(Box::new(subst_expr_with(x, from, to))),
+        ProofExpr::ForAll { variable, body } if variable != from => ProofExpr::ForAll {
+            variable: variable.clone(),
+            body: Box::new(subst_expr_with(body, from, to)),
+        },
+        ProofExpr::Exists { variable, body } if variable != from => ProofExpr::Exists {
+            variable: variable.clone(),
+            body: Box::new(subst_expr_with(body, from, to)),
+        },
+        ProofExpr::Temporal { operator, body } => ProofExpr::Temporal {
+            operator: operator.clone(),
+            body: Box::new(subst_expr_with(body, from, to)),
+        },
+        ProofExpr::Term(t) => ProofExpr::Term(subst_term_with(t, from, to)),
+        other => other.clone(),
+    }
+}
+
 /// Convert a LogicExpr to ProofExpr.
 ///
 /// This is the main entry point for bridging the parser to the proof engine.
@@ -38,9 +200,19 @@ pub fn logic_expr_to_proof_expr<'a>(expr: &LogicExpr<'a>, interner: &Interner) -
             // 2. Lowercase: "Cat" → "cat", "Mortal" → "mortal"
             // This ensures "Mortal" (noun) == "mortal" (adj) == "mortals" (plural noun)
             let name_str = interner.resolve(*name);
-            let normalized = get_canonical_noun(&name_str.to_lowercase())
-                .map(|lemma| lemma.to_lowercase())
-                .unwrap_or_else(|| name_str.to_lowercase());
+            // A binary comparison predicate carries arithmetic meaning the oracle
+            // recognises only under its canonical name; it bypasses noun
+            // normalization (which would lowercase "Greater" → "greater" and strand
+            // the comparison as an uninterpreted function the solver cannot use).
+            let normalized = match (args.len() == 2)
+                .then(|| canonical_comparison_name(name_str))
+                .flatten()
+            {
+                Some(canon) => canon.to_string(),
+                None => get_canonical_noun(&name_str.to_lowercase())
+                    .map(|lemma| lemma.to_lowercase())
+                    .unwrap_or_else(|| name_str.to_lowercase()),
+            };
 
             ProofExpr::Predicate {
                 name: normalized,
@@ -83,8 +255,32 @@ pub fn logic_expr_to_proof_expr<'a>(expr: &LogicExpr<'a>, interner: &Interner) -
                     variable: var_name,
                     body: body_expr,
                 },
+                QuantifierKind::Cardinal(1) => {
+                    // "Exactly one x: φ(x)" = ∃x(φ(x) ∧ ∀y(φ(y) → y = x)) — existence
+                    // PLUS uniqueness, the form the entailment oracle reasons over.
+                    // Dropping the count (plain ∃) loses the constraint a logic-grid
+                    // bijection depends on.
+                    let x = var_name;
+                    let y = format!("{x}_uniq");
+                    let phi_y = Box::new(subst_proof_var(&body_expr, &x, &y));
+                    let uniqueness = ProofExpr::ForAll {
+                        variable: y.clone(),
+                        body: Box::new(ProofExpr::Implies(
+                            phi_y,
+                            Box::new(ProofExpr::Identity(
+                                ProofTerm::Variable(y),
+                                ProofTerm::Variable(x.clone()),
+                            )),
+                        )),
+                    };
+                    ProofExpr::Exists {
+                        variable: x,
+                        body: Box::new(ProofExpr::And(body_expr, Box::new(uniqueness))),
+                    }
+                }
                 QuantifierKind::Cardinal(n) => {
-                    // Cardinal(n) is existential in proof context
+                    // n ≥ 2: existence is a sound (if incomplete) weakening of the
+                    // exact count for the proof path.
                     ProofExpr::Exists {
                         variable: format!("{}_{}", var_name, n),
                         body: body_expr,
@@ -223,7 +419,14 @@ pub fn logic_expr_to_proof_expr<'a>(expr: &LogicExpr<'a>, interner: &Interner) -
         LogicExpr::Categorical(_) => ProofExpr::Unsupported("Categorical (legacy)".into()),
         LogicExpr::Relation(_) => ProofExpr::Unsupported("Relation (legacy)".into()),
         LogicExpr::Metaphor { .. } => ProofExpr::Unsupported("Metaphor".into()),
-        LogicExpr::Question { .. } => ProofExpr::Unsupported("Question".into()),
+        // A wh-question "Who is a lawyer?" is the GOAL ∃x.φ(x): proving it means
+        // SOMEONE satisfies φ; the ANSWER is the witness (extracted by enumerating
+        // the domain in `answer_question`). Carrying the variable + body lets the
+        // answer layer recover both.
+        LogicExpr::Question { wh_variable, body } => ProofExpr::Exists {
+            variable: interner.resolve(*wh_variable).to_string(),
+            body: Box::new(logic_expr_to_proof_expr(body, interner)),
+        },
         LogicExpr::YesNoQuestion { .. } => ProofExpr::Unsupported("YesNoQuestion".into()),
         LogicExpr::Intensional { .. } => ProofExpr::Unsupported("Intensional".into()),
         LogicExpr::Event { .. } => ProofExpr::Unsupported("Event (legacy)".into()),
@@ -639,10 +842,22 @@ pub fn term_to_proof_term<'a>(term: &Term<'a>, interner: &Interner) -> ProofTerm
 
         Term::Variable(s) => ProofTerm::Variable(interner.resolve(*s).to_string()),
 
-        Term::Function(name, args) => ProofTerm::Function(
-            interner.resolve(*name).to_string(),
-            args.iter().map(|t| term_to_proof_term(t, interner)).collect(),
-        ),
+        Term::Function(name, args) => {
+            // An arithmetic offset ("add"/"sub") must reach the oracle under its
+            // canonical name (`Add`/`Sub`) or the equality degrades to an
+            // uninterpreted function and the offset never forces a value. Measure
+            // functions (Score, Ord, …) are left verbatim as uninterpreted ints.
+            let name_str = interner.resolve(*name);
+            let canon = (args.len() == 2)
+                .then(|| canonical_arithmetic_fn(name_str))
+                .flatten()
+                .map(|s| s.to_string())
+                .unwrap_or_else(|| name_str.to_string());
+            ProofTerm::Function(
+                canon,
+                args.iter().map(|t| term_to_proof_term(t, interner)).collect(),
+            )
+        }
 
         Term::Group(terms) => {
             ProofTerm::Group(terms.iter().map(|t| term_to_proof_term(t, interner)).collect())
@@ -800,5 +1015,125 @@ mod tests {
             }
             _ => panic!("Expected Implies, got {:?}", result),
         }
+    }
+
+    // ---- Solver-canonical arithmetic vocabulary (the parser↔oracle bridge) ----
+    //
+    // The parser names comparison directions "Greater"/"Less"/… and arithmetic
+    // offsets "add"/"sub", but the proof oracle recognises ONLY the canonical
+    // "Gt"/"Lt"/"Gte"/"Lte"/"Eq"/"Neq" predicates and "Add"/"Sub"/"Mul"/"Div"
+    // functions, matched case-sensitively (oracle.rs:879, 1034;
+    // modal_translation.rs:124). If the bridge does not translate to the canonical
+    // vocabulary, every arithmetic/comparison clue silently degrades to an
+    // uninterpreted function and never constrains the model — a parse that compiles
+    // to FOL the prover cannot use. These pin the translation.
+
+    #[test]
+    fn arithmetic_offset_uses_canonical_add() {
+        // "Tara scored 3 points higher than Bessie." → Score(tara) = add(Score(bessie), 3)
+        let mut interner = Interner::new();
+        let score = interner.intern("Score");
+        let add = interner.intern("add");
+        let tara = interner.intern("tara");
+        let bessie = interner.intern("bessie");
+
+        let terms: Arena<Term> = Arena::new();
+
+        let score_tara = Term::Function(score, terms.alloc_slice([Term::Constant(tara)]));
+        let score_bessie = Term::Function(score, terms.alloc_slice([Term::Constant(bessie)]));
+        let offset = Term::Value {
+            kind: crate::ast::logic::NumberKind::Integer(3),
+            unit: None,
+            dimension: None,
+        };
+        let rhs = Term::Function(add, terms.alloc_slice([score_bessie, offset]));
+        let expr = LogicExpr::Identity {
+            left: terms.alloc(score_tara),
+            right: terms.alloc(rhs),
+        };
+
+        match logic_expr_to_proof_expr(&expr, &interner) {
+            ProofExpr::Identity(_, ProofTerm::Function(name, args)) => {
+                assert_eq!(name, "Add", "offset function must be canonical Add; got {name}");
+                assert!(
+                    matches!(&args[1], ProofTerm::Constant(s) if s == "3"),
+                    "offset constant must be the bare integer 3; got {:?}",
+                    args[1]
+                );
+            }
+            other => panic!("expected Identity with an Add rhs, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn arithmetic_offset_uses_canonical_sub() {
+        // "… 2 years before …" / "lower than" → ord(a) = sub(ord(b), 2)
+        let mut interner = Interner::new();
+        let ord = interner.intern("Ord");
+        let sub = interner.intern("sub");
+        let a = interner.intern("a");
+        let b = interner.intern("b");
+        let terms: Arena<Term> = Arena::new();
+        let ord_a = Term::Function(ord, terms.alloc_slice([Term::Constant(a)]));
+        let ord_b = Term::Function(ord, terms.alloc_slice([Term::Constant(b)]));
+        let offset = Term::Value {
+            kind: crate::ast::logic::NumberKind::Integer(2),
+            unit: None,
+            dimension: None,
+        };
+        let rhs = Term::Function(sub, terms.alloc_slice([ord_b, offset]));
+        let expr = LogicExpr::Identity {
+            left: terms.alloc(ord_a),
+            right: terms.alloc(rhs),
+        };
+        match logic_expr_to_proof_expr(&expr, &interner) {
+            ProofExpr::Identity(_, ProofTerm::Function(name, _)) => {
+                assert_eq!(name, "Sub", "offset function must be canonical Sub; got {name}");
+            }
+            other => panic!("expected Identity with a Sub rhs, got {:?}", other),
+        }
+    }
+
+    fn convert_binary_predicate(raw_name: &str) -> String {
+        let mut interner = Interner::new();
+        let name = interner.intern(raw_name);
+        let a = interner.intern("a");
+        let b = interner.intern("b");
+        let terms: Arena<Term> = Arena::new();
+        let args = terms.alloc_slice([Term::Constant(a), Term::Constant(b)]);
+        let expr = LogicExpr::Predicate { name, args, world: None };
+        match logic_expr_to_proof_expr(&expr, &interner) {
+            ProofExpr::Predicate { name, .. } => name,
+            other => panic!("expected Predicate, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn comparison_predicates_use_canonical_names() {
+        // The parser's comparison vocabulary must reach the oracle's exact names,
+        // and must NOT be lowercased into oblivion ("greater" ≠ "Gt").
+        assert_eq!(convert_binary_predicate("Greater"), "Gt");
+        assert_eq!(convert_binary_predicate("Less"), "Lt");
+        assert_eq!(convert_binary_predicate("GreaterEqual"), "Gte");
+        assert_eq!(convert_binary_predicate("LessEqual"), "Lte");
+        assert_eq!(convert_binary_predicate("Equal"), "Eq");
+        assert_eq!(convert_binary_predicate("NotEqual"), "Neq");
+    }
+
+    #[test]
+    fn ordinary_binary_predicate_is_not_remapped_to_a_comparison() {
+        // Regression: a genuine relational predicate is unaffected by the
+        // comparison-name mapping — it keeps the noun-normalised lowercase form
+        // and is never hijacked into an arithmetic comparison symbol.
+        let name = convert_binary_predicate("Loves");
+        assert!(
+            !["Gt", "Lt", "Gte", "Lte", "Eq", "Neq"].contains(&name.as_str()),
+            "ordinary predicate must not become a comparison op; got {name}"
+        );
+        assert_eq!(
+            name,
+            name.to_lowercase(),
+            "ordinary predicate keeps the noun-normalised lowercase form; got {name}"
+        );
     }
 }

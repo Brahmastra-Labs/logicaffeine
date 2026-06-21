@@ -6,70 +6,168 @@ on:
   pull_request:
     branches: [main]
 
+# Architecture: archive once, run partitioned.
+#
+#   archive — compile every test binary ONCE and package them into a single
+#             ~3 GB nextest archive (NOT the 115 GB target/ dir, which blows
+#             past the 10 GB cache limit). Uploaded as a short-lived artifact.
+#   test    — 3 jobs download the archive and run `--partition hash:K/3` against
+#             it via `--workspace-remap` (so the cargo-spawning e2e tests still
+#             resolve the checked-out source at runtime). nextest splits the
+#             suite into 3 disjoint shards whose union is the whole thing, so
+#             every test runs exactly once across the matrix.
+#   extras  — web tests + doctests (the doc harness can't be archived).
+#   badge   — main only; publishes the test-count badge.
+#
+# Why an archive, not a target/ cache: target/ is ~115 GB (84 GB of test-binary
+# deps); GitHub silently drops caches over 10 GB, which would degrade a
+# "build once" cache into "every job rebuilds cold". The archive is the
+# compiled test binaries only, compressed to a few GB — cheap to ship.
+#
+# Dependency builds are cached by Swatinem/rust-cache (registry + dep artifacts,
+# size-pruned — never the 115 GB of final binaries). The e2e /tmp shard caches
+# are deliberately NOT persisted across runs, so a generated build can never go
+# stale (each run warms them fresh; see tests/common/mod.rs).
+#
+# #[ignore]d tests (the multi-minute jit_mega_fuzz / fuzz-overnight monsters)
+# are NOT run here — nextest skips them by default. Run them via
+# scripts/run-all-tests-fast.sh (no --no-ignored) on the dedicated box.
+
 env:
   CARGO_TERM_COLOR: always
+  # The `z3` crate links the system libz3 (no bundled feature); libz3-dev puts
+  # the header here. Explicit so verification never depends on a runner preinstall.
+  Z3_SYS_Z3_HEADER: /usr/include/z3.h
+  # Wire the mold linker (clang driver) for x86_64 Linux — matches the local
+  # .cargo/config.toml, which is gitignored and so absent in CI.
+  CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_LINKER: clang
+  CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_RUSTFLAGS: -Clink-arg=-fuse-ld=mold
+  # Feature set for the main suite (kept in one place so every job agrees).
+  SUITE_FEATURES: logicaffeine-tests/ffi-link-tests,logicaffeine-tests/verification
+  ARCHIVE: nextest-archive.tar.zst
 
 jobs:
-  test:
+  archive:
     runs-on: ubuntu-latest-m
-    permissions:
-      contents: write
+    timeout-minutes: 60
+    outputs:
+      test_count: ${{ steps.count.outputs.count }}
     steps:
       - uses: actions/checkout@v4
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
 
-      - name: Install mold linker
-        run: sudo apt-get update && sudo apt-get install -y mold
-
-      - name: Cache cargo
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.cargo/bin/
-            ~/.cargo/registry/index/
-            ~/.cargo/registry/cache/
-            ~/.cargo/git/db/
-            target/
-          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+      - name: Install Z3, mold, clang
+        run: sudo apt-get update && sudo apt-get install -y z3 libz3-dev mold clang jq
 
       - name: Install nextest
         uses: taiki-e/install-action@nextest
 
-      - name: Build workspace
-        run: cargo build --workspace --verbose
+      - name: Cache dependencies
+        uses: Swatinem/rust-cache@v2
+
+      - name: Build nextest archive
+        run: |
+          set -o pipefail
+          cargo nextest archive --workspace --features "$SUITE_FEATURES" \
+            --profile full --archive-file "$ARCHIVE"
+
+      - name: Count tests (for badge)
+        id: count
+        run: |
+          N=$(cargo nextest list --archive-file "$ARCHIVE" --workspace-remap "$PWD" \
+                --message-format json 2>/dev/null | jq '."test-count"' 2>/dev/null || true)
+          if [ -z "$N" ] || [ "$N" = "null" ]; then N=0; fi
+          echo "count=$N" >> "$GITHUB_OUTPUT"
+          echo "Suite size: $N tests"
+
+      - name: Upload archive
+        uses: actions/upload-artifact@v4
+        with:
+          name: nextest-archive
+          path: ${{ env.ARCHIVE }}
+          retention-days: 1
 
       - name: Build LSP binary
         run: cargo build -p logicaffeine-lsp --release
 
-      - name: Run all tests
+  test:
+    needs: archive
+    runs-on: ubuntu-latest-m
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        partition: [1, 2, 3]
+    steps:
+      # Source is required: the e2e tests spawn `cargo build` at runtime against
+      # the checked-out path deps, and --workspace-remap points the archive at it.
+      - uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install Z3, mold, clang
+        run: sudo apt-get update && sudo apt-get install -y z3 libz3-dev mold clang
+
+      - name: Install nextest
+        uses: taiki-e/install-action@nextest
+
+      - name: Cache dependencies
+        uses: Swatinem/rust-cache@v2
+
+      - name: Download archive
+        uses: actions/download-artifact@v4
+        with:
+          name: nextest-archive
+
+      - name: Run tests — partition ${{ matrix.partition }}/3
         run: |
           set -o pipefail
-          cargo nextest run --workspace --features logicaffeine-tests/ffi-link-tests,logicaffeine-tests/verification --profile ci 2>&1 | tee test_output.txt
+          cargo nextest run --archive-file "$ARCHIVE" --workspace-remap "$PWD" \
+            --profile full --retries 1 \
+            --partition hash:${{ matrix.partition }}/3
+
+  extras:
+    runs-on: ubuntu-latest-m
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install Z3, mold, clang
+        run: sudo apt-get update && sudo apt-get install -y z3 libz3-dev mold clang
+
+      - name: Install nextest
+        uses: taiki-e/install-action@nextest
+
+      - name: Cache dependencies
+        uses: Swatinem/rust-cache@v2
 
       - name: Run web tests
         run: |
           set -o pipefail
-          cargo nextest run -p logicaffeine-tests --features web-tests --profile ci 2>&1 | tee -a test_output.txt
+          cargo nextest run -p logicaffeine-tests --features web-tests --profile full --retries 1
 
       - name: Run doctests
         run: |
           set -o pipefail
-          cargo test --workspace --doc 2>&1 | tee -a test_output.txt
+          cargo test --workspace --features verification --doc
 
-      - name: Extract test count
-        if: github.ref == 'refs/heads/main'
-        id: test_count
-        run: |
-          NEXTEST=$(grep -oP '\d+ passed' test_output.txt | awk '{s+=$1} END {print s}')
-          echo "count=$NEXTEST" >> "$GITHUB_OUTPUT"
-          echo "Total tests: $NEXTEST"
-
+  badge:
+    needs: [archive, test, extras]
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
       - name: Push badge to badges branch
-        if: github.ref == 'refs/heads/main'
         run: |
-          echo '{"schemaVersion":1,"label":"tests","message":"${{ steps.test_count.outputs.count }}+","color":"brightgreen"}' > /tmp/badge.json
+          COUNT="${{ needs.archive.outputs.test_count }}"
+          echo "{\"schemaVersion\":1,\"label\":\"tests\",\"message\":\"${COUNT}+\",\"color\":\"brightgreen\"}" > /tmp/badge.json
           cd "$(mktemp -d)"
           git init
           git checkout -b badges
@@ -77,5 +175,5 @@ jobs:
           git add logicaffeine_test_count.json
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git commit -m "Update test count badge: ${{ steps.test_count.outputs.count }} tests"
+          git commit -m "Update test count badge: ${COUNT} tests"
           git push --force "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}.git" badges

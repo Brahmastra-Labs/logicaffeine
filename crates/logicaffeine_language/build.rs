@@ -28,6 +28,11 @@ struct RefactoredLexiconData {
     /// characterizing/habitual clause (§4.4). A lexical category, not a parser list.
     #[serde(default)]
     quantificational_adverbs: Vec<String>,
+    /// Degree adverbs (intensifiers/downtoners): "somewhat", "slightly", "much",
+    /// "far". They grade a comparative/adjective with NO measurable offset, so
+    /// "X is somewhat shorter than Y" is a strict inequality, no exact difference.
+    #[serde(default)]
+    degree_adverbs: Vec<String>,
     /// Place names that conventionally denote an institution (metonymy §8.6):
     /// "the White House", "the Pentagon", "the Kremlin". As an agent of a
     /// communication/decision verb they coerce to the institution (government-of).
@@ -35,9 +40,19 @@ struct RefactoredLexiconData {
     institution_metonyms: Vec<String>,
     #[serde(default)]
     particles: Vec<String>,
+    /// Calendar month names ("january" … "december"). A closed lexical class used
+    /// to recognise "Month Day" date NPs ("June 11", "May 3").
+    #[serde(default)]
+    months: Vec<String>,
     #[serde(default)]
     phrasal_verbs: HashMap<String, PhrasalVerbEntry>,
     not_adverbs: Vec<String>,
+    /// Words whose trailing period is an ABBREVIATION dot, not a sentence
+    /// terminator ("Mr.", "Dr.", "ft.", "Mt.", "St."). Which words abbreviate is
+    /// LEXICAL knowledge, so the list lives here; the lexer only suppresses the
+    /// spurious Period when one of these is followed by more text.
+    #[serde(default)]
+    abbreviations: Vec<String>,
     /// Negative n't-contraction stems and their expansions ("isn" → "is not",
     /// "can" → "cannot"). Which words contract with n't is LEXICAL knowledge
     /// (n't is inflection on a listed class), so the list lives here; the
@@ -307,6 +322,7 @@ fn main() {
     generate_is_check(&mut file, "is_noun_pattern", &data.noun_patterns);
     generate_is_check(&mut file, "is_scopal_adverb", &data.scopal_adverbs);
     generate_is_check(&mut file, "is_temporal_adverb", &data.temporal_adverbs);
+    generate_is_check(&mut file, "is_degree_adverb", &data.degree_adverbs);
     generate_is_check(
         &mut file,
         "is_quantificational_adverb",
@@ -321,6 +337,55 @@ fn main() {
         .map(|v| v.lemma.to_lowercase())
         .collect();
     generate_is_check(&mut file, "is_perception_verb", &perception_verbs);
+    // Transitive verbs (find, make, source, …): take a direct object and so can
+    // passivize. A past participle of a transitive verb followed by a PP and no
+    // object ("the medicine sourced from a fig") is an unambiguous PASSIVE reduced
+    // relative — distinct from an intransitive main clause ("the box arrived in
+    // April"). Lexical transitivity is the discriminator.
+    let transitive_verbs: Vec<String> = data
+        .verbs
+        .iter()
+        .filter(|v| v.features.iter().any(|f| f == "Transitive"))
+        .map(|v| v.lemma.to_lowercase())
+        .collect();
+    generate_is_check(&mut file, "is_transitive_verb", &transitive_verbs);
+    // Intransitive verbs: the MARKED exceptions to the transitive-capable default.
+    // English verbs are overwhelmingly transitive-capable, so transitivity is best
+    // modeled by marking the EXCEPTIONS — pure-intransitive verbs that can never take
+    // a direct object (Unaccusative "arrive/fall/die", or an explicit "Intransitive"
+    // tag). Used to reject an object-gap reduced relative: "the dancer Tara arrived"
+    // is apposition (arrive has no object slot), not "the dancer [that] Tara arrived".
+    // Dual-use verbs (run/dance/sing — "the race Tara ran") are NOT marked here, so
+    // they keep their transitive reduced relatives.
+    let intransitive_verbs: Vec<String> = data
+        .verbs
+        .iter()
+        .filter(|v| {
+            v.features
+                .iter()
+                .any(|f| f == "Intransitive" || f == "Unaccusative")
+        })
+        .map(|v| v.lemma.to_lowercase())
+        .collect();
+    generate_is_check(&mut file, "is_intransitive_verb", &intransitive_verbs);
+    // Distinct past-participle forms (participle ≠ past: "grown"≠"grew",
+    // "taken"≠"took", "written"≠"wrote", "cut through"…). Unlike a regular "-ed"
+    // (past == participle, ambiguous with the finite past tense), a DISTINCT
+    // participle is UNAMBIGUOUSLY non-finite — like "-ing" — so "the flower GROWN
+    // in Hardy" is a passive reduced relative without needing transitivity.
+    let mut distinct_participles: Vec<String> = Vec::new();
+    for v in &data.verbs {
+        if let Some(forms) = &v.forms {
+            if let Some(part) = &forms.participle {
+                let part_l = part.to_lowercase();
+                let past_l = forms.past.as_ref().map(|p| p.to_lowercase());
+                if past_l.as_deref() != Some(part_l.as_str()) {
+                    distinct_participles.push(part_l);
+                }
+            }
+        }
+    }
+    generate_is_check(&mut file, "is_distinct_past_participle", &distinct_participles);
     // Relevance/biscuit-conditional trigger verbs (want, need, …) (§4.2).
     let relevance_verbs: Vec<String> = data
         .verbs
@@ -330,8 +395,10 @@ fn main() {
         .collect();
     generate_is_check(&mut file, "is_relevance_verb", &relevance_verbs);
     generate_is_check(&mut file, "is_particle", &data.particles);
+    generate_is_check(&mut file, "is_month", &data.months);
     generate_is_check(&mut file, "is_adverb", &data.adverbs);
     generate_is_check(&mut file, "is_not_adverb", &data.not_adverbs);
+    generate_is_check(&mut file, "is_abbreviation", &data.abbreviations);
     generate_is_check(&mut file, "is_disambiguation_not_verb", &data.disambiguation_not_verbs);
     generate_is_check(&mut file, "needs_e_ing", &data.morphology.needs_e_ing);
     generate_is_check(&mut file, "needs_e_ed", &data.morphology.needs_e_ed);
@@ -399,6 +466,18 @@ fn main() {
         .map(|a| a.lemma.to_lowercase())
         .collect();
     generate_is_check(&mut file, "is_vague_adjective", &vague_adjectives);
+
+    // Decreasing (negative-pole) gradable adjectives (narrow, short, light, …):
+    // the comparative denotes a SMALLER value on the canonical measured scale, so
+    // an arithmetic comparative subtracts rather than adds. Scale polarity is a
+    // lexical property — derived from the adjective's features, never hardcoded.
+    let decreasing_adjectives: Vec<String> = data
+        .adjectives
+        .iter()
+        .filter(|a| a.features.iter().any(|f| f == "Decreasing"))
+        .map(|a| a.lemma.to_lowercase())
+        .collect();
+    generate_is_check(&mut file, "is_decreasing_adjective", &decreasing_adjectives);
 
     // Derive noun lists from features
     let (common_nouns, male_names, female_names, male_nouns, female_nouns, neuter_nouns) =
@@ -790,6 +869,7 @@ fn generate_lookup_keyword(file: &mut fs::File, keywords: &HashMap<String, Strin
             "Who" => "crate::token::TokenType::Who",
             "What" => "crate::token::TokenType::What",
             "Where" => "crate::token::TokenType::Where",
+            "Whose" => "crate::token::TokenType::Whose",
             "When" => "crate::token::TokenType::When",
             "Why" => "crate::token::TokenType::Why",
             "Does" => "crate::token::TokenType::Does",

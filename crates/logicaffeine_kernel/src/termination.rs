@@ -28,6 +28,13 @@ struct GuardContext {
     struct_type: String,
     /// Variables known to be structurally smaller than struct_param
     smaller_than: HashSet<String>,
+    /// False once an inner binder has shadowed `struct_param`. A `match` on that
+    /// name then refers to the shadowing binding, not the structural argument, so
+    /// it must NOT be treated as the guarding match.
+    struct_param_live: bool,
+    /// False once an inner binder has shadowed `fix_name`. A call to that name
+    /// then refers to the shadowing binding, not our fixpoint.
+    fix_name_live: bool,
 }
 
 /// Check that a Fix term satisfies the syntactic guard condition.
@@ -43,6 +50,8 @@ pub fn check_termination(ctx: &Context, fix_name: &str, body: &Term) -> KernelRe
         struct_param,
         struct_type,
         smaller_than: HashSet::new(),
+        struct_param_live: true,
+        fix_name_live: true,
     };
 
     // Check all recursive calls are guarded
@@ -87,6 +96,33 @@ fn extract_inductive_name(ctx: &Context, ty: &Term) -> Option<String> {
     }
 }
 
+/// Build the guard context for the scope under a binder that introduces `param`.
+///
+/// The binder shadows any prior meaning of `param`: within its body `param` no
+/// longer refers to the structural parameter, a structurally-smaller variable,
+/// or the fixpoint itself. Failing to honor this lets an inner `match` on a
+/// shadowed name be mistaken for the guarding match (admitting a non-decreasing
+/// recursion), or an inner binding of a smaller-marked name keep its "smaller"
+/// status after being rebound to an arbitrary value.
+fn enter_binder(guard_ctx: &GuardContext, param: &str) -> GuardContext {
+    let mut child = GuardContext {
+        fix_name: guard_ctx.fix_name.clone(),
+        struct_param: guard_ctx.struct_param.clone(),
+        struct_type: guard_ctx.struct_type.clone(),
+        smaller_than: guard_ctx.smaller_than.clone(),
+        struct_param_live: guard_ctx.struct_param_live,
+        fix_name_live: guard_ctx.fix_name_live,
+    };
+    child.smaller_than.remove(param);
+    if param == guard_ctx.struct_param {
+        child.struct_param_live = false;
+    }
+    if param == guard_ctx.fix_name {
+        child.fix_name_live = false;
+    }
+    child
+}
+
 /// Check that all recursive calls in `term` are guarded (use smaller arguments).
 fn check_guarded(ctx: &Context, guard_ctx: &GuardContext, term: &Term) -> KernelResult<()> {
     match term {
@@ -106,9 +142,10 @@ fn check_guarded(ctx: &Context, guard_ctx: &GuardContext, term: &Term) -> Kernel
             cases,
             ..
         } => {
-            // Check if we're matching on the structural parameter
+            // Check if we're matching on the structural parameter (and that it
+            // has not been shadowed by an inner binder).
             if let Term::Var(disc_name) = discriminant.as_ref() {
-                if disc_name == &guard_ctx.struct_param {
+                if guard_ctx.struct_param_live && disc_name == &guard_ctx.struct_param {
                     // This match guards recursive calls - check cases with
                     // constructor-bound variables marked as smaller
                     return check_match_cases_guarded(ctx, guard_ctx, cases);
@@ -123,17 +160,24 @@ fn check_guarded(ctx: &Context, guard_ctx: &GuardContext, term: &Term) -> Kernel
             Ok(())
         }
 
-        // Lambda: recurse into body (param shadows nothing relevant)
-        Term::Lambda { body, .. } => check_guarded(ctx, guard_ctx, body),
+        // Lambda: the binder may shadow the structural parameter, a smaller
+        // variable, or the fixpoint name — recurse under a scope reflecting that.
+        Term::Lambda { param, body, .. } => {
+            let child = enter_binder(guard_ctx, param);
+            check_guarded(ctx, &child, body)
+        }
 
-        // Pi: recurse into body type
-        Term::Pi { body_type, .. } => check_guarded(ctx, guard_ctx, body_type),
+        // Pi: same binder-shadowing handling as Lambda.
+        Term::Pi { param, body_type, .. } => {
+            let child = enter_binder(guard_ctx, param);
+            check_guarded(ctx, &child, body_type)
+        }
 
-        // Nested fixpoint: check its body (with its own fix_name)
-        Term::Fix { body, .. } => {
-            // Note: nested fixpoints should have their own termination check
-            // when they are type-checked. Here we just recurse.
-            check_guarded(ctx, guard_ctx, body)
+        // Nested fixpoint: its own name shadows ours; its body gets its own
+        // termination check when type-checked.
+        Term::Fix { name, body } => {
+            let child = enter_binder(guard_ctx, name);
+            check_guarded(ctx, &child, body)
         }
 
         // Leaves: no recursive calls possible
@@ -153,9 +197,10 @@ fn check_recursive_call(
     // So we need to find if the head of func is our fixpoint
     let (head, first_arg) = extract_head_and_first_arg(func, arg);
 
-    // Check if the head is a reference to our fixpoint
+    // Check if the head is a reference to our fixpoint (and that the name has
+    // not been shadowed by an inner binder).
     if let Term::Var(name) = head {
-        if name == &guard_ctx.fix_name {
+        if guard_ctx.fix_name_live && name == &guard_ctx.fix_name {
             // This is a recursive call! Check the first argument (structural argument)
             match first_arg {
                 Term::Var(arg_name) => {
@@ -231,6 +276,8 @@ fn check_match_cases_guarded(
             struct_param: guard_ctx.struct_param.clone(),
             struct_type: guard_ctx.struct_type.clone(),
             smaller_than: guard_ctx.smaller_than.clone(),
+            struct_param_live: guard_ctx.struct_param_live,
+            fix_name_live: guard_ctx.fix_name_live,
         };
 
         // Mark every constructor parameter as structurally smaller.
@@ -248,6 +295,15 @@ fn check_match_cases_guarded(
         let _ = ctor_name;
         for var in &smaller_vars {
             extended_ctx.smaller_than.insert(var.clone());
+            // A constructor binder may reuse the name of the structural parameter
+            // or the fixpoint; inside this case that name now refers to the
+            // (smaller) bound variable, so the original meaning is shadowed.
+            if var == &guard_ctx.struct_param {
+                extended_ctx.struct_param_live = false;
+            }
+            if var == &guard_ctx.fix_name {
+                extended_ctx.fix_name_live = false;
+            }
         }
 
         // Check the case body with the extended context

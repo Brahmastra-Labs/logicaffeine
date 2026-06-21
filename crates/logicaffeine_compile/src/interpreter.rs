@@ -78,6 +78,262 @@ pub struct ClosureValue {
     pub param_names: Vec<Symbol>,
 }
 
+/// The Map payload behind `RuntimeValue::Map`. FxHash instead of the standard
+/// library's SipHash: map-heavy programs hash on every get/insert, and the
+/// keys here are small values (ints, short texts) where Fx is several times
+/// faster — with no DoS-resistance requirement (a single-program interpreter
+/// hashing its own program's keys). Both engines share this alias, so map
+/// iteration order — arbitrary but deterministic per build — is identical
+/// between the VM and the tree-walker.
+pub type MapStorage = rustc_hash::FxHashMap<RuntimeValue, RuntimeValue>;
+
+/// The List payload behind `RuntimeValue::List`: homogeneous all-Int and
+/// all-Float lists store UNBOXED vectors (cache-dense, and the JIT can pin a
+/// raw pointer to them); anything else boxes. The repr lives INSIDE the
+/// `Rc<RefCell<…>>`, so promotion re-tags the payload in place and every
+/// alias observes it — reference semantics and Rc identity are untouched.
+/// An EMPTY list is vacuously `Ints` and re-tags freely on its first push.
+///
+/// Hot paths take `&self`/`&mut self` borrows only — no Rc refcount traffic.
+/// `Clone` snapshots a buffer's contents for the region deopt-rollback of an
+/// in-place-mutated array (see [`crate::vm::native_tier::ArrayPin::mutated`]).
+#[derive(Debug, Clone)]
+pub enum ListRepr {
+    Boxed(Vec<RuntimeValue>),
+    Ints(Vec<i64>),
+    Floats(Vec<f64>),
+    Bools(Vec<bool>),
+}
+
+impl ListRepr {
+    pub fn from_values(values: Vec<RuntimeValue>) -> ListRepr {
+        if values.iter().all(|v| matches!(v, RuntimeValue::Int(_))) {
+            ListRepr::Ints(
+                values
+                    .into_iter()
+                    .map(|v| match v {
+                        RuntimeValue::Int(n) => n,
+                        _ => unreachable!(),
+                    })
+                    .collect(),
+            )
+        } else if values.iter().all(|v| matches!(v, RuntimeValue::Float(_))) {
+            ListRepr::Floats(
+                values
+                    .into_iter()
+                    .map(|v| match v {
+                        RuntimeValue::Float(f) => f,
+                        _ => unreachable!(),
+                    })
+                    .collect(),
+            )
+        } else if values.iter().all(|v| matches!(v, RuntimeValue::Bool(_))) {
+            ListRepr::Bools(
+                values
+                    .into_iter()
+                    .map(|v| match v {
+                        RuntimeValue::Bool(b) => b,
+                        _ => unreachable!(),
+                    })
+                    .collect(),
+            )
+        } else {
+            ListRepr::Boxed(values)
+        }
+    }
+
+    pub fn len(&self) -> usize {
+        match self {
+            ListRepr::Boxed(v) => v.len(),
+            ListRepr::Ints(v) => v.len(),
+            ListRepr::Floats(v) => v.len(),
+            ListRepr::Bools(v) => v.len(),
+        }
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
+
+    /// Drop every element past `n` (no-op when already `<= n`). The region
+    /// deopt path uses this to roll a pushed buffer back to its entry length
+    /// so discard-and-replay re-pushes cleanly instead of duplicating.
+    pub fn truncate(&mut self, n: usize) {
+        match self {
+            ListRepr::Boxed(v) => v.truncate(n),
+            ListRepr::Ints(v) => v.truncate(n),
+            ListRepr::Floats(v) => v.truncate(n),
+            ListRepr::Bools(v) => v.truncate(n),
+        }
+    }
+
+    /// 0-based read; boxes the scalar (stack-only — no heap, no Rc traffic).
+    pub fn get(&self, i: usize) -> Option<RuntimeValue> {
+        match self {
+            ListRepr::Boxed(v) => v.get(i).cloned(),
+            ListRepr::Ints(v) => v.get(i).map(|&n| RuntimeValue::Int(n)),
+            ListRepr::Floats(v) => v.get(i).map(|&f| RuntimeValue::Float(f)),
+            ListRepr::Bools(v) => v.get(i).map(|&b| RuntimeValue::Bool(b)),
+        }
+    }
+
+    /// Re-tag to Boxed in place (aliases see it — same Rc).
+    fn make_boxed(&mut self) -> &mut Vec<RuntimeValue> {
+        match self {
+            ListRepr::Boxed(v) => v,
+            ListRepr::Ints(v) => {
+                let boxed = v.drain(..).map(RuntimeValue::Int).collect();
+                *self = ListRepr::Boxed(boxed);
+                match self {
+                    ListRepr::Boxed(v) => v,
+                    _ => unreachable!(),
+                }
+            }
+            ListRepr::Floats(v) => {
+                let boxed = v.drain(..).map(RuntimeValue::Float).collect();
+                *self = ListRepr::Boxed(boxed);
+                match self {
+                    ListRepr::Boxed(v) => v,
+                    _ => unreachable!(),
+                }
+            }
+            ListRepr::Bools(v) => {
+                let boxed = v.drain(..).map(RuntimeValue::Bool).collect();
+                *self = ListRepr::Boxed(boxed);
+                match self {
+                    ListRepr::Boxed(v) => v,
+                    _ => unreachable!(),
+                }
+            }
+        }
+    }
+
+    /// 0-based write (bounds already validated by the caller); promotes on a
+    /// kind mismatch.
+    pub fn set(&mut self, i: usize, value: RuntimeValue) {
+        match (&mut *self, &value) {
+            (ListRepr::Ints(v), RuntimeValue::Int(n)) => v[i] = *n,
+            (ListRepr::Floats(v), RuntimeValue::Float(f)) => v[i] = *f,
+            (ListRepr::Bools(v), RuntimeValue::Bool(b)) => v[i] = *b,
+            (ListRepr::Boxed(v), _) => v[i] = value,
+            _ => self.make_boxed()[i] = value,
+        }
+    }
+
+    pub fn push(&mut self, value: RuntimeValue) {
+        match (&mut *self, &value) {
+            (ListRepr::Ints(v), RuntimeValue::Int(n)) => v.push(*n),
+            (ListRepr::Floats(v), RuntimeValue::Float(f)) => v.push(*f),
+            (ListRepr::Bools(v), RuntimeValue::Bool(b)) => v.push(*b),
+            (ListRepr::Boxed(v), _) => v.push(value),
+            (ListRepr::Ints(v), RuntimeValue::Float(f)) if v.is_empty() => {
+                *self = ListRepr::Floats(vec![*f]);
+            }
+            (ListRepr::Ints(v), RuntimeValue::Bool(b)) if v.is_empty() => {
+                *self = ListRepr::Bools(vec![*b]);
+            }
+            (ListRepr::Floats(v), RuntimeValue::Int(n)) if v.is_empty() => {
+                *self = ListRepr::Ints(vec![*n]);
+            }
+            (ListRepr::Floats(v), RuntimeValue::Bool(b)) if v.is_empty() => {
+                *self = ListRepr::Bools(vec![*b]);
+            }
+            (ListRepr::Bools(v), RuntimeValue::Int(n)) if v.is_empty() => {
+                *self = ListRepr::Ints(vec![*n]);
+            }
+            (ListRepr::Bools(v), RuntimeValue::Float(f)) if v.is_empty() => {
+                *self = ListRepr::Floats(vec![*f]);
+            }
+            _ => self.make_boxed().push(value),
+        }
+    }
+
+    pub fn pop(&mut self) -> Option<RuntimeValue> {
+        match self {
+            ListRepr::Boxed(v) => v.pop(),
+            ListRepr::Ints(v) => v.pop().map(RuntimeValue::Int),
+            ListRepr::Floats(v) => v.pop().map(RuntimeValue::Float),
+            ListRepr::Bools(v) => v.pop().map(RuntimeValue::Bool),
+        }
+    }
+
+    pub fn insert(&mut self, i: usize, value: RuntimeValue) {
+        match (&mut *self, &value) {
+            (ListRepr::Ints(v), RuntimeValue::Int(n)) => v.insert(i, *n),
+            (ListRepr::Floats(v), RuntimeValue::Float(f)) => v.insert(i, *f),
+            (ListRepr::Bools(v), RuntimeValue::Bool(b)) => v.insert(i, *b),
+            (ListRepr::Boxed(v), _) => v.insert(i, value),
+            _ => self.make_boxed().insert(i, value),
+        }
+    }
+
+    pub fn remove_at(&mut self, i: usize) -> RuntimeValue {
+        match self {
+            ListRepr::Boxed(v) => v.remove(i),
+            ListRepr::Ints(v) => RuntimeValue::Int(v.remove(i)),
+            ListRepr::Floats(v) => RuntimeValue::Float(v.remove(i)),
+            ListRepr::Bools(v) => RuntimeValue::Bool(v.remove(i)),
+        }
+    }
+
+    /// Index of the first element `values_equal` to `needle` (the kernel's
+    /// equality: epsilon floats, cross-type never equal).
+    pub fn position(&self, needle: &RuntimeValue) -> Option<usize> {
+        match (self, needle) {
+            (ListRepr::Ints(v), RuntimeValue::Int(n)) => v.iter().position(|x| x == n),
+            (ListRepr::Ints(_), _) => None,
+            (ListRepr::Floats(v), RuntimeValue::Float(f)) => {
+                v.iter().position(|x| (x - f).abs() < f64::EPSILON)
+            }
+            (ListRepr::Floats(_), _) => None,
+            (ListRepr::Bools(v), RuntimeValue::Bool(b)) => v.iter().position(|x| x == b),
+            (ListRepr::Bools(_), _) => None,
+            (ListRepr::Boxed(v), _) => {
+                v.iter().position(|x| crate::semantics::compare::values_equal(x, needle))
+            }
+        }
+    }
+
+    pub fn contains(&self, needle: &RuntimeValue) -> bool {
+        self.position(needle).is_some()
+    }
+
+    /// Materialize boxed values (snapshots, display, deep clones).
+    pub fn to_values(&self) -> Vec<RuntimeValue> {
+        match self {
+            ListRepr::Boxed(v) => v.clone(),
+            ListRepr::Ints(v) => v.iter().map(|&n| RuntimeValue::Int(n)).collect(),
+            ListRepr::Floats(v) => v.iter().map(|&f| RuntimeValue::Float(f)).collect(),
+            ListRepr::Bools(v) => v.iter().map(|&b| RuntimeValue::Bool(b)).collect(),
+        }
+    }
+
+    /// 0-based inclusive-range slice as a fresh payload of the same repr.
+    pub fn slice(&self, start: usize, end: usize) -> ListRepr {
+        match self {
+            ListRepr::Boxed(v) => ListRepr::Boxed(v[start..=end].to_vec()),
+            ListRepr::Ints(v) => ListRepr::Ints(v[start..=end].to_vec()),
+            ListRepr::Floats(v) => ListRepr::Floats(v[start..=end].to_vec()),
+            ListRepr::Bools(v) => ListRepr::Bools(v[start..=end].to_vec()),
+        }
+    }
+
+    /// Direct unboxed views for the JIT's region pinning.
+    pub fn as_ints_mut(&mut self) -> Option<&mut Vec<i64>> {
+        match self {
+            ListRepr::Ints(v) => Some(v),
+            _ => None,
+        }
+    }
+
+    pub fn as_floats_mut(&mut self) -> Option<&mut Vec<f64>> {
+        match self {
+            ListRepr::Floats(v) => Some(v),
+            _ => None,
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 pub enum RuntimeValue {
     Int(i64),
@@ -85,10 +341,10 @@ pub enum RuntimeValue {
     Bool(bool),
     Text(Rc<String>),
     Char(char),
-    List(Rc<RefCell<Vec<RuntimeValue>>>),
+    List(Rc<RefCell<ListRepr>>),
     Tuple(Rc<Vec<RuntimeValue>>),
     Set(Rc<RefCell<Vec<RuntimeValue>>>),
-    Map(Rc<RefCell<HashMap<RuntimeValue, RuntimeValue>>>),
+    Map(Rc<RefCell<MapStorage>>),
     Struct(Box<StructValue>),
     Inductive(Box<InductiveValue>),
     Function(Box<ClosureValue>),
@@ -187,8 +443,9 @@ impl RuntimeValue {
     pub fn deep_clone(&self) -> RuntimeValue {
         match self {
             RuntimeValue::List(items) => {
-                let cloned = items.borrow().iter().map(|v| v.deep_clone()).collect();
-                RuntimeValue::List(Rc::new(RefCell::new(cloned)))
+                let cloned: Vec<RuntimeValue> =
+                    items.borrow().to_values().iter().map(|v| v.deep_clone()).collect();
+                RuntimeValue::List(Rc::new(RefCell::new(ListRepr::from_values(cloned))))
             }
             RuntimeValue::Set(items) => {
                 let cloned = items.borrow().iter().map(|v| v.deep_clone()).collect();
@@ -254,7 +511,8 @@ impl RuntimeValue {
             RuntimeValue::Char(c) => c.to_string(),
             RuntimeValue::List(items) => {
                 let items = items.borrow();
-                let parts: Vec<String> = items.iter().map(|v| v.to_display_string()).collect();
+                let parts: Vec<String> =
+                    items.to_values().iter().map(|v| v.to_display_string()).collect();
                 format!("[{}]", parts.join(", "))
             }
             RuntimeValue::Tuple(items) => {
@@ -337,10 +595,13 @@ impl RuntimeValue {
                 format!("{:04}-{:02}-{:02}", year, m, d)
             }
             RuntimeValue::Moment(nanos) => {
-                // Convert nanoseconds since epoch to ISO-8601-like datetime
-                let total_seconds = *nanos / 1_000_000_000;
-                let days = (total_seconds / 86400) as i32;
-                let day_seconds = total_seconds % 86400;
+                // Convert nanoseconds since epoch to ISO-8601-like datetime.
+                // Use floored (Euclidean) division so a pre-epoch (negative)
+                // Moment yields the correct date and a 0..86399 time-of-day,
+                // not a negative hour/minute.
+                let total_seconds = nanos.div_euclid(1_000_000_000);
+                let days = total_seconds.div_euclid(86400) as i32;
+                let day_seconds = total_seconds.rem_euclid(86400);
                 let hours = day_seconds / 3600;
                 let minutes = (day_seconds % 3600) / 60;
 
@@ -580,6 +841,30 @@ pub struct Interpreter<'a> {
     closure_bodies: Vec<ClosureBodyRef<'a>>,
     /// Live LOGOS call depth, bounded by `semantics::MAX_CALL_DEPTH`.
     call_depth: usize,
+    /// The user function whose body the SYNC path is currently executing. A
+    /// `Return self(args)` (or the `Set/Let x to self(args); Return x` pair) of
+    /// THIS function is a self-tail-call: `call_function_sync` reassigns the
+    /// parameters and loops to the body's start instead of recursing, so tail
+    /// recursion runs in constant stack — matching the VM and the AOT TCE.
+    /// Saved and restored across each nested call so it always names the
+    /// innermost active function.
+    tco_fn_sync: Option<Symbol>,
+    /// Set by a recognized self-tail-call: the already-evaluated arguments for
+    /// the next loop iteration, consumed by `call_function_sync`.
+    pending_tail_call: Option<Vec<RuntimeValue>>,
+    /// `Repeat` (for-each) nesting on the SYNC path within the current function
+    /// body. A `Repeat` owns a live iterator, so — exactly like the VM's
+    /// `is_repeat` guard — a self-tail-call detected inside one stays an ordinary
+    /// recursive call (jumping to the body start would abandon the iterator),
+    /// keeping the two engines bit-identical. Reset to 0 at each call boundary.
+    repeat_depth_sync: usize,
+    /// `tco_fn_sync` for the ASYNC execution path (used when a program contains
+    /// async constructs); same constant-stack TCO semantics on that path.
+    tco_fn_async: Option<Symbol>,
+    /// `pending_tail_call` for the ASYNC path.
+    pending_tail_call_async: Option<Vec<RuntimeValue>>,
+    /// `repeat_depth_sync` for the ASYNC path.
+    repeat_depth_async: usize,
     // Pre-interned builtin function symbols for O(1) dispatch
     sym_show: Option<Symbol>,
     sym_length: Option<Symbol>,
@@ -596,6 +881,11 @@ pub struct Interpreter<'a> {
     sym_pow: Option<Symbol>,
     sym_copy: Option<Symbol>,
     sym_chr: Option<Symbol>,
+    sym_count_ones: Option<Symbol>,
+    sym_args: Option<Symbol>,
+    /// Program arguments for the `args()` system native — full argv, index 0 is
+    /// the program name (mirrors the compiled binary's `env::args()`).
+    program_args: Vec<String>,
 }
 
 impl<'a> Interpreter<'a> {
@@ -612,6 +902,12 @@ impl<'a> Interpreter<'a> {
             output_callback: None,
             closure_bodies: Vec::new(),
             call_depth: 0,
+            tco_fn_sync: None,
+            pending_tail_call: None,
+            repeat_depth_sync: 0,
+            tco_fn_async: None,
+            pending_tail_call_async: None,
+            repeat_depth_async: 0,
             sym_show: interner.lookup("show"),
             sym_length: interner.lookup("length"),
             sym_format: interner.lookup("format"),
@@ -627,7 +923,18 @@ impl<'a> Interpreter<'a> {
             sym_pow: interner.lookup("pow"),
             sym_copy: interner.lookup("copy"),
             sym_chr: interner.lookup("chr"),
+            sym_count_ones: interner.lookup("count_ones"),
+            sym_args: interner.lookup("args"),
+            program_args: Vec::new(),
         }
+    }
+
+    /// Supply the program arguments read by the `args()` system native. The
+    /// vector is the full argv (index 0 is the program name), matching the
+    /// compiled binary's `env::args()`.
+    pub fn with_program_args(mut self, args: Vec<String>) -> Self {
+        self.program_args = args;
+        self
     }
 
     /// Phase 55: Set the VFS for file operations.
@@ -786,6 +1093,8 @@ impl<'a> Interpreter<'a> {
                 let items = crate::semantics::collections::iteration_snapshot(&iter_val)?;
 
                 self.push_scope();
+                // Suppress TCO inside a `Repeat` (live iterator) — see SYNC twin.
+                self.repeat_depth_async += 1;
                 for item in items {
                     // Bind variables according to pattern
                     match pattern {
@@ -798,6 +1107,7 @@ impl<'a> Interpreter<'a> {
                                     self.define(*sym, val.clone());
                                 }
                             } else {
+                                self.repeat_depth_async -= 1;
                                 return Err(format!("Expected tuple for pattern, got {}", item.type_name()));
                             }
                         }
@@ -806,17 +1116,31 @@ impl<'a> Interpreter<'a> {
                     match self.execute_block(body).await? {
                         ControlFlow::Break => break,
                         ControlFlow::Return(v) => {
+                            self.repeat_depth_async -= 1;
                             self.pop_scope();
                             return Ok(ControlFlow::Return(v));
                         }
                         ControlFlow::Continue => {}
                     }
                 }
+                self.repeat_depth_async -= 1;
                 self.pop_scope();
                 Ok(ControlFlow::Continue)
             }
 
             Stmt::Return { value } => {
+                // Direct self-tail-call → loop-back in `call_function` (see the
+                // SYNC twin for the full rationale).
+                if let Some(expr) = value {
+                    if let Some(call_args) = self.self_tail_call_args_async(*expr) {
+                        let mut vals = Vec::with_capacity(call_args.len());
+                        for a in call_args {
+                            vals.push(self.evaluate_expr(a).await?);
+                        }
+                        self.pending_tail_call_async = Some(vals);
+                        return Ok(ControlFlow::Return(RuntimeValue::Nothing));
+                    }
+                }
                 let ret_val = match value {
                     Some(expr) => self.evaluate_expr(expr).await?,
                     None => RuntimeValue::Nothing,
@@ -1473,7 +1797,7 @@ impl<'a> Interpreter<'a> {
                 for e in items.iter() {
                     values.push(self.evaluate_expr(e).await?);
                 }
-                Ok(RuntimeValue::List(Rc::new(RefCell::new(values))))
+                Ok(RuntimeValue::List(Rc::new(RefCell::new(ListRepr::from_values(values)))))
             }
 
             Expr::Tuple(items) => {
@@ -1506,7 +1830,7 @@ impl<'a> Interpreter<'a> {
                 let name = self.interner.resolve(*type_name).to_string();
 
                 if name == "Seq" || name == "List" {
-                    return Ok(RuntimeValue::List(Rc::new(RefCell::new(vec![]))));
+                    return Ok(RuntimeValue::List(Rc::new(RefCell::new(ListRepr::Ints(Vec::new())))));
                 }
 
                 if name == "Set" || name == "HashSet" {
@@ -1514,7 +1838,7 @@ impl<'a> Interpreter<'a> {
                 }
 
                 if name == "Map" || name == "HashMap" {
-                    return Ok(RuntimeValue::Map(Rc::new(RefCell::new(HashMap::new()))));
+                    return Ok(RuntimeValue::Map(Rc::new(RefCell::new(MapStorage::default()))));
                 }
 
                 let mut fields = HashMap::new();
@@ -1536,9 +1860,9 @@ impl<'a> Interpreter<'a> {
                                 "Text" | "String" => RuntimeValue::Text(Rc::new(String::new())),
                                 "Char" => RuntimeValue::Char('\0'),
                                 "Byte" => RuntimeValue::Int(0),
-                                "Seq" | "List" => RuntimeValue::List(Rc::new(RefCell::new(vec![]))),
+                                "Seq" | "List" => RuntimeValue::List(Rc::new(RefCell::new(ListRepr::Ints(Vec::new())))),
                                 "Set" | "HashSet" => RuntimeValue::Set(Rc::new(RefCell::new(vec![]))),
-                                "Map" | "HashMap" => RuntimeValue::Map(Rc::new(RefCell::new(HashMap::new()))),
+                                "Map" | "HashMap" => RuntimeValue::Map(Rc::new(RefCell::new(MapStorage::default()))),
                                 _ => RuntimeValue::Nothing,
                             };
                             fields.insert(field_name, default);
@@ -1569,7 +1893,7 @@ impl<'a> Interpreter<'a> {
             }
 
             Expr::ManifestOf { .. } => {
-                Ok(RuntimeValue::List(Rc::new(RefCell::new(vec![]))))
+                Ok(RuntimeValue::List(Rc::new(RefCell::new(ListRepr::Ints(Vec::new())))))
             }
 
             Expr::ChunkAt { .. } => {
@@ -1711,6 +2035,16 @@ impl<'a> Interpreter<'a> {
                 self.emit_output(val.to_display_string());
             }
             return Ok(RuntimeValue::Nothing);
+        } else if func_sym == self.sym_args {
+            // `args()` system native: the stored argv as a `Seq of Text`,
+            // mirroring the compiled binary's `env::args()`. Intercepted BEFORE
+            // the empty native-decl body would be reached, like `show`.
+            let items: Vec<RuntimeValue> = self
+                .program_args
+                .iter()
+                .map(|s| RuntimeValue::Text(Rc::new(s.clone())))
+                .collect();
+            return Ok(RuntimeValue::List(Rc::new(RefCell::new(ListRepr::from_values(items)))));
         } else if let Some(id) = self.builtin_id(function) {
             // Arity is checked BEFORE evaluating arguments (kernel rule).
             crate::semantics::builtins::check_arity(id, args.len())?;
@@ -1763,22 +2097,73 @@ impl<'a> Interpreter<'a> {
             }
 
             // Execute function body
+            // TCO on the async path — mirror of the sync twin in
+            // `call_function_sync` (constant-stack self-tail-calls).
+            let prev_tco = self.tco_fn_async.replace(function);
+            let prev_repeat = std::mem::replace(&mut self.repeat_depth_async, 0);
             let mut return_value = RuntimeValue::Nothing;
             let mut body_err = None;
-            for stmt in body.iter() {
-                match self.execute_stmt(stmt).await {
-                    Ok(ControlFlow::Return(val)) => {
-                        return_value = val;
-                        break;
+            'tco: loop {
+                self.pending_tail_call_async = None;
+                let mut idx = 0;
+                while idx < body.len() {
+                    if idx + 1 < body.len() {
+                        if let Some(call_args) = crate::tail_call::tail_pair_args(
+                            &body[idx],
+                            &body[idx + 1],
+                            function,
+                            param_count,
+                        ) {
+                            let mut vals = Vec::with_capacity(call_args.len());
+                            let mut perr = None;
+                            for a in call_args {
+                                match self.evaluate_expr(a).await {
+                                    Ok(v) => vals.push(v),
+                                    Err(e) => {
+                                        perr = Some(e);
+                                        break;
+                                    }
+                                }
+                            }
+                            match perr {
+                                Some(e) => body_err = Some(e),
+                                None => self.pending_tail_call_async = Some(vals),
+                            }
+                            break;
+                        }
                     }
-                    Ok(ControlFlow::Break) => break,
-                    Ok(ControlFlow::Continue) => {}
-                    Err(e) => {
-                        body_err = Some(e);
-                        break;
+                    match self.execute_stmt(&body[idx]).await {
+                        Ok(ControlFlow::Return(val)) => {
+                            return_value = val;
+                            break;
+                        }
+                        Ok(ControlFlow::Break) => break,
+                        Ok(ControlFlow::Continue) => {}
+                        Err(e) => {
+                            body_err = Some(e);
+                            break;
+                        }
                     }
+                    idx += 1;
+                }
+                if body_err.is_some() {
+                    break 'tco;
+                }
+                match self.pending_tail_call_async.take() {
+                    Some(new_args) => {
+                        self.env.pop_frame();
+                        self.env.push_frame();
+                        for (i, v) in new_args.into_iter().enumerate() {
+                            let param_name = self.functions[&function].params[i].0;
+                            self.env.define(param_name, v);
+                        }
+                        continue 'tco;
+                    }
+                    None => break 'tco,
                 }
             }
+            self.repeat_depth_async = prev_repeat;
+            self.tco_fn_async = prev_tco;
 
             self.env.pop_frame();
         self.call_depth -= 1;
@@ -1836,22 +2221,73 @@ impl<'a> Interpreter<'a> {
                 self.env.define(param_name, std::mem::replace(&mut args[i], RuntimeValue::Nothing));
             }
 
+            // TCO on the async path — mirror of the sync twin in
+            // `call_function_sync` (constant-stack self-tail-calls).
+            let prev_tco = self.tco_fn_async.replace(function);
+            let prev_repeat = std::mem::replace(&mut self.repeat_depth_async, 0);
             let mut return_value = RuntimeValue::Nothing;
             let mut body_err = None;
-            for stmt in body.iter() {
-                match self.execute_stmt(stmt).await {
-                    Ok(ControlFlow::Return(val)) => {
-                        return_value = val;
-                        break;
+            'tco: loop {
+                self.pending_tail_call_async = None;
+                let mut idx = 0;
+                while idx < body.len() {
+                    if idx + 1 < body.len() {
+                        if let Some(call_args) = crate::tail_call::tail_pair_args(
+                            &body[idx],
+                            &body[idx + 1],
+                            function,
+                            param_count,
+                        ) {
+                            let mut vals = Vec::with_capacity(call_args.len());
+                            let mut perr = None;
+                            for a in call_args {
+                                match self.evaluate_expr(a).await {
+                                    Ok(v) => vals.push(v),
+                                    Err(e) => {
+                                        perr = Some(e);
+                                        break;
+                                    }
+                                }
+                            }
+                            match perr {
+                                Some(e) => body_err = Some(e),
+                                None => self.pending_tail_call_async = Some(vals),
+                            }
+                            break;
+                        }
                     }
-                    Ok(ControlFlow::Break) => break,
-                    Ok(ControlFlow::Continue) => {}
-                    Err(e) => {
-                        body_err = Some(e);
-                        break;
+                    match self.execute_stmt(&body[idx]).await {
+                        Ok(ControlFlow::Return(val)) => {
+                            return_value = val;
+                            break;
+                        }
+                        Ok(ControlFlow::Break) => break,
+                        Ok(ControlFlow::Continue) => {}
+                        Err(e) => {
+                            body_err = Some(e);
+                            break;
+                        }
                     }
+                    idx += 1;
+                }
+                if body_err.is_some() {
+                    break 'tco;
+                }
+                match self.pending_tail_call_async.take() {
+                    Some(new_args) => {
+                        self.env.pop_frame();
+                        self.env.push_frame();
+                        for (i, v) in new_args.into_iter().enumerate() {
+                            let param_name = self.functions[&function].params[i].0;
+                            self.env.define(param_name, v);
+                        }
+                        continue 'tco;
+                    }
+                    None => break 'tco,
                 }
             }
+            self.repeat_depth_async = prev_repeat;
+            self.tco_fn_async = prev_tco;
 
             self.env.pop_frame();
         self.call_depth -= 1;
@@ -1903,6 +2339,8 @@ impl<'a> Interpreter<'a> {
             Some(B::Pow)
         } else if s == self.sym_copy {
             Some(B::Copy)
+        } else if s == self.sym_count_ones {
+            Some(B::CountOnes)
         } else {
             None
         }
@@ -2025,6 +2463,10 @@ impl<'a> Interpreter<'a> {
                 let items = crate::semantics::collections::iteration_snapshot(&iter_val)?;
 
                 self.push_scope();
+                // A `Repeat` owns a live iterator: suppress TCO of any self-call
+                // detected inside it (jumping to the body start would abandon the
+                // iterator), matching the VM's `is_repeat` guard exactly.
+                self.repeat_depth_sync += 1;
                 for item in items {
                     match pattern {
                         Pattern::Identifier(sym) => {
@@ -2036,6 +2478,7 @@ impl<'a> Interpreter<'a> {
                                     self.define(*sym, val.clone());
                                 }
                             } else {
+                                self.repeat_depth_sync -= 1;
                                 return Err(format!("Expected tuple for pattern, got {}", item.type_name()));
                             }
                         }
@@ -2044,17 +2487,34 @@ impl<'a> Interpreter<'a> {
                     match self.execute_block_sync(body)? {
                         ControlFlow::Break => break,
                         ControlFlow::Return(v) => {
+                            self.repeat_depth_sync -= 1;
                             self.pop_scope();
                             return Ok(ControlFlow::Return(v));
                         }
                         ControlFlow::Continue => {}
                     }
                 }
+                self.repeat_depth_sync -= 1;
                 self.pop_scope();
                 Ok(ControlFlow::Continue)
             }
 
             Stmt::Return { value } => {
+                // A direct self-tail-call `Return self(args)` becomes a loop-back
+                // in `call_function_sync`: signal it via `pending_tail_call` and
+                // return control to the body driver (which sees the sentinel and
+                // restarts instead of using the value). Args are evaluated here —
+                // a nested self-call in an argument stays ordinary recursion.
+                if let Some(expr) = value {
+                    if let Some(call_args) = self.self_tail_call_args_sync(*expr) {
+                        let mut vals = Vec::with_capacity(call_args.len());
+                        for a in call_args {
+                            vals.push(self.evaluate_expr_sync(a)?);
+                        }
+                        self.pending_tail_call = Some(vals);
+                        return Ok(ControlFlow::Return(RuntimeValue::Nothing));
+                    }
+                }
                 let ret_val = match value {
                     Some(expr) => self.evaluate_expr_sync(expr)?,
                     None => RuntimeValue::Nothing,
@@ -2607,7 +3067,7 @@ impl<'a> Interpreter<'a> {
                 for e in items.iter() {
                     values.push(self.evaluate_expr_sync(e)?);
                 }
-                Ok(RuntimeValue::List(Rc::new(RefCell::new(values))))
+                Ok(RuntimeValue::List(Rc::new(RefCell::new(ListRepr::from_values(values)))))
             }
 
             Expr::Tuple(items) => {
@@ -2640,7 +3100,7 @@ impl<'a> Interpreter<'a> {
                 let name = self.interner.resolve(*type_name).to_string();
 
                 if name == "Seq" || name == "List" {
-                    return Ok(RuntimeValue::List(Rc::new(RefCell::new(vec![]))));
+                    return Ok(RuntimeValue::List(Rc::new(RefCell::new(ListRepr::Ints(Vec::new())))));
                 }
 
                 if name == "Set" || name == "HashSet" {
@@ -2648,7 +3108,7 @@ impl<'a> Interpreter<'a> {
                 }
 
                 if name == "Map" || name == "HashMap" {
-                    return Ok(RuntimeValue::Map(Rc::new(RefCell::new(HashMap::new()))));
+                    return Ok(RuntimeValue::Map(Rc::new(RefCell::new(MapStorage::default()))));
                 }
 
                 let mut fields = HashMap::new();
@@ -2670,9 +3130,9 @@ impl<'a> Interpreter<'a> {
                                 "Text" | "String" => RuntimeValue::Text(Rc::new(String::new())),
                                 "Char" => RuntimeValue::Char('\0'),
                                 "Byte" => RuntimeValue::Int(0),
-                                "Seq" | "List" => RuntimeValue::List(Rc::new(RefCell::new(vec![]))),
+                                "Seq" | "List" => RuntimeValue::List(Rc::new(RefCell::new(ListRepr::Ints(Vec::new())))),
                                 "Set" | "HashSet" => RuntimeValue::Set(Rc::new(RefCell::new(vec![]))),
-                                "Map" | "HashMap" => RuntimeValue::Map(Rc::new(RefCell::new(HashMap::new()))),
+                                "Map" | "HashMap" => RuntimeValue::Map(Rc::new(RefCell::new(MapStorage::default()))),
                                 _ => RuntimeValue::Nothing,
                             };
                             fields.insert(field_name, default);
@@ -2701,7 +3161,7 @@ impl<'a> Interpreter<'a> {
             }
 
             Expr::ManifestOf { .. } => {
-                Ok(RuntimeValue::List(Rc::new(RefCell::new(vec![]))))
+                Ok(RuntimeValue::List(Rc::new(RefCell::new(ListRepr::Ints(Vec::new())))))
             }
 
             Expr::ChunkAt { .. } => {
@@ -2802,6 +3262,29 @@ impl<'a> Interpreter<'a> {
         }
     }
 
+    /// If `expr` is a direct self-tail-call — `self(args)` of the function the
+    /// SYNC path is currently executing, with matching arity and not inside a
+    /// `Repeat` — return its argument expressions for `call_function_sync` to
+    /// evaluate and loop on. `None` leaves the `Return` an ordinary one.
+    fn self_tail_call_args_sync(&self, expr: &'a Expr<'a>) -> Option<&'a [&'a Expr<'a>]> {
+        if self.repeat_depth_sync != 0 {
+            return None;
+        }
+        let cur = self.tco_fn_sync?;
+        let param_count = self.functions.get(&cur)?.params.len();
+        crate::tail_call::direct_self_tail_args(expr, cur, param_count)
+    }
+
+    /// ASYNC twin of [`Self::self_tail_call_args_sync`].
+    fn self_tail_call_args_async(&self, expr: &'a Expr<'a>) -> Option<&'a [&'a Expr<'a>]> {
+        if self.repeat_depth_async != 0 {
+            return None;
+        }
+        let cur = self.tco_fn_async?;
+        let param_count = self.functions.get(&cur)?.params.len();
+        crate::tail_call::direct_self_tail_args(expr, cur, param_count)
+    }
+
     fn call_function_sync(&mut self, function: Symbol, args: &[&Expr<'a>]) -> Result<RuntimeValue, String> {
         // Built-in functions — Symbol comparison (integer) instead of string matching
         let func_sym = Some(function);
@@ -2811,6 +3294,16 @@ impl<'a> Interpreter<'a> {
                 self.emit_output(val.to_display_string());
             }
             return Ok(RuntimeValue::Nothing);
+        } else if func_sym == self.sym_args {
+            // `args()` system native: the stored argv as a `Seq of Text`,
+            // mirroring the compiled binary's `env::args()`. Must match the
+            // async path AND the VM (the shadow oracle asserts VM ≡ tree-walker).
+            let items: Vec<RuntimeValue> = self
+                .program_args
+                .iter()
+                .map(|s| RuntimeValue::Text(Rc::new(s.clone())))
+                .collect();
+            return Ok(RuntimeValue::List(Rc::new(RefCell::new(ListRepr::from_values(items)))));
         } else if let Some(id) = self.builtin_id(function) {
             // Arity is checked BEFORE evaluating arguments (kernel rule).
             crate::semantics::builtins::check_arity(id, args.len())?;
@@ -2859,22 +3352,80 @@ impl<'a> Interpreter<'a> {
                 self.env.define(param_name, std::mem::replace(&mut arg_values[i], RuntimeValue::Nothing));
             }
 
+            // TCO: while executing THIS function's body, a self-tail-call is a
+            // loop-back (reassign params + restart the body) rather than a real
+            // recursive call. `tco_fn_sync`/`repeat_depth_sync` are per-activation,
+            // so save the caller's and reset for this body.
+            let prev_tco = self.tco_fn_sync.replace(function);
+            let prev_repeat = std::mem::replace(&mut self.repeat_depth_sync, 0);
             let mut return_value = RuntimeValue::Nothing;
             let mut body_err = None;
-            for stmt in body.iter() {
-                match self.execute_stmt_sync(stmt) {
-                    Ok(ControlFlow::Return(val)) => {
-                        return_value = val;
-                        break;
+            'tco: loop {
+                self.pending_tail_call = None;
+                let mut idx = 0;
+                while idx < body.len() {
+                    // Top-level `Set/Let x to self(args); Return x` pair — a tail
+                    // call. (A direct `Return self(args)` at any depth is caught
+                    // in execute_stmt_sync's Return arm.)
+                    if idx + 1 < body.len() {
+                        if let Some(call_args) = crate::tail_call::tail_pair_args(
+                            &body[idx],
+                            &body[idx + 1],
+                            function,
+                            param_count,
+                        ) {
+                            let mut vals = Vec::with_capacity(call_args.len());
+                            let mut perr = None;
+                            for a in call_args {
+                                match self.evaluate_expr_sync(a) {
+                                    Ok(v) => vals.push(v),
+                                    Err(e) => {
+                                        perr = Some(e);
+                                        break;
+                                    }
+                                }
+                            }
+                            match perr {
+                                Some(e) => body_err = Some(e),
+                                None => self.pending_tail_call = Some(vals),
+                            }
+                            break;
+                        }
                     }
-                    Ok(ControlFlow::Break) => break,
-                    Ok(ControlFlow::Continue) => {}
-                    Err(e) => {
-                        body_err = Some(e);
-                        break;
+                    match self.execute_stmt_sync(&body[idx]) {
+                        Ok(ControlFlow::Return(val)) => {
+                            return_value = val;
+                            break;
+                        }
+                        Ok(ControlFlow::Break) => break,
+                        Ok(ControlFlow::Continue) => {}
+                        Err(e) => {
+                            body_err = Some(e);
+                            break;
+                        }
                     }
+                    idx += 1;
+                }
+                if body_err.is_some() {
+                    break 'tco;
+                }
+                match self.pending_tail_call.take() {
+                    Some(new_args) => {
+                        // Loop-back: a fresh frame (no stale locals) with the
+                        // reassigned parameters — constant stack, no depth bump.
+                        self.env.pop_frame();
+                        self.env.push_frame();
+                        for (i, v) in new_args.into_iter().enumerate() {
+                            let param_name = self.functions[&function].params[i].0;
+                            self.env.define(param_name, v);
+                        }
+                        continue 'tco;
+                    }
+                    None => break 'tco,
                 }
             }
+            self.repeat_depth_sync = prev_repeat;
+            self.tco_fn_sync = prev_tco;
 
             self.env.pop_frame();
         self.call_depth -= 1;
@@ -2929,22 +3480,80 @@ impl<'a> Interpreter<'a> {
                 self.env.define(param_name, std::mem::replace(&mut args[i], RuntimeValue::Nothing));
             }
 
+            // TCO: while executing THIS function's body, a self-tail-call is a
+            // loop-back (reassign params + restart the body) rather than a real
+            // recursive call. `tco_fn_sync`/`repeat_depth_sync` are per-activation,
+            // so save the caller's and reset for this body.
+            let prev_tco = self.tco_fn_sync.replace(function);
+            let prev_repeat = std::mem::replace(&mut self.repeat_depth_sync, 0);
             let mut return_value = RuntimeValue::Nothing;
             let mut body_err = None;
-            for stmt in body.iter() {
-                match self.execute_stmt_sync(stmt) {
-                    Ok(ControlFlow::Return(val)) => {
-                        return_value = val;
-                        break;
+            'tco: loop {
+                self.pending_tail_call = None;
+                let mut idx = 0;
+                while idx < body.len() {
+                    // Top-level `Set/Let x to self(args); Return x` pair — a tail
+                    // call. (A direct `Return self(args)` at any depth is caught
+                    // in execute_stmt_sync's Return arm.)
+                    if idx + 1 < body.len() {
+                        if let Some(call_args) = crate::tail_call::tail_pair_args(
+                            &body[idx],
+                            &body[idx + 1],
+                            function,
+                            param_count,
+                        ) {
+                            let mut vals = Vec::with_capacity(call_args.len());
+                            let mut perr = None;
+                            for a in call_args {
+                                match self.evaluate_expr_sync(a) {
+                                    Ok(v) => vals.push(v),
+                                    Err(e) => {
+                                        perr = Some(e);
+                                        break;
+                                    }
+                                }
+                            }
+                            match perr {
+                                Some(e) => body_err = Some(e),
+                                None => self.pending_tail_call = Some(vals),
+                            }
+                            break;
+                        }
                     }
-                    Ok(ControlFlow::Break) => break,
-                    Ok(ControlFlow::Continue) => {}
-                    Err(e) => {
-                        body_err = Some(e);
-                        break;
+                    match self.execute_stmt_sync(&body[idx]) {
+                        Ok(ControlFlow::Return(val)) => {
+                            return_value = val;
+                            break;
+                        }
+                        Ok(ControlFlow::Break) => break,
+                        Ok(ControlFlow::Continue) => {}
+                        Err(e) => {
+                            body_err = Some(e);
+                            break;
+                        }
                     }
+                    idx += 1;
+                }
+                if body_err.is_some() {
+                    break 'tco;
+                }
+                match self.pending_tail_call.take() {
+                    Some(new_args) => {
+                        // Loop-back: a fresh frame (no stale locals) with the
+                        // reassigned parameters — constant stack, no depth bump.
+                        self.env.pop_frame();
+                        self.env.push_frame();
+                        for (i, v) in new_args.into_iter().enumerate() {
+                            let param_name = self.functions[&function].params[i].0;
+                            self.env.define(param_name, v);
+                        }
+                        continue 'tco;
+                    }
+                    None => break 'tco,
                 }
             }
+            self.repeat_depth_sync = prev_repeat;
+            self.tco_fn_sync = prev_tco;
 
             self.env.pop_frame();
         self.call_depth -= 1;
@@ -3111,71 +3720,92 @@ impl<'a> Interpreter<'a> {
         out: &mut Vec<Symbol>,
         seen: &mut std::collections::HashSet<Symbol>,
     ) {
+        use crate::ast::stmt::Pattern;
+        // `bound` = params + the locals introduced so far in THIS block's scope.
+        // A `Let` (or `Repeat`/`Inspect` pattern) binding excludes later uses of
+        // that name from the FREE-variable set — without this a function's own
+        // local that happens to share a name with a Main top-level variable would
+        // leak as "free", over-promoting that Main var to a global and blocking
+        // the JIT from tiering Main's hot loops. Nested blocks clone `bound`, so a
+        // binding never leaks to a sibling block or past its scope.
+        let mut bound = exclude.clone();
         for stmt in stmts {
             match stmt {
-                Stmt::Let { value, .. } => {
-                    Self::collect_symbols_from_expr(value, exclude, out, seen);
+                Stmt::Let { var, value, .. } => {
+                    Self::collect_symbols_from_expr(value, &bound, out, seen);
+                    bound.insert(*var);
                 }
                 Stmt::Set { value, .. } => {
-                    Self::collect_symbols_from_expr(value, exclude, out, seen);
+                    Self::collect_symbols_from_expr(value, &bound, out, seen);
                 }
                 Stmt::Call { function, args } => {
-                    if !exclude.contains(function) && seen.insert(*function) {
+                    if !bound.contains(function) && seen.insert(*function) {
                         out.push(*function);
                     }
                     for arg in args {
-                        Self::collect_symbols_from_expr(arg, exclude, out, seen);
+                        Self::collect_symbols_from_expr(arg, &bound, out, seen);
                     }
                 }
                 Stmt::Return { value: Some(e) } => {
-                    Self::collect_symbols_from_expr(e, exclude, out, seen);
+                    Self::collect_symbols_from_expr(e, &bound, out, seen);
                 }
                 Stmt::If { cond, then_block, else_block } => {
-                    Self::collect_symbols_from_expr(cond, exclude, out, seen);
-                    Self::collect_symbols_from_block(then_block, exclude, out, seen);
+                    Self::collect_symbols_from_expr(cond, &bound, out, seen);
+                    Self::collect_symbols_from_block(then_block, &bound, out, seen);
                     if let Some(eb) = else_block {
-                        Self::collect_symbols_from_block(eb, exclude, out, seen);
+                        Self::collect_symbols_from_block(eb, &bound, out, seen);
                     }
                 }
                 Stmt::While { cond, body, .. } => {
-                    Self::collect_symbols_from_expr(cond, exclude, out, seen);
-                    Self::collect_symbols_from_block(body, exclude, out, seen);
+                    Self::collect_symbols_from_expr(cond, &bound, out, seen);
+                    Self::collect_symbols_from_block(body, &bound, out, seen);
                 }
-                Stmt::Repeat { iterable, body, .. } => {
-                    Self::collect_symbols_from_expr(iterable, exclude, out, seen);
-                    Self::collect_symbols_from_block(body, exclude, out, seen);
+                Stmt::Repeat { pattern, iterable, body } => {
+                    Self::collect_symbols_from_expr(iterable, &bound, out, seen);
+                    let mut body_bound = bound.clone();
+                    match pattern {
+                        Pattern::Identifier(s) => {
+                            body_bound.insert(*s);
+                        }
+                        Pattern::Tuple(syms) => {
+                            for s in syms {
+                                body_bound.insert(*s);
+                            }
+                        }
+                    }
+                    Self::collect_symbols_from_block(body, &body_bound, out, seen);
                 }
                 Stmt::Show { object, .. } | Stmt::Give { object, .. } => {
-                    Self::collect_symbols_from_expr(object, exclude, out, seen);
+                    Self::collect_symbols_from_expr(object, &bound, out, seen);
                 }
                 Stmt::Push { value, collection } | Stmt::Add { value, collection }
                 | Stmt::Remove { value, collection } => {
-                    Self::collect_symbols_from_expr(value, exclude, out, seen);
-                    Self::collect_symbols_from_expr(collection, exclude, out, seen);
+                    Self::collect_symbols_from_expr(value, &bound, out, seen);
+                    Self::collect_symbols_from_expr(collection, &bound, out, seen);
                 }
                 Stmt::SetIndex { collection, index, value } => {
-                    Self::collect_symbols_from_expr(collection, exclude, out, seen);
-                    Self::collect_symbols_from_expr(index, exclude, out, seen);
-                    Self::collect_symbols_from_expr(value, exclude, out, seen);
+                    Self::collect_symbols_from_expr(collection, &bound, out, seen);
+                    Self::collect_symbols_from_expr(index, &bound, out, seen);
+                    Self::collect_symbols_from_expr(value, &bound, out, seen);
                 }
                 Stmt::SetField { object, value, .. } => {
-                    Self::collect_symbols_from_expr(object, exclude, out, seen);
-                    Self::collect_symbols_from_expr(value, exclude, out, seen);
+                    Self::collect_symbols_from_expr(object, &bound, out, seen);
+                    Self::collect_symbols_from_expr(value, &bound, out, seen);
                 }
                 Stmt::RuntimeAssert { condition } => {
-                    Self::collect_symbols_from_expr(condition, exclude, out, seen);
+                    Self::collect_symbols_from_expr(condition, &bound, out, seen);
                 }
                 Stmt::Zone { body, .. } => {
-                    Self::collect_symbols_from_block(body, exclude, out, seen);
+                    Self::collect_symbols_from_block(body, &bound, out, seen);
                 }
                 Stmt::Inspect { target, arms, .. } => {
-                    Self::collect_symbols_from_expr(target, exclude, out, seen);
+                    Self::collect_symbols_from_expr(target, &bound, out, seen);
                     for arm in arms {
-                        Self::collect_symbols_from_block(arm.body, exclude, out, seen);
+                        Self::collect_symbols_from_block(arm.body, &bound, out, seen);
                     }
                 }
                 Stmt::Pop { collection, .. } => {
-                    Self::collect_symbols_from_expr(collection, exclude, out, seen);
+                    Self::collect_symbols_from_expr(collection, &bound, out, seen);
                 }
                 _ => {}
             }

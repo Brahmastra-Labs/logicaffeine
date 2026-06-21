@@ -82,7 +82,11 @@ impl Repl {
                     // And params = [(A, Type)]
                     // Result = Π(A:Type). A -> List A -> List A
                     let poly_ctor_ty = build_polymorphic_constructor(&params, ctor_ty);
-                    self.ctx.add_constructor(&ctor_name, &name, poly_ctor_ty);
+                    // Strict positivity is enforced on the trusted, user-facing
+                    // registration path: a negative-recursive constructor (e.g.
+                    // `Cons : (Bad -> False) -> Bad`) would let one inhabit `False`.
+                    self.ctx
+                        .add_constructor_checked(&ctor_name, &name, poly_ctor_ty)?;
                 }
 
                 Ok(String::new()) // Silent success

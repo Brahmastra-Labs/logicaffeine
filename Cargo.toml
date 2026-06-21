@@ -17,6 +17,7 @@ members = [
     "crates/logicaffeine_lsp",
     "crates/logicaffeine_verify",
     "crates/logicaffeine_tv",
+    "crates/logicaffeine_synth",
     "scripts/wiki_trace",
 ]
 

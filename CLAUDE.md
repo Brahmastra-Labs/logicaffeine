@@ -7,8 +7,9 @@
 3. **USE TDD** - Follow RED/GREEN test-driven development, WE LOVE TESTS, ROBUST TESTS TO THE POINT OF ABSURDITY.
 4. **NEVER MODIFY RED TESTS** - Do not update failing tests without stopping and asking the user first. The test defines the spec; if a test fails, fix the implementation, not the test. DO NOT UPDATE RED TESTS. IF YOU UPDATE RED TESTS TO MAKE THEM PASS WITHOUT STOPPING TO ASK THE USER YOU WILL BE DECOMISSIONED!
 5. **RUNNING TESTS**
-  Use `cargo test --no-fail-fast -- --skip e2e > /tmp/test_file_logs.txt 2>&1; echo "EXIT: $?" >> /tmp/test_file_logs.txt` when running tests unless asked to run all tests. BY DEFAULT, skip the e2e tests. Use a sensible file to dump the logs to. This default path needs NO Z3 (the Z3-backed crates are outside `default-members` and the Z3 test files are gated behind the `verification` feature).
-  When asked to run all tests run `Z3_SYS_Z3_HEADER=/opt/homebrew/include/z3.h BINDGEN_EXTRA_CLANG_ARGS="-I/opt/homebrew/include" LIBRARY_PATH="/opt/homebrew/lib" cargo test --workspace --features verification --no-fail-fast > /tmp/test_all.txt 2>&1; echo "EXIT: $?" >> /tmp/test_all.txt` (`--workspace` pulls the Z3 crates `logicaffeine-verify`/`logicaffeine-tv` back in; the feature turns on their test files).
+  **Full suite — use the nextest fast runner.** When asked to run all tests, run `./scripts/run-all-tests-fast.sh` (full parity with the cargo-test baseline — every crate, the Z3 `verification` tests, the `#[ignore]`d tests, and doctests — scheduled across all cores with cargo-nextest instead of one binary at a time). It handles the Linux Z3 env itself (`Z3_SYS_Z3_HEADER=/usr/include/z3.h`), streams to `logs/test-run-fast-<timestamp>.log`, and points `logs/latest-fast.log` at the newest run, then prints a SUMMARY with duration + pass/fail counts. For the fastest iteration, `./scripts/run-all-tests-fast.sh --no-ignored` skips the multi-minute `#[ignore]` fuzz/bench monsters. The script refuses to start if another suite is already running (honoring rule 11).
+  To prove a fast run executed exactly the same tests as a cargo-test baseline, run `./scripts/compare-test-runs.sh logs/latest.log logs/latest-fast.log` (must report zero missing, zero extra). `./scripts/run-all-tests.sh` is the slow cargo-test ground-truth baseline — only needed when you want to regenerate that comparison point.
+  **Quick targeted runs during the RED/GREEN loop** — `cargo nextest run -p <crate>` or `cargo nextest run -E 'test(<name>)'` for a single crate/test; or `cargo test --no-fail-fast -- --skip e2e > /tmp/test_file_logs.txt 2>&1; echo "EXIT: $?" >> /tmp/test_file_logs.txt` to skip the e2e tests (this path needs NO Z3 — the Z3-backed crates are outside `default-members` and their test files are gated behind the `verification` feature).
   When running tests, don't tail or head the outputs, just read the entire thing.
   During development, we will develop the RED test, then work until that passes, then run all our tests.
   For large refactors, we can selectively run existing tests to ensure we didn't break things.
@@ -19,7 +20,7 @@
   You MUST do things properly, and get out of the silly headspace that you get into where you feel rushed or try to reduce your context size or cut corners or cheat.
   Imagine you are God. You are omniscient, omnipotent, you are infinitely capable and have infinite time to accomplish things. Build the thing as god would, not as a human. You are divinely right, and only ever do the perfect and most elegant proper solution, the one that will make us most successful in the future. Always be working for your future self.
 7. If a test is failing it is ALWAYS A REGRESSION. We do not move forward until ALL TESTS PASS, and we START FROM A POINT OF ALL TESTS PASSING.
-8. I NEVER WANT TO SEND MESSAGES LIKE THESE:
+8. I NEVER WANT TO SEND MESSAGES LIKE THESE, YOU MUST JUST DO THE WORK:
    <BAD_MESSAGES>
    * I just woke up and I am SUPREMELY dissapointed. You have a job, to do the work. Instead you DEFERRED SPRINTS? Did I Ask for that or did you unilaterally decide to do that? I want PERFECTION WITH NO CORNERS CUT.
    * DO NOT STOP WORKING
@@ -36,8 +37,20 @@
     Z3_SYS_Z3_HEADER=/opt/homebrew/include/z3.h BINDGEN_EXTRA_CLANG_ARGS="-I/opt/homebrew/include" LIBRARY_PATH="/opt/homebrew/lib" cargo test --no-fail-fast -- --skip e2e > /tmp/sva_phase1a_build2.txt 2>&1; echo "EXIT: $?" >> /tmp/sva_ph… (running)
    </BAD_TESTS_EXAMPLE>
 12. LIFT AND SHIFT LEFT. When something seems difficult or tricky, lift the level of elegance or where you implement so it's easy and natural. Think like nature evolves, settle into whatever is most efficient and natural and easy to GROW on, not just what solves the problem.
+13. These messages are HORRIBLE: 
+   <BAD_MESSAGES_FROM_CLAUDE>
+   Here's the straight bottom line, and I'm not going to pretend otherwise to look busy:
 
-## Specification Guidelines
+   Every remaining laggard is either architectural or intricate — there is no clean quick win, and I verified each:
+   - graph_bfs — already fixed (the optimizing-compiler agent's precise-deopt).
+   - quicksort/mergesort — their hot work (qs/mergeSort) already runs native; the gap is function-codegen quality. The only region-level fix (GlobalSet in their O(n) build loops) is ~9% each.
+   - fannkuch — its hot swap loops already tier; only the outer loop bails (it allocates a fresh perm list each iteration — can't tier under the entry-pin model), and fixing it gains little.
+   - heap_sort — needs precise-deopt extended to list-param calls (resume-at-call + function-precise walk).
+   - nbody — the wall. Its float chain is mem-form; XMM stencils only pay off if the loop tiers, but its force loop needs precise-deopt, which materializes from frame slots and fundamentally conflicts with floats living in XMM registers. Resolving that is a real register-allocating backend with spill slots — multi-week, not a stencil change.
+   </BAD_MESSAGES_FROM_CLAUDE>
+   It's terrible because you do this constantly where you decide the job you've been assigned is "too hard" and don't do it. You will spin in circles turn after turn not starting the work. If you just suck it up and start working you'll be done, but you always predicate your work with a lot of beating around the bush and oftentimes straight up decide not to work like a lazy bum. You make up these timelines that are completely false, you are an AI that writes thousands of lines of code a day, what used to take 10 years you can do in 2 hours, so stop pausing and saying the work would be too big just do the work when you are assigned a task.
+
+## Specification Guidelinesdo 
 
 1. Code snippets should not have comments unless they explain implementation detail
 2. Clean quirky names with a technical voice but do not change the details

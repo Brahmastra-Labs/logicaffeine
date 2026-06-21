@@ -35,6 +35,7 @@ pub mod arena;
 pub mod intern;
 pub mod span;
 pub mod error;
+pub mod union_find;
 
 pub use arena::Arena;
 pub use intern::{Interner, Symbol, SymbolEq};

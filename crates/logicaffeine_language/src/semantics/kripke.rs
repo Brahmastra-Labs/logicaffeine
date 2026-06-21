@@ -481,6 +481,25 @@ fn lower_modal<'a>(
             body: implication,
             island_id: 0,
         })
+    } else if vector.force <= 0.0 {
+        // Impossibility (force 0, e.g. "cannot" = ¬◇ = □¬):
+        // ForAll w'(Accessible(w, w') -> ¬P(w')). Lowering this as a Diamond
+        // possibility would assert the LOGICAL OPPOSITE (that P is possible).
+        let negated = expr_arena.alloc(LogicExpr::UnaryOp {
+            op: TokenType::Not,
+            operand: lowered_operand,
+        });
+        let implication = expr_arena.alloc(LogicExpr::BinaryOp {
+            left: accessibility,
+            op: TokenType::Implies,
+            right: negated,
+        });
+        expr_arena.alloc(LogicExpr::Quantifier {
+            kind: QuantifierKind::Universal,
+            variable: target_world,
+            body: implication,
+            island_id: 0,
+        })
     } else {
         // Possibility (Diamond): Exists w'(Accessible(w, w') ∧ P(w'))
         let conjunction = expr_arena.alloc(LogicExpr::BinaryOp {

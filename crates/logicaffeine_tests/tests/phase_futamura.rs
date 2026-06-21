@@ -12839,3 +12839,33 @@ fn jones_p3_residual_has_dynamic_stmts() {
         "P3 residual must reference the dynamic targetStmts — block-level specialization."
     );
 }
+
+/// BUG-011: the decompiler must parenthesize a negated operand so the negation's
+/// scope survives a re-parse of the residual: `not (a and b)` must NOT become
+/// `(not a) and b`.
+#[test]
+fn p1_not_over_conjunction_keeps_negation_scope() {
+    // i ranges over 1..=5 so i=3 — where `not(T and F)` differs from the
+    // mis-scoped `(not T) and F` — is exercised. The First Futamura Projection
+    // residual (Rust decompile path) must reproduce the source semantics; a
+    // decompiler that drops the parens around `not (a and b)` re-parses it as
+    // `(not a) and b` and diverges at i=3.
+    let program = "Repeat for i from 1 to 5:\n    If not ((i is greater than 1) and (i is less than 3)):\n        Show \"edge\".\n    Otherwise:\n        Show \"mid\".";
+
+    // Inspect the decompiled residual STRING (not its re-execution — the range
+    // loop has an unrelated statement-decompile quirk). decompile_expr must
+    // parenthesize the negated operand: `not (a and b)`, NOT the scope-shrinking
+    // `not a and b` which re-parses as `(not a) and b`.
+    let residual = get_p1_residual(program);
+    assert!(
+        residual.contains("not ("),
+        "decompiler dropped the parens around the negated conjunction (Not(And(a,b)) \
+         lowered as `not a and b`). Residual:\n{}",
+        residual
+    );
+    assert!(
+        !residual.contains("not i is greater than 1 and"),
+        "negation scope shrunk to the first conjunct only. Residual:\n{}",
+        residual
+    );
+}

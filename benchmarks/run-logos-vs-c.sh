@@ -2,12 +2,35 @@
 # Requires bash 4+ for associative arrays (macOS: brew install bash)
 # LOGICAFFEINE LOGOS vs C Benchmark
 #
-# Builds and benchmarks LOGOS (release) against C at the maximum sizes defined
-# in each benchmark's sizes.txt. Large sizes eliminate process-startup noise
-# from the comparison. Results are written to results/c_results.json in the
-# same schema as results/latest.json.
+# Builds and benchmarks LOGOS (release) against C at calibrated sizes
+# (100-2000ms C runtime) so process-startup noise is irrelevant. Ends with a
+# worst-first ratio table — the top rows are the optimization targets.
+#
+# Built for the optimization loop: C baselines are measured ONCE and cached
+# in results/c-baselines.json (C never changes between compiler iterations),
+# so a typical run only re-measures LOGOS. Output is teed to
+# logs/optimization/logos-vs-c.log. Results JSON goes to
+# results/local-logos-vs-c.json in the same schema as results/latest.json.
 #
 # Usage: bash benchmarks/run-logos-vs-c.sh
+#
+# Environment knobs:
+#   ONLY=fib,sieve       Comma-separated subset of benchmarks to run.
+#   RUNS=10              Timed runs per benchmark per language.
+#   WARMUP=2             Warmup runs per benchmark per language.
+#   SIZE_<bench>=N       Per-benchmark size override (e.g. SIZE_fib=42).
+#                        Sizes without an expected_<N>.txt are verified by
+#                        C/LOGOS output agreement.
+#   VERIFY=0             Skip the correctness phase (saves one full-size run
+#                        per side when iterating hard on speed).
+#   DUMPS=1              Also emit assembly + LLVM IR for both sides into
+#                        asm/ (3 extra cargo builds per LOGOS benchmark —
+#                        slow; use with ONLY= for the bench being studied).
+#   FORCE_BASELINE=1     Re-measure cached C baselines.
+#   OUT=results/local-logos-vs-c.json  Output JSON path (relative to benchmarks/).
+#   FORCE_BUILD=1        Rebuild every binary. By default a binary newer than
+#                        its source is reused; LOGOS binaries additionally
+#                        rebuild whenever largo itself was rebuilt.
 
 set -euo pipefail
 
@@ -34,11 +57,42 @@ BENCHMARKS=(
     loop_sum fib_iterative graph_bfs string_search
 )
 
-WARMUP=5
-RUNS=30
+WARMUP="${WARMUP:-2}"
+RUNS="${RUNS:-10}"
 TIMEOUT=180
 BUILD_TIMEOUT=60
 HYPERFINE_TIMEOUT=600  # 10 min per hyperfine invocation
+OUT="${OUT:-results/local-logos-vs-c.json}"
+BASELINES_FILE="$RESULTS_DIR/c-baselines.json"
+
+# Per-benchmark sizes are discovered by calibrate-c.sh (the N at which C runs
+# for ~CALIBRATION_TARGET ms) and cached in results/calibrated-sizes.json.
+# When that file is present each benchmark's size comes from it; otherwise the
+# hardcoded bench_size() table below is the fallback. SIZE_<bench> always wins.
+CALIBRATED_FILE="${CALIBRATED_FILE:-$RESULTS_DIR/calibrated-sizes.json}"
+CALIBRATION_TARGET="${CALIBRATION_TARGET:-500}"
+
+LOG_DIR="$SCRIPT_DIR/../logs/optimization"
+mkdir -p "$LOG_DIR"
+exec > >(tee "$LOG_DIR/logos-vs-c.log") 2>&1
+
+if [ -n "${ONLY:-}" ]; then
+    SELECTED=()
+    IFS=',' read -ra WANTED <<< "$ONLY"
+    for want in "${WANTED[@]}"; do
+        found=false
+        for b in "${BENCHMARKS[@]}"; do
+            [ "$b" = "$want" ] && found=true && break
+        done
+        if [ "$found" = true ]; then
+            SELECTED+=("$want")
+        else
+            echo "Unknown benchmark in ONLY: '$want'" >&2
+            exit 1
+        fi
+    done
+    BENCHMARKS=("${SELECTED[@]}")
+fi
 
 mkdir -p "$BIN_DIR" "$RAW_DIR" "$RESULTS_DIR/history" "$GENERATED_DIR" "$ASM_DIR"
 rm -rf "$RAW_DIR"/*
@@ -88,9 +142,24 @@ max_size() {
 
 # Calibrated benchmark size targeting 100–2000ms C runtime.
 # Eliminates process-startup noise that dominates at very small sizes.
-# Falls back to max_size() for any unknown benchmark.
+# SIZE_<bench> env vars override; falls back to max_size() for any unknown
+# benchmark.
 bench_size() {
     local bench="$1"
+    local override_var="SIZE_${bench}"
+    if [ -n "${!override_var:-}" ]; then
+        echo "${!override_var}"
+        return
+    fi
+    if [ -f "$CALIBRATED_FILE" ]; then
+        local calibrated
+        calibrated=$(jq -r --arg b "$bench" --arg t "$CALIBRATION_TARGET" \
+            '.benchmarks[$b][$t].n // empty' "$CALIBRATED_FILE" 2>/dev/null)
+        if [ -n "$calibrated" ]; then
+            echo "$calibrated"
+            return
+        fi
+    fi
     case "$bench" in
         # Verified C medians in parentheses (measured on Apple Silicon)
         fib)             echo 40 ;;          # ~1271ms (exponential)
@@ -136,8 +205,8 @@ bench_size() {
 # ===========================================================================
 info "Phase 1: Building LOGOS (release) and C..."
 
-info "Building largo..."
-cargo build -p logicaffeine-cli --release --manifest-path "$SCRIPT_DIR/../Cargo.toml" 2>/dev/null
+info "Building largo${LARGO_FEATURES:+ (features: $LARGO_FEATURES)}..."
+cargo build -p logicaffeine-cli --release ${LARGO_FEATURES:+--features "$LARGO_FEATURES"} --manifest-path "$SCRIPT_DIR/../Cargo.toml" || fail "largo build failed"
 LARGO="$LOGOS_TARGET_DIR/release/logicaffeine-cli"
 if [ ! -f "$LARGO" ]; then
     LARGO="$LOGOS_TARGET_DIR/release/largo"
@@ -154,24 +223,63 @@ if [ ! -f "$LARGO" ]; then
 fi
 ok "largo built"
 
+# A cached binary is reusable when it is newer than its source — and for
+# LOGOS, newer than the largo compiler too, so iterating on the compiler
+# invalidates exactly the LOGOS binaries and nothing else. FORCE_BUILD=1
+# rebuilds everything.
+c_cached() {
+    [ "${FORCE_BUILD:-}" = "1" ] && return 1
+    [ -f "$BIN_DIR/${1}_c" ] && [ "$BIN_DIR/${1}_c" -nt "$PROGRAMS_DIR/$1/main.c" ] || return 1
+    if [ "${DUMPS:-}" = "1" ] && command -v clang &>/dev/null; then
+        [ -f "$ASM_DIR/${1}_c.s" ] && [ -f "$ASM_DIR/${1}_c.ll" ] || return 1
+    fi
+    return 0
+}
+
+logos_cached() {
+    [ "${FORCE_BUILD:-}" = "1" ] && return 1
+    [ -f "$BIN_DIR/${1}_logos_release" ] && \
+        [ "$BIN_DIR/${1}_logos_release" -nt "$PROGRAMS_DIR/$1/main.lg" ] && \
+        [ "$BIN_DIR/${1}_logos_release" -nt "$LARGO" ] || return 1
+    if [ "${DUMPS:-}" = "1" ]; then
+        [ -f "$ASM_DIR/${1}_logos.s" ] && [ -f "$ASM_DIR/${1}_logos.ll" ] && \
+            [ -f "$GENERATED_DIR/$1.rs" ] || return 1
+    fi
+    return 0
+}
+
+declare -A C_REBUILT
+
 for bench in "${BENCHMARKS[@]}"; do
     info "Building $bench..."
 
-    [ -f "$PROGRAMS_DIR/$bench/main.c" ] && \
-        gcc -O2 -o "$BIN_DIR/${bench}_c" "$PROGRAMS_DIR/$bench/main.c" -lm 2>/dev/null && \
-        ok "  C" || true
+    if c_cached "$bench"; then
+        ok "  C (cached)"
+    elif [ -f "$PROGRAMS_DIR/$bench/main.c" ]; then
+        C_REBUILT[$bench]=1
+        # Flag PARITY with the LOGOS side (rustc release: opt-level=3, lto=true,
+        # codegen-units=1, target-cpu=native). Without `-march=native` the C
+        # side is stuck on generic SSE2 while we emit AVX2/FMA — a 2–4x ISA
+        # handicap on the float/SIMD benches that is purely a flag artifact, not
+        # a codegen result. `-flto` barely moves a single-`.c` program (the
+        # inliner already sees the whole TU) but is included for symmetry.
+        gcc -O3 -march=native -flto -o "$BIN_DIR/${bench}_c" "$PROGRAMS_DIR/$bench/main.c" -lm 2>/dev/null && \
+            ok "  C" || true
 
-    # Assembly + LLVM IR dumps for C (requires clang)
-    if [ -f "$PROGRAMS_DIR/$bench/main.c" ] && command -v clang &>/dev/null; then
-        clang -S -O2 -fno-asynchronous-unwind-tables \
-            -o "$ASM_DIR/${bench}_c.s" "$PROGRAMS_DIR/$bench/main.c" -lm 2>/dev/null && \
-            ok "  C asm" || true
-        clang -S -emit-llvm -O2 \
-            -o "$ASM_DIR/${bench}_c.ll" "$PROGRAMS_DIR/$bench/main.c" -lm 2>/dev/null && \
-            ok "  C llvm-ir" || true
+        # Assembly + LLVM IR dumps for C (requires clang)
+        if [ "${DUMPS:-}" = "1" ] && command -v clang &>/dev/null; then
+            clang -S -O3 -march=native -fno-asynchronous-unwind-tables \
+                -o "$ASM_DIR/${bench}_c.s" "$PROGRAMS_DIR/$bench/main.c" -lm 2>/dev/null && \
+                ok "  C asm" || true
+            clang -S -emit-llvm -O3 -march=native \
+                -o "$ASM_DIR/${bench}_c.ll" "$PROGRAMS_DIR/$bench/main.c" -lm 2>/dev/null && \
+                ok "  C llvm-ir" || true
+        fi
     fi
 
-    if [ -f "$PROGRAMS_DIR/$bench/main.lg" ]; then
+    if logos_cached "$bench"; then
+        ok "  LOGOS (release) (cached)"
+    elif [ -f "$PROGRAMS_DIR/$bench/main.lg" ]; then
         LOGOS_TMP=$(mktemp -d)
         mkdir -p "$LOGOS_TMP/src"
         cp "$PROGRAMS_DIR/$bench/main.lg" "$LOGOS_TMP/src/main.lg"
@@ -194,9 +302,9 @@ TOML
             GENERATED_RS=$(find "$LOGOS_TMP" -name "main.rs" -path "*/build/src/*" 2>/dev/null | head -1)
             [ -n "$GENERATED_RS" ] && cp "$GENERATED_RS" "$GENERATED_DIR/$bench.rs" 2>/dev/null || true
 
-            # Assembly + LLVM IR dumps for Logos/Rust
+            # Assembly + LLVM IR dumps for Logos/Rust (DUMPS=1 only — 2 extra cargo builds)
             RUST_PROJECT=$(find "$LOGOS_TMP" -name "Cargo.toml" -path "*/build/Cargo.toml" 2>/dev/null | head -1)
-            if [ -n "$RUST_PROJECT" ]; then
+            if [ "${DUMPS:-}" = "1" ] && [ -n "$RUST_PROJECT" ]; then
                 RUST_PROJECT_DIR=$(dirname "$RUST_PROJECT")
                 # Disable strip so symbols appear in assembly
                 sed -i.bak 's/strip = true/strip = false/' "$RUST_PROJECT" 2>/dev/null || true
@@ -231,9 +339,12 @@ ok "Phase 1 complete"
 # ===========================================================================
 # Phase 2: Verify Correctness
 # ===========================================================================
-info "Phase 2: Verifying correctness at calibrated sizes..."
-
 ERRORS=0
+
+if [ "${VERIFY:-1}" = "0" ]; then
+    warn "Phase 2: skipped (VERIFY=0)"
+else
+info "Phase 2: Verifying correctness at calibrated sizes..."
 
 verify() {
     local bench="$1" name="$2" cmd="$3" size="$4" expected="$5"
@@ -251,15 +362,24 @@ verify() {
 for bench in "${BENCHMARKS[@]}"; do
     size="$(bench_size "$bench")"
     expected_file="$PROGRAMS_DIR/$bench/expected_${size}.txt"
-    if [ ! -f "$expected_file" ]; then
-        warn "No expected output for $bench at size $size — skipping verification"
-        continue
-    fi
-    expected=$(cat "$expected_file")
     info "Verifying $bench (n=$size)..."
-
-    [ -f "$BIN_DIR/${bench}_c" ]             && verify "$bench" "C" "$BIN_DIR/${bench}_c" "$size" "$expected"
-    [ -f "$BIN_DIR/${bench}_logos_release" ] && verify "$bench" "LOGOS (release)" "$BIN_DIR/${bench}_logos_release" "$size" "$expected"
+    if [ -f "$expected_file" ]; then
+        expected=$(cat "$expected_file")
+        [ -f "$BIN_DIR/${bench}_c" ]             && verify "$bench" "C" "$BIN_DIR/${bench}_c" "$size" "$expected"
+        [ -f "$BIN_DIR/${bench}_logos_release" ] && verify "$bench" "LOGOS (release)" "$BIN_DIR/${bench}_logos_release" "$size" "$expected"
+    elif [ -f "$BIN_DIR/${bench}_c" ] && [ -f "$BIN_DIR/${bench}_logos_release" ]; then
+        # No expected file at this size — verify by C/LOGOS output agreement.
+        c_output=$(run_timeout "$TIMEOUT" bash -c "$BIN_DIR/${bench}_c $size" 2>/dev/null | tr -d '[:space:]') || true
+        if [ -z "$c_output" ]; then
+            fail "  C: no output at size $size"
+            ERRORS=$((ERRORS + 1))
+            continue
+        fi
+        ok "  C: $c_output (reference)"
+        verify "$bench" "LOGOS (release)" "$BIN_DIR/${bench}_logos_release" "$size" "$c_output"
+    else
+        warn "No expected output for $bench at size $size and missing a binary — skipping verification"
+    fi
 done
 
 if [ "$ERRORS" -gt 0 ]; then
@@ -267,6 +387,7 @@ if [ "$ERRORS" -gt 0 ]; then
     exit 1
 fi
 ok "Phase 2 complete: all verified"
+fi
 
 # ===========================================================================
 # Phase 3: Benchmark — per-language timeout isolation
@@ -315,6 +436,26 @@ try_bench() {
     [ -f "$pf" ] && MERGE_FILES+=("$pf")
 }
 
+# C baselines are static between compiler iterations: measured once, stored
+# as raw hyperfine result objects in results/c-baselines.json, re-measured
+# only when main.c changed (binary rebuilt) or FORCE_BASELINE=1.
+[ -f "$BASELINES_FILE" ] || echo '{"meta":{},"baselines":{}}' > "$BASELINES_FILE"
+
+c_baseline_get() {
+    jq -ce --arg b "$1" --arg s "$2" '.baselines[$b][$s] // empty' "$BASELINES_FILE" 2>/dev/null
+}
+
+c_baseline_put() {
+    local bench="$1" size="$2" pf="$3" tmp
+    tmp=$(mktemp)
+    jq --arg b "$bench" --arg s "$size" --slurpfile r "$pf" \
+        --arg gcc "$(gcc --version 2>/dev/null | head -1)" \
+        --arg date "$(date -u +"%Y-%m-%dT%H:%M:%SZ")" \
+        '.baselines[$b][$s] = $r[0].results[0]
+         | .meta = {gcc: $gcc, updated: $date}' \
+        "$BASELINES_FILE" > "$tmp" && mv "$tmp" "$BASELINES_FILE"
+}
+
 for bench in "${BENCHMARKS[@]}"; do
     size="$(bench_size "$bench")"
 
@@ -327,7 +468,22 @@ for bench in "${BENCHMARKS[@]}"; do
     info "Benchmarking $bench at n=$size..."
     MERGE_FILES=()
 
-    [ -f "$BIN_DIR/${bench}_c" ]             && try_bench c "C" "$BIN_DIR/${bench}_c $size"
+    if [ -f "$BIN_DIR/${bench}_c" ]; then
+        baseline=""
+        if [ "${FORCE_BASELINE:-}" != "1" ] && [ -z "${C_REBUILT[$bench]:-}" ]; then
+            baseline=$(c_baseline_get "$bench" "$size") || baseline=""
+        fi
+        if [ -n "$baseline" ]; then
+            pf="$PER_LANG_DIR/${bench}_${size}_c.json"
+            printf '{"results":[%s]}' "$baseline" > "$pf"
+            MERGE_FILES+=("$pf")
+            ok "  C baseline (cached): $(echo "$baseline" | jq -r '(.mean * 1000 * 10 | round) / 10') ms"
+        else
+            try_bench c "C" "$BIN_DIR/${bench}_c $size"
+            [ -f "$PER_LANG_DIR/${bench}_${size}_c.json" ] && \
+                c_baseline_put "$bench" "$size" "$PER_LANG_DIR/${bench}_${size}_c.json"
+        fi
+    fi
     [ -f "$BIN_DIR/${bench}_logos_release" ] && try_bench logos_release "LOGOS (release)" "$BIN_DIR/${bench}_logos_release $size"
 
     # Merge per-language results
@@ -350,9 +506,9 @@ done
 ok "Phase 3 complete"
 
 # ===========================================================================
-# Phase 4: Assemble c_results.json
+# Phase 4: Assemble results JSON
 # ===========================================================================
-info "Phase 4: Assembling results/c_results.json..."
+info "Phase 4: Assembling $OUT..."
 
 detect_cpu() {
     if [[ "$(uname -s)" == "Darwin" ]]; then
@@ -621,6 +777,8 @@ GEO_MEAN=$(compute_geometric_mean "$BENCHMARKS_JSON")
 BENCHMARKS_JSON_FILE=$(mktemp)
 printf '%s\n' "$BENCHMARKS_JSON" > "$BENCHMARKS_JSON_FILE"
 
+mkdir -p "$(dirname "$OUT")"
+
 jq -n \
     --arg date "$DATE" \
     --arg commit "$COMMIT" \
@@ -650,9 +808,70 @@ jq -n \
         summary: {
             geometric_mean_speedup_vs_c: $geo_mean
         }
-    }' > "$RESULTS_DIR/c_results.json"
+    }' > "$OUT"
 
 rm -f "$BENCHMARKS_JSON_FILE"
 
-ok "Results written to $RESULTS_DIR/c_results.json"
+ok "Results written to $OUT"
+
+# ===========================================================================
+# Phase 5: Ratio table — worst-first, the top rows are optimization targets
+# ===========================================================================
+echo
+info "LOGOS vs C (ratio > 1.00 means LOGOS is slower than C):"
+echo
+
+ROWS=""
+for bench in "${BENCHMARKS[@]}"; do
+    size="$(bench_size "$bench")"
+    c_file="$PER_LANG_DIR/${bench}_${size}_c.json"
+    l_file="$PER_LANG_DIR/${bench}_${size}_logos_release.json"
+    c_ms="" l_ms=""
+    [ -f "$c_file" ] && c_ms=$(jq -r '.results[0].mean * 1000' "$c_file")
+    [ -f "$l_file" ] && l_ms=$(jq -r '.results[0].mean * 1000' "$l_file")
+    if [ -n "$c_ms" ] && [ -n "$l_ms" ]; then
+        ratio=$(echo "$l_ms / $c_ms" | bc -l)
+        ROWS+=$(printf "%s|%s|%s|%s|%s\n" "$ratio" "$bench" "$size" "$c_ms" "$l_ms")$'\n'
+    else
+        [ -z "$c_ms" ] && warn "  $bench: no C result"
+        [ -z "$l_ms" ] && warn "  $bench: no LOGOS result"
+    fi
+done
+
+printf "%-14s %12s %12s %12s %10s\n" "benchmark" "n" "C ms" "LOGOS ms" "ratio"
+printf '%.0s-' $(seq 1 64); echo
+echo -n "$ROWS" | sort -t'|' -k1 -gr | while IFS='|' read -r ratio bench size c_ms l_ms; do
+    [ -z "$bench" ] && continue
+    printf "%-14s %12s %12.1f %12.1f %9.2fx\n" "$bench" "$size" "$c_ms" "$l_ms" "$ratio"
+done
+
+WINS=0
+LOSSES=0
+while IFS='|' read -r ratio bench size c_ms l_ms; do
+    [ -z "$bench" ] && continue
+    if [ "$(echo "$ratio > 1.0" | bc -l)" = "1" ]; then
+        LOSSES=$((LOSSES + 1))
+    else
+        WINS=$((WINS + 1))
+    fi
+done <<< "$ROWS"
+
+echo
+fail "Here's where C beats LOGOS the worst:"
+echo -n "$ROWS" | sort -t'|' -k1 -gr | head -3 | while IFS='|' read -r ratio bench size c_ms l_ms; do
+    [ -z "$bench" ] && continue
+    if [ "$(echo "$ratio > 1.0" | bc -l)" = "1" ]; then
+        printf "  %-14s LOGOS is %.2fx slower (C %.1fms vs LOGOS %.1fms at n=%s)\n" \
+            "$bench" "$ratio" "$c_ms" "$l_ms" "$size"
+        echo "    -> ONLY=$bench DUMPS=1 bash benchmarks/run-logos-vs-c.sh  # then diff asm/${bench}_c.s asm/${bench}_logos.s"
+    fi
+done
+
+LOGOS_GEO=$(echo "$GEO_MEAN" | jq -r '.logos_release // empty')
+echo
+info "LOGOS wins $WINS / $((WINS + LOSSES)) benchmarks against C"
+if [ -n "$LOGOS_GEO" ]; then
+    info "Geometric mean: LOGOS runs at ${LOGOS_GEO}x the speed of C"
+fi
+info "Full log: logs/optimization/logos-vs-c.log"
 info "LOGOS vs C benchmark complete!"

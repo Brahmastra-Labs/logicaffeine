@@ -7,6 +7,65 @@ use crate::interpreter::RuntimeValue;
 
 use super::compare::values_equal;
 
+/// The interned single-character `Text` for an ASCII byte. `item k of text`
+/// on an ASCII string is the hot path of every character-scanning loop
+/// (string search, parsing); allocating a fresh one-char `Rc<String>` per
+/// access dominated those loops. The 128 ASCII single-char strings are
+/// immutable and shared per thread, so indexing collapses to a refcount
+/// bump. (Texts are never mutated in place, so sharing the `Rc` is safe.)
+fn ascii_char_text(b: u8) -> Rc<String> {
+    debug_assert!(b < 128, "caller guarantees an ASCII byte");
+    thread_local! {
+        static CACHE: RefCell<[Option<Rc<String>>; 128]> =
+            RefCell::new(std::array::from_fn(|_| None));
+    }
+    CACHE.with(|c| {
+        c.borrow_mut()[b as usize]
+            .get_or_insert_with(|| Rc::new((b as char).to_string()))
+            .clone()
+    })
+}
+
+/// Cached `(is_ascii, char_len)` for a `Text`, keyed by Rc identity AND byte
+/// length. A character-scanning loop (`item i of text` for i = 1..n) otherwise
+/// re-runs the O(n) `is_ascii()` / `chars().count()` on EVERY access — turning
+/// the scan O(n²). The only in-place Text mutation is append (`add_assign`),
+/// which grows the byte length, so a length mismatch detects staleness and
+/// recomputes; holding the Rc clone keeps the pointer from being reused while
+/// cached. (`index_set` has no Text arm — no same-length mutation exists — so
+/// the metadata cannot silently change.)
+fn text_metrics(s: &Rc<String>) -> (bool, usize) {
+    thread_local! {
+        static CACHE: RefCell<Vec<(Rc<String>, usize, bool, usize)>> =
+            const { RefCell::new(Vec::new()) };
+    }
+    CACHE.with(|c| {
+        let mut c = c.borrow_mut();
+        let len = s.len();
+        if let Some(e) = c.iter().find(|(rc, l, _, _)| *l == len && Rc::ptr_eq(rc, s)) {
+            return (e.2, e.3);
+        }
+        let ascii = s.is_ascii();
+        let char_len = if ascii { len } else { s.chars().count() };
+        if c.len() >= 8 {
+            c.remove(0);
+        }
+        c.push((s.clone(), len, ascii, char_len));
+        (ascii, char_len)
+    })
+}
+
+/// Whether a `Text` is pure ASCII, answered in O(1) per call via the same
+/// `(is_ascii, char_len)` cache the indexing hot path uses (the first call for
+/// a given `Rc`/length pays the vectorized `is_ascii()` scan, every later one is
+/// a cache hit). The VM's tier-up seam asks this on every hot back-edge crossing
+/// and again at every region entry: a Text-as-bytes pin is sound ONLY for ASCII
+/// (char index == byte index, char count == byte length), so a non-ASCII Text
+/// must never pin.
+pub fn text_is_ascii(s: &Rc<String>) -> bool {
+    text_metrics(s).0
+}
+
 /// 1-based index for List/Tuple/Text; key lookup for Map; Text-keyed field
 /// read for Struct.
 pub fn index_get(coll: &RuntimeValue, idx: &RuntimeValue) -> Result<RuntimeValue, String> {
@@ -17,7 +76,7 @@ pub fn index_get(coll: &RuntimeValue, idx: &RuntimeValue) -> Result<RuntimeValue
             if i == 0 || i > items.len() {
                 return Err(format!("Index {} out of bounds", i));
             }
-            Ok(items[i - 1].clone())
+            Ok(items.get(i - 1).expect("bounds checked above"))
         }
         (RuntimeValue::Tuple(items), RuntimeValue::Int(i)) => {
             let i = *i as usize;
@@ -28,7 +87,19 @@ pub fn index_get(coll: &RuntimeValue, idx: &RuntimeValue) -> Result<RuntimeValue
         }
         (RuntimeValue::Text(s), RuntimeValue::Int(i)) => {
             let i = *i as usize;
-            if i == 0 || i > s.chars().count() {
+            // ASCII fast path: byte position == char position and the
+            // in-bounds check over bytes equals the check over chars. The
+            // `is_ascii` scan is vectorized — far cheaper than the per-char
+            // decode of `chars().nth` that the general path needs.
+            let bytes = s.as_bytes();
+            // Cached metrics: ASCII-ness and char length are O(1) per access
+            // (recomputed only when the string's byte length changes), so a
+            // scan loop stays O(n) instead of O(n²).
+            let (ascii, char_len) = text_metrics(s);
+            if i != 0 && i <= bytes.len() && ascii {
+                return Ok(RuntimeValue::Text(ascii_char_text(bytes[i - 1])));
+            }
+            if i == 0 || i > char_len {
                 return Err(format!("Index {} out of bounds", i));
             }
             // Index validated against the char count just above.
@@ -72,7 +143,7 @@ pub fn index_set(coll: &RuntimeValue, idx: &RuntimeValue, value: RuntimeValue) -
                     items.len()
                 ));
             }
-            items[i - 1] = value;
+            items.set(i - 1, value);
             Ok(())
         }
         (RuntimeValue::Map(map), key) => {
@@ -95,8 +166,13 @@ pub fn slice(
             let items = items.borrow();
             let start = (*s as usize).saturating_sub(1);
             let end = *e as usize;
-            let slice: Vec<RuntimeValue> = items.get(start..end).unwrap_or(&[]).to_vec();
-            Ok(RuntimeValue::List(Rc::new(RefCell::new(slice))))
+            // Same out-of-range semantics as `slice.get(start..end)`: empty.
+            let payload = if start < end && end <= items.len() {
+                items.slice(start, end - 1)
+            } else {
+                crate::interpreter::ListRepr::Boxed(Vec::new())
+            };
+            Ok(RuntimeValue::List(Rc::new(RefCell::new(payload))))
         }
         _ => Err("Slice requires List and Int indices".to_string()),
     }
@@ -119,7 +195,10 @@ pub fn length_of(coll: &RuntimeValue) -> Result<RuntimeValue, String> {
 /// substring/char for Text.
 pub fn contains(coll: &RuntimeValue, val: &RuntimeValue) -> Result<RuntimeValue, String> {
     match coll {
-        RuntimeValue::Set(items) | RuntimeValue::List(items) => {
+        RuntimeValue::List(items) => {
+            Ok(RuntimeValue::Bool(items.borrow().contains(val)))
+        }
+        RuntimeValue::Set(items) => {
             let items = items.borrow();
             let found = items.iter().any(|item| values_equal(item, val));
             Ok(RuntimeValue::Bool(found))
@@ -185,8 +264,10 @@ pub fn intersection(left: &RuntimeValue, right: &RuntimeValue) -> Result<Runtime
 pub fn range(start: &RuntimeValue, end: &RuntimeValue) -> Result<RuntimeValue, String> {
     match (start, end) {
         (RuntimeValue::Int(s), RuntimeValue::Int(e)) => {
-            let range: Vec<RuntimeValue> = (*s..=*e).map(RuntimeValue::Int).collect();
-            Ok(RuntimeValue::List(Rc::new(RefCell::new(range))))
+            let range: Vec<i64> = (*s..=*e).collect();
+            Ok(RuntimeValue::List(Rc::new(RefCell::new(
+                crate::interpreter::ListRepr::Ints(range),
+            ))))
         }
         _ => Err("Range requires Int bounds".to_string()),
     }
@@ -198,7 +279,7 @@ pub fn range(start: &RuntimeValue, end: &RuntimeValue) -> Result<RuntimeValue, S
 /// value) Tuples in its (nondeterministic) iteration order.
 pub fn iteration_snapshot(v: &RuntimeValue) -> Result<Vec<RuntimeValue>, String> {
     match v {
-        RuntimeValue::List(list) => Ok(list.borrow().clone()),
+        RuntimeValue::List(list) => Ok(list.borrow().to_values()),
         RuntimeValue::Set(set) => Ok(set.borrow().clone()),
         RuntimeValue::Text(s) => Ok(s
             .chars()
@@ -288,7 +369,9 @@ mod tests {
     use super::*;
 
     fn list(items: Vec<RuntimeValue>) -> RuntimeValue {
-        RuntimeValue::List(Rc::new(RefCell::new(items)))
+        RuntimeValue::List(Rc::new(RefCell::new(crate::interpreter::ListRepr::from_values(
+            items,
+        ))))
     }
 
     #[test]
@@ -319,6 +402,7 @@ mod tests {
         if let RuntimeValue::List(items) = &s {
             let v: Vec<i64> = items
                 .borrow()
+                .to_values()
                 .iter()
                 .map(|x| if let RuntimeValue::Int(n) = x { *n } else { panic!() })
                 .collect();

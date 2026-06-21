@@ -122,6 +122,65 @@ impl Rational {
         ))
     }
 
+    /// Overflow-checked normalizing constructor: `None` if `n`/`d` cannot be
+    /// reduced within `i64` (or `d == 0`). The Fourier-Motzkin elimination
+    /// routes its arithmetic through the `checked_*` family so a pathological
+    /// constraint system fails closed to "satisfiable" (the prover declines)
+    /// instead of wrapping into an unsound verdict.
+    fn checked_new(n: i64, d: i64) -> Option<Rational> {
+        if d == 0 || n == i64::MIN || d == i64::MIN {
+            return None;
+        }
+        let g = gcd(n.abs(), d.abs()).max(1);
+        let sign = if d < 0 { -1 } else { 1 };
+        Some(Rational {
+            numerator: sign * (n / g),
+            denominator: d.abs() / g,
+        })
+    }
+
+    /// Overflow-checked addition.
+    fn checked_add(&self, other: &Rational) -> Option<Rational> {
+        let a = self.numerator.checked_mul(other.denominator)?;
+        let b = other.numerator.checked_mul(self.denominator)?;
+        let n = a.checked_add(b)?;
+        let d = self.denominator.checked_mul(other.denominator)?;
+        Rational::checked_new(n, d)
+    }
+
+    /// Overflow-checked negation.
+    fn checked_neg(&self) -> Option<Rational> {
+        if self.numerator == i64::MIN {
+            return None;
+        }
+        Some(Rational {
+            numerator: -self.numerator,
+            denominator: self.denominator,
+        })
+    }
+
+    /// Overflow-checked subtraction.
+    fn checked_sub(&self, other: &Rational) -> Option<Rational> {
+        self.checked_add(&other.checked_neg()?)
+    }
+
+    /// Overflow-checked multiplication.
+    fn checked_mul(&self, other: &Rational) -> Option<Rational> {
+        let n = self.numerator.checked_mul(other.numerator)?;
+        let d = self.denominator.checked_mul(other.denominator)?;
+        Rational::checked_new(n, d)
+    }
+
+    /// Overflow-checked reciprocal-multiply `self / other`.
+    fn checked_div(&self, other: &Rational) -> Option<Rational> {
+        if other.numerator == 0 {
+            return None;
+        }
+        let n = self.numerator.checked_mul(other.denominator)?;
+        let d = self.denominator.checked_mul(other.numerator)?;
+        Rational::checked_new(n, d)
+    }
+
     /// Check if negative
     pub fn is_negative(&self) -> bool {
         self.numerator < 0
@@ -232,6 +291,65 @@ impl LinearExpr {
                 .filter(|(_, c)| !c.is_zero())
                 .collect(),
         }
+    }
+
+    /// Overflow-checked addition (mirrors [`LinearExpr::add`]). `None` on i64
+    /// overflow, so a builder (e.g. the optimizer's `lin_of`) can decline a
+    /// pathological expression instead of panicking.
+    pub fn checked_add(&self, other: &LinearExpr) -> Option<LinearExpr> {
+        let mut result = LinearExpr {
+            constant: self.constant.checked_add(&other.constant)?,
+            coefficients: self.coefficients.clone(),
+        };
+        for (var, coeff) in &other.coefficients {
+            let cur = result
+                .coefficients
+                .get(var)
+                .cloned()
+                .unwrap_or_else(Rational::zero);
+            let sum = cur.checked_add(coeff)?;
+            if sum.is_zero() {
+                result.coefficients.remove(var);
+            } else {
+                result.coefficients.insert(*var, sum);
+            }
+        }
+        Some(result)
+    }
+
+    /// Overflow-checked negation.
+    pub fn checked_neg(&self) -> Option<LinearExpr> {
+        let mut coefficients = BTreeMap::new();
+        for (v, c) in &self.coefficients {
+            coefficients.insert(*v, c.checked_neg()?);
+        }
+        Some(LinearExpr {
+            constant: self.constant.checked_neg()?,
+            coefficients,
+        })
+    }
+
+    /// Overflow-checked subtraction.
+    pub fn checked_sub(&self, other: &LinearExpr) -> Option<LinearExpr> {
+        self.checked_add(&other.checked_neg()?)
+    }
+
+    /// Overflow-checked scale by a rational.
+    pub fn checked_scale(&self, c: &Rational) -> Option<LinearExpr> {
+        if c.is_zero() {
+            return Some(LinearExpr::constant(Rational::zero()));
+        }
+        let mut coefficients = BTreeMap::new();
+        for (v, coeff) in &self.coefficients {
+            let p = coeff.checked_mul(c)?;
+            if !p.is_zero() {
+                coefficients.insert(*v, p);
+            }
+        }
+        Some(LinearExpr {
+            constant: self.constant.checked_mul(c)?,
+            coefficients,
+        })
     }
 
     /// Check if this is a constant expression (no variables)
@@ -472,19 +590,27 @@ pub fn fourier_motzkin_unsat(constraints: &[Constraint]) -> bool {
         return false; // Empty set is satisfiable
     }
 
-    // Collect all variables
-    let vars: Vec<i64> = constraints
+    // Collect all variables (sorted for a deterministic elimination order —
+    // the verdict is order-invariant, but reproducibility is not).
+    let mut vars: Vec<i64> = constraints
         .iter()
         .flat_map(|c| c.expr.coefficients.keys().copied())
         .collect::<HashSet<_>>()
         .into_iter()
         .collect();
+    vars.sort_unstable();
 
     let mut current = constraints.to_vec();
 
     // Eliminate each variable
     for var in vars {
-        current = eliminate_variable(&current, var);
+        current = match eliminate_variable(&current, var) {
+            Some(next) => next,
+            // Overflow during elimination: we can no longer decide soundly, so
+            // fail CLOSED to "satisfiable" (validity-via-unsat then declines —
+            // the caller keeps its runtime check / leaves the goal unproven).
+            None => return false,
+        };
 
         // Early termination: check for constant contradictions
         for c in &current {
@@ -506,7 +632,7 @@ pub fn fourier_motzkin_unsat(constraints: &[Constraint]) -> bool {
 /// - Independent: doesn't contain variable
 ///
 /// Combines each lower with each upper to get new constraints without the variable.
-fn eliminate_variable(constraints: &[Constraint], var: i64) -> Vec<Constraint> {
+fn eliminate_variable(constraints: &[Constraint], var: i64) -> Option<Vec<Constraint>> {
     let mut lower: Vec<(LinearExpr, bool)> = vec![]; // lower bound on var
     let mut upper: Vec<(LinearExpr, bool)> = vec![]; // upper bound on var
     let mut independent: Vec<Constraint> = vec![];
@@ -515,42 +641,32 @@ fn eliminate_variable(constraints: &[Constraint], var: i64) -> Vec<Constraint> {
         let coeff = c.expr.get_coeff(var);
         if coeff.is_zero() {
             independent.push(c.clone());
+            continue;
+        }
+        // c.expr = coeff*var + rest  (OP) 0, with OP ∈ {<=, <}. Isolate var by
+        // dividing through by `coeff`: the bound expression is `-rest/coeff`.
+        // For coeff > 0 this is an UPPER bound (var <= -rest/coeff); for
+        // coeff < 0 dividing flips the relation into a LOWER bound
+        // (var >= -rest/coeff). The division — dropped in the original code,
+        // which made the procedure unsound for |coeff| ≠ 1 — is what makes the
+        // combined `lo <= hi` constraint correct.
+        let mut rest = c.expr.clone();
+        rest.coefficients.remove(&var);
+        let bound = rest
+            .checked_neg()?
+            .checked_scale(&Rational::from_int(1).checked_div(&coeff)?)?;
+        if coeff.is_positive() {
+            upper.push((bound, c.strict));
         } else {
-            // c.expr = coeff*var + rest <= 0 (or < 0)
-            // Extract: rest = c.expr - coeff*var
-            let mut rest = c.expr.clone();
-            rest.coefficients.remove(&var);
-
-            if coeff.is_positive() {
-                // coeff*var + rest <= 0
-                // var <= -rest/coeff
-                // Upper bound: -rest/coeff
-                let bound = rest.neg().scale(&coeff.div(&Rational::from_int(1)).unwrap());
-                let bound = bound.scale(
-                    &Rational::from_int(1)
-                        .div(&coeff)
-                        .unwrap_or(Rational::from_int(1)),
-                );
-                upper.push((rest.neg().scale(&coeff.div(&coeff).unwrap()), c.strict));
-            } else {
-                // coeff*var + rest <= 0, coeff < 0
-                // |coeff|*(-var) + rest <= 0
-                // -var <= -rest/|coeff|
-                // var >= rest/|coeff|
-                // Lower bound: rest/|coeff|
-                let abs_coeff = coeff.neg();
-                lower.push((rest.scale(&abs_coeff.div(&abs_coeff).unwrap()), c.strict));
-            }
+            lower.push((bound, c.strict));
         }
     }
 
-    // Combine lower and upper bounds
-    // If lo <= var <= hi, then lo <= hi must hold
+    // lo <= var <= hi  ⟹  lo <= hi must hold (strict if either bound is strict).
     for (lo_expr, lo_strict) in &lower {
         for (hi_expr, hi_strict) in &upper {
-            // We need: lo <= hi
-            // In constraint form: lo - hi <= 0
-            let diff = lo_expr.sub(hi_expr);
+            // In constraint form: lo - hi <= 0 (or < 0).
+            let diff = lo_expr.checked_sub(hi_expr)?;
             independent.push(Constraint {
                 expr: diff,
                 strict: *lo_strict || *hi_strict,
@@ -558,7 +674,7 @@ fn eliminate_variable(constraints: &[Constraint], var: i64) -> Vec<Constraint> {
         }
     }
 
-    independent
+    Some(independent)
 }
 
 // =============================================================================
@@ -720,6 +836,61 @@ mod tests {
             strict: false,
         }];
         assert!(!fourier_motzkin_unsat(&constraints2));
+    }
+
+    // A constraint `c·x + d <= 0` (or `< 0`) from an integer triple.
+    fn c(cx: i64, d: i64, strict: bool) -> Constraint {
+        let mut e = LinearExpr::constant(Rational::from_int(d));
+        e = e.add(&LinearExpr::var(0).scale(&Rational::from_int(cx)));
+        Constraint { expr: e, strict }
+    }
+
+    #[test]
+    fn nonunit_coeff_satisfiable_is_not_unsat() {
+        // 2x + 4 <= 0  (x <= -2)  ∧  -x - 3 <= 0  (x >= -3).  x = -2 satisfies
+        // both, so the system is SATISFIABLE — `unsat` MUST be false. The
+        // dropped-division bug derives a spurious contradiction here (UNSOUND).
+        let sys = vec![c(2, 4, false), c(-1, -3, false)];
+        assert!(
+            !fourier_motzkin_unsat(&sys),
+            "satisfiable non-unit system wrongly reported unsatisfiable (unsound FM)"
+        );
+    }
+
+    #[test]
+    fn nonunit_coeff_unsat_is_detected() {
+        // 3x - 6 <= 0  (x <= 2)  ∧  -x + 3 <= 0  (x >= 3).  No integer (or
+        // rational) x satisfies both → UNSAT must be true. The bug misses it.
+        let sys = vec![c(3, -6, false), c(-1, 3, false)];
+        assert!(
+            fourier_motzkin_unsat(&sys),
+            "unsatisfiable non-unit system not detected (incomplete FM)"
+        );
+    }
+
+    #[test]
+    fn nonunit_coeff_strict_and_larger() {
+        // 5x <= 12  (x <= 2.4)  ∧  3x >= 9  (x >= 3): unsat (2.4 < 3).
+        let sys = vec![c(5, -12, false), c(-3, 9, false)];
+        assert!(fourier_motzkin_unsat(&sys));
+        // 5x <= 15 (x <= 3) ∧ 3x >= 9 (x >= 3): x = 3 satisfies — SAT.
+        let sys2 = vec![c(5, -15, false), c(-3, 9, false)];
+        assert!(!fourier_motzkin_unsat(&sys2));
+    }
+
+    #[test]
+    fn overflow_fails_closed_to_satisfiable() {
+        // `4e9·x - 1 <= 0` (x <= 1/4e9) ∧ `-3e9·x - 1 <= 0` (x >= -1/3e9): the
+        // interval contains 0, so the system is SATISFIABLE. Isolating x makes
+        // bounds with denominators 4e9 and 3e9; combining them needs the
+        // product 4e9·3e9 = 1.2e19, which overflows i64. The OLD unchecked code
+        // would panic (debug) / wrap (release); the checked path bails the
+        // elimination to `None`, so the procedure returns false — fail closed.
+        let sys = vec![c(4_000_000_000, -1, false), c(-3_000_000_000, -1, false)];
+        assert!(
+            !fourier_motzkin_unsat(&sys),
+            "denominator overflow must fail closed to satisfiable, not panic or report unsat"
+        );
     }
 
     #[test]

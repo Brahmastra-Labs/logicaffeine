@@ -42,6 +42,7 @@ pub async fn seed_examples<V: Vfs>(vfs: &V) -> VfsResult<()> {
 
     // Seed prover examples (theorem proving with derivation trees)
     vfs.write("/examples/logic/prover-demo.logic", LOGIC_PROVER.as_bytes()).await?;
+    vfs.write("/examples/logic/simon.logic", LOGIC_SIMON.as_bytes()).await?;
     vfs.write("/examples/logic/syllogism.logic", LOGIC_SYLLOGISM.as_bytes()).await?;
     vfs.write("/examples/logic/trivial-proof.logic", LOGIC_TRIVIAL.as_bytes()).await?;
     vfs.write("/examples/logic/disjunctive-syllogism.logic", LOGIC_DISJUNCTIVE.as_bytes()).await?;
@@ -196,6 +197,7 @@ async fn seed_advanced_code_examples<V: Vfs>(vfs: &V) -> VfsResult<()> {
     vfs.write("/examples/logic/quantifiers.logic", LOGIC_QUANTIFIERS.as_bytes()).await?;
     vfs.write("/examples/logic/tense-aspect.logic", LOGIC_TENSE.as_bytes()).await?;
     vfs.write("/examples/logic/prover-demo.logic", LOGIC_PROVER.as_bytes()).await?;
+    vfs.write("/examples/logic/simon.logic", LOGIC_SIMON.as_bytes()).await?;
     vfs.write("/examples/logic/syllogism.logic", LOGIC_SYLLOGISM.as_bytes()).await?;
     vfs.write("/examples/logic/trivial-proof.logic", LOGIC_TRIVIAL.as_bytes()).await?;
     vfs.write("/examples/logic/disjunctive-syllogism.logic", LOGIC_DISJUNCTIVE.as_bytes()).await?;
@@ -282,6 +284,25 @@ const LOGIC_PROVER: &str = r#"## Theorem: Socrates_Mortality
 Given: All men are mortal.
 Given: Socrates is a man.
 Prove: Socrates is mortal.
+Proof: Auto.
+"#;
+
+// A logic-GRID deduction (PuzzleBaron "Simon" puzzle), solved by the SAME
+// kernel-certified prover as Socrates — grounded to its finite domain and closed by
+// unit propagation (no Z3). The state domain is closed to four states with an
+// exactly-one-each bijection; Alpha takes Florida (so Beta cannot), and over the year
+// × state grid Beta is forced into Maine by elimination. Renders the full derivation.
+const LOGIC_SIMON: &str = r#"## Theorem: Simon
+Given: Alpha is a trip.
+Given: Beta is a trip.
+Given: Alpha is not Beta.
+Given: Every trip is in 2003 or in 2004.
+Given: Every trip is in Florida or in Maine.
+Given: Exactly one trip is in 2003.
+Given: Exactly one trip is in Florida.
+Given: Alpha is in 2003.
+Given: Alpha is in Florida.
+Prove: Beta is in Maine.
 Proof: Auto.
 "#;
 

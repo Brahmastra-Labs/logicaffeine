@@ -56,8 +56,9 @@ pub use crdt::{
     MVRegister, Merge, ORMap, ORSet, PNCounter, RemoveWins, ReplicaId, SetBias, VClock, RGA, YATA,
 };
 pub use types::{
-    Bool, Byte, Char, Int, LogosContains, LogosMap, LogosSeq, Map, Nat, Real, Seq, Set, Text,
-    Tuple, Unit, Value,
+    Bool, Byte, Char, Int, LogosContains, LogosDenseI64Map, LogosDenseI64MapNoPresence,
+    LogosDenseI64Set, LogosDivU64, LogosI32Map, LogosI32Set, LogosI64Map, LogosI64Set, LogosMap,
+    Map, Nat, Real, Seq, Set, Text, Tuple, Unit, Value, LogosSeq,
 };
 pub use rustc_hash::{FxHashMap, FxHashSet};
 pub use indexing::{LogosGetChar, LogosIndex, LogosIndexMut};

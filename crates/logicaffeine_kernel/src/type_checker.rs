@@ -78,8 +78,17 @@ pub fn infer_type(ctx: &Context, term: &Term) -> KernelResult<Term> {
             let extended_ctx = ctx.extend(param, (**param_type).clone());
             let b_sort = infer_sort(&extended_ctx, body_type)?;
 
-            // The Pi type lives in the max of the two universes
-            Ok(Term::Sort(a_sort.max(&b_sort)))
+            // Product formation (CIC). `Prop` is **impredicative**: a Π whose
+            // codomain is a proposition is itself a proposition, no matter the
+            // domain's universe — so `∀x:Entity. P(x)` is a `Prop`, and FOL
+            // formulas built from it (And/Or/Ex over universals) stay in `Prop`
+            // where `And`/`Ex` require their arguments to live. For a non-`Prop`
+            // codomain the Π lives in the max of the two universes (predicative).
+            let pi_sort = match b_sort {
+                Universe::Prop => Universe::Prop,
+                _ => a_sort.max(&b_sort),
+            };
+            Ok(Term::Sort(pi_sort))
         }
 
         // Lambda: λ(x:A). t : Π(x:A). T where t : T
@@ -525,6 +534,169 @@ fn extract_type_args(ty: &Term) -> Vec<Term> {
 /// - `Pi`, `Lambda`, `Fix` - Substitute in components, respecting shadowing
 /// - `App`, `Match` - Substitute recursively in all subterms
 pub fn substitute(body: &Term, var: &str, replacement: &Term) -> Term {
+    // Fast path: if `var` does not occur free in `body`, the substitution is the
+    // identity. Crucially this lets us skip `free_vars(replacement)` — and the
+    // `replacement` is, in `App`/`Match` type inference, the WHOLE argument/discriminant
+    // proof term. A propositional implication's codomain never mentions the bound proof
+    // variable (non-dependent), so this is the common case and turns quadratic checking
+    // (walk the giant argument at every application) into linear.
+    if !occurs_free(body, var) {
+        return body.clone();
+    }
+    // Compute the free variables of the replacement once; a binder in `body`
+    // that captures any of them must be alpha-renamed before we descend.
+    let replacement_fvs = free_vars(replacement);
+    substitute_avoiding(body, var, replacement, &replacement_fvs)
+}
+
+/// Whether `var` occurs free in `term` (binder-aware, short-circuiting).
+fn occurs_free(term: &Term, var: &str) -> bool {
+    match term {
+        Term::Var(name) => name == var,
+        Term::Sort(_) | Term::Lit(_) | Term::Hole | Term::Global(_) => false,
+        Term::App(func, arg) => occurs_free(func, var) || occurs_free(arg, var),
+        Term::Pi { param, param_type, body_type } => {
+            occurs_free(param_type, var) || (param != var && occurs_free(body_type, var))
+        }
+        Term::Lambda { param, param_type, body } => {
+            occurs_free(param_type, var) || (param != var && occurs_free(body, var))
+        }
+        Term::Fix { name, body } => name != var && occurs_free(body, var),
+        Term::Match { discriminant, motive, cases } => {
+            occurs_free(discriminant, var)
+                || occurs_free(motive, var)
+                || cases.iter().any(|c| occurs_free(c, var))
+        }
+    }
+}
+
+/// Collect the free variables of a term (named representation).
+fn free_vars(term: &Term) -> std::collections::HashSet<String> {
+    fn go(term: &Term, bound: &mut Vec<String>, acc: &mut std::collections::HashSet<String>) {
+        match term {
+            Term::Var(name) => {
+                if !bound.iter().any(|b| b == name) {
+                    acc.insert(name.clone());
+                }
+            }
+            Term::Sort(_) | Term::Lit(_) | Term::Hole | Term::Global(_) => {}
+            Term::App(func, arg) => {
+                go(func, bound, acc);
+                go(arg, bound, acc);
+            }
+            Term::Pi { param, param_type, body_type } => {
+                go(param_type, bound, acc);
+                bound.push(param.clone());
+                go(body_type, bound, acc);
+                bound.pop();
+            }
+            Term::Lambda { param, param_type, body } => {
+                go(param_type, bound, acc);
+                bound.push(param.clone());
+                go(body, bound, acc);
+                bound.pop();
+            }
+            Term::Fix { name, body } => {
+                bound.push(name.clone());
+                go(body, bound, acc);
+                bound.pop();
+            }
+            Term::Match { discriminant, motive, cases } => {
+                go(discriminant, bound, acc);
+                go(motive, bound, acc);
+                for c in cases {
+                    go(c, bound, acc);
+                }
+            }
+        }
+    }
+    let mut acc = std::collections::HashSet::new();
+    let mut bound = Vec::new();
+    go(term, &mut bound, &mut acc);
+    acc
+}
+
+/// Collect every variable name appearing in a term (bound or free).
+fn all_var_names(term: &Term, acc: &mut std::collections::HashSet<String>) {
+    match term {
+        Term::Var(name) => {
+            acc.insert(name.clone());
+        }
+        Term::Sort(_) | Term::Lit(_) | Term::Hole | Term::Global(_) => {}
+        Term::App(func, arg) => {
+            all_var_names(func, acc);
+            all_var_names(arg, acc);
+        }
+        Term::Pi { param, param_type, body_type } => {
+            acc.insert(param.clone());
+            all_var_names(param_type, acc);
+            all_var_names(body_type, acc);
+        }
+        Term::Lambda { param, param_type, body } => {
+            acc.insert(param.clone());
+            all_var_names(param_type, acc);
+            all_var_names(body, acc);
+        }
+        Term::Fix { name, body } => {
+            acc.insert(name.clone());
+            all_var_names(body, acc);
+        }
+        Term::Match { discriminant, motive, cases } => {
+            all_var_names(discriminant, acc);
+            all_var_names(motive, acc);
+            for c in cases {
+                all_var_names(c, acc);
+            }
+        }
+    }
+}
+
+/// Pick a binder name derived from `base` that collides with nothing in `avoid`.
+fn fresh_name(base: &str, avoid: &std::collections::HashSet<String>) -> String {
+    let mut candidate = format!("{}'", base);
+    let mut counter: u32 = 0;
+    while avoid.contains(&candidate) {
+        counter += 1;
+        candidate = format!("{}'{}", base, counter);
+    }
+    candidate
+}
+
+/// Choose a fresh binder name for `param`, avoiding the replacement's free vars,
+/// every name occurring in `body`, and the variable being substituted.
+fn freshen(
+    param: &str,
+    body: &Term,
+    replacement_fvs: &std::collections::HashSet<String>,
+    var: &str,
+) -> String {
+    let mut avoid = replacement_fvs.clone();
+    all_var_names(body, &mut avoid);
+    avoid.insert(var.to_string());
+    fresh_name(param, &avoid)
+}
+
+/// Rename free occurrences of `from` to `to` in `term`. `to` must be globally
+/// fresh in `term`, so this rename cannot itself capture.
+fn rename_var(term: &Term, from: &str, to: &str) -> Term {
+    let repl = Term::Var(to.to_string());
+    let mut fvs = std::collections::HashSet::new();
+    fvs.insert(to.to_string());
+    substitute_avoiding(term, from, &repl, &fvs)
+}
+
+/// Capture-avoiding substitution `body[var := replacement]`, where
+/// `replacement_fvs` is the precomputed free-variable set of `replacement`.
+///
+/// When a binder (`Pi`/`Lambda`/`Fix`) would capture a free variable of
+/// `replacement`, the binder is alpha-renamed to a fresh name before the
+/// substitution descends into its body.
+fn substitute_avoiding(
+    body: &Term,
+    var: &str,
+    replacement: &Term,
+    replacement_fvs: &std::collections::HashSet<String>,
+) -> Term {
     match body {
         Term::Sort(u) => Term::Sort(u.clone()),
 
@@ -545,17 +717,30 @@ pub fn substitute(body: &Term, var: &str, replacement: &Term) -> Term {
             param_type,
             body_type,
         } => {
-            let new_param_type = substitute(param_type, var, replacement);
-            // Don't substitute in body if the parameter shadows var
-            let new_body_type = if param == var {
-                (**body_type).clone()
+            let new_param_type = substitute_avoiding(param_type, var, replacement, replacement_fvs);
+            if param == var {
+                // The parameter shadows `var`: do not substitute in the body.
+                Term::Pi {
+                    param: param.clone(),
+                    param_type: Box::new(new_param_type),
+                    body_type: (*body_type).clone(),
+                }
+            } else if replacement_fvs.contains(param) {
+                // Capture-avoidance: rename the binder away from the free vars
+                // of `replacement` before substituting into the body.
+                let fresh = freshen(param, body_type, replacement_fvs, var);
+                let renamed = rename_var(body_type, param, &fresh);
+                Term::Pi {
+                    param: fresh,
+                    param_type: Box::new(new_param_type),
+                    body_type: Box::new(substitute_avoiding(&renamed, var, replacement, replacement_fvs)),
+                }
             } else {
-                substitute(body_type, var, replacement)
-            };
-            Term::Pi {
-                param: param.clone(),
-                param_type: Box::new(new_param_type),
-                body_type: Box::new(new_body_type),
+                Term::Pi {
+                    param: param.clone(),
+                    param_type: Box::new(new_param_type),
+                    body_type: Box::new(substitute_avoiding(body_type, var, replacement, replacement_fvs)),
+                }
             }
         }
 
@@ -564,23 +749,36 @@ pub fn substitute(body: &Term, var: &str, replacement: &Term) -> Term {
             param_type,
             body,
         } => {
-            let new_param_type = substitute(param_type, var, replacement);
-            // Don't substitute in body if the parameter shadows var
-            let new_body = if param == var {
-                (**body).clone()
+            let new_param_type = substitute_avoiding(param_type, var, replacement, replacement_fvs);
+            if param == var {
+                // The parameter shadows `var`: do not substitute in the body.
+                Term::Lambda {
+                    param: param.clone(),
+                    param_type: Box::new(new_param_type),
+                    body: (*body).clone(),
+                }
+            } else if replacement_fvs.contains(param) {
+                // Capture-avoidance: rename the binder away from the free vars
+                // of `replacement` before substituting into the body.
+                let fresh = freshen(param, body, replacement_fvs, var);
+                let renamed = rename_var(body, param, &fresh);
+                Term::Lambda {
+                    param: fresh,
+                    param_type: Box::new(new_param_type),
+                    body: Box::new(substitute_avoiding(&renamed, var, replacement, replacement_fvs)),
+                }
             } else {
-                substitute(body, var, replacement)
-            };
-            Term::Lambda {
-                param: param.clone(),
-                param_type: Box::new(new_param_type),
-                body: Box::new(new_body),
+                Term::Lambda {
+                    param: param.clone(),
+                    param_type: Box::new(new_param_type),
+                    body: Box::new(substitute_avoiding(body, var, replacement, replacement_fvs)),
+                }
             }
         }
 
         Term::App(func, arg) => Term::App(
-            Box::new(substitute(func, var, replacement)),
-            Box::new(substitute(arg, var, replacement)),
+            Box::new(substitute_avoiding(func, var, replacement, replacement_fvs)),
+            Box::new(substitute_avoiding(arg, var, replacement, replacement_fvs)),
         ),
 
         Term::Match {
@@ -588,25 +786,33 @@ pub fn substitute(body: &Term, var: &str, replacement: &Term) -> Term {
             motive,
             cases,
         } => Term::Match {
-            discriminant: Box::new(substitute(discriminant, var, replacement)),
-            motive: Box::new(substitute(motive, var, replacement)),
+            discriminant: Box::new(substitute_avoiding(discriminant, var, replacement, replacement_fvs)),
+            motive: Box::new(substitute_avoiding(motive, var, replacement, replacement_fvs)),
             cases: cases
                 .iter()
-                .map(|c| substitute(c, var, replacement))
+                .map(|c| substitute_avoiding(c, var, replacement, replacement_fvs))
                 .collect(),
         },
 
         Term::Fix { name, body } => {
-            // Don't substitute in body if the fixpoint name shadows var
             if name == var {
+                // The fixpoint name shadows `var`: do not substitute in the body.
                 Term::Fix {
                     name: name.clone(),
                     body: body.clone(),
                 }
+            } else if replacement_fvs.contains(name) {
+                // Capture-avoidance: rename the fixpoint binder.
+                let fresh = freshen(name, body, replacement_fvs, var);
+                let renamed = rename_var(body, name, &fresh);
+                Term::Fix {
+                    name: fresh,
+                    body: Box::new(substitute_avoiding(&renamed, var, replacement, replacement_fvs)),
+                }
             } else {
                 Term::Fix {
                     name: name.clone(),
-                    body: Box::new(substitute(body, var, replacement)),
+                    body: Box::new(substitute_avoiding(body, var, replacement, replacement_fvs)),
                 }
             }
         }
@@ -635,8 +841,15 @@ pub fn substitute(body: &Term, var: &str, replacement: &Term) -> Term {
 /// - `Nat -> Type 0 <= Nat -> Type 1` (covariant in return type)
 /// - `Type 1 -> Nat <= Type 0 -> Nat` (contravariant in parameter type)
 pub fn is_subtype(ctx: &Context, a: &Term, b: &Term) -> bool {
-    // Normalize both terms before comparison
-    // This ensures that e.g. `ReachesOne (collatzStep 2)` equals `ReachesOne 1`
+    // Fast path: already structurally (definitionally) equal — the overwhelming case
+    // in propositional/FOL proofs, where types are atoms and ∧/∨/¬/→ in normal form.
+    // Skipping the two `normalize` walks here is the difference between linear and
+    // pathological checking on a large certified grid proof.
+    if types_equal(a, b) {
+        return true;
+    }
+    // Otherwise normalize both terms before comparison — this ensures that e.g.
+    // `ReachesOne (collatzStep 2)` equals `ReachesOne 1`.
     let a_norm = normalize(ctx, a);
     let b_norm = normalize(ctx, b);
 

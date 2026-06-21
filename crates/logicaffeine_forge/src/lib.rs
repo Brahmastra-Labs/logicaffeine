@@ -31,6 +31,11 @@ use std::mem;
 pub mod buffer;
 pub mod jit;
 pub mod patch;
+#[cfg(target_arch = "x86_64")]
+pub mod regalloc;
+pub mod segv_trace;
+#[cfg(target_arch = "x86_64")]
+pub mod x64asm;
 mod stencil_model;
 pub use stencil_model::{HoleId, Reloc, RelocKind, Stencil};
 
@@ -97,6 +102,47 @@ impl JitPage {
             write_code(ptr, code)?;
         }
         Ok(JitPage { ptr, code_len: code.len(), alloc_len })
+    }
+
+    /// Patch one 8-byte LITERAL-POOL word after sealing (the self-call
+    /// entry: a chain's own base address becomes known only after layout).
+    /// Data-only — the word lives in the pool, never decoded as code — so
+    /// no instruction-cache concerns; the brief RW window happens on the
+    /// compiling thread before the chain ever runs.
+    #[cfg(all(unix, not(all(target_os = "macos", target_arch = "aarch64"))))]
+    pub fn patch_word(&self, offset: usize, value: u64) -> Result<(), JitError> {
+        assert!(offset + 8 <= self.code_len, "patch outside the mapping");
+        let page = page_size();
+        let start = (self.ptr as usize + offset) & !(page - 1);
+        let end = self.ptr as usize + offset + 8;
+        let len = end - start;
+        unsafe {
+            let rc = libc::mprotect(
+                start as *mut libc::c_void,
+                len,
+                libc::PROT_READ | libc::PROT_WRITE,
+            );
+            if rc != 0 {
+                return Err(JitError::Protect(std::io::Error::last_os_error()));
+            }
+            std::ptr::write_unaligned(self.ptr.add(offset) as *mut u64, value);
+            let rc = libc::mprotect(
+                start as *mut libc::c_void,
+                len,
+                libc::PROT_READ | libc::PROT_EXEC,
+            );
+            if rc != 0 {
+                return Err(JitError::Protect(std::io::Error::last_os_error()));
+            }
+        }
+        Ok(())
+    }
+
+    /// Self-entry patching is unsupported on MAP_JIT targets (Apple
+    /// Silicon) — callers fall back to the table-indirect call stencil.
+    #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+    pub fn patch_word(&self, _offset: usize, _value: u64) -> Result<(), JitError> {
+        Err(JitError::EmptyCode)
     }
 
     /// Two-phase construction for PATCHED code: maps first (so the final base
@@ -463,6 +509,123 @@ mod tests {
             let st = stencil(name);
             assert!(!st.code.is_empty(), "{name} has no code");
         }
+    }
+
+    #[test]
+    fn checked_div_mod_stencils_have_two_distinct_cont_holes() {
+        for name in ["logos_stencil_divi_checked", "logos_stencil_modi_checked"] {
+            let st = stencil(name);
+            let conts: std::collections::HashSet<_> = st
+                .relocs
+                .iter()
+                .filter_map(|r| match r.target {
+                    HoleId::Cont(n) => Some(n),
+                    _ => None,
+                })
+                .collect();
+            assert_eq!(
+                conts,
+                [0u8, 1u8].into_iter().collect(),
+                "{name} must expose both the success and side-exit continuations"
+            );
+        }
+    }
+
+    #[test]
+    fn deopt_stencil_has_const_hole_and_no_continuations() {
+        let st = stencil("logos_stencil_deopt");
+        assert!(
+            st.relocs.iter().any(|r| matches!(r.target, HoleId::ConstI64(0))),
+            "deopt stencil lacks its status-cell address hole: {:?}",
+            st.relocs
+        );
+        assert!(
+            !st.relocs.iter().any(|r| matches!(r.target, HoleId::Cont(_))),
+            "deopt is a terminal — it must not continue anywhere"
+        );
+    }
+
+    #[test]
+    fn checked_div_chain_computes_and_side_exits() {
+        use crate::jit::{compile_straightline, ChainOutcome, MicroOp};
+        // frame[2] = frame[0] / frame[1]; return frame[2].
+        let prog = [
+            MicroOp::Div { dst: 2, lhs: 0, rhs: 1 },
+            MicroOp::Return { src: 2 },
+        ];
+        let chain = compile_straightline(&prog).expect("compile");
+        let mut frame = [40i64, 5, 0];
+        assert_eq!(chain.run_with_frame(&mut frame), ChainOutcome::Return(8));
+        // The kernel's locked wrapping edge: i64::MIN / -1 = i64::MIN.
+        let mut frame = [i64::MIN, -1, 0];
+        assert_eq!(chain.run_with_frame(&mut frame), ChainOutcome::Return(i64::MIN));
+        // Zero divisor: side exit, then the NEXT run is clean (cell resets).
+        let mut frame = [40i64, 0, 0];
+        assert_eq!(chain.run_with_frame(&mut frame), ChainOutcome::Deopt(1));
+        let mut frame = [40i64, 4, 0];
+        assert_eq!(chain.run_with_frame(&mut frame), ChainOutcome::Return(10));
+    }
+
+    #[test]
+    fn checked_mod_chain_computes_and_side_exits() {
+        use crate::jit::{compile_straightline, ChainOutcome, MicroOp};
+        let prog = [
+            MicroOp::Mod { dst: 2, lhs: 0, rhs: 1 },
+            MicroOp::Return { src: 2 },
+        ];
+        let chain = compile_straightline(&prog).expect("compile");
+        let mut frame = [43i64, 5, 0];
+        assert_eq!(chain.run_with_frame(&mut frame), ChainOutcome::Return(3));
+        let mut frame = [i64::MIN, -1, 0];
+        assert_eq!(chain.run_with_frame(&mut frame), ChainOutcome::Return(0));
+        let mut frame = [-7i64, 2, 0];
+        assert_eq!(chain.run_with_frame(&mut frame), ChainOutcome::Return(-1));
+        let mut frame = [43i64, 0, 0];
+        assert_eq!(chain.run_with_frame(&mut frame), ChainOutcome::Deopt(1));
+    }
+
+    /// A float `Move` whose SOURCE and DESTINATION are both XMM-pinned must move
+    /// the value REGISTER-to-REGISTER (V_FMOV f→f), not round-trip a stale frame
+    /// cell. The pinned-float emitter used the GP location (`loc`) for `Move`, so
+    /// a float move between pins wrote/read frame bits that the register-resident
+    /// value had never been spilled to — corrupting the loop-carried accumulator
+    /// (the `Set zr to zr2` step of mandelbrot). Reproduces `x = x*x` over a pin:
+    /// without the fix `x` keeps its prologue value (3.0) instead of 9.0.
+    #[test]
+    fn float_move_between_xmm_pins_threads_the_register() {
+        use crate::jit::{compile_straightline_pinned_float, ChainOutcome, MicroOp};
+        let prog = [
+            MicroOp::MulF { dst: 2, lhs: 0, rhs: 0 }, // sq = x * x   (f-reg threaded)
+            MicroOp::Move { dst: 0, src: 2 },          // x = sq       (f→f move)
+            MicroOp::Return { src: 0 },
+        ];
+        let chain = compile_straightline_pinned_float(&prog, &[], &[0, 2], None).expect("compile");
+        let mut frame = [3.0f64.to_bits() as i64, 0, 0];
+        assert_eq!(
+            chain.run_with_frame(&mut frame),
+            ChainOutcome::Return(9.0f64.to_bits() as i64),
+            "Move between XMM pins must copy the register value (9.0), not a stale frame cell"
+        );
+    }
+
+    /// A float `Move` from a FRAME slot into an XMM pin (the common `Set acc to
+    /// temp` shape where `temp` is unpinned) must reload the frame bits into the
+    /// pinned register — otherwise the epilogue spills the pin's stale prologue
+    /// value back over the result.
+    #[test]
+    fn float_move_frame_into_xmm_pin_reloads() {
+        use crate::jit::{compile_straightline_pinned_float, ChainOutcome, MicroOp};
+        let prog = [
+            MicroOp::Move { dst: 0, src: 2 }, // x(pin) = temp(frame)
+            MicroOp::Return { src: 0 },
+        ];
+        let chain = compile_straightline_pinned_float(&prog, &[], &[0], None).expect("compile");
+        let mut frame = [1.0f64.to_bits() as i64, 0, 7.5f64.to_bits() as i64];
+        assert_eq!(
+            chain.run_with_frame(&mut frame),
+            ChainOutcome::Return(7.5f64.to_bits() as i64),
+            "Move from frame into an XMM pin must load 7.5 into the pin"
+        );
     }
 
     #[test]

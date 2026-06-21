@@ -220,6 +220,19 @@ impl<'r> CheckEnv<'r> {
             }
         }
 
+        // List literals: check EACH element against the expected element type so
+        // the numeric-literal coercion applies element-wise (e.g. `[1, 2, 3]`
+        // under a `Seq of Real` annotation), instead of synthesizing the element
+        // type from items[0] alone and failing to unify with the annotation.
+        if let Expr::List(items) = expr {
+            if let InferType::Seq(elem) = self.table.zonk(expected) {
+                for item in items {
+                    self.check_expr(item, &elem)?;
+                }
+                return Ok(InferType::Seq(elem));
+            }
+        }
+
         // Default: synthesize then unify
         let inferred = self.infer_expr(expr)?;
         self.table.unify(&inferred, expected)?;
@@ -676,8 +689,43 @@ impl<'r> CheckEnv<'r> {
                     .collect();
                 let resolved_ret = self.table.resolve(&ret_type);
 
+                // Generalize over EVERY free type variable in the resolved
+                // signature, not just the declared generics: a function with an
+                // INFERRED (unannotated) return type allocates a fresh return
+                // variable that is genuinely polymorphic but absent from
+                // `generic_vars`. Leaving it free would share it across call
+                // sites (cross-call contamination); adding it to `vars` makes
+                // `instantiate` freshen it per call.
+                fn collect_type_vars(ty: &InferType, acc: &mut Vec<TyVar>) {
+                    match ty {
+                        InferType::Var(tv) => {
+                            if !acc.contains(tv) {
+                                acc.push(*tv);
+                            }
+                        }
+                        InferType::Seq(i) | InferType::Set(i) | InferType::Option(i) => {
+                            collect_type_vars(i, acc)
+                        }
+                        InferType::Map(k, v) => {
+                            collect_type_vars(k, acc);
+                            collect_type_vars(v, acc);
+                        }
+                        InferType::Function(ps, r) => {
+                            for p in ps {
+                                collect_type_vars(p, acc);
+                            }
+                            collect_type_vars(r, acc);
+                        }
+                        _ => {}
+                    }
+                }
+                let mut scheme_vars = generic_vars;
+                for p in &resolved_params {
+                    collect_type_vars(p, &mut scheme_vars);
+                }
+                collect_type_vars(&resolved_ret, &mut scheme_vars);
                 let scheme = TypeScheme {
-                    vars: generic_vars,
+                    vars: scheme_vars,
                     body: InferType::Function(resolved_params, Box::new(resolved_ret)),
                 };
                 self.functions.insert(*name, FunctionRecord { param_names, scheme });
@@ -702,7 +750,12 @@ impl<'r> CheckEnv<'r> {
                 let iterable_ty = self.infer_expr(iterable)?;
                 let elem_ty = match self.table.zonk(&iterable_ty) {
                     InferType::Seq(inner) | InferType::Set(inner) => *inner,
-                    InferType::Map(k, _) => *k,
+                    // A Map yields (key, value) tuples per entry at runtime
+                    // (semantics/collections.rs `iteration_snapshot`), NOT bare
+                    // keys. InferType has no tuple type, so a single loop
+                    // variable binds to Unknown — sound (it cannot drive a wrong
+                    // specialization), unlike the bare key type `K`.
+                    InferType::Map(_, _) => InferType::Unknown,
                     _ => InferType::Unknown,
                 };
                 match pattern {
@@ -1526,5 +1579,117 @@ mod tests {
         let env = run(&stmts, &interner);
         assert_eq!(env.lookup(r), &LogosType::Int,
             "forward-ref identity(99) should be Int, got {:?}", env.lookup(r));
+    }
+
+    // ---- Bug Report #1 regression pins ----
+
+    /// BUG-025: a `Seq of Real` annotation must accept integer literals
+    /// `[1, 2, 3]` (the numeric-literal coercion scalar literals already get),
+    /// rather than synthesizing `Seq(Int)` from `items[0]` and failing to unify
+    /// with `Seq(Float)`.
+    #[test]
+    fn seq_of_real_accepts_int_literals() {
+        let mut interner = Interner::new();
+        let xs = interner.intern("xs");
+        let real_sym = interner.intern("Real");
+        let seq_sym = interner.intern("Seq");
+
+        let one = Expr::Literal(Literal::Number(1));
+        let two = Expr::Literal(Literal::Number(2));
+        let three = Expr::Literal(Literal::Number(3));
+        let val = Expr::List(vec![&one, &two, &three]);
+
+        let real_ty = TypeExpr::Primitive(real_sym);
+        let params = [real_ty];
+        let seq_real = TypeExpr::Generic { base: seq_sym, params: &params };
+
+        let stmts = [Stmt::Let { var: xs, ty: Some(&seq_real), value: &val, mutable: false }];
+
+        let env = check_program(&stmts, &interner, &TypeRegistry::new())
+            .expect("Seq of Real should accept integer literals [1, 2, 3]");
+
+        assert_eq!(
+            env.lookup(xs),
+            &LogosType::Seq(Box::new(LogosType::Float)),
+            "xs should be inferred as Seq<Float> under the `Seq of Real` annotation"
+        );
+    }
+
+    /// BUG-026: a generic function with an INFERRED (unannotated) return type
+    /// must generalize its return variable, so two calls at different types are
+    /// independent. Mirrors `generic_calls_are_independent` but `return_type: None`.
+    #[test]
+    fn generic_inferred_return_calls_are_independent() {
+        let mut interner = mk_interner();
+        let f = interner.intern("wrap");
+        let x_param = interner.intern("x");
+        let t_sym = interner.intern("T");
+        let t_ty = TypeExpr::Primitive(t_sym);
+        let x_ref = Expr::Identifier(x_param);
+        let ret_stmt = Stmt::Return { value: Some(&x_ref) };
+        let body = [ret_stmt];
+        let fn_def = Stmt::FunctionDef {
+            name: f,
+            generics: vec![t_sym],
+            params: vec![(x_param, &t_ty)],
+            body: &body,
+            return_type: None, // inferred return -> fresh var not in scheme.vars: the bug
+            is_native: false,
+            native_path: None,
+            is_exported: false,
+            export_target: None,
+            opt_flags: HashSet::new(),
+        };
+        let r1 = interner.intern("r1");
+        let r2 = interner.intern("r2");
+        let lit_int = Expr::Literal(Literal::Number(42));
+        let lit_bool = Expr::Literal(Literal::Boolean(true));
+        let call1 = Expr::Call { function: f, args: vec![&lit_int] };
+        let call2 = Expr::Call { function: f, args: vec![&lit_bool] };
+        let let_r1 = Stmt::Let { var: r1, ty: None, value: &call1, mutable: false };
+        let let_r2 = Stmt::Let { var: r2, ty: None, value: &call2, mutable: false };
+        let stmts = [fn_def, let_r1, let_r2];
+        let env = run(&stmts, &interner);
+        assert_eq!(env.lookup(r1), &LogosType::Int,
+            "wrap(42) should be Int, got {:?}", env.lookup(r1));
+        assert_eq!(env.lookup(r2), &LogosType::Bool,
+            "wrap(true) should be Bool, got {:?}", env.lookup(r2));
+    }
+
+    /// BUG-007: iterating a `Map` with a single identifier loop variable yields
+    /// `(key, value)` tuples at runtime, so the loop var must NOT be typed as
+    /// the bare key type `K`.
+    #[test]
+    fn repeat_over_map_single_ident_loop_var_is_not_bare_key() {
+        let mut interner = mk_interner();
+        let m = interner.intern("m");
+        let entry = interner.intern("entry");
+        let map_sym = interner.intern("Map");
+        let text_sym = interner.intern("Text");
+        let int_sym = interner.intern("Int");
+
+        let new_map = Expr::New {
+            type_name: map_sym,
+            type_args: vec![TypeExpr::Primitive(text_sym), TypeExpr::Primitive(int_sym)],
+            init_fields: vec![],
+        };
+        let let_m = Stmt::Let { var: m, ty: None, value: &new_map, mutable: false };
+
+        let m_ref = Expr::Identifier(m);
+        let repeat = Stmt::Repeat {
+            pattern: Pattern::Identifier(entry),
+            iterable: &m_ref,
+            body: &[],
+        };
+
+        let stmts = [let_m, repeat];
+        let env = run(&stmts, &interner);
+
+        assert_ne!(
+            env.lookup(entry),
+            &LogosType::String,
+            "iterating a Map with a single identifier yields (key,value) tuples at runtime; \
+             the loop var must not be typed as the bare key K"
+        );
     }
 }

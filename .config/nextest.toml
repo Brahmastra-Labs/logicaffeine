@@ -6,3 +6,29 @@ fail-fast = false
 [profile.ci]
 retries = 1
 fail-fast = true
+
+# Full-baseline profile: every test, no retries, no early exit. Used by
+# scripts/run-all-tests-fast.sh for parity with the cargo-test baseline run.
+[profile.full]
+retries = 0
+slow-timeout = { period = "120s" }
+fail-fast = false
+final-status-level = "slow"
+
+# Start the wall-clock monsters at t=0 so they overlap the rest of the suite:
+# jit_mega_fuzz (~325s, pure CPU) is the suite's floor, and the phase_futamura /
+# phase_pe_differential heavies (60-220s each) otherwise queue up in the tail.
+[[profile.full.overrides]]
+filter = 'binary(phase_futamura) | binary(phase_pe_differential) | test(jit_mega_fuzz) | test(vm_fuzz_overnight)'
+priority = 100
+
+# The subprocess-harness e2e tests spawn `cargo build/run` against per-slot
+# sharded target dirs (/tmp/logos_e2e_cache_<NEXTEST_TEST_GROUP_SLOT>, see
+# tests/common/mod.rs get_shared_target_dir). max-threads doubles as the shard
+# count — keep it in sync with E2E_TARGET_SHARDS in common/mod.rs.
+[test-groups.e2e-subprocess]
+max-threads = 12
+
+[[profile.full.overrides]]
+filter = 'binary(/^(e2e_async_cross_cutting|e2e_causal_consistency|e2e_closures|e2e_codegen_collections|e2e_codegen_comparisons|e2e_codegen_control_flow|e2e_codegen_edge_cases|e2e_codegen_enums|e2e_codegen_expressions|e2e_codegen_functions|e2e_codegen_gaps|e2e_codegen_iteration|e2e_codegen_logical|e2e_codegen_maps|e2e_codegen_optimization|e2e_codegen_primitives|e2e_codegen_sets|e2e_codegen_structs|e2e_codegen_tuples|e2e_codegen_types|e2e_codegen_variables|e2e_concurrency|e2e_crdt|e2e_feature_matrix|e2e_gossip|e2e_gossip_edge_cases|e2e_integration|e2e_language_gaps|e2e_math_builtins|e2e_mesh|e2e_multi_node|e2e_network_partition|e2e_policy|e2e_refinement|e2e_ref_semantics|e2e_string_interpolation|e2e_studio_examples|e2e_temporal|e2e_temporal_show|e2e_zones|phase25_type_expr|phase38_stdlib|phase_abstract_interp|phase_autoparallel|phase_break|phase_bta|phase_crdt_language|phase_deforestation|phase_escape_hatch|phase_ffi_requires|phase_futamura|phase_mountain_climb|phase_optimize|phase_optimize_v2|phase_partial_eval|phase_polyhedral|phase_supercompile|test_concurrency|user_concurrency)$/)'
+test-group = 'e2e-subprocess'

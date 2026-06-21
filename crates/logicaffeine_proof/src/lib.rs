@@ -23,8 +23,13 @@
 //! ensuring the proof engine remains pure and reusable.
 
 pub mod arith;
+pub mod cdcl;
+pub mod cnf;
+pub mod rup;
 pub mod certifier;
 pub mod engine;
+pub mod grounding;
+pub mod grid_solver;
 pub mod error;
 pub mod hints;
 pub mod unify;
@@ -536,6 +541,16 @@ pub enum InferenceRule {
     /// so the certifier can build the case lambdas' parameter types and bind `C`
     /// / `¬C` as local hypotheses in each branch.
     CaseAnalysis { case_formula: Box<ProofExpr> },
+
+    /// Logic: `A ∨ B`, `A ⊢ C`, `B ⊢ C` ⊢ `C` — disjunction elimination to a common
+    /// conclusion (here always `⊥`, for the grounded-grid contradiction prover).
+    /// Premises: `[A∨B, left-branch (C assuming A), right-branch (C assuming B)]`.
+    /// Unlike [`DisjunctionElim`] (disjunctive syllogism, which needs a refuted
+    /// disjunct) this eliminates BOTH disjuncts by case analysis — the move a grid's
+    /// of-pair / either-or / closure clause needs. The disjuncts (and, when a disjunct
+    /// is a conjunction, each of its conjuncts) are bound as local hypotheses in the
+    /// respective branch, so a branch may reference them directly.
+    DisjunctionCases,
 }
 
 // =============================================================================

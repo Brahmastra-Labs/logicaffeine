@@ -805,6 +805,16 @@ impl<'a> VerificationPass<'a> {
             // LINGUISTIC reasoning path is separate: events, Distributive, and
             // GroupQuantifier lower to real first-order forms in
             // `proof_convert` and reason via the oracle's Link-lattice axioms.
+            // An optative wish quantifies over bouletically ideal worlds: its
+            // complement is NEVER entailed as fact, yet an identical wish entails
+            // itself. Encode it as a DETERMINISTIC uninterpreted predicate of the
+            // (mapped) wish content — structurally stable so `Wish ⊢ Wish`, opaque
+            // so `Wish ⊬ content`. (The fresh-symbol `unverifiable()` would break
+            // the self-entailment, minting a distinct symbol per occurrence.)
+            LogicExpr::Optative { wish } => {
+                VerifyExpr::apply("__Optative", vec![self.map_logic_expr(wish)])
+            }
+
             LogicExpr::Metaphor { .. }
             | LogicExpr::Categorical(_)
             | LogicExpr::Relation(_)
@@ -813,7 +823,6 @@ impl<'a> VerificationPass<'a> {
             | LogicExpr::NeoEvent(_)
             | LogicExpr::Imperative { .. }
             | LogicExpr::Exclamative { .. }
-            | LogicExpr::Optative { .. }
             | LogicExpr::TemporalAnchor { .. }
             | LogicExpr::Distributive { .. }
             | LogicExpr::GroupQuantifier { .. }

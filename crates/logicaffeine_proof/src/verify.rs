@@ -48,7 +48,66 @@ pub struct VerifiedProof {
 /// **same** conversion the certifier uses for hypothesis lookup, so a registered
 /// premise is guaranteed to match.
 pub fn prove_certify_check(premises: &[ProofExpr], goal: &ProofExpr) -> VerifiedProof {
-    // === Build kernel context ===
+    prove_certify_check_bounded(premises, goal, 100)
+}
+
+/// Like [`prove_certify_check`] but caps the backward-chainer search depth, so a
+/// goal the kernel cannot reach fails FAST instead of exhausting the default depth.
+/// Keeps "prove-with-ours-first" cheap when answering a grid cell by cell: a
+/// shallow kernel attempt certifies what it can, then falls through to the oracle.
+pub fn prove_certify_check_bounded(
+    premises: &[ProofExpr],
+    goal: &ProofExpr,
+    max_depth: usize,
+) -> VerifiedProof {
+    let (kernel_ctx, flat_premises, abstracted_goal) = prepare_ctx(premises, goal);
+
+    // === Prove ===
+    let mut engine = BackwardChainer::new();
+    engine.set_max_depth(max_depth);
+    for premise in &flat_premises {
+        engine.add_axiom(premise.clone());
+    }
+    let derivation = match engine.prove(goal.clone()) {
+        Ok(d) => d,
+        Err(e) => {
+            return VerifiedProof {
+                derivation: None,
+                proof_term: None,
+                kernel_ctx,
+                verified: false,
+                verification_error: Some(format!("Proof search failed: {}", e)),
+            };
+        }
+    };
+
+    finish_check(kernel_ctx, &abstracted_goal, derivation)
+}
+
+/// Certify and kernel-check a derivation built EXTERNALLY (e.g. by the fast grid
+/// solver) against `premises ⊢ goal`, WITHOUT running the backward chainer. The
+/// trust guarantee is identical to [`prove_certify_check`]: `verified` is true only
+/// when the certifier produced a kernel term whose inferred type IS the goal type.
+/// So an external solver sits OUTSIDE the trusted base — it hands us a
+/// `DerivationTree`, the kernel re-checks it, and a wrong tree yields
+/// `verified == false`, never a false claim.
+pub fn check_derivation(
+    premises: &[ProofExpr],
+    goal: &ProofExpr,
+    derivation: DerivationTree,
+) -> VerifiedProof {
+    let (kernel_ctx, _flat_premises, abstracted_goal) = prepare_ctx(premises, goal);
+    finish_check(kernel_ctx, &abstracted_goal, derivation)
+}
+
+/// Build the kernel context shared by [`prove_certify_check_bounded`] and
+/// [`check_derivation`]: register the standard library, the event-ABSTRACTED,
+/// conjunction-SPLIT premises as hypotheses `h1, h2, …`, and every predicate/constant
+/// referenced. Returns the context, the flattened premises, and the abstracted goal.
+fn prepare_ctx(
+    premises: &[ProofExpr],
+    goal: &ProofExpr,
+) -> (Context, Vec<ProofExpr>, ProofExpr) {
     let mut kernel_ctx = Context::new();
     StandardLibrary::register(&mut kernel_ctx);
 
@@ -87,30 +146,26 @@ pub fn prove_certify_check(premises: &[ProofExpr], goal: &ProofExpr) -> Verified
         register_constant(&mut kernel_ctx, name);
     }
 
-    let mut engine = BackwardChainer::new();
     for (i, premise) in flat_premises.iter().enumerate() {
         if let Ok(hyp_type) = proof_expr_to_type(premise) {
             let hyp_name = format!("h{}", i + 1);
             kernel_ctx.add_declaration(&hyp_name, hyp_type);
         }
-        engine.add_axiom(premise.clone());
     }
 
-    // === Prove ===
-    let derivation = match engine.prove(goal.clone()) {
-        Ok(d) => d,
-        Err(e) => {
-            return VerifiedProof {
-                derivation: None,
-                proof_term: None,
-                kernel_ctx,
-                verified: false,
-                verification_error: Some(format!("Proof search failed: {}", e)),
-            };
-        }
-    };
+    (kernel_ctx, flat_premises, abstracted_goal)
+}
 
+/// Certify `derivation` and require its inferred kernel type to be the goal type —
+/// the trust core shared by the prove and check entries.
+fn finish_check(
+    kernel_ctx: Context,
+    abstracted_goal: &ProofExpr,
+    derivation: DerivationTree,
+) -> VerifiedProof {
+    let trace = std::env::var("LOGOS_TRACE").is_ok();
     // === Certify ===
+    let t_cert = std::time::Instant::now();
     let proof_term = {
         let cert_ctx = CertificationContext::new(&kernel_ctx);
         match certify(&derivation, &cert_ctx) {
@@ -126,12 +181,20 @@ pub fn prove_certify_check(premises: &[ProofExpr], goal: &ProofExpr) -> Verified
             }
         }
     };
+    if trace {
+        eprintln!(
+            "[cert] certify(build) {:.2?} → {} kernel-term nodes",
+            t_cert.elapsed(),
+            count_term_nodes(&proof_term)
+        );
+    }
 
     // === Kernel type-check ===
     // The term must not merely be well-typed — its type must be the goal.
     // Otherwise a certifier that produced a well-formed proof of the *wrong*
     // proposition would be wrongly accepted. We compute the goal's kernel type
     // and require the inferred type to match it (up to definitional equality).
+    let t_infer = std::time::Instant::now();
     let inferred = match infer_type(&kernel_ctx, &proof_term) {
         Ok(t) => t,
         Err(e) => {
@@ -144,8 +207,11 @@ pub fn prove_certify_check(premises: &[ProofExpr], goal: &ProofExpr) -> Verified
             };
         }
     };
+    if trace {
+        eprintln!("[cert] infer_type(check) {:.2?}", t_infer.elapsed());
+    }
 
-    let goal_type = match proof_expr_to_type(&abstracted_goal) {
+    let goal_type = match proof_expr_to_type(abstracted_goal) {
         Ok(t) => t,
         Err(e) => {
             return VerifiedProof {
@@ -316,8 +382,15 @@ impl SymbolCollector {
     fn collect_term(&mut self, term: &ProofTerm) {
         match term {
             ProofTerm::Constant(name) => {
-                // Only proper names (capitalized) become Entity constants.
-                if name.chars().next().map(char::is_uppercase).unwrap_or(false) {
+                // Proper names (capitalized) and numeric labels (a year like `2004`) are
+                // Entity constants; a bare lowercase name is treated as a variable and
+                // left unregistered.
+                if name
+                    .chars()
+                    .next()
+                    .map(|c| c.is_uppercase() || c.is_ascii_digit())
+                    .unwrap_or(false)
+                {
                     self.constants.insert(name.clone());
                 }
             }
@@ -342,6 +415,21 @@ impl SymbolCollector {
 
 /// Register a predicate `P : Entity → … → Entity → Prop` of the given arity
 /// (idempotent). Arity 0 registers a propositional constant `P : Prop`.
+#[doc(hidden)]
+fn count_term_nodes(t: &Term) -> usize {
+    match t {
+        Term::App(f, a) => 1 + count_term_nodes(f) + count_term_nodes(a),
+        Term::Pi { param_type, body_type, .. } => 1 + count_term_nodes(param_type) + count_term_nodes(body_type),
+        Term::Lambda { param_type, body, .. } => 1 + count_term_nodes(param_type) + count_term_nodes(body),
+        Term::Match { discriminant, motive, cases } => {
+            1 + count_term_nodes(discriminant) + count_term_nodes(motive)
+                + cases.iter().map(count_term_nodes).sum::<usize>()
+        }
+        Term::Fix { body, .. } => 1 + count_term_nodes(body),
+        _ => 1,
+    }
+}
+
 fn register_predicate(ctx: &mut Context, name: &str, arity: usize) {
     if ctx.get_global(name).is_some() {
         return;

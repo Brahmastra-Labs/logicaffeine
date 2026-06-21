@@ -50,6 +50,7 @@ BUILD_TIMEOUT="${BUILD_TIMEOUT:-60}"
 HYPERFINE_TIMEOUT="${BENCH_HYPERFINE_TIMEOUT:-300}"  # 5 min per hyperfine invocation
 SIZES_MODE="${BENCH_SIZES:-all}"  # "all" or "ref" (reference only)
 SKIP_LANGS="${SKIP_LANGS:-}"      # comma-separated list of langs to skip (e.g., "zig,nim")
+RUN_INTERP="${RUN_INTERP:-1}"     # 1 = also run the LOGOS-interpreter vs Node/V8 suite (Phase 6) -> results/latest-interp.json
 
 skip_lang() {
     local lang="$1"
@@ -145,25 +146,25 @@ for bench in "${BENCHMARKS[@]}"; do
 
     # C
     if [ -f "$PROGRAMS_DIR/$bench/main.c" ]; then
-        gcc -O2 -o "$BIN_DIR/${bench}_c" "$PROGRAMS_DIR/$bench/main.c" -lm 2>/dev/null && \
+        gcc -O3 -march=native -flto -o "$BIN_DIR/${bench}_c" "$PROGRAMS_DIR/$bench/main.c" -lm 2>/dev/null && \
             ok "  C" || warn "  C build failed"
     fi
 
     # C++
     if [ -f "$PROGRAMS_DIR/$bench/main.cpp" ]; then
-        g++ -O2 -std=c++17 -o "$BIN_DIR/${bench}_cpp" "$PROGRAMS_DIR/$bench/main.cpp" 2>/dev/null && \
+        g++ -O3 -march=native -flto -std=c++17 -o "$BIN_DIR/${bench}_cpp" "$PROGRAMS_DIR/$bench/main.cpp" 2>/dev/null && \
             ok "  C++" || warn "  C++ build failed"
     fi
 
     # Rust
     if [ -f "$PROGRAMS_DIR/$bench/main.rs" ]; then
-        rustc --edition 2021 -O -o "$BIN_DIR/${bench}_rs" "$PROGRAMS_DIR/$bench/main.rs" 2>/dev/null && \
+        rustc --edition 2021 -C opt-level=3 -C lto=fat -C codegen-units=1 -C target-cpu=native -o "$BIN_DIR/${bench}_rs" "$PROGRAMS_DIR/$bench/main.rs" 2>/dev/null && \
             ok "  Rust" || warn "  Rust build failed"
     fi
 
     # Zig (timeout to avoid hangs on macOS)
     if [ -f "$PROGRAMS_DIR/$bench/main.zig" ] && command -v zig &>/dev/null && ! skip_lang zig; then
-        run_timeout "$BUILD_TIMEOUT" zig build-exe -O ReleaseFast --name "${bench}_zig" "$PROGRAMS_DIR/$bench/main.zig" 2>/dev/null && \
+        run_timeout "$BUILD_TIMEOUT" zig build-exe -O ReleaseFast -mcpu native --name "${bench}_zig" "$PROGRAMS_DIR/$bench/main.zig" 2>/dev/null && \
             mv "${bench}_zig" "$BIN_DIR/" 2>/dev/null && \
             ok "  Zig" || warn "  Zig build failed or timed out"
     fi
@@ -183,7 +184,7 @@ for bench in "${BENCHMARKS[@]}"; do
 
     # Nim
     if [ -f "$PROGRAMS_DIR/$bench/main.nim" ] && command -v nim &>/dev/null; then
-        nim c -d:release --hints:off -o:"$BIN_DIR/${bench}_nim" "$PROGRAMS_DIR/$bench/main.nim" 2>/dev/null && \
+        nim c -d:release --passC:"-O3 -march=native" --hints:off -o:"$BIN_DIR/${bench}_nim" "$PROGRAMS_DIR/$bench/main.nim" 2>/dev/null && \
             ok "  Nim" || warn "  Nim build failed"
     fi
 
@@ -283,8 +284,6 @@ for bench in "${BENCHMARKS[@]}"; do
     [ -f "$BIN_DIR/${bench}_go" ]  && verify "$bench" "Go" "$BIN_DIR/${bench}_go" "$size" "$expected"
     [ -d "$BIN_DIR/java/$bench" ]  && verify "$bench" "Java" "java -cp $BIN_DIR/java/$bench Main" "$size" "$expected"
     [ -f "$PROGRAMS_DIR/$bench/main.js" ]  && verify "$bench" "JavaScript" "node $PROGRAMS_DIR/$bench/main.js" "$size" "$expected"
-    [ -f "$PROGRAMS_DIR/$bench/main.py" ]  && verify "$bench" "Python" "python3 $PROGRAMS_DIR/$bench/main.py" "$size" "$expected"
-    [ -f "$PROGRAMS_DIR/$bench/main.rb" ]  && verify "$bench" "Ruby" "RUBY_THREAD_VM_STACK_SIZE=67108864 ruby $PROGRAMS_DIR/$bench/main.rb" "$size" "$expected"
     [ -f "$BIN_DIR/${bench}_nim" ] && verify "$bench" "Nim" "$BIN_DIR/${bench}_nim" "$size" "$expected"
     [ -f "$BIN_DIR/${bench}_logos_release" ] && verify "$bench" "LOGOS (release)" "$BIN_DIR/${bench}_logos_release" "$size" "$expected"
 done
@@ -361,8 +360,6 @@ for bench in "${BENCHMARKS[@]}"; do
         if [ "$bench" != "ackermann" ] || [ "$size" -le 10 ]; then
             [ -f "$PROGRAMS_DIR/$bench/main.js" ]  && try_bench js "JavaScript" "node $PROGRAMS_DIR/$bench/main.js $size"
         fi
-        [ -f "$PROGRAMS_DIR/$bench/main.py" ]  && try_bench python "Python" "python3 $PROGRAMS_DIR/$bench/main.py $size"
-        [ -f "$PROGRAMS_DIR/$bench/main.rb" ]  && try_bench ruby "Ruby" "RUBY_THREAD_VM_STACK_SIZE=67108864 ruby $PROGRAMS_DIR/$bench/main.rb $size"
         [ -f "$BIN_DIR/${bench}_nim" ] && try_bench nim "Nim" "$BIN_DIR/${bench}_nim $size"
         [ -f "$BIN_DIR/${bench}_logos_release" ] && try_bench logos_release "LOGOS (release)" "$BIN_DIR/${bench}_logos_release $size"
 
@@ -422,19 +419,19 @@ for bench in "${BENCHMARKS[@]}"; do
     COMPILE_MERGE_FILES=()
 
     [ -f "$PROGRAMS_DIR/$bench/main.c" ] && \
-        try_compile_bench "gcc_-o2" "gcc -O2" "gcc -O2 -o /dev/null $PROGRAMS_DIR/$bench/main.c -lm"
+        try_compile_bench "gcc_-o3" "gcc -O3 -march=native -flto" "gcc -O3 -march=native -flto -o /dev/null $PROGRAMS_DIR/$bench/main.c -lm"
     [ -f "$PROGRAMS_DIR/$bench/main.cpp" ] && \
-        try_compile_bench "g++_-o2" "g++ -O2" "g++ -O2 -std=c++17 -o /dev/null $PROGRAMS_DIR/$bench/main.cpp"
+        try_compile_bench "g++_-o3" "g++ -O3 -march=native -flto" "g++ -O3 -march=native -flto -std=c++17 -o /dev/null $PROGRAMS_DIR/$bench/main.cpp"
     [ -f "$PROGRAMS_DIR/$bench/main.rs" ] && \
-        try_compile_bench "rustc_-o" "rustc -O" "rustc --edition 2021 -O -o /tmp/bench_rustc_out $PROGRAMS_DIR/$bench/main.rs && rm -f /tmp/bench_rustc_out"
+        try_compile_bench "rustc_-o3" "rustc -O3 -C lto=fat -C target-cpu=native" "rustc --edition 2021 -C opt-level=3 -C lto=fat -C codegen-units=1 -C target-cpu=native -o /tmp/bench_rustc_out $PROGRAMS_DIR/$bench/main.rs && rm -f /tmp/bench_rustc_out"
     [ -f "$PROGRAMS_DIR/$bench/main.go" ] && \
         try_compile_bench "go_build" "go build" "go build -o /dev/null $PROGRAMS_DIR/$bench/main.go"
     [ -f "$PROGRAMS_DIR/$bench/Main.java" ] && \
         try_compile_bench "javac" "javac" "javac -d /tmp $PROGRAMS_DIR/$bench/Main.java"
     command -v nim &>/dev/null && [ -f "$PROGRAMS_DIR/$bench/main.nim" ] && \
-        try_compile_bench "nim_c" "nim c" "nim c -d:release --hints:off -o:/dev/null $PROGRAMS_DIR/$bench/main.nim"
+        try_compile_bench "nim_c" "nim c -d:release -march=native" "nim c -d:release --passC:'-O3 -march=native' --hints:off -o:/dev/null $PROGRAMS_DIR/$bench/main.nim"
     command -v zig &>/dev/null && [ -f "$PROGRAMS_DIR/$bench/main.zig" ] && \
-        try_compile_bench "zig_build-exe" "zig build-exe" "zig build-exe -O ReleaseFast --name /tmp/bench_zig_out $PROGRAMS_DIR/$bench/main.zig && rm -f /tmp/bench_zig_out"
+        try_compile_bench "zig_build-exe" "zig build-exe -O ReleaseFast -mcpu native" "cd /tmp && rm -rf /tmp/zig-bench-cache && zig build-exe -O ReleaseFast -mcpu native --cache-dir /tmp/zig-bench-cache --name bench_zig_out $PROGRAMS_DIR/$bench/main.zig && rm -f /tmp/bench_zig_out"
 
     # LOGOS compilation (largo build + largo build --release)
     if [ -f "$PROGRAMS_DIR/$bench/main.lg" ]; then
@@ -523,8 +520,6 @@ get_version() {
         go)     go version 2>/dev/null || echo "unknown" ;;
         java)   java --version 2>/dev/null | head -1 || echo "unknown" ;;
         node)   node --version 2>/dev/null || echo "unknown" ;;
-        python) python3 --version 2>/dev/null || echo "unknown" ;;
-        ruby)   ruby --version 2>/dev/null || echo "unknown" ;;
         nim)    nim --version 2>/dev/null | head -1 || echo "unknown" ;;
     esac
 }
@@ -538,10 +533,8 @@ VERSIONS=$(jq -n \
     --arg go "$(get_version go)" \
     --arg java "$(get_version java)" \
     --arg node "$(get_version node)" \
-    --arg python "$(get_version python)" \
-    --arg ruby "$(get_version ruby)" \
     --arg nim "$(get_version nim)" \
-    '{c: $c, cpp: $cpp, rust: $rust, zig: $zig, go: $go, java: $java, node: $node, python: $python, ruby: $ruby, nim: $nim}')
+    '{c: $c, cpp: $cpp, rust: $rust, zig: $zig, go: $go, java: $java, node: $node, nim: $nim}')
 
 LANGUAGES='[
   {"id":"c","label":"C","color":"#555555","tier":"systems"},
@@ -552,8 +545,6 @@ LANGUAGES='[
   {"id":"go","label":"Go","color":"#00ADD8","tier":"managed"},
   {"id":"java","label":"Java","color":"#b07219","tier":"managed"},
   {"id":"js","label":"JavaScript","color":"#f7df1e","tier":"managed"},
-  {"id":"python","label":"Python","color":"#3776ab","tier":"interpreted"},
-  {"id":"ruby","label":"Ruby","color":"#cc342d","tier":"interpreted"},
   {"id":"nim","label":"Nim","color":"#ffe953","tier":"transpiled"}
 ]'
 
@@ -567,17 +558,15 @@ lang_id() {
         "Go")               echo go ;;
         "Java")             echo java ;;
         "JavaScript")       echo js ;;
-        "Python")           echo python ;;
-        "Ruby")             echo ruby ;;
         "Nim")              echo nim ;;
         "LOGOS (release)")  echo logos_release ;;
-        "gcc -O2")          echo "gcc_-o2" ;;
-        "g++ -O2")          echo "g++_-o2" ;;
-        "rustc -O")         echo "rustc_-o" ;;
+        "gcc -O3 -march=native -flto") echo "gcc_-o3" ;;
+        "g++ -O3 -march=native -flto") echo "g++_-o3" ;;
+        "rustc -O3 -C lto=fat -C target-cpu=native") echo "rustc_-o3" ;;
         "go build")         echo "go_build" ;;
         "javac")            echo "javac" ;;
-        "nim c")            echo "nim_c" ;;
-        "zig build-exe")    echo "zig_build-exe" ;;
+        "nim c -d:release -march=native") echo "nim_c" ;;
+        "zig build-exe -O ReleaseFast -mcpu native") echo "zig_build-exe" ;;
         "largo build")      echo "largo_build" ;;
         "largo build --release") echo "largo_build_--release" ;;
         *)                  echo "$1" | tr '[:upper:]' '[:lower:]' | tr ' ' '_' ;;
@@ -606,38 +595,38 @@ bench_name() {
 
 bench_desc() {
     case "$1" in
-        fib) echo "Naive recursive fibonacci. Measures function call overhead and recursion depth." ;;
-        ackermann) echo "Ackermann(3, m). Measures extreme recursion depth and stack frame overhead." ;;
-        nqueens) echo "N-Queens backtracking. Measures recursive constraint solving." ;;
-        bubble_sort) echo "O(n^2) bubble sort. Measures nested loops, indexed array mutation, and swap patterns." ;;
-        mergesort) echo "Top-down merge sort. Measures allocation-heavy divide-and-conquer." ;;
-        quicksort) echo "Lomuto-partition quicksort. Measures in-place swap-heavy recursion." ;;
-        counting_sort) echo "Non-comparison O(n+k) sort. Measures pure array indexing throughput." ;;
-        heap_sort) echo "Heap sort with sift-down. Measures logarithmic array jumps." ;;
-        nbody) echo "5-body gravitational simulation. Measures FP struct arrays and sqrt." ;;
-        mandelbrot) echo "Mandelbrot set escape iteration. Measures FP branching and convergence." ;;
-        spectral_norm) echo "Spectral norm power method. Measures FP dot products and array throughput." ;;
-        pi_leibniz) echo "Leibniz series for pi. Measures pure FP loop overhead." ;;
-        gcd) echo "GCD sum via Euclidean algorithm. Measures modulo-heavy tight loops." ;;
-        collatz) echo "Collatz step counting. Measures unpredictable branching." ;;
-        primes) echo "Trial division prime counting. Measures nested loops with early exit." ;;
-        sieve) echo "Classic prime sieve. Measures indexed array mutation and tight loops." ;;
-        matrix_mult) echo "O(n^3) matrix multiply. Measures cache locality and triple-nested loops." ;;
-        prefix_sum) echo "Sequential prefix sum scan. Measures read-modify-write bandwidth." ;;
-        array_reverse) echo "Two-pointer in-place reversal. Measures strided cache access." ;;
-        array_fill) echo "Array push and sum. Measures raw memory bandwidth and allocation." ;;
-        collect) echo "Hash map insert and lookup. Measures hash computation and cache behavior." ;;
-        two_sum) echo "Interleaved hash insert+lookup. Measures hash table under mixed workload." ;;
-        histogram) echo "Array-indexed frequency counting. Measures random array access." ;;
-        knapsack) echo "0/1 knapsack DP. Measures 2D table fills and conditional max." ;;
-        coins) echo "Coin change DP. Measures 1D DP with inner-loop additions." ;;
-        fannkuch) echo "Fannkuch permutation benchmark. Measures tight array reversal loops." ;;
-        strings) echo "String concatenation and assembly. Measures allocator throughput and GC pressure." ;;
-        binary_trees) echo "Recursive tree creation and checksum. Measures allocation pressure." ;;
-        loop_sum) echo "Pure loop accumulation. Measures raw loop overhead with minimal body." ;;
-        fib_iterative) echo "Iterative fibonacci mod. Measures loop + data dependency chain." ;;
-        graph_bfs) echo "BFS on generated graph. Measures queue operations and random access." ;;
-        string_search) echo "Naive O(nm) string search. Measures character-level access and inner loop." ;;
+        fib) echo "Naive recursive Fibonacci." ;;
+        ackermann) echo "Ackermann(3, m) — deep non-tail recursion." ;;
+        nqueens) echo "N-Queens backtracking search." ;;
+        bubble_sort) echo "O(n^2) in-place bubble sort." ;;
+        mergesort) echo "Top-down merge sort." ;;
+        quicksort) echo "Lomuto-partition quicksort." ;;
+        counting_sort) echo "Non-comparison O(n+k) counting sort." ;;
+        heap_sort) echo "Binary-heap sort with sift-down." ;;
+        nbody) echo "5-body gravitational simulation." ;;
+        mandelbrot) echo "Mandelbrot escape-iteration set." ;;
+        spectral_norm) echo "Spectral-norm power method." ;;
+        pi_leibniz) echo "Leibniz series for pi." ;;
+        gcd) echo "Euclidean GCD summed over a range." ;;
+        collatz) echo "Collatz stopping-time counting." ;;
+        primes) echo "Trial-division prime counting." ;;
+        sieve) echo "Sieve of Eratosthenes." ;;
+        matrix_mult) echo "O(n^3) dense matrix multiply." ;;
+        prefix_sum) echo "Sequential prefix-sum scan." ;;
+        array_reverse) echo "Two-pointer in-place array reversal." ;;
+        array_fill) echo "Array fill, then sum." ;;
+        collect) echo "Hash-map insert and lookup." ;;
+        two_sum) echo "Interleaved hash insert and lookup (two-sum)." ;;
+        histogram) echo "Array-indexed frequency counting." ;;
+        knapsack) echo "0/1 knapsack dynamic programming." ;;
+        coins) echo "Coin-change dynamic programming." ;;
+        fannkuch) echo "Fannkuch-redux permutation flips." ;;
+        strings) echo "Repeated string concatenation and assembly." ;;
+        binary_trees) echo "Recursive binary-tree allocation and checksum." ;;
+        loop_sum) echo "Tight accumulation loop." ;;
+        fib_iterative) echo "Iterative Fibonacci modulo." ;;
+        graph_bfs) echo "Breadth-first search over a generated graph." ;;
+        string_search) echo "Naive O(nm) substring search." ;;
     esac
 }
 
@@ -768,12 +757,25 @@ assemble_benchmark() {
         timeouts=$(echo "$timeouts" | jq --arg size "compile" --argjson ms "$timeout_ms" '.[$size] = $ms')
     fi
 
+    # Reference size for the headline + geomean: the largest benchmarked size
+    # that actually has both C and LOGOS data (falls back to largest with LOGOS,
+    # then largest overall, then the hardcoded ref_size). This keeps every
+    # benchmark in the comparison even as sizes.txt evolves.
+    local emit_ref
+    emit_ref=$(echo "$scaling" | jq -r '
+        ([to_entries[] | select((.value.c != null) and (.value.logos_release != null)) | (.key|tonumber)]) as $both
+        | ([to_entries[] | select(.value.logos_release != null) | (.key|tonumber)]) as $lg
+        | ([keys[] | tonumber]) as $any
+        | (if ($both|length)>0 then ($both|max) elif ($lg|length)>0 then ($lg|max) elif ($any|length)>0 then ($any|max) else null end)
+        | if . == null then empty else tostring end' 2>/dev/null)
+    [ -z "$emit_ref" ] && emit_ref="$(ref_size "$bench")"
+
     # Output benchmark JSON
     jq -n \
         --arg id "$bench" \
         --arg name "$(bench_name "$bench")" \
         --arg desc "$(bench_desc "$bench")" \
-        --arg ref "$(ref_size "$bench")" \
+        --arg ref "$emit_ref" \
         --arg logos_src "$logos_src" \
         --arg gen_rust "$gen_rust" \
         --arg sizes_str "$(cat "$PROGRAMS_DIR/$bench/sizes.txt")" \
@@ -825,7 +827,12 @@ compute_geometric_mean() {
         local log_sum=0
         local count=0
         for bench in "${BENCHMARKS[@]}"; do
-            local ref="$(ref_size "$bench")"
+            # Use each benchmark's emitted reference_size (largest size with data),
+            # not the hardcoded ref_size(), so all benchmarks count.
+            local ref
+            ref=$(echo "$benchmarks_json" | jq -r --arg bench "$bench" \
+                '.[] | select(.id == $bench) | .reference_size // empty')
+            [ -z "$ref" ] && ref="$(ref_size "$bench")"
             local c_mean lang_mean
             c_mean=$(echo "$benchmarks_json" | jq -r --arg ref "$ref" --arg bench "$bench" \
                 '.[] | select(.id == $bench) | .scaling[$ref].c.mean_ms // 0')
@@ -865,6 +872,12 @@ info "Geometric means: $GEO_MEAN"
 BENCHMARKS_JSON_FILE=$(mktemp)
 printf '%s\n' "$BENCHMARKS_JSON" > "$BENCHMARKS_JSON_FILE"
 
+# Keep only languages that actually produced results this run, so skipped
+# languages (SKIP_LANGS) never appear as data-less gaps in the frontend.
+PRESENT_LANGS=$(jq -c '[.[] | .scaling // {} | .[] | keys[]] | unique' "$BENCHMARKS_JSON_FILE")
+LANGUAGES=$(echo "$LANGUAGES" | jq --argjson present "$PRESENT_LANGS" \
+    '[.[] | select(.id as $id | $present | index($id))]')
+
 jq -n \
     --arg date "$DATE" \
     --arg commit "$COMMIT" \
@@ -902,5 +915,33 @@ ok "Phase 5 complete: results written to $RESULTS_DIR/latest.json"
 
 # Archive with version
 cp "$RESULTS_DIR/latest.json" "$RESULTS_DIR/history/v${LOGOS_VER}.json"
+
+# ===========================================================================
+# Phase 6: LOGOS interpreter vs Node/V8 (peer-to-peer, calibrated sizes)
+# ===========================================================================
+# The interpreter (bytecode VM + JIT) gets its own comparison vs Node's V8. We
+# calibrate so the FASTER of the two engines reaches INTERP_CALIBRATION_TARGET ms
+# (calibrate-interp.sh times both), which keeps BOTH off V8's ~30ms startup floor.
+# run-interp-vs-js.sh then also measures the cold-start floor. The output
+# (results/latest-interp.json) feeds the interpreter section of the page.
+INTERP_CALIBRATION_TARGET="${INTERP_CALIBRATION_TARGET:-250}"
+if [ "$RUN_INTERP" = "1" ] && [ -x "$SCRIPT_DIR/run-interp-vs-js.sh" ]; then
+    info "Phase 6: LOGOS interpreter vs Node/V8 (calibrating to ${INTERP_CALIBRATION_TARGET}ms, off V8's floor)..."
+    if [ -x "$SCRIPT_DIR/calibrate-interp.sh" ]; then
+        # OVERSHOOT must accommodate the SLOWER engine at the calibration size:
+        # since we crawl on the faster engine, the slower one can be several times
+        # the target (up to ~12x on V8-fast string kernels). A tight timeout would
+        # cut the crawl short and leave Node on its floor.
+        TARGETS="$INTERP_CALIBRATION_TARGET" OVERSHOOT="${INTERP_CAL_OVERSHOOT:-24}" \
+            bash "$SCRIPT_DIR/calibrate-interp.sh" || warn "interp calibration failed — using existing/fallback sizes"
+    fi
+    OUT="results/latest-interp.json" CALIBRATION_TARGET="$INTERP_CALIBRATION_TARGET" LOGOS_VERSION="$LOGOS_VER" \
+        bash "$SCRIPT_DIR/run-interp-vs-js.sh" || warn "Phase 6 (interpreter vs Node) failed — latest-interp.json may be stale"
+    [ -f "$RESULTS_DIR/latest-interp.json" ] && \
+        cp "$RESULTS_DIR/latest-interp.json" "$RESULTS_DIR/history/v${LOGOS_VER}-interp.json"
+    ok "Phase 6 complete"
+else
+    info "Phase 6 skipped (RUN_INTERP=$RUN_INTERP)"
+fi
 
 info "Benchmark suite complete!"

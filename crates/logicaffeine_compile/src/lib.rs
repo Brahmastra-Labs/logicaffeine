@@ -116,6 +116,12 @@ pub mod analysis;
 #[cfg(feature = "codegen")]
 pub mod codegen;
 
+// Counted-loop recognition shared by the for-range peephole and the unroller.
+// Gated with codegen because it reuses the peephole's pure-AST guard helpers;
+// the only consumer is the AOT (Rust-emitting) pipeline.
+#[cfg(feature = "codegen")]
+pub(crate) mod loop_shape;
+
 // C code generation (benchmark-only subset)
 #[cfg(feature = "codegen")]
 pub mod codegen_c;
@@ -142,6 +148,10 @@ pub mod optimize;
 // Interpreter
 pub mod interpreter;
 
+// Tail-call recognition shared by all three execution tiers (tree-walker, VM,
+// AOT) so "a self-tail-call runs in constant stack" is one definition, not three.
+pub(crate) mod tail_call;
+
 // Shared semantics kernel — ONE implementation of value semantics used by the
 // tree-walker, the bytecode VM, and (later) the JIT slow paths.
 pub mod semantics;
@@ -163,9 +173,12 @@ pub use verification::VerificationPass;
 
 // Re-export UI types at crate root for convenience
 pub use ui_bridge::{
-    compile_for_ui, compile_for_proof, compile_theorem_for_ui, verify_theorem,
-    interpret_for_ui, interpret_for_ui_sync, interpret_streaming, CompileResult, ProofCompileResult, TheoremCompileResult,
-    AstNode, TokenInfo, TokenCategory,
+    answer_question, compile_for_ui, compile_for_proof, compile_theorem_for_ui,
+    grounded_grid_problem,
+    prove_theorem_trace, theorem_proof_exprs, verify_theorem, TheoremTrace,
+    interpret_for_ui, interpret_for_ui_with_args, interpret_for_ui_sync,
+    interpret_for_ui_sync_with_args, interpret_streaming, CompileResult, ProofCompileResult,
+    TheoremCompileResult, AstNode, TokenInfo, TokenCategory,
 };
 #[cfg(feature = "codegen")]
 pub use ui_bridge::generate_rust_code;

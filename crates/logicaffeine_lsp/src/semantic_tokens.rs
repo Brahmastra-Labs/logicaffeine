@@ -166,7 +166,7 @@ fn classify_token_inner(kind: &TokenType, depth: usize) -> (Option<u32>, u32) {
         }
 
         // Wh-words → keyword
-        TokenType::That | TokenType::Who | TokenType::What | TokenType::Where
+        TokenType::That | TokenType::Who | TokenType::Whose | TokenType::What | TokenType::Where
         | TokenType::When | TokenType::Why | TokenType::Does | TokenType::Do => {
             (Some(0), 0)
         }

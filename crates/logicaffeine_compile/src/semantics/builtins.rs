@@ -25,6 +25,7 @@ pub enum BuiltinId {
     Round,
     Pow,
     Copy,
+    CountOnes,
 }
 
 /// Resolve a function name to a builtin, if it is one.
@@ -44,6 +45,7 @@ pub fn builtin_from_name(name: &str) -> Option<BuiltinId> {
         "round" => BuiltinId::Round,
         "pow" => BuiltinId::Pow,
         "copy" => BuiltinId::Copy,
+        "count_ones" => BuiltinId::CountOnes,
         _ => return None,
     })
 }
@@ -72,6 +74,7 @@ pub fn check_arity(id: BuiltinId, n: usize) -> Result<(), String> {
             BuiltinId::Round => "round",
             BuiltinId::Pow => "pow",
             BuiltinId::Copy => "copy",
+            BuiltinId::CountOnes => "count_ones",
         };
         return Err(format!(
             "{}() takes exactly {} argument{}",
@@ -240,6 +243,18 @@ pub fn call_builtin(id: BuiltinId, args: Vec<RuntimeValue>) -> Result<RuntimeVal
             let val = args.remove(0);
             Ok(val.deep_clone())
         }
+        BuiltinId::CountOnes => {
+            let val = args.remove(0);
+            match val {
+                // Two's-complement faithful: count set bits over the full 64-bit
+                // pattern (matches codegen's `(x as u64).count_ones()`).
+                RuntimeValue::Int(n) => Ok(RuntimeValue::Int((n as u64).count_ones() as i64)),
+                _ => Err(format!(
+                    "count_ones() requires an Int, got {}",
+                    val.type_name()
+                )),
+            }
+        }
     }
 }
 
@@ -322,7 +337,9 @@ mod tests {
     #[test]
     fn copy_is_deep() {
         use std::cell::RefCell;
-        let inner = std::rc::Rc::new(RefCell::new(vec![RuntimeValue::Int(1)]));
+        let inner = std::rc::Rc::new(RefCell::new(
+            crate::interpreter::ListRepr::from_values(vec![RuntimeValue::Int(1)]),
+        ));
         let original = RuntimeValue::List(inner.clone());
         let copied = call_builtin(BuiltinId::Copy, vec![original]).unwrap();
         if let RuntimeValue::List(copied_items) = &copied {

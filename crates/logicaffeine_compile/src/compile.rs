@@ -185,8 +185,9 @@ pub fn tw_outcome(source: &str) -> RunOutcome {
     crate::ui_bridge::with_parsed_program(source, |parsed, interner| match parsed {
         Ok((stmts, types, policies)) => {
             let force_async = crate::interpreter::needs_async(stmts);
-            let result =
-                crate::ui_bridge::run_treewalker(stmts, types, policies, interner, force_async);
+            let result = crate::ui_bridge::run_treewalker(
+                stmts, types, policies, interner, force_async, &[],
+            );
             RunOutcome { output: result.lines.join("\n"), error: result.error }
         }
         Err(advice) => RunOutcome { output: String::new(), error: Some(advice) },
@@ -200,6 +201,48 @@ pub fn vm_outcome(source: &str) -> RunOutcome {
         Ok((stmts, types, policies)) => {
             let (output, error) =
                 crate::vm::run_to_outcome(stmts, interner, Some(types), Some(&policies));
+            RunOutcome { output, error }
+        }
+        Err(advice) => RunOutcome { output: String::new(), error: Some(advice) },
+    })
+}
+
+/// [`tw_outcome`] with the program argument vector for the `args()` system
+/// native (full argv; index 0 is the program name) — the seam the benchmark
+/// corpus differential uses to run `main.lg` programs that read their size
+/// from argv.
+pub fn tw_outcome_with_args(source: &str, program_args: &[String]) -> RunOutcome {
+    crate::ui_bridge::with_parsed_program(source, |parsed, interner| match parsed {
+        Ok((stmts, types, policies)) => {
+            let force_async = crate::interpreter::needs_async(stmts);
+            let result = crate::ui_bridge::run_treewalker(
+                stmts, types, policies, interner, force_async, program_args,
+            );
+            RunOutcome { output: result.lines.join("\n"), error: result.error }
+        }
+        Err(advice) => RunOutcome { output: String::new(), error: Some(advice) },
+    })
+}
+
+/// [`vm_outcome`] with the program argument vector and an optional private
+/// native tier (so a differential test can observe THAT program's JIT compile
+/// counters in isolation — the process-wide tier's counters are shared by
+/// every test in the binary).
+pub fn vm_outcome_with_args(
+    source: &str,
+    program_args: &[String],
+    tier: Option<&dyn crate::vm::NativeTier>,
+) -> RunOutcome {
+    crate::ui_bridge::with_parsed_program(source, |parsed, interner| match parsed {
+        Ok((stmts, types, policies)) => {
+            let (output, error) = crate::vm::run_to_outcome_with_args(
+                stmts,
+                interner,
+                Some(types),
+                Some(&policies),
+                program_args,
+                tier,
+            );
             RunOutcome { output, error }
         }
         Err(advice) => RunOutcome { output: String::new(), error: Some(advice) },
@@ -1151,6 +1194,16 @@ fn compile_to_rust_with_registry_full(
 
     let mut parser = Parser::new(tokens, &mut world_state, interner, ast_ctx, type_registry);
     let stmts = parser.parse_program()?;
+
+    // Run the AST optimizer in the production (largo) compile path so
+    // compiled binaries get the same optimizations the test path
+    // (compile_program_full) already validates: closed-form / modulus
+    // deferral, partial evaluation, constant folding, GVN, LICM,
+    // deforestation, CTFE, supercompilation. Previously skipped here, which
+    // left the whole optimize layer off for compiled programs. Confirmed a
+    // clean win (geomean 1.388x -> 1.735x C-speed, all benchmarks verify
+    // correct, no regressions).
+    let stmts = crate::optimize::optimize_program(stmts, &imperative_expr_arena, &stmt_arena, interner);
 
     // Extract dependencies before escape analysis
     let mut dependencies = extract_dependencies(&stmts, interner)?;
@@ -2833,16 +2886,18 @@ fn encode_stmt_src(stmt: &Stmt, counter: &mut usize, output: &mut String, intern
             let branches_var = format!("e_{}", *counter);
             *counter += 1;
             output.push_str(&format!("Let {} be a new Seq of Seq of CStmt.\n", branches_var));
-            let branch_var = format!("e_{}", *counter);
-            *counter += 1;
-            output.push_str(&format!("Let {} be a new Seq of CStmt.\n", branch_var));
+            // One inner branch per task — collapsing them loses the per-task
+            // branch structure the executor / PE handlers iterate over.
             for stmt in tasks.iter() {
+                let branch_var = format!("e_{}", *counter);
+                *counter += 1;
+                output.push_str(&format!("Let {} be a new Seq of CStmt.\n", branch_var));
                 let sv = encode_stmt_src(stmt, counter, output, interner, variants);
                 if !sv.is_empty() {
                     output.push_str(&format!("Push {} to {}.\n", sv, branch_var));
                 }
+                output.push_str(&format!("Push {} to {}.\n", branch_var, branches_var));
             }
-            output.push_str(&format!("Push {} to {}.\n", branch_var, branches_var));
             output.push_str(&format!(
                 "Let {} be a new CConcurrent with branches {}.\n",
                 var, branches_var
@@ -2852,16 +2907,17 @@ fn encode_stmt_src(stmt: &Stmt, counter: &mut usize, output: &mut String, intern
             let branches_var = format!("e_{}", *counter);
             *counter += 1;
             output.push_str(&format!("Let {} be a new Seq of Seq of CStmt.\n", branches_var));
-            let branch_var = format!("e_{}", *counter);
-            *counter += 1;
-            output.push_str(&format!("Let {} be a new Seq of CStmt.\n", branch_var));
+            // One inner branch per task (see Concurrent above).
             for stmt in tasks.iter() {
+                let branch_var = format!("e_{}", *counter);
+                *counter += 1;
+                output.push_str(&format!("Let {} be a new Seq of CStmt.\n", branch_var));
                 let sv = encode_stmt_src(stmt, counter, output, interner, variants);
                 if !sv.is_empty() {
                     output.push_str(&format!("Push {} to {}.\n", sv, branch_var));
                 }
+                output.push_str(&format!("Push {} to {}.\n", branch_var, branches_var));
             }
-            output.push_str(&format!("Push {} to {}.\n", branch_var, branches_var));
             output.push_str(&format!(
                 "Let {} be a new CParallel with branches {}.\n",
                 var, branches_var
@@ -3655,8 +3711,11 @@ fn decompile_expr(expr: &Expr, interner: &Interner) -> String {
             format!("{} {} {}", l, op_str, r)
         }
         Expr::Not { operand } => {
+            // Parenthesize the operand so the negation's scope survives a
+            // re-parse of the residual: `not (a and b)` must NOT become
+            // `(not a) and b`.
             let inner = decompile_expr(operand, interner);
-            format!("not {}", inner)
+            format!("not ({})", inner)
         }
         Expr::Call { function, args } => {
             let fn_name = interner.resolve(*function);
@@ -4446,9 +4505,31 @@ rayon = "1"
         .map_err(|e| format!("Write Cargo.toml failed: {}", e))?;
     std::fs::write(project_dir.join("src/main.rs"), &compile_output.rust_code)
         .map_err(|e| format!("Write main.rs failed: {}", e))?;
+    // Pin dependency resolution to the workspace's lockfile: without it each
+    // generated project re-resolves from the registry and a newly published
+    // transitive version can break the build.
+    std::fs::copy(
+        workspace_root.join("Cargo.lock"),
+        project_dir.join("Cargo.lock"),
+    )
+    .map_err(|e| format!("Seed Cargo.lock failed: {}", e))?;
 
-    // Use a shared target dir for caching
-    let target_dir = std::env::temp_dir().join("logos_e2e_cache");
+    // Use a shared target dir for caching. Under cargo-nextest, shard by the
+    // per-test slot (mirrors the test harness's get_shared_target_dir) so
+    // concurrent generated builds never contend on Cargo's build-dir lock.
+    let shard = std::env::var("NEXTEST_TEST_GROUP_SLOT")
+        .ok()
+        .and_then(|s| s.parse::<u64>().ok())
+        .or_else(|| {
+            std::env::var("NEXTEST_TEST_GLOBAL_SLOT")
+                .ok()
+                .and_then(|s| s.parse::<u64>().ok())
+                .map(|n| n % 12)
+        });
+    let target_dir = match shard {
+        Some(s) => std::env::temp_dir().join(format!("logos_e2e_cache_{s}")),
+        None => std::env::temp_dir().join("logos_e2e_cache"),
+    };
     std::fs::create_dir_all(&target_dir)
         .map_err(|e| format!("mkdir target failed: {}", e))?;
 
@@ -4460,8 +4541,35 @@ rayon = "1"
         .output()
         .map_err(|e| format!("cargo run failed: {}", e))?;
 
-    // Clean up temp project dir
+    // Clean up temp project dir AND this project's artifacts in the shared
+    // cache (unique package names would otherwise accrete one binary +
+    // deps/incremental/fingerprint entries per run, forever — the shared
+    // DEPENDENCY builds stay, which is the entire caching win).
     let _ = std::fs::remove_dir_all(&project_dir);
+    {
+        let stem = pkg_name.replace('-', "_");
+        let debug = target_dir.join("debug");
+        let _ = std::fs::remove_file(debug.join(&pkg_name));
+        let _ = std::fs::remove_file(debug.join(format!("{pkg_name}.d")));
+        for sub in ["deps", "incremental", ".fingerprint", "build"] {
+            if let Ok(rd) = std::fs::read_dir(debug.join(sub)) {
+                for e in rd.flatten() {
+                    let name = e.file_name();
+                    let n = name.to_string_lossy();
+                    if n.starts_with(&format!("{stem}-"))
+                        || n.starts_with(&format!("lib{stem}-"))
+                    {
+                        let path = e.path();
+                        let _ = if path.is_dir() {
+                            std::fs::remove_dir_all(&path)
+                        } else {
+                            std::fs::remove_file(&path)
+                        };
+                    }
+                }
+            }
+        }
+    }
 
     if !output.status.success() {
         return Err(format!(
@@ -5311,4 +5419,130 @@ mod tests {
         assert!(rust.contains("return 42;"));
     }
 
+    /// Run `src` through the RUN-PATH optimizer (`optimize_for_run`, which
+    /// includes the indexed-load LICM) and then the pure-bytecode VM (no native
+    /// tier → no forge dependency), capturing the outcome.
+    fn optimized_vm_outcome_no_tier(src: &str, argv: &[String]) -> (String, Option<String>) {
+        crate::ui_bridge::with_optimized_program(src, |parsed, interner| match parsed {
+            Ok((stmts, types, policies)) => crate::vm::run_to_outcome_with_args(
+                stmts,
+                interner,
+                Some(types),
+                Some(&policies),
+                argv,
+                None,
+            ),
+            Err(advice) => (String::new(), Some(advice)),
+        })
+    }
+
+    fn norm_lines(s: &str) -> String {
+        s.lines()
+            .map(|l| l.trim_end())
+            .filter(|l| !l.is_empty())
+            .collect::<Vec<_>>()
+            .join("\n")
+    }
+
+    /// Task C SOUNDNESS, in-process: an inner loop reading a loop-invariant
+    /// `item i of arr` (i = OUTER counter, arr never mutated in the loop) mixed
+    /// with a variant `item j of arr` must produce the EXACT outcome the
+    /// tree-walker produces once the invariant read is hoisted. The guarded
+    /// hoist preserves WHEN the read runs, so the optimized VM matches the
+    /// oracle bit-for-bit on a real, in-bounds nbody-shaped loop.
+    #[test]
+    fn licm_indexed_load_nbody_shape_matches_oracle_inprocess() {
+        let src = "## Main\n\
+                   Let arr be [10, 20, 30, 40, 50].\n\
+                   Let mutable acc be 0.\n\
+                   Let mutable i be 1.\n\
+                   While i is at most 5:\n\
+                   \x20   Let mutable j be 1.\n\
+                   \x20   While j is at most 5:\n\
+                   \x20       Let d be item i of arr - item j of arr.\n\
+                   \x20       Set acc to acc + d * d.\n\
+                   \x20       Set j to j + 1.\n\
+                   \x20   Set i to i + 1.\n\
+                   Show acc.\n";
+        let argv: [String; 0] = [];
+        let tw = tw_outcome_with_args(src, &argv);
+        let (out, err) = optimized_vm_outcome_no_tier(src, &argv);
+        assert_eq!(
+            (norm_lines(&tw.output), &tw.error),
+            ("10000".to_string(), &None),
+            "oracle: sum of (a_i - a_j)^2"
+        );
+        assert_eq!(
+            (norm_lines(&out), &err),
+            (norm_lines(&tw.output), &tw.error),
+            "optimized VM (LICM) must match the tree-walker on the nbody-shaped loop"
+        );
+    }
+
+    /// SOUNDNESS GATE (forge-free): the OPTIMIZED bytecode VM — exercising the
+    /// constant-pool sharing (Task B) and the indexed-load LICM (Task C) — must
+    /// produce BIT-IDENTICAL output to the raw tree-walker on the whole
+    /// benchmark corpus. This mirrors the `vm_opt_differential` integration
+    /// test but runs without a native tier, so it stays inside this crate.
+    #[test]
+    fn corpus_optimized_vm_matches_treewalker_no_tier() {
+        const CORPUS: &[(&str, &str)] = &[
+            ("ackermann", "3"),
+            ("array_fill", "2000"),
+            ("array_reverse", "2000"),
+            ("binary_trees", "6"),
+            ("bubble_sort", "60"),
+            ("coins", "500"),
+            ("collatz", "300"),
+            ("collect", "300"),
+            ("counting_sort", "2000"),
+            ("fannkuch", "5"),
+            ("fib", "12"),
+            ("fib_iterative", "500"),
+            ("gcd", "60"),
+            ("graph_bfs", "200"),
+            ("heap_sort", "300"),
+            ("histogram", "2000"),
+            ("knapsack", "30"),
+            ("loop_sum", "2000"),
+            ("mandelbrot", "20"),
+            ("matrix_mult", "8"),
+            ("mergesort", "300"),
+            ("nbody", "100"),
+            ("nqueens", "5"),
+            ("pi_leibniz", "2000"),
+            ("prefix_sum", "2000"),
+            ("primes", "500"),
+            ("quicksort", "300"),
+            ("sieve", "2000"),
+            ("spectral_norm", "20"),
+            ("string_search", "1200"),
+            ("strings", "200"),
+            ("two_sum", "300"),
+        ];
+        std::thread::Builder::new()
+            .stack_size(256 * 1024 * 1024)
+            .spawn(|| {
+                for &(name, size) in CORPUS {
+                    let path = format!(
+                        "{}/../../benchmarks/programs/{}/main.lg",
+                        env!("CARGO_MANIFEST_DIR"),
+                        name
+                    );
+                    let src = std::fs::read_to_string(&path)
+                        .unwrap_or_else(|e| panic!("cannot read {path}: {e}"));
+                    let argv = vec!["bench".to_string(), size.to_string()];
+                    let (out, err) = optimized_vm_outcome_no_tier(&src, &argv);
+                    let tw = tw_outcome_with_args(&src, &argv);
+                    assert_eq!(
+                        (norm_lines(&out), &err),
+                        (norm_lines(&tw.output), &tw.error),
+                        "OPTIMIZED VM (no tier) diverged from the tree-walker on '{name}' at {size}"
+                    );
+                }
+            })
+            .expect("spawn")
+            .join()
+            .expect("corpus thread panicked");
+    }
 }

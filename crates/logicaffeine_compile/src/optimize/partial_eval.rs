@@ -560,7 +560,7 @@ fn substitute_stmt<'a>(
     }
 }
 
-fn substitute_block<'a>(
+pub(crate) fn substitute_block<'a>(
     block: Block<'a>,
     substitutions: &HashMap<Symbol, &'a Expr<'a>>,
     expr_arena: &'a Arena<Expr<'a>>,

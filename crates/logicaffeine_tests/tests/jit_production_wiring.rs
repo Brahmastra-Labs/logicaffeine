@@ -58,9 +58,17 @@ Show total.
 #[test]
 fn live_engine_tiers_hot_function() {
     let _window = window();
+    // The early-return guard makes `sq` non-inlinable (the run-path leaf
+    // inliner rejects multi-return bodies), so it survives as a callable
+    // function — this test pins the FUNCTION-TIERING machinery, which needs a
+    // real call to tier. For n >= 0 the guard never fires, so sq(n) = n*n and
+    // the checksum is unchanged.
     let src = "\
 ## To sq (n: Int) -> Int:
-    Return n * n.
+    If n is less than 0:
+        Return 0.
+    Let t be n * n.
+    Return t.
 
 ## Main
 Let mutable i be 0.

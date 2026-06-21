@@ -9,17 +9,134 @@ use crate::intern::{Interner, Symbol};
 use crate::registry::SymbolRegistry;
 
 use super::context::RefinementContext;
-use super::detection::{collect_mutable_vars, expr_debug_prefix};
+use super::detection::{collect_mutable_vars, expr_debug_prefix, parse_aos_tag};
+use super::i64_map::is_logos_map_type;
 use super::types::{codegen_type_expr, infer_numeric_type};
 use super::{
     codegen_stmt, get_root_identifier, has_copy_element_type, has_copy_value_type, is_copy_type,
 };
 
+use std::sync::LazyLock;
+
+// Stable empty contexts so a sparsely-populated [`ExprCtx`] can borrow `'static`
+// placeholders instead of stack temporaries at every call site.
+static EMPTY_SYMS: LazyLock<HashSet<Symbol>> = LazyLock::new(HashSet::new);
+static EMPTY_TYPES: LazyLock<HashMap<Symbol, String>> = LazyLock::new(HashMap::new);
+static EMPTY_BOXED_FIELDS: LazyLock<HashSet<(String, String, String)>> =
+    LazyLock::new(HashSet::new);
+static EMPTY_REGISTRY: LazyLock<TypeRegistry> = LazyLock::new(TypeRegistry::new);
+
+/// All borrowed context an expression lowering threads through its recursion.
+///
+/// This bundles what were eight positional parameters passed by hand through
+/// every recursive `codegen_expr` call. It is `Copy` (every field is a shared
+/// reference), so recursion passes `ctx` unchanged and a sub-scope that needs to
+/// vary one field uses struct-update: `ExprCtx { boxed_bindings: &b, ..*ctx }`.
+/// New cross-cutting context becomes one field here instead of a parameter on
+/// hundreds of call sites.
+#[derive(Clone, Copy)]
+pub(crate) struct ExprCtx<'a> {
+    pub interner: &'a Interner,
+    pub synced_vars: &'a HashSet<Symbol>,
+    pub boxed_fields: &'a HashSet<(String, String, String)>,
+    pub registry: &'a TypeRegistry,
+    pub async_functions: &'a HashSet<Symbol>,
+    pub boxed_bindings: &'a HashSet<Symbol>,
+    pub string_vars: &'a HashSet<Symbol>,
+    pub variable_types: &'a HashMap<Symbol, String>,
+    /// Divisor symbol → precomputed `LogosDivU64` helper variable name, for the
+    /// loop-invariant libdivide rewrite of `% n` / `/ n` (empty when inactive).
+    pub fast_div: &'a HashMap<Symbol, String>,
+    /// Bounds-elision oracle: when present, an `item E of arr` read the oracle
+    /// proves in range lowers to `get_unchecked` (no bounds branch) instead of
+    /// checked indexing. `None` ⟹ every access keeps its check. Threaded only
+    /// from the statement arms that lower indexed reads (`Let`/`Set`/`If`/
+    /// `SetIndex` values), where the `RefinementContext`'s oracle is in hand.
+    pub oracle: Option<&'a crate::optimize::OracleFacts>,
+}
+
+impl<'a> ExprCtx<'a> {
+    /// The minimal context: just the interner and synced vars, every richer
+    /// field empty. Richer wrappers layer their fields on with struct-update.
+    pub(crate) fn bare(interner: &'a Interner, synced_vars: &'a HashSet<Symbol>) -> Self {
+        ExprCtx {
+            interner,
+            synced_vars,
+            boxed_fields: &EMPTY_BOXED_FIELDS,
+            registry: &EMPTY_REGISTRY,
+            async_functions: &EMPTY_SYMS,
+            boxed_bindings: &EMPTY_SYMS,
+            string_vars: &EMPTY_SYMS,
+            variable_types: &EMPTY_TYPES,
+            fast_div: &EMPTY_TYPES,
+            oracle: None,
+        }
+    }
+}
+
+/// True when the bounds-elision oracle proves `index` in range for `collection`,
+/// so the access can lower to `get_unchecked`. The `LOGOS_ORACLE_UNCHECKED=0`
+/// kill switch forces the checked form (A/B against the `assert_unchecked` hint
+/// path). Soundness rests on the kernel-LIA-certified proof plus the caller's
+/// entry precondition guard; a `debug_assert!` (emitted by the statement-level
+/// hint pass) traps an unsound proof in debug builds.
+fn oracle_proves_index(ecx: &ExprCtx, collection: &Expr, index: &Expr) -> bool {
+    if std::env::var("LOGOS_ORACLE_UNCHECKED").map(|v| v == "0").unwrap_or(false) {
+        return false;
+    }
+    ecx.oracle.map_or(false, |o| o.index_provably_in_bounds(collection, index))
+}
+
+/// [`codegen_expr_with_async`] plus the bounds-elision oracle, so proven indexed
+/// reads in the lowered expression become `get_unchecked`. Used by the `If`-cond
+/// statement arm.
+pub(crate) fn codegen_expr_with_async_oracle<'a>(
+    expr: &Expr,
+    interner: &'a Interner,
+    synced_vars: &'a HashSet<Symbol>,
+    async_functions: &'a HashSet<Symbol>,
+    variable_types: &'a HashMap<Symbol, String>,
+    oracle: Option<&'a crate::optimize::OracleFacts>,
+) -> String {
+    codegen_expr_ctx(
+        expr,
+        &ExprCtx { async_functions, variable_types, oracle, ..ExprCtx::bare(interner, synced_vars) },
+    )
+}
+
+/// [`codegen_expr_boxed_with_types`] plus the bounds-elision oracle, so proven
+/// indexed reads in the lowered expression become `get_unchecked`. Used by the
+/// `Let`/`Set`/`SetIndex` value statement arms.
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn codegen_expr_boxed_with_types_oracle<'a>(
+    expr: &Expr,
+    interner: &'a Interner,
+    synced_vars: &'a HashSet<Symbol>,
+    boxed_fields: &'a HashSet<(String, String, String)>,
+    registry: &'a TypeRegistry,
+    async_functions: &'a HashSet<Symbol>,
+    string_vars: &'a HashSet<Symbol>,
+    variable_types: &'a HashMap<Symbol, String>,
+    fast_div: &'a HashMap<Symbol, String>,
+    oracle: Option<&'a crate::optimize::OracleFacts>,
+) -> String {
+    codegen_expr_ctx(
+        expr,
+        &ExprCtx {
+            boxed_fields,
+            registry,
+            async_functions,
+            string_vars,
+            variable_types,
+            fast_div,
+            oracle,
+            ..ExprCtx::bare(interner, synced_vars)
+        },
+    )
+}
+
 pub fn codegen_expr(expr: &Expr, interner: &Interner, synced_vars: &HashSet<Symbol>) -> String {
-    // Use empty registry, boxed_fields, and async_functions for simple expression codegen
-    let empty_registry = TypeRegistry::new();
-    let empty_async = HashSet::new();
-    codegen_expr_boxed(expr, interner, synced_vars, &HashSet::new(), &empty_registry, &empty_async)
+    codegen_expr_ctx(expr, &ExprCtx::bare(interner, synced_vars))
 }
 
 /// Phase 54+: Codegen expression with async function tracking.
@@ -31,12 +148,14 @@ pub(crate) fn codegen_expr_with_async(
     async_functions: &HashSet<Symbol>,
     variable_types: &HashMap<Symbol, String>,
 ) -> String {
-    let empty_registry = TypeRegistry::new();
-    let empty_strings = HashSet::new();
-    codegen_expr_boxed_internal(expr, interner, synced_vars, &HashSet::new(), &empty_registry, async_functions, &HashSet::new(), &empty_strings, variable_types)
+    codegen_expr_ctx(
+        expr,
+        &ExprCtx { async_functions, variable_types, ..ExprCtx::bare(interner, synced_vars) },
+    )
 }
 
-/// Codegen expression with async support and string variable tracking.
+/// Codegen expression with async support, string variable tracking, and the
+/// loop-invariant libdivide map (`fast_div`).
 pub(crate) fn codegen_expr_with_async_and_strings(
     expr: &Expr,
     interner: &Interner,
@@ -44,9 +163,18 @@ pub(crate) fn codegen_expr_with_async_and_strings(
     async_functions: &HashSet<Symbol>,
     string_vars: &HashSet<Symbol>,
     variable_types: &HashMap<Symbol, String>,
+    fast_div: &HashMap<Symbol, String>,
 ) -> String {
-    let empty_registry = TypeRegistry::new();
-    codegen_expr_boxed_internal(expr, interner, synced_vars, &HashSet::new(), &empty_registry, async_functions, &HashSet::new(), string_vars, variable_types)
+    codegen_expr_ctx(
+        expr,
+        &ExprCtx {
+            async_functions,
+            string_vars,
+            variable_types,
+            fast_div,
+            ..ExprCtx::bare(interner, synced_vars)
+        },
+    )
 }
 
 /// Check if an expression is definitely numeric (safe to use + operator).
@@ -152,11 +280,15 @@ pub(crate) fn codegen_expr_boxed(
     registry: &TypeRegistry,  // Phase 103: For type annotations on polymorphic enums
     async_functions: &HashSet<Symbol>,  // Phase 54+: Functions that are async
 ) -> String {
-    // Delegate to codegen_expr_full with empty context for boxed bindings and string vars
-    let empty_boxed = HashSet::new();
-    let empty_strings = HashSet::new();
-    let empty_types = HashMap::new();
-    codegen_expr_boxed_internal(expr, interner, synced_vars, boxed_fields, registry, async_functions, &empty_boxed, &empty_strings, &empty_types)
+    codegen_expr_ctx(
+        expr,
+        &ExprCtx {
+            boxed_fields,
+            registry,
+            async_functions,
+            ..ExprCtx::bare(interner, synced_vars)
+        },
+    )
 }
 
 /// Codegen with string variable tracking for proper string concatenation.
@@ -169,12 +301,21 @@ pub(crate) fn codegen_expr_boxed_with_strings(
     async_functions: &HashSet<Symbol>,
     string_vars: &HashSet<Symbol>,
 ) -> String {
-    let empty_boxed = HashSet::new();
-    let empty_types = HashMap::new();
-    codegen_expr_boxed_internal(expr, interner, synced_vars, boxed_fields, registry, async_functions, &empty_boxed, string_vars, &empty_types)
+    codegen_expr_ctx(
+        expr,
+        &ExprCtx {
+            boxed_fields,
+            registry,
+            async_functions,
+            string_vars,
+            ..ExprCtx::bare(interner, synced_vars)
+        },
+    )
 }
 
-/// Codegen with variable type tracking for direct collection indexing optimization.
+/// Codegen with variable type tracking for direct collection indexing
+/// optimization, plus the loop-invariant libdivide map (`fast_div`) so `% n` /
+/// `/ n` sites can lower to a precomputed magic multiply.
 pub(crate) fn codegen_expr_boxed_with_types(
     expr: &Expr,
     interner: &Interner,
@@ -184,28 +325,63 @@ pub(crate) fn codegen_expr_boxed_with_types(
     async_functions: &HashSet<Symbol>,
     string_vars: &HashSet<Symbol>,
     variable_types: &HashMap<Symbol, String>,
+    fast_div: &HashMap<Symbol, String>,
 ) -> String {
-    let empty_boxed = HashSet::new();
-    codegen_expr_boxed_internal(expr, interner, synced_vars, boxed_fields, registry, async_functions, &empty_boxed, string_vars, variable_types)
+    codegen_expr_ctx(
+        expr,
+        &ExprCtx {
+            boxed_fields,
+            registry,
+            async_functions,
+            string_vars,
+            variable_types,
+            fast_div,
+            ..ExprCtx::bare(interner, synced_vars)
+        },
+    )
 }
 
-/// Internal implementation of codegen_expr_boxed that can handle extra context.
-fn codegen_expr_boxed_internal(
-    expr: &Expr,
-    interner: &Interner,
-    synced_vars: &HashSet<Symbol>,
-    boxed_fields: &HashSet<(String, String, String)>,
-    registry: &TypeRegistry,
-    async_functions: &HashSet<Symbol>,
-    boxed_bindings: &HashSet<Symbol>,
-    string_vars: &HashSet<Symbol>,
-    variable_types: &HashMap<Symbol, String>,
-) -> String {
+/// The expression-lowering workhorse. Takes the whole [`ExprCtx`] and unpacks it
+/// into the locals the match arms use, so the body reads exactly as it did when
+/// these were eight positional parameters; recursion just forwards `ctx`.
+/// Parse an `__affine_array:coeff:offset:trip` type tag into `(coeff, offset)`,
+/// the constants of the deleted CSR array's closed form `A[p] = coeff*p+offset`.
+fn affine_array_coeff_offset(ty: Option<&String>) -> Option<(i64, i64)> {
+    let rest = ty?.strip_prefix("__affine_array:")?;
+    let mut parts = rest.splitn(3, ':');
+    let coeff: i64 = parts.next()?.parse().ok()?;
+    let offset: i64 = parts.next()?.parse().ok()?;
+    Some((coeff, offset))
+}
+
+/// The trip-count Rust expression (the value of `length of A`) from the tag.
+fn affine_array_trip(ty: Option<&String>) -> Option<String> {
+    let rest = ty?.strip_prefix("__affine_array:")?;
+    let mut parts = rest.splitn(3, ':');
+    parts.next()?; // coeff
+    parts.next()?; // offset
+    Some(parts.next()?.to_string())
+}
+
+fn codegen_expr_ctx(expr: &Expr, ecx: &ExprCtx) -> String {
+    // Bind the fields the match arms read directly; `registry` rides along in
+    // `ecx` and reaches recursion via the `recurse!` macro.
+    let ExprCtx {
+        interner,
+        synced_vars,
+        boxed_fields,
+        async_functions,
+        boxed_bindings,
+        string_vars,
+        variable_types,
+        fast_div,
+        ..
+    } = *ecx;
     let names = RustNames::new(interner);
     // Helper macro for recursive calls with all context
     macro_rules! recurse {
         ($e:expr) => {
-            codegen_expr_boxed_internal($e, interner, synced_vars, boxed_fields, registry, async_functions, boxed_bindings, string_vars, variable_types)
+            codegen_expr_ctx($e, ecx)
         };
     }
 
@@ -223,6 +399,22 @@ fn codegen_expr_boxed_internal(
         }
 
         Expr::BinaryOp { op, left, right } => {
+            // O9 libdivide: a loop-invariant POSITIVE divisor lowers to a
+            // precomputed `LogosDivU64` magic multiply (`helper.rem(x)` /
+            // `helper.div(x)`) instead of a hardware `div`/`idiv`. `detect_fast_div`
+            // already proved the divisor immutable and `>= 1` and the dividend
+            // `>= 0` at every site, so the `i64`→`u64` reinterpretation is
+            // value-preserving.
+            if matches!(op, BinaryOpKind::Modulo | BinaryOpKind::Divide) {
+                if let Expr::Identifier(n) = right {
+                    if let Some(helper) = fast_div.get(n) {
+                        let dividend = recurse!(left);
+                        let method = if matches!(op, BinaryOpKind::Modulo) { "rem" } else { "div" };
+                        return format!("({}.{}(({}) as u64) as i64)", helper, method, dividend);
+                    }
+                }
+            }
+
             // Flatten chained string concat/add into a single format! call.
             // Turns O(n^2) nested format! into O(n) single-allocation.
             let is_string_concat = matches!(op, BinaryOpKind::Concat)
@@ -252,7 +444,7 @@ fn codegen_expr_boxed_internal(
                 if let Expr::Index { collection, index } = left {
                     if let Expr::Identifier(sym) = collection {
                         if let Some(t) = variable_types.get(sym) {
-                            if t.starts_with("LogosMap") {
+                            if is_logos_map_type(t) {
                                 let coll_str = recurse!(collection);
                                 let key_str = recurse!(index);
                                 let val_str = recurse!(right);
@@ -276,7 +468,7 @@ fn codegen_expr_boxed_internal(
                 if let Expr::Index { collection, index } = right {
                     if let Expr::Identifier(sym) = collection {
                         if let Some(t) = variable_types.get(sym) {
-                            if t.starts_with("LogosMap") {
+                            if is_logos_map_type(t) {
                                 let coll_str = recurse!(collection);
                                 let key_str = recurse!(index);
                                 let val_str = recurse!(left);
@@ -562,6 +754,67 @@ fn codegen_expr_boxed_internal(
             }
         }
 
+        // Affine read-only array (deleted CSR offset array): `item k of A` is the
+        // closed form `coeff * (k-1) + offset` — no load, no array. The 1-based→
+        // 0-based `-1` cancels a `+1` in the index, so `item (v+1) of A` with
+        // `A[p]=5*p` becomes `v * 5` (C's `v*MAX_EDGES`).
+        Expr::Index { collection: Expr::Identifier(sym), index }
+            if affine_array_coeff_offset(variable_types.get(sym)).is_some() =>
+        {
+            let (coeff, offset) = affine_array_coeff_offset(variable_types.get(sym)).unwrap();
+            enum Pos {
+                Const(i64),
+                Expr(String),
+            }
+            let pos = match index {
+                Expr::Literal(Literal::Number(n)) => Pos::Const(n - 1),
+                Expr::BinaryOp { op: BinaryOpKind::Add, left, right } => match (left, right) {
+                    (_, Expr::Literal(Literal::Number(1))) => Pos::Expr(recurse!(left)),
+                    (Expr::Literal(Literal::Number(1)), _) => Pos::Expr(recurse!(right)),
+                    (_, Expr::Literal(Literal::Number(k))) if *k > 1 => {
+                        Pos::Expr(format!("({} + {})", recurse!(left), k - 1))
+                    }
+                    (Expr::Literal(Literal::Number(k)), _) if *k > 1 => {
+                        Pos::Expr(format!("({} + {})", recurse!(right), k - 1))
+                    }
+                    _ => Pos::Expr(format!("(({}) - 1)", recurse!(index))),
+                },
+                _ => Pos::Expr(format!("(({}) - 1)", recurse!(index))),
+            };
+            match pos {
+                Pos::Const(p) => format!("{}i64", coeff.wrapping_mul(p).wrapping_add(offset)),
+                Pos::Expr(_) if coeff == 0 => format!("{}i64", offset),
+                Pos::Expr(p) => {
+                    let base = if coeff == 1 { p } else { format!("(({}) * {})", p, coeff) };
+                    if offset == 0 {
+                        base
+                    } else {
+                        format!("({} + {})", base, offset)
+                    }
+                }
+            }
+        }
+
+        // AoS interleaving: `item i of member` reads column `col` of the fused
+        // backing's `(i-1)`-th row — `backing[(i-1)][col]`. Adjacent columns are
+        // memory-adjacent, so LLVM packs them (C's struct-array load).
+        Expr::Index { collection: Expr::Identifier(sym), index }
+            if parse_aos_tag(variable_types.get(sym)).is_some() =>
+        {
+            let tag = parse_aos_tag(variable_types.get(sym)).unwrap();
+            let row = match index {
+                Expr::Literal(Literal::Number(1)) => "0".to_string(),
+                Expr::Literal(Literal::Number(n)) => format!("{}", n - 1),
+                Expr::BinaryOp { op: BinaryOpKind::Add, left, right } => match (left, right) {
+                    (_, Expr::Literal(Literal::Number(1))) => format!("({}) as usize", recurse!(left)),
+                    (Expr::Literal(Literal::Number(1)), _) => format!("({}) as usize", recurse!(right)),
+                    _ => format!("(({}) - 1) as usize", recurse!(index)),
+                },
+                _ => format!("(({}) - 1) as usize", recurse!(index)),
+            };
+            format!("{}[{}][{}]", tag.backing, row, tag.col)
+        }
+
         Expr::Index { collection, index } => {
             let coll_str = recurse!(collection);
             // Direct indexing for known collection types (avoids trait dispatch)
@@ -623,17 +876,40 @@ fn codegen_expr_boxed_internal(
                             format!("({} - 1) as usize", recurse!(index))
                         }
                     } };
-                    if is_logos_seq {
+                    // BCE: when the oracle proves this index in range, emit an
+                    // unchecked load (no bounds branch). The statement-level hint
+                    // pass emits a `debug_assert!` net for debug builds.
+                    let read = if oracle_proves_index(ecx, collection, index) {
+                        match (is_logos_seq, suffix.is_empty()) {
+                            (true, true) => format!("unsafe {{ *{}.borrow().get_unchecked({}) }}", coll_str, index_part),
+                            (true, false) => format!("unsafe {{ {}.borrow().get_unchecked({}){} }}", coll_str, index_part, suffix),
+                            (false, true) => format!("unsafe {{ *{}.get_unchecked({}) }}", coll_str, index_part),
+                            (false, false) => format!("unsafe {{ {}.get_unchecked({}){} }}", coll_str, index_part, suffix),
+                        }
+                    } else if is_logos_seq {
                         format!("{}.borrow()[{}]{}", coll_str, index_part, suffix)
                     } else {
                         format!("{}[{}]{}", coll_str, index_part, suffix)
+                    };
+                    // A narrowed (`Vec<i32>`) read sign-extends to the i64 the rest
+                    // of the program expects (lossless).
+                    if t == "Vec<i32>" {
+                        format!("(({}) as i64)", read)
+                    } else {
+                        read
                     }
                 }
-                Some(t) if t.starts_with("&[") || t.starts_with("&mut [") => {
-                    let elem = t.strip_prefix("&mut [")
-                        .or_else(|| t.strip_prefix("&["))
-                        .and_then(|s| s.strip_suffix(']'))
-                        .unwrap_or("_");
+                Some(t) if t.starts_with("&[") || t.starts_with("&mut [") || t.starts_with('[') => {
+                    // Slice (&[T] / &mut [T]) or O3 fixed array [T; N] — direct
+                    // indexing with the same 1-based simplification.
+                    let elem = if t.starts_with('[') {
+                        t.trim_start_matches('[').split("; ").next().unwrap_or("_")
+                    } else {
+                        t.strip_prefix("&mut [")
+                            .or_else(|| t.strip_prefix("&["))
+                            .and_then(|s| s.strip_suffix(']'))
+                            .unwrap_or("_")
+                    };
                     let suffix = if is_copy_type(elem) { "" } else { ".clone()" };
                     // OPT-8: Check if index is a zero-based counter
                     let is_zero_based_counter = if let Expr::Identifier(idx_sym) = index {
@@ -680,9 +956,25 @@ fn codegen_expr_boxed_internal(
                             format!("({} - 1) as usize", recurse!(index))
                         }
                     } };
-                    format!("{}[{}]{}", coll_str, index_part, suffix)
+                    // BCE: oracle-proven index → unchecked load (no bounds branch).
+                    let read = if oracle_proves_index(ecx, collection, index) {
+                        if suffix.is_empty() {
+                            format!("unsafe {{ *{}.get_unchecked({}) }}", coll_str, index_part)
+                        } else {
+                            format!("unsafe {{ {}.get_unchecked({}){} }}", coll_str, index_part, suffix)
+                        }
+                    } else {
+                        format!("{}[{}]{}", coll_str, index_part, suffix)
+                    };
+                    // A narrowed slice (`&[i32]`/`&mut [i32]`, from a hoisted
+                    // `Vec<i32>`) sign-extends to i64 (lossless).
+                    if elem == "i32" {
+                        format!("(({}) as i64)", read)
+                    } else {
+                        read
+                    }
                 }
-                Some(t) if t.starts_with("LogosMap") => {
+                Some(t) if is_logos_map_type(t) => {
                     let index_str = recurse!(index);
                     // Use .get() which borrows the key (avoids moving String keys)
                     format!("{}.get(&({})).expect(\"Key not found in map\")", coll_str, index_str)
@@ -764,6 +1056,21 @@ fn codegen_expr_boxed_internal(
             // Ownership transfer: emit value without .clone()
             // The move semantics are implicit in Rust - no special syntax needed
             recurse!(value)
+        }
+
+        // Affine read-only array: `length of A` is its trip count (the array is
+        // deleted, so there is no `.len()` to read).
+        Expr::Length { collection: Expr::Identifier(sym) }
+            if affine_array_trip(variable_types.get(sym)).is_some() =>
+        {
+            format!("(({}) as i64)", affine_array_trip(variable_types.get(sym)).unwrap())
+        }
+
+        // AoS-interleaved member: its length is the backing's fixed row count.
+        Expr::Length { collection: Expr::Identifier(sym) }
+            if parse_aos_tag(variable_types.get(sym)).is_some() =>
+        {
+            format!("{}i64", parse_aos_tag(variable_types.get(sym)).unwrap().len)
         }
 
         Expr::Length { collection } => {
@@ -1053,7 +1360,7 @@ fn codegen_expr_boxed_internal(
         }
 
         Expr::InterpolatedString(parts) => {
-            codegen_interpolated_string(parts, interner, synced_vars, boxed_fields, registry, async_functions, boxed_bindings, string_vars, variable_types)
+            codegen_interpolated_string(parts, ecx)
         }
 
         Expr::Not { operand } => {
@@ -1065,16 +1372,10 @@ fn codegen_expr_boxed_internal(
 
 pub(crate) fn codegen_interpolated_string(
     parts: &[crate::ast::stmt::StringPart],
-    interner: &Interner,
-    synced_vars: &HashSet<Symbol>,
-    boxed_fields: &HashSet<(String, String, String)>,
-    registry: &TypeRegistry,
-    async_functions: &HashSet<Symbol>,
-    boxed_bindings: &HashSet<Symbol>,
-    string_vars: &HashSet<Symbol>,
-    variable_types: &HashMap<Symbol, String>,
+    ecx: &ExprCtx,
 ) -> String {
     use crate::ast::stmt::StringPart;
+    let interner = ecx.interner;
 
     let mut fmt_str = String::new();
     let mut args = Vec::new();
@@ -1124,10 +1425,7 @@ pub(crate) fn codegen_interpolated_string(
                     fmt_str.push_str("{}");
                     false
                 };
-                let arg_str = codegen_expr_boxed_internal(
-                    value, interner, synced_vars, boxed_fields, registry,
-                    async_functions, boxed_bindings, string_vars, variable_types,
-                );
+                let arg_str = codegen_expr_ctx(value, ecx);
                 if needs_float_cast {
                     args.push(format!("{} as f64", arg_str));
                 } else {

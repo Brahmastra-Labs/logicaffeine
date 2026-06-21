@@ -10,12 +10,14 @@ use super::context::{RefinementContext, VariableCapabilities, emit_refinement_ch
 use super::detection::{
     requires_async_stmt, calls_async_function, collect_mutable_vars, collect_mutable_vars_stmt,
     collect_crdt_register_fields, collect_boxed_fields, collect_expr_identifiers,
-    collect_stmt_identifiers, expr_debug_prefix, expr_indexes_collection,
+    collect_stmt_identifiers, expr_debug_prefix, expr_reads_any_collection,
     get_root_identifier_for_mutability, is_copy_type_expr, is_hashable_type,
+    parse_aos_tag,
 };
 use super::expr::{
     codegen_expr, codegen_expr_with_async, codegen_expr_boxed,
     codegen_expr_boxed_with_strings, codegen_expr_boxed_with_types,
+    codegen_expr_with_async_oracle, codegen_expr_boxed_with_types_oracle,
     codegen_interpolated_string, codegen_literal, codegen_assertion,
     codegen_expr_with_async_and_strings, is_definitely_string_expr_with_vars,
     is_definitely_string_expr, is_definitely_numeric_expr,
@@ -23,18 +25,403 @@ use super::expr::{
 };
 use super::peephole::{
     try_emit_for_range_pattern, try_emit_vec_fill_pattern, try_emit_swap_pattern,
+    try_emit_prefix_reverse,
     try_emit_seq_copy_pattern, try_emit_seq_from_slice_pattern,
     try_emit_vec_with_capacity_pattern, try_emit_merge_capacity_pattern,
     try_emit_rotate_left_pattern, try_emit_buffer_reuse_while,
-    try_emit_drain_tail_in_while,
+    try_emit_drain_tail_in_while, try_emit_byte_compare_window,
     body_mutates_collection, body_modifies_var, exprs_equal, simplify_1based_index,
-    collect_indexed_arrays,
+    plan_bounds_hints, emit_bounds_hint_preheader, emit_bounds_hint_header,
+    is_counter_increment, collect_expr_symbols, BoundsHintPlan,
+    body_has_early_exit, body_resizes_collection,
 };
 use super::types::{
     codegen_type_expr, infer_rust_type_from_expr, infer_numeric_type,
     infer_variant_type_annotation,
 };
+use super::i64_map::{dense_type_name, is_logos_map_type, map_rust_type};
 use super::escape_rust_ident;
+
+/// The `(Vec<T>, init-expr)` pair for a de-Rc'd Seq declaration, or `None`
+/// when the initializer is not a fresh scalar-Seq allocation (in which case
+/// the normal `LogosSeq` path runs). Mirrors `fresh_scalar_seq_elem` in the
+/// de-Rc eligibility analysis — only those forms are ever marked de-Rc.
+fn derc_vec_decl<'a>(
+    value: &Expr<'a>,
+    interner: &Interner,
+    synced_vars: &HashSet<Symbol>,
+    boxed_fields: &HashSet<(String, String, String)>,
+    registry: &TypeRegistry,
+    async_functions: &HashSet<Symbol>,
+    ctx: &RefinementContext<'a>,
+) -> Option<(String, String)> {
+    match value {
+        Expr::New { type_name, type_args, init_fields } if init_fields.is_empty() => {
+            match interner.resolve(*type_name) {
+                "Seq" | "List" | "Vec" => {
+                    let elem = codegen_type_expr(type_args.first()?, interner);
+                    Some((format!("Vec<{}>", elem), "Vec::new()".to_string()))
+                }
+                _ => None,
+            }
+        }
+        Expr::WithCapacity { value: inner, capacity } => {
+            if let Expr::New { type_name, type_args, .. } = inner {
+                if matches!(interner.resolve(*type_name), "Seq" | "List" | "Vec") {
+                    let elem = codegen_type_expr(type_args.first()?, interner);
+                    let cap = codegen_expr_boxed_with_types(
+                        capacity, interner, synced_vars, boxed_fields, registry,
+                        async_functions, ctx.get_string_vars(), ctx.get_variable_types(), ctx.get_fast_div(),
+                    );
+                    return Some((
+                        format!("Vec<{}>", elem),
+                        format!("Vec::with_capacity(({}) as usize)", cap),
+                    ));
+                }
+            }
+            None
+        }
+        // Phase 4: `Let r be f(...)` where `f` returns an OWNED `Vec<T>` (its
+        // return type already de-Rc'd in `fn_returns_map`). The result is a
+        // uniquely-owned fresh value — bind it as `Vec<T>` so every later access
+        // on `r` indexes directly instead of borrowing a RefCell.
+        Expr::Call { function, .. } => {
+            let ret = ctx.get_fn_return(function)?;
+            if !ret.starts_with("Vec<") {
+                return None;
+            }
+            let vec_ty = ret.clone();
+            let init = codegen_expr_boxed_with_types(
+                value, interner, synced_vars, boxed_fields, registry,
+                async_functions, ctx.get_string_vars(), ctx.get_variable_types(), ctx.get_fast_div(),
+            );
+            Some((vec_ty, init))
+        }
+        _ => None,
+    }
+}
+
+/// The `LogosI64Map` constructor for a `Map of Int to Int` declared via `value`
+/// (`a new Map of Int to Int` or `… with capacity n`); `None` for any other
+/// initializer (the normal `LogosMap` codegen runs). Only called when the alias
+/// analysis already selected the variable for `LogosI64Map`.
+fn i64_map_ctor<'a>(
+    value: &Expr<'a>,
+    ty: &str,
+    dense_lo: Option<i64>,
+    interner: &Interner,
+    synced_vars: &HashSet<Symbol>,
+    boxed_fields: &HashSet<(String, String, String)>,
+    registry: &TypeRegistry,
+    async_functions: &HashSet<Symbol>,
+    ctx: &RefinementContext<'a>,
+) -> Option<String> {
+    match value {
+        Expr::New { type_name, init_fields, .. }
+            if init_fields.is_empty()
+                && matches!(interner.resolve(*type_name), "Map" | "HashMap") =>
+        {
+            Some(format!("{}::new()", ty))
+        }
+        Expr::WithCapacity { value: inner, capacity } => {
+            if let Expr::New { type_name, .. } = inner {
+                if matches!(interner.resolve(*type_name), "Map" | "HashMap") {
+                    let cap = codegen_expr_boxed_with_types(
+                        capacity, interner, synced_vars, boxed_fields, registry,
+                        async_functions, ctx.get_string_vars(), ctx.get_variable_types(), ctx.get_fast_div(),
+                    );
+                    // A dense map is a direct-addressed array offset by the proven
+                    // window `lo` (currently 0) and sized `capacity + 1` slots: the
+                    // bound proof gives `lo <= key <= lo + capacity`, so the highest
+                    // index `key - lo` is `capacity`, which needs `capacity + 1`
+                    // slots. A non-dense `LogosI64Map`/`Set` takes the plain capacity.
+                    return Some(match dense_lo {
+                        Some(lo) => {
+                            format!("{}::with_bounds({}, (({}) + 1) as usize)", ty, lo, cap)
+                        }
+                        None => format!("{}::with_capacity(({}) as usize)", ty, cap),
+                    });
+                }
+            }
+            None
+        }
+        _ => None,
+    }
+}
+
+/// O5: emit `assert_unchecked` bounds hints for every indexed access in `stmt`
+/// the bounds-elision oracle proves in range (a relational induction bound
+/// `i <= length(arr)` or a concrete interval). Paired with a `debug_assert!`
+/// so an unsound proof panics loudly in debug. No-op when the oracle is absent.
+/// Only Identifier collections (a name is needed for `.len()`).
+fn emit_oracle_index_hints<'a>(
+    stmt: &Stmt<'a>,
+    ctx: &RefinementContext<'a>,
+    interner: &Interner,
+    indent_str: &str,
+) -> String {
+    // Kill switch (A/B): `LOGOS_ORACLE_HINTS=0` suppresses the oracle bounds
+    // hints entirely (the access keeps its runtime bounds check).
+    if std::env::var("LOGOS_ORACLE_HINTS").map(|v| v == "0").unwrap_or(false) {
+        return String::new();
+    }
+    let oracle = match ctx.oracle() {
+        Some(o) => o,
+        None => return String::new(),
+    };
+    let mut accesses: Vec<(&Expr, &Expr)> = Vec::new();
+    collect_index_accesses_in_stmt(stmt, &mut accesses);
+    if accesses.is_empty() {
+        return String::new();
+    }
+    let names = RustNames::new(interner);
+    let mut out = String::new();
+    let mut seen: HashSet<usize> = HashSet::new();
+    for (coll, idx) in accesses {
+        let arr = match coll {
+            Expr::Identifier(s) => *s,
+            _ => continue,
+        };
+        // An affine read-only array is deleted — its reads are pure arithmetic,
+        // so there is no `.len()` to bound-check and no hint to emit.
+        if ctx.affine_array(arr).is_some() {
+            continue;
+        }
+        // An AoS-interleaved member folds into a `[[T; W]; N]` backing. The hint
+        // must name the BACKING (the member's own name no longer exists) and
+        // bound its ROW dimension (`backing.len()` == N) — that elides the
+        // rolled-regime row bounds-check just like C's, since the column is a
+        // constant < W.
+        let aos_backing = parse_aos_tag(ctx.get_variable_types().get(&arr)).map(|t| t.backing);
+        if !seen.insert(idx as *const Expr as usize) {
+            continue;
+        }
+        if !oracle.index_provably_in_bounds(coll, idx) {
+            continue;
+        }
+        // Discharge any `% m` element-bound precondition this elision leaned on
+        // with a hard `assert!(m > 0)` (LLVM hoists the loop-invariant check out
+        // of the loop, so it costs one comparison per region entry). For
+        // `m <= 0` the `% m`-filled array is empty and this access would be out
+        // of bounds: the assert panics there — exactly where the program would
+        // have — instead of the elision becoming UB.
+        for &m in oracle.index_positivity_guards(idx) {
+            let mn = names.ident(m);
+            writeln!(
+                out,
+                "{}assert!(({mn}) > 0, \"LOGOS positivity guard: element bound on `% {mn}` requires {mn} > 0\");",
+                indent_str, mn = mn
+            )
+            .unwrap();
+        }
+        // Match the ACCESS's 0-based index form: a `__zero_based_i64` counter
+        // indexes directly (`arr[i]`), everything else is 1-based (`arr[i-1]`).
+        // The oracle reasons about the 1-based source; codegen may rebase.
+        let i0 = match idx {
+            Expr::Identifier(c)
+                if ctx
+                    .get_variable_types()
+                    .get(c)
+                    .map_or(false, |t| t == "__zero_based_i64") =>
+            {
+                names.ident(*c)
+            }
+            _ => simplify_1based_index(idx, interner, false),
+        };
+        let arr_name = aos_backing.unwrap_or_else(|| names.ident(arr));
+        let cond = format!("({}) >= 0 && ({}) < ({}.len() as i64)", i0, i0, arr_name);
+        writeln!(out, "{}debug_assert!({}, \"LOGOS oracle bounds hint violated: indexing `{}` out of range\");", indent_str, cond, arr_name).unwrap();
+        writeln!(out, "{}unsafe {{ std::hint::assert_unchecked({}); }}", indent_str, cond).unwrap();
+    }
+    out
+}
+
+fn collect_index_accesses_in_stmt<'a>(stmt: &'a Stmt<'a>, out: &mut Vec<(&'a Expr<'a>, &'a Expr<'a>)>) {
+    match stmt {
+        Stmt::Let { value, .. } | Stmt::Set { value, .. } => collect_index_in_expr(value, out),
+        Stmt::SetIndex { collection, index, value } => {
+            out.push((collection, index));
+            collect_index_in_expr(index, out);
+            collect_index_in_expr(value, out);
+        }
+        Stmt::If { cond, .. } | Stmt::While { cond, .. } => collect_index_in_expr(cond, out),
+        Stmt::Show { object, .. } | Stmt::Give { object, .. } => collect_index_in_expr(object, out),
+        Stmt::Return { value: Some(e) } => collect_index_in_expr(e, out),
+        Stmt::Push { value, .. } | Stmt::Add { value, .. } | Stmt::Remove { value, .. } => {
+            collect_index_in_expr(value, out)
+        }
+        _ => {}
+    }
+}
+
+fn collect_index_in_expr<'a>(e: &'a Expr<'a>, out: &mut Vec<(&'a Expr<'a>, &'a Expr<'a>)>) {
+    match e {
+        Expr::Index { collection, index } => {
+            out.push((collection, index));
+            collect_index_in_expr(collection, out);
+            collect_index_in_expr(index, out);
+        }
+        Expr::BinaryOp { left, right, .. } => {
+            collect_index_in_expr(left, out);
+            collect_index_in_expr(right, out);
+        }
+        Expr::Not { operand } => collect_index_in_expr(operand, out),
+        Expr::Call { args, .. } => {
+            for a in args.iter() {
+                collect_index_in_expr(a, out);
+            }
+        }
+        Expr::Length { collection } => collect_index_in_expr(collection, out),
+        _ => {}
+    }
+}
+
+/// AOT BCE-hoist: a row-major affine-offset bounds guard for one array in one
+/// loop. The index `item (offset + counter + 1) of arr` is BILINEAR (e.g.
+/// `c[i*n+j]`) — the `i*n` product defeats the linear bounds prover — but from
+/// the inner loop's view `offset` (`i*n`) is loop-INVARIANT, so the emitted
+/// index `offset + counter` is monotone in the counter. A single preheader
+/// `assert!` that `offset >= 0` and the MAX index `offset + (limit - 1) < len`
+/// lets the per-iteration access be elided soundly with no static nonlinear
+/// proof and no UB (it PANICS, never UB, on an out-of-range program).
+pub(crate) struct AffineOffsetGuard<'a> {
+    arr_sym: Symbol,
+    /// The loop-invariant offset (`i * n`).
+    offset: &'a Expr<'a>,
+    /// The emitted index `offset + counter` (`i*n + j`), for the body hint.
+    emitted_index: &'a Expr<'a>,
+}
+
+/// Match the 1-based row-major index `(offset + counter) + 1` whose emitted
+/// index is `offset + counter`. Returns `(offset, offset_plus_counter)` where
+/// `offset` is the operand that is NOT the bare counter.
+fn match_affine_offset_index<'a>(
+    index: &'a Expr<'a>,
+    counter: Symbol,
+) -> Option<(&'a Expr<'a>, &'a Expr<'a>)> {
+    if let Expr::BinaryOp { op: BinaryOpKind::Add, left, right } = index {
+        if matches!(right, Expr::Literal(Literal::Number(1))) {
+            if let Expr::BinaryOp { op: BinaryOpKind::Add, left: a, right: b } = left {
+                if matches!(b, Expr::Identifier(s) if *s == counter) {
+                    return Some((a, left));
+                }
+                if matches!(a, Expr::Identifier(s) if *s == counter) {
+                    return Some((b, left));
+                }
+            }
+        }
+    }
+    None
+}
+
+/// Plan row-major affine-offset bounds guards for an exclusive `while counter <
+/// limit` loop body. Soundness mirrors the O5a counter hints: the access must
+/// be UNCONDITIONAL (top-level in the body), the array a `Vec`/slice that is
+/// not resized or rebound, and the offset loop-invariant (not mentioning the
+/// counter, none of its symbols mutated). v1 handles exclusive loops only (max
+/// counter = limit - 1) and one guard per array.
+pub(crate) fn plan_affine_offset_guards<'a>(
+    body: &'a [Stmt<'a>],
+    counter_sym: Symbol,
+    is_exclusive: bool,
+    var_types: &HashMap<Symbol, String>,
+) -> Vec<AffineOffsetGuard<'a>> {
+    if !is_exclusive || body_has_early_exit(body) {
+        return Vec::new();
+    }
+    let mut guards: Vec<AffineOffsetGuard> = Vec::new();
+    let mut seen: HashSet<Symbol> = HashSet::new();
+    for stmt in body {
+        let mut accesses: Vec<(&Expr, &Expr)> = Vec::new();
+        collect_index_accesses_in_stmt(stmt, &mut accesses);
+        for (coll, index) in accesses {
+            let arr_sym = match coll {
+                Expr::Identifier(s) => *s,
+                _ => continue,
+            };
+            let Some((offset, emitted)) = match_affine_offset_index(index, counter_sym) else {
+                continue;
+            };
+            let base_ty = var_types
+                .get(&arr_sym)
+                .map(|t| t.split("|__hl:").next().unwrap_or(t.as_str()));
+            let qualifies = matches!(
+                base_ty,
+                Some(t) if t.starts_with("Vec<") || t.starts_with("LogosSeq")
+                    || t.starts_with("&[") || t.starts_with("&mut [")
+            );
+            if !qualifies
+                || body_resizes_collection(body, arr_sym)
+                || body_modifies_var(body, arr_sym)
+            {
+                continue;
+            }
+            let mut osyms = Vec::new();
+            collect_expr_symbols(offset, &mut osyms);
+            if osyms.contains(&counter_sym)
+                || osyms
+                    .iter()
+                    .any(|s| body_modifies_var(body, *s) || body_mutates_collection(body, *s))
+            {
+                continue;
+            }
+            if seen.insert(arr_sym) {
+                guards.push(AffineOffsetGuard { arr_sym, offset, emitted_index: emitted });
+            }
+        }
+    }
+    guards
+}
+
+/// Emit the preheader anchor for each affine-offset guard: a length snapshot
+/// plus a hard `assert!` that the MAX index (`offset + limit - 1`) is in range
+/// and the offset is non-negative. Runs once per loop entry; PANICS (never UB)
+/// if the array is too short, which is what licenses the body-side elision.
+pub(crate) fn emit_affine_offset_preheader(
+    guards: &[AffineOffsetGuard],
+    limit_str: &str,
+    interner: &Interner,
+    synced_vars: &HashSet<Symbol>,
+    async_functions: &HashSet<Symbol>,
+    var_types: &HashMap<Symbol, String>,
+    indent_str: &str,
+    output: &mut String,
+) {
+    let names = RustNames::new(interner);
+    for g in guards {
+        let arr = names.ident(g.arr_sym);
+        let off = codegen_expr_with_async(g.offset, interner, synced_vars, async_functions, var_types);
+        writeln!(
+            output,
+            "{}assert!(({off}) >= 0 && (({off}) + ({lim}) - 1) < ({arr}.len() as i64), \"LOGOS bounds guard: indexing `{arr}` (row-major) out of range\");",
+            indent_str, off = off, lim = limit_str, arr = arr
+        ).unwrap();
+    }
+}
+
+/// Emit the per-iteration `assert_unchecked` for each affine-offset guard, at
+/// the top of the loop body. Sound because the preheader `assert!` proved the
+/// max index in range and the index is monotone in the (non-negative) counter.
+pub(crate) fn emit_affine_offset_header(
+    guards: &[AffineOffsetGuard],
+    interner: &Interner,
+    synced_vars: &HashSet<Symbol>,
+    async_functions: &HashSet<Symbol>,
+    var_types: &HashMap<Symbol, String>,
+    body_indent: &str,
+    output: &mut String,
+) {
+    let names = RustNames::new(interner);
+    for g in guards {
+        let arr = names.ident(g.arr_sym);
+        let e = codegen_expr_with_async(g.emitted_index, interner, synced_vars, async_functions, var_types);
+        writeln!(
+            output,
+            "{}unsafe {{ std::hint::assert_unchecked(({e}) >= 0 && ({e}) < ({arr}.len() as i64)); }}",
+            body_indent, e = e, arr = arr
+        ).unwrap();
+    }
+}
 
 pub fn codegen_stmt<'a>(
     stmt: &Stmt<'a>,
@@ -61,9 +448,120 @@ pub fn codegen_stmt<'a>(
     // Recursive calls (If/While/etc. bodies) see None → conservative clone.
     let live_vars_after: Option<HashSet<Symbol>> = ctx.take_live_vars_after();
 
+    // O5: prepend oracle-proven bounds-elision hints for this statement's
+    // indexed accesses (the relational `i <= length(arr)` proofs O5a's for-range
+    // counter hints cannot reach — e.g. a growing FIFO read by a cursor).
+    output.push_str(&emit_oracle_index_hints(stmt, ctx, interner, &indent_str));
+
     match stmt {
         Stmt::Let { var, ty, value, mutable } => {
             let var_name = names.ident(*var);
+
+            // AoS interleaving: a co-indexed group member. Column 0 emits the
+            // single fused `[[T; W]; N]` backing (reusing the first member's
+            // name); the other columns' declarations are dropped — their storage
+            // lives in the backing. Runs before the scalarization branch below.
+            if matches!(value, Expr::New { .. }) {
+                if let Some(tag) = parse_aos_tag(ctx.get_variable_types().get(var)) {
+                    if tag.col == 0 {
+                        let default = match tag.elem.as_str() {
+                            "f64" => "0f64",
+                            "bool" => "false",
+                            _ => "0i64",
+                        };
+                        writeln!(
+                            output,
+                            "{}let mut {}: [[{}; {}]; {}] = [[{}; {}]; {}];",
+                            indent_str, tag.backing, tag.elem, tag.width, tag.len, default, tag.width, tag.len
+                        )
+                        .unwrap();
+                    }
+                    return output;
+                }
+            }
+
+            // O3: a fixed-size Seq pre-registered as `[T; N]` (scalarization)
+            // — emit a stack array and let the init pushes fill it via indexed
+            // writes. Must run before the `new Seq` type registration below,
+            // which would otherwise overwrite the array type with LogosSeq.
+            if ctx.is_scalarized_array(*var) && matches!(value, Expr::New { .. }) {
+                if let Some(arr_ty) = ctx.get_variable_types().get(var).cloned() {
+                    let inner = arr_ty.trim_start_matches('[').trim_end_matches(']');
+                    let mut parts = inner.split("; ");
+                    let elem = parts.next().unwrap_or("i64");
+                    let n = parts.next().unwrap_or("0");
+                    let default = match elem {
+                        "f64" => "0f64",
+                        "bool" => "false",
+                        _ => "0i64",
+                    };
+                    writeln!(output, "{}let mut {}: {} = [{}; {}];",
+                        indent_str, var_name, arr_ty, default, n).unwrap();
+                    ctx.init_array_fill(*var);
+                    return output;
+                }
+            }
+
+            // Affine read-only array (CSR offset array): deleted entirely. The
+            // build push is suppressed and every `item _ of`/`length of` read
+            // substitutes the closed form, so the declaration emits nothing. The
+            // `__affine_array:...` type was registered in `codegen_program`.
+            if matches!(value, Expr::New { .. }) && ctx.affine_array(*var).is_some() {
+                return output;
+            }
+
+            // Append-only worklist: a de-Rc'd Seq frontier proven bounded by a
+            // monotone visited-set guard. Emit a PRE-SIZED buffer + a register
+            // tail counter; the pushes lower to `q[tail]=x; tail+=1` and
+            // `length of q` to `tail`. This is C's frontier representation.
+            if matches!(value, Expr::New { .. }) {
+                if let Some((cap, default, tail)) =
+                    ctx.worklist(*var).map(|w| (w.capacity.clone(), w.elem_default.clone(), w.tail_var.clone()))
+                {
+                    writeln!(output, "{}let mut {}: Vec<i64> = vec![{}; {}];", indent_str, var_name, default, cap).unwrap();
+                    writeln!(output, "{}let mut {}: usize = 0;", indent_str, tail).unwrap();
+                    // Encode the LOGICAL length (the tail) as a hoisted length so
+                    // `length of q` reads `tail`, not the buffer size, while every
+                    // other site strips the suffix and sees a plain `Vec<i64>`.
+                    ctx.register_variable_type(*var, format!("Vec<i64>|__hl:({} as i64)", tail));
+                    return output;
+                }
+            }
+
+            // O2 de-Rc: a Seq proven to never need reference semantics is a
+            // plain `Vec<T>` (no Rc/RefCell). Emit the owned-Vec declaration;
+            // access sites dispatch on the `Vec<T>` type exactly as they do for
+            // borrow-hoisted slices and materialized vecs.
+            if ctx.is_de_rc(*var) {
+                if let Some((vec_ty, init)) = derc_vec_decl(
+                    value, interner, synced_vars, boxed_fields, registry, async_functions, ctx,
+                ) {
+                    let is_mut = *mutable || mutable_vars.contains(var);
+                    let kw = if is_mut { "let mut" } else { "let" };
+                    // Pre-size a push-built Vec the program later index-reads up to
+                    // a bound: reserve once instead of reallocating as it grows
+                    // (C sizes the buffer exactly). Capacity is a hint — sound.
+                    let init = match (init.as_str(), ctx.get_vec_presize(*var)) {
+                        ("Vec::new()", Some(cap)) => {
+                            format!("Vec::with_capacity(({}) as usize)", cap)
+                        }
+                        _ => init,
+                    };
+                    // i64→i32 narrowing: a Seq of Int proven to hold only
+                    // i32-range values is `Vec<i32>` (access sites convert).
+                    let vec_ty = if ctx.is_narrowed(*var) && vec_ty == "Vec<i64>" {
+                        "Vec<i32>".to_string()
+                    } else {
+                        vec_ty
+                    };
+                    writeln!(output, "{}{} {}: {} = {};", indent_str, kw, var_name, vec_ty, init).unwrap();
+                    for g in ctx.narrow_guards(*var).to_vec() {
+                        writeln!(output, "{}assert!({}, \"LOGOS i32-narrowing guard: element value must fit i32\");", indent_str, g).unwrap();
+                    }
+                    ctx.register_variable_type(*var, vec_ty);
+                    return output;
+                }
+            }
 
             // Register collection type for direct indexing optimization.
             // Check explicit type annotation first, then infer from Expr::New.
@@ -80,7 +578,12 @@ pub fn codegen_stmt<'a>(
                     }
                     "Map" | "HashMap" => {
                         let rust_type = if params.len() >= 2 {
-                            format!("LogosMap<{}, {}>", codegen_type_expr(&params[0], interner), codegen_type_expr(&params[1], interner))
+                            map_rust_type(
+                                &codegen_type_expr(&params[0], interner),
+                                &codegen_type_expr(&params[1], interner),
+                                *var,
+                                ctx,
+                            )
                         } else {
                             "LogosMap<String, String>".to_string()
                         };
@@ -101,7 +604,12 @@ pub fn codegen_stmt<'a>(
                     }
                     "Map" | "HashMap" => {
                         let rust_type = if type_args.len() >= 2 {
-                            format!("LogosMap<{}, {}>", codegen_type_expr(&type_args[0], interner), codegen_type_expr(&type_args[1], interner))
+                            map_rust_type(
+                                &codegen_type_expr(&type_args[0], interner),
+                                &codegen_type_expr(&type_args[1], interner),
+                                *var,
+                                ctx,
+                            )
                         } else {
                             "LogosMap<String, String>".to_string()
                         };
@@ -216,11 +724,11 @@ pub fn codegen_stmt<'a>(
                             let coll_name = names.ident(*coll_sym);
                             let start_str = codegen_expr_boxed_with_types(
                                 start, interner, synced_vars, boxed_fields, registry, async_functions,
-                                ctx.get_string_vars(), ctx.get_variable_types()
+                                ctx.get_string_vars(), ctx.get_variable_types(), ctx.get_fast_div()
                             );
                             let end_str = codegen_expr_boxed_with_types(
                                 end, interner, synced_vars, boxed_fields, registry, async_functions,
-                                ctx.get_string_vars(), ctx.get_variable_types()
+                                ctx.get_string_vars(), ctx.get_variable_types(), ctx.get_fast_div()
                             );
                             let is_mutable = *mutable || mutable_vars.contains(var);
                             let mutk = if is_mutable { "mut " } else { "" };
@@ -240,11 +748,11 @@ pub fn codegen_stmt<'a>(
                             let coll_name = names.ident(*coll_sym);
                             let start_str = codegen_expr_boxed_with_types(
                                 start, interner, synced_vars, boxed_fields, registry, async_functions,
-                                ctx.get_string_vars(), ctx.get_variable_types()
+                                ctx.get_string_vars(), ctx.get_variable_types(), ctx.get_fast_div()
                             );
                             let end_str = codegen_expr_boxed_with_types(
                                 end, interner, synced_vars, boxed_fields, registry, async_functions,
-                                ctx.get_string_vars(), ctx.get_variable_types()
+                                ctx.get_string_vars(), ctx.get_variable_types(), ctx.get_fast_div()
                             );
                             let is_mutable = *mutable || mutable_vars.contains(var);
                             let mutk = if is_mutable { "mut " } else { "" };
@@ -262,13 +770,45 @@ pub fn codegen_stmt<'a>(
             }
 
             // Phase 54+: Use codegen_expr_boxed with string+type tracking for proper codegen
-            let mut value_str = codegen_expr_boxed_with_types(
+            let mut value_str = codegen_expr_boxed_with_types_oracle(
                 value, interner, synced_vars, boxed_fields, registry, async_functions,
-                ctx.get_string_vars(), ctx.get_variable_types()
+                ctx.get_string_vars(), ctx.get_variable_types(), ctx.get_fast_div(), ctx.oracle(),
             );
 
-            // Grand Challenge: Variable is mutable if explicitly marked OR if it's a Set target
-            let is_mutable = *mutable || mutable_vars.contains(var);
+            // Phase D: lower a non-aliased `Map of Int to Int` to the specialized
+            // open-addressing `LogosI64Map`, or the keys-only `LogosI64Set` when
+            // the value is never read (contains + insert only). Override the
+            // constructor AND re-register the type so the two never disagree,
+            // regardless of which `Let` initializer shape registered it above.
+            if ctx.is_i64_map(*var) {
+                // Densest tier first: a proven bounded key domain → a
+                // direct-addressed array sized to the capacity hint, offset by the
+                // proven window `lo`. Otherwise the open-addressing map/set.
+                let dense = ctx.dense_info(*var);
+                let i64_ty = if let Some(info) = dense {
+                    dense_type_name(info.kind)
+                } else if ctx.is_i32_set(*var) {
+                    "LogosI32Set"
+                } else if ctx.is_i32_map(*var) {
+                    "LogosI32Map"
+                } else if ctx.is_i64_set(*var) {
+                    "LogosI64Set"
+                } else {
+                    "LogosI64Map"
+                };
+                if let Some(ctor) = i64_map_ctor(
+                    value, i64_ty, dense.map(|i| i.lo), interner, synced_vars, boxed_fields,
+                    registry, async_functions, ctx,
+                ) {
+                    value_str = ctor;
+                    ctx.register_variable_type(*var, i64_ty.to_string());
+                }
+            }
+
+            // Grand Challenge: Variable is mutable if explicitly marked OR if it's a Set target.
+            // A `LogosI64Map` is mutated in place via `&mut self` (the analysis
+            // requires ≥1 insert), so it must bind as `let mut`.
+            let is_mutable = *mutable || mutable_vars.contains(var) || ctx.is_i64_map(*var);
 
             // Reference semantics: clone LogosSeq/LogosMap on assignment to share the Rc.
             // Borrow param (&[T]) assigned to mutable local → convert to owned.
@@ -293,6 +833,19 @@ pub fn codegen_stmt<'a>(
                 (false, None) => writeln!(output, "{}let {} = {};", indent_str, var_name, value_str).unwrap(),
             }
 
+            // O9 libdivide: if this binding is a loop-invariant positive divisor,
+            // precompute its magic multiply ONCE here so every later `% n` / `/ n`
+            // lowers to `helper.rem(..)` / `helper.div(..)`. Harmless if `n <= 0`
+            // (the helper is only ever read inside loops that don't run there).
+            if let Some(helper) = ctx.get_fast_div().get(var) {
+                writeln!(
+                    output,
+                    "{}let {} = logicaffeine_data::LogosDivU64::new(({}) as u64);",
+                    indent_str, helper, var_name
+                )
+                .unwrap();
+            }
+
             // Track string variables for proper concatenation in subsequent expressions
             if is_definitely_string_expr_with_vars(value, ctx.get_string_vars()) {
                 ctx.register_string_var(*var);
@@ -307,6 +860,54 @@ pub fn codegen_stmt<'a>(
 
         Stmt::Set { target, value } => {
             let target_name = names.ident(*target);
+
+            // Cursor-indexed string build: `Set text to text + X` writes X at the
+            // cursor in the pre-sized buffer (no push). The paired `Set c to c +
+            // len(X)` that follows advances the cursor as usual. See
+            // peephole::try_emit_indexed_string_build.
+            if let Some(cursor) = ctx.indexed_string_build(*target).map(|c| c.to_string()) {
+                if let Expr::BinaryOp { op: BinaryOpKind::Add, right, .. } = value {
+                    match right {
+                        Expr::Literal(Literal::Text(sym)) => {
+                            let lit = interner.resolve(*sym);
+                            let bytes: Vec<String> =
+                                lit.bytes().map(|b| format!("{}u8", b)).collect();
+                            writeln!(
+                                output,
+                                "{ind}unsafe {{ std::ptr::copy_nonoverlapping([{b}].as_ptr(), {t}.as_mut_vec().as_mut_ptr().add(({c}) as usize), {k}); }}",
+                                ind = indent_str, t = target_name, c = cursor, k = lit.len(), b = bytes.join(", ")
+                            )
+                            .unwrap();
+                            return output;
+                        }
+                        Expr::Identifier(v)
+                            if ctx.get_variable_types().get(v).map(String::as_str)
+                                == Some("__single_char_u8") =>
+                        {
+                            let vn = names.ident(*v);
+                            writeln!(
+                                output,
+                                "{ind}unsafe {{ *{t}.as_mut_vec().as_mut_ptr().add(({c}) as usize) = {vn}; }}",
+                                ind = indent_str, t = target_name, c = cursor
+                            )
+                            .unwrap();
+                            return output;
+                        }
+                        _ => {}
+                    }
+                }
+            }
+
+            // O2 de-Rc: reassigning a de-Rc'd Seq to a FRESH allocation keeps
+            // it a plain `Vec<T>` (`xs = Vec::new()`), not `Seq::default()`.
+            if ctx.is_de_rc(*target) {
+                if let Some((_, init)) = derc_vec_decl(
+                    value, interner, synced_vars, boxed_fields, registry, async_functions, ctx,
+                ) {
+                    writeln!(output, "{}{} = {};", indent_str, target_name, init).unwrap();
+                    return output;
+                }
+            }
 
             // OPT: Single-char u8 variable → emit byte literal assignment.
             let is_target_single_char_u8 = ctx.get_variable_types().get(target)
@@ -362,14 +963,14 @@ pub fn codegen_stmt<'a>(
                                     // OPT: u8 single-char var → push(ch as char)
                                     let val_str = codegen_expr_boxed_with_types(
                                         operand, interner, synced_vars, boxed_fields, registry, async_functions,
-                                        string_vars, var_types
+                                        string_vars, var_types, ctx.get_fast_div()
                                     );
                                     writeln!(output, "{}{}.push({} as char);",
                                         indent_str, target_name, val_str).unwrap();
                                 } else if string_vars.contains(sym) {
                                     let val_str = codegen_expr_boxed_with_types(
                                         operand, interner, synced_vars, boxed_fields, registry, async_functions,
-                                        string_vars, var_types
+                                        string_vars, var_types, ctx.get_fast_div()
                                     );
                                     writeln!(output, "{}{}.push_str(&{});",
                                         indent_str, target_name, val_str).unwrap();
@@ -377,7 +978,7 @@ pub fn codegen_stmt<'a>(
                                     // Non-string single operand: use write!
                                     let val_str = codegen_expr_boxed_with_types(
                                         operand, interner, synced_vars, boxed_fields, registry, async_functions,
-                                        string_vars, var_types
+                                        string_vars, var_types, ctx.get_fast_div()
                                     );
                                     writeln!(output, "{}write!({}, \"{{}}\", {}).unwrap();",
                                         indent_str, target_name, val_str).unwrap();
@@ -386,7 +987,7 @@ pub fn codegen_stmt<'a>(
                                 // Non-string single operand: use write!
                                 let val_str = codegen_expr_boxed_with_types(
                                     operand, interner, synced_vars, boxed_fields, registry, async_functions,
-                                    string_vars, var_types
+                                    string_vars, var_types, ctx.get_fast_div()
                                 );
                                 writeln!(output, "{}write!({}, \"{{}}\", {}).unwrap();",
                                     indent_str, target_name, val_str).unwrap();
@@ -400,7 +1001,7 @@ pub fn codegen_stmt<'a>(
                                 } else {
                                     codegen_expr_boxed_with_types(
                                         e, interner, synced_vars, boxed_fields, registry, async_functions,
-                                        string_vars, var_types
+                                        string_vars, var_types, ctx.get_fast_div()
                                     )
                                 }
                             }).collect();
@@ -445,7 +1046,7 @@ pub fn codegen_stmt<'a>(
                                 .map(|(i, a)| {
                                     let s = codegen_expr_boxed_with_types(
                                         a, interner, synced_vars, boxed_fields, registry,
-                                        async_functions, string_vars, var_types
+                                        async_functions, string_vars, var_types, ctx.get_fast_div()
                                     );
                                     if callee_mut_borrow_indices.contains(&i) {
                                         // Mut borrow param: pass &mut [T] reference
@@ -454,6 +1055,11 @@ pub fn codegen_stmt<'a>(
                                                 let ty = ty.split("|__hl:").next().unwrap_or(ty.as_str());
                                                 if ty.starts_with("&mut [") {
                                                     return s; // Already &mut slice
+                                                }
+                                                // Phase 3b: a de-Rc'd `Vec` lends `&mut x`
+                                                // directly — no RefCell to borrow_mut.
+                                                if ty.starts_with("Vec<") {
+                                                    return format!("&mut {}", s);
                                                 }
                                                 if ty.starts_with("LogosSeq") {
                                                     return format!("&mut *{}.borrow_mut()", s);
@@ -529,7 +1135,7 @@ pub fn codegen_stmt<'a>(
                             .map(|(i, a)| {
                                 let s = codegen_expr_boxed_with_types(
                                     a, interner, synced_vars, boxed_fields, registry,
-                                    async_functions, string_vars, var_types
+                                    async_functions, string_vars, var_types, ctx.get_fast_div()
                                 );
                                 if callee_borrow_indices.contains(&i) {
                                     if let Expr::Identifier(sym) = a {
@@ -588,7 +1194,7 @@ pub fn codegen_stmt<'a>(
                             .map(|(i, a)| {
                                 let s = codegen_expr_boxed_with_types(
                                     a, interner, synced_vars, boxed_fields, registry,
-                                    async_functions, string_vars, var_types
+                                    async_functions, string_vars, var_types, ctx.get_fast_div()
                                 );
                                 if callee_borrow_indices.contains(&i) {
                                     if let Expr::Identifier(sym) = a {
@@ -654,7 +1260,7 @@ pub fn codegen_stmt<'a>(
                 } else {
                     let mut vs = codegen_expr_boxed_with_types(
                         value, interner, synced_vars, boxed_fields, registry,
-                        async_functions, string_vars, var_types
+                        async_functions, string_vars, var_types, ctx.get_fast_div()
                     );
                     // Reference semantics: clone LogosSeq/LogosMap on assignment to share the Rc.
                     if let Expr::Identifier(src_sym) = value {
@@ -699,6 +1305,10 @@ pub fn codegen_stmt<'a>(
                             let ty = ty.split("|__hl:").next().unwrap_or(ty.as_str());
                             if ty.starts_with("&mut [") {
                                 return s; // Already &mut slice
+                            }
+                            // Phase 3b: a de-Rc'd `Vec` lends `&mut x` directly.
+                            if ty.starts_with("Vec<") {
+                                return format!("&mut {}", s);
                             }
                             if ty.starts_with("LogosSeq") {
                                 return format!("&mut *{}.borrow_mut()", s);
@@ -747,24 +1357,14 @@ pub fn codegen_stmt<'a>(
         }
 
         Stmt::If { cond, then_block, else_block } => {
-            let cond_str = codegen_expr_with_async(cond, interner, synced_vars, async_functions, ctx.get_variable_types());
+            let cond_str = codegen_expr_with_async_oracle(cond, interner, synced_vars, async_functions, ctx.get_variable_types(), ctx.oracle());
             writeln!(output, "{}if {} {{", indent_str, cond_str).unwrap();
             ctx.push_scope();
             {
                 let block_refs: Vec<&Stmt> = then_block.iter().collect();
                 let mut bi = 0;
                 while bi < block_refs.len() {
-                    if let Some((code, skip)) = try_emit_seq_from_slice_pattern(&block_refs, bi, interner, indent + 1, mutable_vars, ctx, lww_fields, mv_fields, synced_vars, var_caps, async_functions, pipe_vars, boxed_fields, registry, type_env) {
-                        output.push_str(&code);
-                        bi += 1 + skip;
-                        continue;
-                    }
-                    if let Some((code, skip)) = try_emit_seq_copy_pattern(&block_refs, bi, interner, indent + 1, ctx) {
-                        output.push_str(&code);
-                        bi += 1 + skip;
-                        continue;
-                    }
-                    if let Some((code, skip)) = try_emit_rotate_left_pattern(&block_refs, bi, interner, indent + 1, ctx.get_variable_types()) {
+                    if let Some((code, skip)) = super::peephole::try_block_peepholes(&block_refs, bi, interner, indent + 1, mutable_vars, ctx, lww_fields, mv_fields, synced_vars, var_caps, async_functions, pipe_vars, boxed_fields, registry, type_env) {
                         output.push_str(&code);
                         bi += 1 + skip;
                         continue;
@@ -781,17 +1381,7 @@ pub fn codegen_stmt<'a>(
                     let block_refs: Vec<&Stmt> = else_stmts.iter().collect();
                     let mut bi = 0;
                     while bi < block_refs.len() {
-                        if let Some((code, skip)) = try_emit_seq_from_slice_pattern(&block_refs, bi, interner, indent + 1, mutable_vars, ctx, lww_fields, mv_fields, synced_vars, var_caps, async_functions, pipe_vars, boxed_fields, registry, type_env) {
-                            output.push_str(&code);
-                            bi += 1 + skip;
-                            continue;
-                        }
-                        if let Some((code, skip)) = try_emit_seq_copy_pattern(&block_refs, bi, interner, indent + 1, ctx) {
-                            output.push_str(&code);
-                            bi += 1 + skip;
-                            continue;
-                        }
-                        if let Some((code, skip)) = try_emit_rotate_left_pattern(&block_refs, bi, interner, indent + 1, ctx.get_variable_types()) {
+                        if let Some((code, skip)) = super::peephole::try_block_peepholes(&block_refs, bi, interner, indent + 1, mutable_vars, ctx, lww_fields, mv_fields, synced_vars, var_caps, async_functions, pipe_vars, boxed_fields, registry, type_env) {
                             output.push_str(&code);
                             bi += 1 + skip;
                             continue;
@@ -806,6 +1396,11 @@ pub fn codegen_stmt<'a>(
         }
 
         Stmt::While { cond, body, decreasing: _ } => {
+            // bcmp idiom: a fixed-window byte-compare loop collapses to a slice
+            // inequality (LLVM `bcmp`) — try it before the scalar while codegen.
+            if let Some(code) = try_emit_byte_compare_window(stmt, interner, indent, ctx.get_variable_types(), ctx.oracle()) {
+                return code;
+            }
             // decreasing is compile-time only, ignored at runtime
 
             // OPT: Loop bounds hoisting.
@@ -823,6 +1418,11 @@ pub fn codegen_stmt<'a>(
 
             let mut hoisted_syms: Vec<(Symbol, Option<String>)> = Vec::new();
             for len_sym in &all_length_syms {
+                // An affine read-only array is deleted; `length of` it is its trip
+                // count (no `.len()` to hoist). Leave its `__affine_array:` tag intact.
+                if ctx.affine_array(*len_sym).is_some() {
+                    continue;
+                }
                 if !body_mutates_collection(body, *len_sym) && !body_modifies_var(body, *len_sym) {
                     let name = interner.resolve(*len_sym);
                     let hoisted_name = format!("{}_len", name);
@@ -840,40 +1440,88 @@ pub fn codegen_stmt<'a>(
                 }
             }
 
-            // OPT-9: Emit assert! hints for arrays indexed by the while-loop counter.
-            // For `while counter <= bound:` or `while counter < bound:`, find arrays
-            // indexed by counter in the body and emit assert!((bound as usize) <= arr.len()).
-            // This helps LLVM elide bounds checks inside the loop.
-            if let Expr::BinaryOp { op, left, right } = cond {
-                let counter_and_bound: Option<(Symbol, &Expr)> = match op {
-                    BinaryOpKind::LtEq | BinaryOpKind::Lt => {
-                        if let Expr::Identifier(sym) = left {
-                            Some((*sym, *right))
-                        } else {
-                            None
-                        }
-                    }
-                    _ => None,
+            // OPT-9: bounds hints for arrays indexed by a unit-stepping while
+            // counter (`while counter <= bound:` / `< bound:`). Unlike the
+            // for-range site, this loop shape guarantees nothing by
+            // construction, so everything plan_bounds_hints assumes must be
+            // checked here: the counter takes every value up to the bound
+            // (unit increment last, no other counter writes) and the bound is
+            // loop-invariant.
+            let mut while_bounds_hints: Vec<BoundsHintPlan> = Vec::new();
+            let mut affine_guards: Vec<AffineOffsetGuard> = Vec::new();
+            if let Expr::BinaryOp { op: op @ (BinaryOpKind::LtEq | BinaryOpKind::Lt), left: Expr::Identifier(counter_sym), right: bound_expr } = cond {
+                let body_sans_inc = if !body.is_empty()
+                    && is_counter_increment(&body[body.len() - 1], *counter_sym)
+                {
+                    Some(&body[..body.len() - 1])
+                } else {
+                    None
                 };
-                if let Some((counter_sym, bound_expr)) = counter_and_bound {
-                    let indexed_arrays = collect_indexed_arrays(body, counter_sym);
-                    let indexed_arrays: Vec<Symbol> = indexed_arrays.into_iter().filter(|arr_sym| {
-                        match ctx.get_variable_types().get(arr_sym) {
-                            Some(t) if t.contains("HashMap") => false,
-                            _ => true,
-                        }
-                    }).collect();
-                    for arr_sym in &indexed_arrays {
-                        let arr_name = interner.resolve(*arr_sym);
+                if let Some(body_sans_inc) = body_sans_inc {
+                    let counter_clean = !body_modifies_var(body_sans_inc, *counter_sym);
+                    let mut bound_syms = Vec::new();
+                    collect_expr_symbols(bound_expr, &mut bound_syms);
+                    let bound_invariant = bound_syms.iter().all(|s| {
+                        !body_modifies_var(body, *s) && !body_mutates_collection(body, *s)
+                    });
+                    if counter_clean && bound_invariant {
                         let bound_str = codegen_expr_with_async(bound_expr, interner, synced_vars, async_functions, ctx.get_variable_types());
-                        writeln!(output, "{}unsafe {{ std::hint::assert_unchecked(({} as usize) <= {}.len()); }}",
-                            indent_str, bound_str, arr_name).unwrap();
+                        while_bounds_hints = plan_bounds_hints(
+                            body_sans_inc,
+                            *counter_sym,
+                            matches!(op, BinaryOpKind::Lt),
+                            false,
+                            bound_expr,
+                            &bound_str,
+                            ctx.get_variable_types(),
+                        );
+                        emit_bounds_hint_preheader(&while_bounds_hints, interner, &indent_str, &mut output);
+
+                        // AOT BCE-hoist: row-major affine-offset guards. One
+                        // preheader `assert!` per array proves the MAX index
+                        // (`offset + limit - 1`) in range; the per-iteration
+                        // access is then elided soundly in the body.
+                        affine_guards = plan_affine_offset_guards(
+                            body_sans_inc,
+                            *counter_sym,
+                            matches!(op, BinaryOpKind::Lt),
+                            ctx.get_variable_types(),
+                        );
+                        emit_affine_offset_preheader(&affine_guards, &bound_str, interner, synced_vars, async_functions, ctx.get_variable_types(), &indent_str, &mut output);
                     }
                 }
             }
 
-            let cond_str = codegen_expr_with_async(cond, interner, synced_vars, async_functions, ctx.get_variable_types());
+            // Scratch-buffer allocation hoisting: a loop-local buffer that is
+            // freshly allocated, fully overwritten by a copy of a source slice,
+            // used/mutated in place, and never escapes the iteration is hoisted
+            // to ONE allocation before the loop and reused (`clear()` +
+            // `extend_from_slice`) each iteration — eliminating one malloc/free
+            // per iteration (fannkuch's `perm`: ~n! of them). Value-identical to
+            // the per-iteration `.to_vec()`; gated on the de-Rc non-escape proof.
+            let scratch_hoisted: Vec<Symbol> =
+                super::peephole::detect_scratch_hoist_in_body(body, interner, ctx)
+                    .into_iter()
+                    .map(|(dst, elem_type)| {
+                        writeln!(output, "{}let mut {}: Vec<{}> = Vec::new();",
+                            indent_str, interner.resolve(dst), elem_type).unwrap();
+                        ctx.register_variable_type(dst, format!("Vec<{}>", elem_type));
+                        ctx.register_scratch_hoist(dst);
+                        dst
+                    })
+                    .collect();
+
+            // O1: scope-extract per-handle borrows around the whole while
+            // loop when the alias oracle proves it sound. The cond is part of
+            // the access scan; opened before cond emission so the condition
+            // also indexes slices.
+            let hoist_plan = super::hoist::plan_borrow_hoist(stmt, Some(cond), body, ctx, interner);
+            super::hoist::emit_hoist_open(&hoist_plan, interner, &indent_str, ctx, &mut output);
+
+            let cond_str = codegen_expr_with_async_oracle(cond, interner, synced_vars, async_functions, ctx.get_variable_types(), ctx.oracle());
             writeln!(output, "{}while {} {{", indent_str, cond_str).unwrap();
+            emit_bounds_hint_header(&while_bounds_hints, interner, &"    ".repeat(indent + 1), &mut output);
+            emit_affine_offset_header(&affine_guards, interner, synced_vars, async_functions, ctx.get_variable_types(), &"    ".repeat(indent + 1), &mut output);
             ctx.push_scope();
 
             // OPT-5: Extract sentinel context from while condition.
@@ -894,47 +1542,7 @@ pub fn codegen_stmt<'a>(
             let body_refs: Vec<&Stmt> = body.iter().collect();
             let mut bi = 0;
             while bi < body_refs.len() {
-                if let Some((code, skip)) = try_emit_buffer_reuse_while(&body_refs, bi, interner, indent + 1, mutable_vars, ctx, lww_fields, mv_fields, synced_vars, var_caps, async_functions, pipe_vars, boxed_fields, registry, type_env) {
-                    output.push_str(&code);
-                    bi += 1 + skip;
-                    continue;
-                }
-                if let Some((code, skip)) = try_emit_seq_from_slice_pattern(&body_refs, bi, interner, indent + 1, mutable_vars, ctx, lww_fields, mv_fields, synced_vars, var_caps, async_functions, pipe_vars, boxed_fields, registry, type_env) {
-                    output.push_str(&code);
-                    bi += 1 + skip;
-                    continue;
-                }
-                if let Some((code, skip)) = try_emit_vec_fill_pattern(&body_refs, bi, interner, indent + 1, ctx) {
-                    output.push_str(&code);
-                    bi += 1 + skip;
-                    continue;
-                }
-                if let Some((code, skip)) = try_emit_vec_with_capacity_pattern(&body_refs, bi, interner, indent + 1, mutable_vars, ctx, lww_fields, mv_fields, synced_vars, var_caps, async_functions, pipe_vars, boxed_fields, registry, type_env) {
-                    output.push_str(&code);
-                    bi += 1 + skip;
-                    continue;
-                }
-                if let Some((code, skip)) = try_emit_merge_capacity_pattern(&body_refs, bi, interner, indent + 1, ctx) {
-                    output.push_str(&code);
-                    bi += 1 + skip;
-                    continue;
-                }
-                if let Some((code, skip)) = try_emit_for_range_pattern(&body_refs, bi, interner, indent + 1, mutable_vars, ctx, lww_fields, mv_fields, synced_vars, var_caps, async_functions, pipe_vars, boxed_fields, registry, type_env) {
-                    output.push_str(&code);
-                    bi += 1 + skip;
-                    continue;
-                }
-                if let Some((code, skip)) = try_emit_swap_pattern(&body_refs, bi, interner, indent + 1, ctx.get_variable_types()) {
-                    output.push_str(&code);
-                    bi += 1 + skip;
-                    continue;
-                }
-                if let Some((code, skip)) = try_emit_seq_copy_pattern(&body_refs, bi, interner, indent + 1, ctx) {
-                    output.push_str(&code);
-                    bi += 1 + skip;
-                    continue;
-                }
-                if let Some((code, skip)) = try_emit_rotate_left_pattern(&body_refs, bi, interner, indent + 1, ctx.get_variable_types()) {
+                if let Some((code, skip)) = super::peephole::try_block_peepholes(&body_refs, bi, interner, indent + 1, mutable_vars, ctx, lww_fields, mv_fields, synced_vars, var_caps, async_functions, pipe_vars, boxed_fields, registry, type_env) {
                     output.push_str(&code);
                     bi += 1 + skip;
                     continue;
@@ -960,6 +1568,12 @@ pub fn codegen_stmt<'a>(
                         mutable_vars, ctx, lww_fields, mv_fields, synced_vars, var_caps,
                         async_functions, pipe_vars, boxed_fields, registry, type_env,
                     ) {
+                        // This peephole emits the If inline (bypassing codegen_stmt),
+                        // so the oracle bounds hints for index accesses in its guard
+                        // (string_search's `text[i+j]`) must be emitted here too.
+                        output.push_str(&emit_oracle_index_hints(
+                            body_refs[bi], ctx, interner, &"    ".repeat(indent + 1),
+                        ));
                         output.push_str(&code);
                         bi += 1;
                         continue;
@@ -980,7 +1594,16 @@ pub fn codegen_stmt<'a>(
                 }
             }
 
+            // Stop treating the hoisted scratch buffers as reused once their
+            // loop closes, so a same-named buffer in a sibling loop is not
+            // mis-rewritten into a refill of a buffer that was never hoisted.
+            for dst in scratch_hoisted {
+                ctx.clear_scratch_hoist(dst);
+            }
+
             writeln!(output, "{}}}", indent_str).unwrap();
+            // Close the borrow-hoist scope and restore slice-shadowed types.
+            super::hoist::emit_hoist_close(&hoist_plan, &indent_str, ctx, &mut output);
         }
 
         Stmt::Repeat { pattern, iterable, body } => {
@@ -1096,22 +1719,7 @@ pub fn codegen_stmt<'a>(
                     let body_refs: Vec<&Stmt> = body.iter().collect();
                     let mut bi = 0;
                     while bi < body_refs.len() {
-                        if let Some((code, skip)) = try_emit_swap_pattern(&body_refs, bi, interner, indent + 1, ctx.get_variable_types()) {
-                            output.push_str(&code);
-                            bi += 1 + skip;
-                            continue;
-                        }
-                        if let Some((code, skip)) = try_emit_seq_from_slice_pattern(&body_refs, bi, interner, indent + 1, mutable_vars, ctx, lww_fields, mv_fields, synced_vars, var_caps, async_functions, pipe_vars, boxed_fields, registry, type_env) {
-                            output.push_str(&code);
-                            bi += 1 + skip;
-                            continue;
-                        }
-                        if let Some((code, skip)) = try_emit_seq_copy_pattern(&body_refs, bi, interner, indent + 1, ctx) {
-                            output.push_str(&code);
-                            bi += 1 + skip;
-                            continue;
-                        }
-                        if let Some((code, skip)) = try_emit_rotate_left_pattern(&body_refs, bi, interner, indent + 1, ctx.get_variable_types()) {
+                        if let Some((code, skip)) = super::peephole::try_block_peepholes(&body_refs, bi, interner, indent + 1, mutable_vars, ctx, lww_fields, mv_fields, synced_vars, var_caps, async_functions, pipe_vars, boxed_fields, registry, type_env) {
                             output.push_str(&code);
                             bi += 1 + skip;
                             continue;
@@ -1127,7 +1735,7 @@ pub fn codegen_stmt<'a>(
 
         Stmt::Return { value } => {
             if let Some(v) = value {
-                let value_str = codegen_expr_boxed_with_types(v, interner, synced_vars, boxed_fields, registry, async_functions, ctx.get_string_vars(), ctx.get_variable_types());
+                let value_str = codegen_expr_boxed_with_types_oracle(v, interner, synced_vars, boxed_fields, registry, async_functions, ctx.get_string_vars(), ctx.get_variable_types(), ctx.get_fast_div(), ctx.oracle());
                 // If returning a borrowed slice param (or copy of one), wrap in LogosSeq
                 let slice_sym = match v {
                     Expr::Identifier(sym) => Some(*sym),
@@ -1150,6 +1758,10 @@ pub fn codegen_stmt<'a>(
                 };
                 if is_mut_borrow_return {
                     writeln!(output, "{}return;", indent_str).unwrap();
+                } else if needs_to_vec && ctx.returns_vec() {
+                    // Phase 4: the function returns owned `Vec<T>` — return the
+                    // owned copy directly, no `LogosSeq::from_vec(...)` wrapper.
+                    writeln!(output, "{}return {}.to_vec();", indent_str, value_str).unwrap();
                 } else if needs_to_vec {
                     writeln!(output, "{}return LogosSeq::from_vec({}.to_vec());", indent_str, value_str).unwrap();
                 } else {
@@ -1180,7 +1792,7 @@ pub fn codegen_stmt<'a>(
         }
 
         Stmt::RuntimeAssert { condition } => {
-            let cond_str = codegen_expr_with_async(condition, interner, synced_vars, async_functions, ctx.get_variable_types());
+            let cond_str = codegen_expr_with_async_oracle(condition, interner, synced_vars, async_functions, ctx.get_variable_types(), ctx.oracle());
             writeln!(output, "{}debug_assert!({});", indent_str, cond_str).unwrap();
         }
 
@@ -1376,7 +1988,7 @@ pub fn codegen_stmt<'a>(
         }
 
         Stmt::SendPipe { value, pipe } => {
-            let val_str = codegen_expr_boxed_with_types(value, interner, synced_vars, boxed_fields, registry, async_functions, ctx.get_string_vars(), ctx.get_variable_types());
+            let val_str = codegen_expr_boxed_with_types_oracle(value, interner, synced_vars, boxed_fields, registry, async_functions, ctx.get_string_vars(), ctx.get_variable_types(), ctx.get_fast_div(), ctx.oracle());
             let pipe_str = codegen_expr_with_async(pipe, interner, synced_vars, async_functions, ctx.get_variable_types());
             // Phase 54: Check if pipe is a local declaration (has _tx suffix) or parameter (no suffix)
             let is_local_pipe = if let Expr::Identifier(sym) = pipe {
@@ -1424,7 +2036,7 @@ pub fn codegen_stmt<'a>(
         }
 
         Stmt::TrySendPipe { value, pipe, result } => {
-            let val_str = codegen_expr_boxed_with_types(value, interner, synced_vars, boxed_fields, registry, async_functions, ctx.get_string_vars(), ctx.get_variable_types());
+            let val_str = codegen_expr_boxed_with_types_oracle(value, interner, synced_vars, boxed_fields, registry, async_functions, ctx.get_string_vars(), ctx.get_variable_types(), ctx.get_fast_div(), ctx.oracle());
             let pipe_str = codegen_expr_with_async(pipe, interner, synced_vars, async_functions, ctx.get_variable_types());
             // Phase 54: Check if pipe is a local declaration
             let is_local_pipe = if let Expr::Identifier(sym) = pipe {
@@ -1505,12 +2117,39 @@ pub fn codegen_stmt<'a>(
                         writeln!(output, "{}    }}", indent_str).unwrap();
                     }
                     SelectBranch::Timeout { milliseconds, body } => {
-                        let ms_str = codegen_expr_with_async(milliseconds, interner, synced_vars, async_functions, ctx.get_variable_types());
-                        // Convert seconds to milliseconds if the value looks like seconds
+                        // The timeout is a `std::time::Duration`. Lower each
+                        // surface shape to one directly — never `<expr> as
+                        // u64`, which fails to compile for the struct-valued
+                        // duration/span literals:
+                        //   • a duration literal already lowers to a
+                        //     `Duration` (emit it verbatim);
+                        //   • a calendar span approximates to whole seconds
+                        //     (clock-unit timeouts the imperative parser
+                        //     currently folds into a Span land here as 0 —
+                        //     the precise representation is a duration
+                        //     literal, handled by the arm above);
+                        //   • a bare integer is read as whole seconds.
+                        let dur = match milliseconds {
+                            Expr::Literal(Literal::Duration(_)) => codegen_expr_with_async(
+                                milliseconds, interner, synced_vars, async_functions,
+                                ctx.get_variable_types(),
+                            ),
+                            Expr::Literal(Literal::Span { months, days }) => {
+                                let secs = ((*months as i64) * 30 + (*days as i64)) * 86_400;
+                                format!("std::time::Duration::from_secs({}u64)", secs.max(0))
+                            }
+                            _ => {
+                                let n = codegen_expr_with_async(
+                                    milliseconds, interner, synced_vars, async_functions,
+                                    ctx.get_variable_types(),
+                                );
+                                format!("std::time::Duration::from_secs({} as u64)", n)
+                            }
+                        };
                         writeln!(
                             output,
-                            "{}    _ = tokio::time::sleep(std::time::Duration::from_secs({} as u64)) => {{",
-                            indent_str, ms_str
+                            "{}    _ = tokio::time::sleep({}) => {{",
+                            indent_str, dur
                         ).unwrap();
                         for stmt in *body {
                             let stmt_code = codegen_stmt(stmt, interner, indent + 2, mutable_vars, ctx, lww_fields, mv_fields, synced_vars, var_caps, async_functions, pipe_vars, boxed_fields, registry, type_env);
@@ -1594,7 +2233,7 @@ pub fn codegen_stmt<'a>(
                                     fmt_str.push_str("{}");
                                     false
                                 };
-                                let arg_str = codegen_expr_with_async_and_strings(value, interner, synced_vars, async_functions, ctx.get_string_vars(), ctx.get_variable_types());
+                                let arg_str = codegen_expr_with_async_and_strings(value, interner, synced_vars, async_functions, ctx.get_string_vars(), ctx.get_variable_types(), ctx.get_fast_div());
                                 if needs_float_cast {
                                     args.push(format!("{} as f64", arg_str));
                                 } else {
@@ -1606,14 +2245,14 @@ pub fn codegen_stmt<'a>(
                     writeln!(output, "{}println!(\"{}\"{});", indent_str, fmt_str,
                         args.iter().map(|a| format!(", {}", a)).collect::<String>()).unwrap();
                 } else {
-                    let obj_str = codegen_expr_with_async_and_strings(object, interner, synced_vars, async_functions, ctx.get_string_vars(), ctx.get_variable_types());
+                    let obj_str = codegen_expr_with_async_and_strings(object, interner, synced_vars, async_functions, ctx.get_string_vars(), ctx.get_variable_types(), ctx.get_fast_div());
                     let recv_str = codegen_expr_with_async(recipient, interner, synced_vars, async_functions, ctx.get_variable_types());
                     writeln!(output, "{}{}(&{});", indent_str, recv_str, obj_str).unwrap();
                 }
             } else {
                 // Borrow semantics: pass immutable reference
                 // Use string_vars for proper concatenation of string variables
-                let obj_str = codegen_expr_with_async_and_strings(object, interner, synced_vars, async_functions, ctx.get_string_vars(), ctx.get_variable_types());
+                let obj_str = codegen_expr_with_async_and_strings(object, interner, synced_vars, async_functions, ctx.get_string_vars(), ctx.get_variable_types(), ctx.get_fast_div());
                 let recv_str = codegen_expr_with_async(recipient, interner, synced_vars, async_functions, ctx.get_variable_types());
                 writeln!(output, "{}{}(&{});", indent_str, recv_str, obj_str).unwrap();
             }
@@ -1622,7 +2261,7 @@ pub fn codegen_stmt<'a>(
         Stmt::SetField { object, field, value } => {
             let obj_str = codegen_expr_with_async(object, interner, synced_vars, async_functions, ctx.get_variable_types());
             let field_name = interner.resolve(*field);
-            let value_str = codegen_expr_boxed_with_types(value, interner, synced_vars, boxed_fields, registry, async_functions, ctx.get_string_vars(), ctx.get_variable_types());
+            let value_str = codegen_expr_boxed_with_types_oracle(value, interner, synced_vars, boxed_fields, registry, async_functions, ctx.get_string_vars(), ctx.get_variable_types(), ctx.get_fast_div(), ctx.oracle());
 
             // Phase 49: Check if this field is an LWWRegister or MVRegister
             // LWW needs .set(value, timestamp), MV needs .set(value)
@@ -1798,9 +2437,64 @@ pub fn codegen_stmt<'a>(
         }
 
         Stmt::Push { value, collection } => {
-            let val_str = codegen_expr_boxed_with_types(value, interner, synced_vars, boxed_fields, registry, async_functions, ctx.get_string_vars(), ctx.get_variable_types());
+            // O3: an init push into a scalarized `[T; N]` array becomes an
+            // indexed store at the next fill position (detection proved
+            // exactly N straight-line pushes precede any other use).
+            if let Expr::Identifier(coll_sym) = collection {
+                // Affine read-only array: the array is deleted, so its build push
+                // emits nothing (reads substitute the closed form instead).
+                if ctx.affine_array(*coll_sym).is_some() {
+                    return output;
+                }
+                // AoS interleaving: the k-th round-robin push of a member becomes
+                // an indexed store into the backing's k-th row at this column.
+                if let Some(tag) = parse_aos_tag(ctx.get_variable_types().get(coll_sym)) {
+                    let val_str = codegen_expr_boxed_with_types_oracle(value, interner, synced_vars, boxed_fields, registry, async_functions, ctx.get_string_vars(), ctx.get_variable_types(), ctx.get_fast_div(), ctx.oracle());
+                    let k = ctx.next_array_fill(*coll_sym);
+                    writeln!(output, "{}{}[{}][{}] = {};", indent_str, tag.backing, k, tag.col, val_str).unwrap();
+                    return output;
+                }
+                if ctx.is_scalarized_array(*coll_sym) {
+                    let val_str = codegen_expr_boxed_with_types_oracle(value, interner, synced_vars, boxed_fields, registry, async_functions, ctx.get_string_vars(), ctx.get_variable_types(), ctx.get_fast_div(), ctx.oracle());
+                    let k = ctx.next_array_fill(*coll_sym);
+                    let coll_name = names.ident(*coll_sym);
+                    writeln!(output, "{}{}[{}] = {};", indent_str, coll_name, k, val_str).unwrap();
+                    return output;
+                }
+                // A1: inside a fill loop, the counted push of a sized
+                // buffer-reuse buffer becomes an indexed write `buf[counter] =
+                // val` (the buffer was `resize`d to the loop's trip count).
+                if let Some((buf, counter)) = ctx.fill_loop().map(|(b, c)| (b, c.to_string())) {
+                    if buf == *coll_sym {
+                        let val_str = codegen_expr_boxed_with_types_oracle(value, interner, synced_vars, boxed_fields, registry, async_functions, ctx.get_string_vars(), ctx.get_variable_types(), ctx.get_fast_div(), ctx.oracle());
+                        let coll_name = names.ident(*coll_sym);
+                        writeln!(output, "{}{}[{} as usize] = {};", indent_str, coll_name, counter, val_str).unwrap();
+                        return output;
+                    }
+                }
+                // Append-only worklist: `q.push(x)` becomes a pre-sized buffer
+                // write at a register tail — `q[tail] = x; tail += 1` — with NO
+                // capacity check (the monotone visited-set bound proved
+                // `tail < q.len()`). This is C's exact frontier code.
+                if let Some(tail) = ctx.worklist(*coll_sym).map(|w| w.tail_var.clone()) {
+                    let val_str = codegen_expr_boxed_with_types_oracle(value, interner, synced_vars, boxed_fields, registry, async_functions, ctx.get_string_vars(), ctx.get_variable_types(), ctx.get_fast_div(), ctx.oracle());
+                    let coll_name = names.ident(*coll_sym);
+                    writeln!(output, "{}unsafe {{ std::hint::assert_unchecked({tail} < {coll_name}.len()); }}", indent_str).unwrap();
+                    writeln!(output, "{}{coll_name}[{tail}] = {val_str};", indent_str).unwrap();
+                    writeln!(output, "{}{tail} += 1;", indent_str).unwrap();
+                    return output;
+                }
+            }
+            let val_str = codegen_expr_boxed_with_types_oracle(value, interner, synced_vars, boxed_fields, registry, async_functions, ctx.get_string_vars(), ctx.get_variable_types(), ctx.get_fast_div(), ctx.oracle());
             let coll_str = codegen_expr_with_async(collection, interner, synced_vars, async_functions, ctx.get_variable_types());
-            writeln!(output, "{}{}.push({});", indent_str, coll_str, val_str).unwrap();
+            // A narrowed (`Vec<i32>`) sequence truncates on store — lossless,
+            // since narrowing proved every pushed value fits i32.
+            let narrowed_push = matches!(collection, Expr::Identifier(c) if ctx.is_narrowed(*c));
+            if narrowed_push {
+                writeln!(output, "{}{}.push(({}) as i32);", indent_str, coll_str, val_str).unwrap();
+            } else {
+                writeln!(output, "{}{}.push({});", indent_str, coll_str, val_str).unwrap();
+            }
         }
 
         Stmt::Pop { collection, into } => {
@@ -1818,20 +2512,34 @@ pub fn codegen_stmt<'a>(
         }
 
         Stmt::Add { value, collection } => {
-            let val_str = codegen_expr_boxed_with_types(value, interner, synced_vars, boxed_fields, registry, async_functions, ctx.get_string_vars(), ctx.get_variable_types());
+            let val_str = codegen_expr_boxed_with_types_oracle(value, interner, synced_vars, boxed_fields, registry, async_functions, ctx.get_string_vars(), ctx.get_variable_types(), ctx.get_fast_div(), ctx.oracle());
             let coll_str = codegen_expr_with_async(collection, interner, synced_vars, async_functions, ctx.get_variable_types());
             writeln!(output, "{}{}.insert({});", indent_str, coll_str, val_str).unwrap();
         }
 
         Stmt::Remove { value, collection } => {
-            let val_str = codegen_expr_boxed_with_types(value, interner, synced_vars, boxed_fields, registry, async_functions, ctx.get_string_vars(), ctx.get_variable_types());
+            let val_str = codegen_expr_boxed_with_types_oracle(value, interner, synced_vars, boxed_fields, registry, async_functions, ctx.get_string_vars(), ctx.get_variable_types(), ctx.get_fast_div(), ctx.oracle());
             let coll_str = codegen_expr_with_async(collection, interner, synced_vars, async_functions, ctx.get_variable_types());
             writeln!(output, "{}{}.remove(&{});", indent_str, coll_str, val_str).unwrap();
         }
 
         Stmt::SetIndex { collection, index, value } => {
+            // AoS interleaving: `Set item i of member to v` → `backing[(i-1)][col] = v`.
+            if let Expr::Identifier(sym) = collection {
+                if let Some(tag) = parse_aos_tag(ctx.get_variable_types().get(sym)) {
+                    let value_str = codegen_expr_boxed_with_types_oracle(value, interner, synced_vars, boxed_fields, registry, async_functions, ctx.get_string_vars(), ctx.get_variable_types(), ctx.get_fast_div(), ctx.oracle());
+                    let is_zb = matches!(index, Expr::Identifier(s) if ctx.get_variable_types().get(s).map_or(false, |t| t == "__zero_based_i64"));
+                    let idx_part = if is_zb {
+                        format!("{} as usize", codegen_expr_with_async(index, interner, synced_vars, async_functions, ctx.get_variable_types()))
+                    } else {
+                        simplify_1based_index(index, interner, true)
+                    };
+                    writeln!(output, "{}{}[{}][{}] = {};", indent_str, tag.backing, idx_part, tag.col, value_str).unwrap();
+                    return output;
+                }
+            }
             let coll_str = codegen_expr_with_async(collection, interner, synced_vars, async_functions, ctx.get_variable_types());
-            let value_str = codegen_expr_boxed_with_types(value, interner, synced_vars, boxed_fields, registry, async_functions, ctx.get_string_vars(), ctx.get_variable_types());
+            let value_str = codegen_expr_boxed_with_types_oracle(value, interner, synced_vars, boxed_fields, registry, async_functions, ctx.get_string_vars(), ctx.get_variable_types(), ctx.get_fast_div(), ctx.oracle());
 
             // Direct indexing for known collection types (avoids trait dispatch)
             // Strip |__hl: hoisting suffix so type matching works correctly.
@@ -1855,13 +2563,11 @@ pub fn codegen_stmt<'a>(
                     } else {
                         simplify_1based_index(index, interner, true)
                     };
-                    // If RHS reads from the same collection, evaluate into a temp first
-                    // to avoid simultaneous borrow() and borrow_mut() on the same RefCell.
-                    let needs_tmp = if let Expr::Identifier(coll_sym) = collection {
-                        expr_indexes_collection(value, *coll_sym)
-                    } else {
-                        false
-                    };
+                    // If the RHS borrows ANY collection, evaluate it into a temp
+                    // first: under reference semantics that collection may alias
+                    // the target (e.g. `prev` after `Set prev to curr`), and a
+                    // live borrow() across the target's borrow_mut() panics.
+                    let needs_tmp = expr_reads_any_collection(value);
                     if needs_tmp {
                         writeln!(output, "{}let __set_val = {};", indent_str, value_str).unwrap();
                         writeln!(output, "{}{}.borrow_mut()[{}] = __set_val;", indent_str, coll_str, index_part).unwrap();
@@ -1869,11 +2575,12 @@ pub fn codegen_stmt<'a>(
                         writeln!(output, "{}{}.borrow_mut()[{}] = {};", indent_str, coll_str, index_part, value_str).unwrap();
                     }
                 }
-                Some(t) if t.starts_with("LogosMap") => {
+                Some(t) if is_logos_map_type(t) => {
                     let index_str = codegen_expr_with_async(index, interner, synced_vars, async_functions, ctx.get_variable_types());
                     writeln!(output, "{}{}.insert({}, {});", indent_str, coll_str, index_str, value_str).unwrap();
                 }
-                Some(t) if t.starts_with("Vec") || t.starts_with("&mut [") || t.starts_with("&[") => {
+                Some(t) if t.starts_with("Vec") || t.starts_with("&mut [") || t.starts_with("&[") || t.starts_with('[') => {
+                    // Vec / slice / fixed array (O3) — direct indexed store.
                     // OPT-8: Check if index is a zero-based counter
                     let is_zero_based_counter = if let Expr::Identifier(idx_sym) = index {
                         ctx.get_variable_types().get(idx_sym).map_or(false, |t| t == "__zero_based_i64")
@@ -1886,7 +2593,34 @@ pub fn codegen_stmt<'a>(
                     } else {
                         simplify_1based_index(index, interner, true)
                     };
-                    writeln!(output, "{}{}[{}] = {};", indent_str, coll_str, index_part, value_str).unwrap();
+                    // A narrowed (`Vec<i32>`) sequence truncates on store — lossless,
+                    // since narrowing proved every stored value fits i32.
+                    let narrowed = matches!(collection, Expr::Identifier(c) if ctx.is_narrowed(*c));
+                    let value_str = if narrowed { format!("(({}) as i32)", value_str) } else { value_str };
+                    // BCE: when the oracle proves the store index in range, emit an
+                    // unchecked store (no bounds branch) with a `debug_assert!` net.
+                    // Soundness: the kernel-LIA proof + the function's entry
+                    // precondition guard. `LOGOS_ORACLE_UNCHECKED=0` forces checked.
+                    let store_unchecked = !std::env::var("LOGOS_ORACLE_UNCHECKED")
+                        .map(|v| v == "0")
+                        .unwrap_or(false)
+                        && ctx.oracle().map_or(false, |o| o.index_provably_in_bounds(collection, index));
+                    if store_unchecked {
+                        let i0 = if is_zero_based_counter {
+                            codegen_expr_with_async(index, interner, synced_vars, async_functions, ctx.get_variable_types())
+                        } else {
+                            simplify_1based_index(index, interner, false)
+                        };
+                        writeln!(output, "{}debug_assert!(({}) >= 0 && ({}) < ({}.len() as i64), \"LOGOS oracle BCE: store out of range\");", indent_str, i0, i0, coll_str).unwrap();
+                        // Bind the value to a temp first: it may itself be a proven
+                        // `get_unchecked` read of the same slice (the partition swap),
+                        // so evaluating it before the `&mut` access avoids both a
+                        // nested `unsafe` block and an aliasing borrow.
+                        writeln!(output, "{}let __set_val = {};", indent_str, value_str).unwrap();
+                        writeln!(output, "{}unsafe {{ *{}.get_unchecked_mut({}) = __set_val; }}", indent_str, coll_str, index_part).unwrap();
+                    } else {
+                        writeln!(output, "{}{}[{}] = {};", indent_str, coll_str, index_part, value_str).unwrap();
+                    }
                 }
                 Some(t) if t.starts_with("std::collections::HashMap") || t.starts_with("HashMap") || t.starts_with("rustc_hash::FxHashMap") || t.starts_with("FxHashMap") => {
                     let index_str = codegen_expr_with_async(index, interner, synced_vars, async_functions, ctx.get_variable_types());
@@ -1895,13 +2629,11 @@ pub fn codegen_stmt<'a>(
                 _ => {
                     let index_str = codegen_expr_with_async(index, interner, synced_vars, async_functions, ctx.get_variable_types());
                     // Fallback: polymorphic indexing via trait.
-                    // If the value expression reads from the same collection being written,
-                    // we need a temporary binding to avoid aliasing (&mut coll vs &coll).
-                    let needs_tmp = if let Expr::Identifier(coll_sym) = collection {
-                        expr_indexes_collection(value, *coll_sym)
-                    } else {
-                        false
-                    };
+                    // If the value expression reads ANY collection, bind it to a
+                    // temp first: that collection may alias the one being written
+                    // (reference semantics), and a live borrow across the mutable
+                    // access would conflict.
+                    let needs_tmp = expr_reads_any_collection(value);
                     if needs_tmp {
                         writeln!(output, "{}let __set_tmp = {};", indent_str, value_str).unwrap();
                         writeln!(output, "{}LogosIndexMut::logos_set(&mut {}, {}, __set_tmp);", indent_str, coll_str, index_str).unwrap();
@@ -2324,7 +3056,7 @@ pub fn codegen_stmt<'a>(
         // Phase 49b: Append to SharedSequence (RGA)
         Stmt::AppendToSequence { sequence, value } => {
             let seq_str = codegen_expr_with_async(sequence, interner, synced_vars, async_functions, ctx.get_variable_types());
-            let val_str = codegen_expr_boxed_with_types(value, interner, synced_vars, boxed_fields, registry, async_functions, ctx.get_string_vars(), ctx.get_variable_types());
+            let val_str = codegen_expr_boxed_with_types_oracle(value, interner, synced_vars, boxed_fields, registry, async_functions, ctx.get_string_vars(), ctx.get_variable_types(), ctx.get_fast_div(), ctx.oracle());
             writeln!(
                 output,
                 "{}{}.append({});",
@@ -2335,7 +3067,7 @@ pub fn codegen_stmt<'a>(
         // Phase 49b: Resolve MVRegister conflicts
         Stmt::ResolveConflict { object, field, value } => {
             let field_name = interner.resolve(*field);
-            let val_str = codegen_expr_boxed_with_types(value, interner, synced_vars, boxed_fields, registry, async_functions, ctx.get_string_vars(), ctx.get_variable_types());
+            let val_str = codegen_expr_boxed_with_types_oracle(value, interner, synced_vars, boxed_fields, registry, async_functions, ctx.get_string_vars(), ctx.get_variable_types(), ctx.get_fast_div(), ctx.oracle());
             let obj_str = codegen_expr_with_async(object, interner, synced_vars, async_functions, ctx.get_variable_types());
             writeln!(
                 output,
@@ -2633,6 +3365,20 @@ fn try_emit_parallel_reduction<'a>(
     let indent_str = "    ".repeat(indent);
     let acc_name = interner.resolve(acc_sym);
 
+    // The parallel reduction's `.sum::<T>()` must match the accumulator's type,
+    // not a hardcoded i64 (a float reduction needs `f64`). Decline the
+    // optimization for any non-numeric accumulator so we never emit a sum that
+    // fails to type-check.
+    let acc_ty = ctx
+        .get_variable_types()
+        .get(&acc_sym)
+        .map(|s| s.split("|__hl:").next().unwrap_or(s.as_str()))
+        .unwrap_or("i64");
+    let sum_ty = match acc_ty {
+        "i64" | "f64" | "u64" | "i32" | "u32" | "usize" | "isize" => acc_ty,
+        _ => return None,
+    };
+
     // Generate the increment expression as Rust code
     let incr_code = codegen_expr_with_async(
         increment_expr, interner, synced_vars, async_functions,
@@ -2661,11 +3407,11 @@ fn try_emit_parallel_reduction<'a>(
     writeln!(out, "{}    use rayon::prelude::*;", indent_str).unwrap();
     writeln!(out, "{}    let __par_ref = {};", indent_str, borrow_expr).unwrap();
     if needs_map {
-        writeln!(out, "{}    {} += __par_ref.par_iter().copied().map(|{}| {}).sum::<i64>();",
-            indent_str, acc_name, pattern_str, incr_code).unwrap();
+        writeln!(out, "{}    {} += __par_ref.par_iter().copied().map(|{}| {}).sum::<{}>();",
+            indent_str, acc_name, pattern_str, incr_code, sum_ty).unwrap();
     } else {
-        writeln!(out, "{}    {} += __par_ref.par_iter().copied().sum::<i64>();",
-            indent_str, acc_name).unwrap();
+        writeln!(out, "{}    {} += __par_ref.par_iter().copied().sum::<{}>();",
+            indent_str, acc_name, sum_ty).unwrap();
     }
     writeln!(out, "{}}} else {{", indent_str).unwrap();
     writeln!(out, "{}    for {} in {}.to_vec() {{", indent_str, pattern_str, iter_str).unwrap();

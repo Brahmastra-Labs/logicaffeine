@@ -81,6 +81,69 @@ static BENCH_DATA: LazyLock<BenchmarkData> = LazyLock::new(|| {
     serde_json::from_str(include_str!("../../../../../benchmarks/results/latest.json")).unwrap()
 });
 
+// The LOGOS interpreter (bytecode VM + JIT) vs Node/V8 — a separate peer-to-peer
+// comparison at interpreter-calibrated sizes (so neither engine sits on V8's
+// startup floor). Produced by benchmarks/run-interp-vs-js.sh.
+#[derive(Deserialize)]
+struct InterpData {
+    #[serde(default)]
+    metadata: InterpMetadata,
+    #[serde(default)]
+    benchmarks: Vec<InterpBenchmark>,
+    #[serde(default)]
+    summary: InterpSummary,
+    #[serde(default)]
+    startup: InterpStartup,
+}
+
+#[derive(Deserialize, Default)]
+struct InterpStartup {
+    #[serde(default)]
+    runs: u32,
+    #[serde(default)]
+    engines: HashMap<String, StartupTiming>,
+}
+
+#[derive(Deserialize, Default, Clone)]
+struct StartupTiming {
+    #[serde(default)]
+    mean_ms: f64,
+    #[serde(default)]
+    min_ms: f64,
+    #[serde(default)]
+    median_ms: f64,
+}
+
+#[derive(Deserialize, Default)]
+struct InterpMetadata {
+    #[serde(default)]
+    node: String,
+    #[serde(default)]
+    date: String,
+}
+
+#[derive(Deserialize, Default)]
+struct InterpSummary {
+    #[serde(default)]
+    geometric_mean_logos_interp_over_node: f64,
+}
+
+#[derive(Deserialize)]
+struct InterpBenchmark {
+    id: String,
+    name: String,
+    #[serde(default)]
+    reference_size: String,
+    #[serde(default)]
+    interpreter_engine: String,
+    #[serde(default)]
+    scaling: HashMap<String, HashMap<String, TimingResult>>,
+}
+
+static INTERP_DATA: LazyLock<InterpData> = LazyLock::new(|| {
+    serde_json::from_str(include_str!("../../../../../benchmarks/results/latest-interp.json")).unwrap()
+});
+
 struct BenchSources {
     c: &'static str,
     cpp: &'static str,
@@ -199,6 +262,7 @@ fn lang_color(lang_id: &str) -> &'static str {
         "go" => "#00ADD8",
         "java" => "#b07219",
         "js" => "#f7df1e",
+        "logos_interp" => "#ff8c00",
         "python" => "#3776ab",
         "ruby" => "#cc342d",
         "nim" => "#ffe953",
@@ -216,6 +280,7 @@ fn lang_label(lang_id: &str) -> &'static str {
         "go" => "Go",
         "java" => "Java",
         "js" => "JavaScript",
+        "logos_interp" => "LOGOS (interpreted)",
         "python" => "Python",
         "ruby" => "Ruby",
         "nim" => "Nim",
@@ -241,15 +306,19 @@ fn lang_ext(lang_id: &str) -> &'static str {
 
 fn compiler_label(key: &str) -> &'static str {
     match key {
+        "gcc_-o3" => "gcc -O3 -march=native -flto",
+        "g++_-o3" => "g++ -O3 -march=native -flto",
+        "rustc_-o3" => "rustc -O3 -C lto=fat -C target-cpu=native",
+        // legacy keys from older result files
         "gcc_-o2" => "gcc -O2",
         "g++_-o2" => "g++ -O2",
         "rustc_-o" => "rustc -O",
-        "go_build" => "go build",
+        "go_build" => "go build (release)",
         "javac" => "javac",
-        "nim_c" => "nim c -d:release",
-        "zig_build-exe" => "zig build-exe -O ReleaseFast",
-        "largo_build" => "largo build",
-        "largo_build_--release" => "largo build --release",
+        "nim_c" => "nim c -d:release -march=native",
+        "zig_build-exe" => "zig build-exe -O ReleaseFast -mcpu native",
+        "largo_build" => "largo build (debug)",
+        "largo_build_--release" => "largo build --release \u{2192} rustc -O3 -C lto=fat -C codegen-units=1 -C target-cpu=native",
         _ => "unknown",
     }
 }
@@ -267,6 +336,205 @@ fn get_source(sources: &BenchSources, lang_id: &str) -> &'static str {
         "ruby" => sources.ruby,
         "nim" => sources.nim,
         _ => "",
+    }
+}
+
+// Benchmarks where the LOGOS optimizer collapses the kernel — it does
+// asymptotically less work than the naive algorithm the other languages run
+// (tail-call / closed-form / loop folding), so the speedup reflects a compiler
+// transform, not like-for-like codegen. These are excluded from the
+// apples-to-apples geomean and carry a per-benchmark note. The set is curated
+// from the measured results; the generated Rust shown on each benchmark makes
+// every claim auditable.
+fn collapse_note(id: &str) -> Option<&'static str> {
+    match id {
+        "fib" => Some("This one collapsed. The LOGOS optimizer folds the naive recursion to a closed form, so it does far less work than the runtime recursion the other languages execute — a compiler transform, not like-for-like codegen. See the generated Rust below."),
+        "ackermann" => Some("This one collapsed. Deep recursion is folded by the optimizer instead of being executed call-by-call — a compiler transform, not like-for-like codegen. See the generated Rust below."),
+        "binary_trees" => Some("This one collapsed. The allocate-and-checksum tree is reduced by the optimizer rather than built at runtime — a compiler transform, not like-for-like codegen. See the generated Rust below."),
+        "loop_sum" => Some("This one collapsed. The accumulation loop is replaced with its closed-form sum (O(n) becomes O(1)) — a compiler transform, not like-for-like codegen. See the generated Rust below."),
+        "collect" => Some("This one collapsed. The LOGOS optimizer folds the collection-building loop, doing far less work than inserting each element into a hash map at runtime — a compiler transform, not like-for-like codegen. See the generated Rust below."),
+        _ => None,
+    }
+}
+
+// Timings at a benchmark's effective reference size (reference_size if it has
+// data, else the largest benchmarked size).
+fn effective_ref(b: &Benchmark) -> Option<&HashMap<String, TimingResult>> {
+    if let Some(t) = b.scaling.get(b.reference_size.as_str()) {
+        return Some(t);
+    }
+    b.sizes.iter().rev().find_map(|s| b.scaling.get(s))
+}
+
+// LOGOS apples-to-apples geomean speedup vs C (C time / LOGOS time), over the
+// benchmarks that did NOT collapse. Higher = faster.
+fn logos_apples_geomean(data: &BenchmarkData) -> f64 {
+    let mut log_sum = 0.0_f64;
+    let mut n = 0u32;
+    for b in &data.benchmarks {
+        if collapse_note(&b.id).is_some() {
+            continue;
+        }
+        if let Some(t) = effective_ref(b) {
+            if let (Some(c), Some(l)) = (t.get("c"), t.get("logos_release")) {
+                if c.mean_ms > 0.0 && l.mean_ms > 0.0 {
+                    log_sum += (c.mean_ms / l.mean_ms).ln();
+                    n += 1;
+                }
+            }
+        }
+    }
+    if n > 0 { (log_sum / n as f64).exp() } else { 0.0 }
+}
+
+// Node sits near its ~30ms V8 startup floor when its time is dominated by
+// process startup rather than compute; such interpreter benchmarks are flagged
+// and kept out of the headline so they don't flatter the interpreter.
+fn node_floored(t: &TimingResult) -> bool {
+    t.mean_ms < 60.0
+}
+
+fn interp_ref<'a>(b: &'a InterpBenchmark) -> Option<&'a HashMap<String, TimingResult>> {
+    b.scaling.get(b.reference_size.as_str()).or_else(|| b.scaling.values().next())
+}
+
+// LOGOS interpreter speed vs V8 (Node time / interpreter time), geomean over
+// interpreter benchmarks where Node was off its startup floor. Higher = faster.
+fn interp_speed_vs_v8(data: &InterpData) -> f64 {
+    let mut log_sum = 0.0_f64;
+    let mut n = 0u32;
+    for b in &data.benchmarks {
+        if let Some(t) = interp_ref(b) {
+            if let (Some(js), Some(lg)) = (t.get("js"), t.get("logos_interp")) {
+                if js.mean_ms > 0.0 && lg.mean_ms > 0.0 && !node_floored(js) {
+                    log_sum += (js.mean_ms / lg.mean_ms).ln();
+                    n += 1;
+                }
+            }
+        }
+    }
+    if n > 0 { (log_sum / n as f64).exp() } else { 0.0 }
+}
+
+fn fmt_n(n: f64) -> String {
+    if n >= 1.0e9 { format!("{:.0}B", n / 1.0e9) }
+    else if n >= 1.0e6 { format!("{:.0}M", n / 1.0e6) }
+    else if n >= 1.0e3 { format!("{:.0}k", n / 1.0e3) }
+    else { format!("{:.0}", n) }
+}
+
+// Per-benchmark scaling curve: wall-clock time vs problem size N, log-log, one
+// line per language. Shows each language's scaling behaviour across the sizes
+// already in the data (and where the LOGOS curve flattens out on a collapse).
+fn scaling_chart(bench: &Benchmark, languages: &[Language]) -> Element {
+    let mut sizes: Vec<(String, f64)> = bench.sizes.iter()
+        .filter(|s| bench.scaling.contains_key(s.as_str()))
+        .filter_map(|s| s.parse::<f64>().ok().map(|n| (s.clone(), n)))
+        .collect();
+    sizes.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal));
+    if sizes.len() < 2 {
+        return rsx! {};
+    }
+
+    let mut t_min = f64::INFINITY;
+    let mut t_max = 0.0_f64;
+    for (s, _) in &sizes {
+        if let Some(m) = bench.scaling.get(s) {
+            for l in languages {
+                if let Some(t) = m.get(&l.id) {
+                    if t.median_ms > 0.0 {
+                        t_min = t_min.min(t.median_ms);
+                        t_max = t_max.max(t.median_ms);
+                    }
+                }
+            }
+        }
+    }
+    if !t_min.is_finite() || t_max <= 0.0 {
+        return rsx! {};
+    }
+
+    let nx_min = sizes.first().unwrap().1.ln();
+    let nx_max = sizes.last().unwrap().1.ln();
+    let x_span = (nx_max - nx_min).max(1e-9);
+    let y_span = (t_max.ln() - t_min.ln()).max(1e-9);
+
+    let (x0, y0, pw, ph) = (54.0_f64, 14.0_f64, 572.0_f64, 220.0_f64);
+    let px = |n: f64| x0 + (n.ln() - nx_min) / x_span * pw;
+    let py = |t: f64| y0 + (1.0 - (t.ln() - t_min.ln()) / y_span) * ph;
+
+    // (color, label, vertex coords)
+    let mut series: Vec<(String, String, Vec<(f64, f64)>)> = Vec::new();
+    for l in languages {
+        let mut coords: Vec<(f64, f64)> = Vec::new();
+        for (s, n) in &sizes {
+            if let Some(t) = bench.scaling.get(s).and_then(|m| m.get(&l.id)) {
+                if t.median_ms > 0.0 {
+                    coords.push((px(*n), py(t.median_ms)));
+                }
+            }
+        }
+        if !coords.is_empty() {
+            series.push((l.color.clone(), l.label.clone(), coords));
+        }
+    }
+    if series.is_empty() {
+        return rsx! {};
+    }
+
+    let y_bottom = y0 + ph;
+    let x_right = x0 + pw;
+
+    // Build the SVG inner markup as a string and set it via dangerous_inner_html
+    // (the pattern the app's icons already use) so the chart never depends on
+    // which individual SVG child attributes the rsx macro happens to expose.
+    let mut svg_inner = String::new();
+    svg_inner.push_str(&format!(
+        "<line x1='{x0:.1}' y1='{y0:.1}' x2='{x0:.1}' y2='{y_bottom:.1}' stroke='rgba(255,255,255,0.15)' stroke-width='1'/>"
+    ));
+    svg_inner.push_str(&format!(
+        "<line x1='{x0:.1}' y1='{y_bottom:.1}' x2='{x_right:.1}' y2='{y_bottom:.1}' stroke='rgba(255,255,255,0.15)' stroke-width='1'/>"
+    ));
+    svg_inner.push_str(&format!(
+        "<text x='{:.1}' y='{:.1}' text-anchor='end' fill='rgba(229,231,235,0.45)' font-size='10'>{}</text>",
+        x0 - 6.0, y0 + 4.0, format_time(t_max)
+    ));
+    svg_inner.push_str(&format!(
+        "<text x='{:.1}' y='{:.1}' text-anchor='end' fill='rgba(229,231,235,0.45)' font-size='10'>{}</text>",
+        x0 - 6.0, y_bottom, format_time(t_min)
+    ));
+    for (_, n) in &sizes {
+        svg_inner.push_str(&format!(
+            "<text x='{:.1}' y='{:.1}' text-anchor='middle' fill='rgba(229,231,235,0.45)' font-size='10'>n={}</text>",
+            px(*n), y_bottom + 16.0, fmt_n(*n)
+        ));
+    }
+    for (color, _label, coords) in &series {
+        let pts = coords.iter().map(|(x, y)| format!("{x:.1},{y:.1}")).collect::<Vec<_>>().join(" ");
+        svg_inner.push_str(&format!(
+            "<polyline points='{pts}' fill='none' stroke='{color}' stroke-width='2' stroke-linejoin='round' stroke-linecap='round'/>"
+        ));
+        for (x, y) in coords {
+            svg_inner.push_str(&format!("<circle cx='{x:.1}' cy='{y:.1}' r='2.5' fill='{color}'/>"));
+        }
+    }
+
+    rsx! {
+        div { class: "bench-scaling",
+            svg {
+                view_box: "0 0 640 266",
+                width: "100%",
+                dangerous_inner_html: "{svg_inner}",
+            }
+            div { class: "bench-scaling-legend",
+                for (color, label, _coords) in series.iter() {
+                    div { class: "bench-scaling-legend-item",
+                        span { class: "bench-scaling-legend-dot", style: "background: {color};" }
+                        "{label}"
+                    }
+                }
+            }
+        }
     }
 }
 
@@ -398,6 +666,15 @@ const BENCHMARKS_STYLE: &str = r#"
     font-weight: 800;
     letter-spacing: -1px;
     margin-bottom: 4px;
+}
+
+.bench-summary-eyebrow {
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    color: rgba(229,231,235,0.5);
+    margin-bottom: 8px;
 }
 
 .bench-summary-value.cyan { color: #00d4ff; }
@@ -820,6 +1097,117 @@ const BENCHMARKS_STYLE: &str = r#"
     border-bottom: 1px solid rgba(255,255,255,0.04);
 }
 
+/* Algorithmic-collapse note + badges */
+.bench-summary-value sup {
+    font-size: 18px;
+    color: rgba(0,212,255,0.7);
+    font-weight: 700;
+}
+
+.bench-note {
+    background: rgba(0,212,255,0.04);
+    border: 1px solid rgba(0,212,255,0.15);
+    border-radius: 12px;
+    padding: 14px 18px;
+    margin-bottom: 32px;
+    font-size: 13px;
+    line-height: 1.6;
+    color: rgba(229,231,235,0.7);
+}
+
+.bench-note strong { color: #00d4ff; }
+
+.bench-tab-badge {
+    display: inline-block;
+    margin-left: 6px;
+    font-size: 10px;
+}
+
+.bench-callout {
+    display: flex;
+    gap: 10px;
+    align-items: flex-start;
+    background: rgba(0,212,255,0.05);
+    border: 1px solid rgba(0,212,255,0.18);
+    border-radius: 10px;
+    padding: 12px 14px;
+    margin-bottom: 18px;
+    font-size: 13px;
+    line-height: 1.55;
+    color: rgba(229,231,235,0.8);
+}
+
+.bench-callout-icon {
+    flex-shrink: 0;
+    font-size: 15px;
+    line-height: 1.4;
+}
+
+.bench-chart-hint {
+    font-size: 11px;
+    color: rgba(229,231,235,0.4);
+    margin-bottom: 10px;
+}
+
+/* Scaling curve (inline SVG) */
+.bench-scaling {
+    margin-top: 8px;
+}
+
+.bench-scaling svg {
+    width: 100%;
+    height: auto;
+    display: block;
+}
+
+.bench-scaling-legend {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px 16px;
+    margin-top: 10px;
+}
+
+.bench-scaling-legend-item {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 11px;
+    color: rgba(229,231,235,0.6);
+}
+
+.bench-scaling-legend-dot {
+    width: 10px;
+    height: 3px;
+    border-radius: 2px;
+}
+
+/* Interpreter-vs-V8 section bits */
+.bench-engine-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    font-size: 11px;
+    padding: 3px 10px;
+    border-radius: 12px;
+    background: rgba(255,140,0,0.1);
+    border: 1px solid rgba(255,140,0,0.25);
+    color: #ff8c00;
+    margin-left: 8px;
+}
+
+.bench-floor-badge {
+    font-size: 10px;
+    color: #fbbf24;
+    margin-left: 8px;
+    white-space: nowrap;
+}
+
+.bench-bar-n {
+    font-size: 10px;
+    color: rgba(229,231,235,0.4);
+    margin-left: 6px;
+}
+
 @media (max-width: 768px) {
     .bench-hero h1 { font-size: 32px; }
     .bench-summary { grid-template-columns: 1fr; }
@@ -859,7 +1247,13 @@ pub fn Benchmarks() -> Element {
 
     let logos_vs_c = data.summary.geometric_mean_speedup_vs_c
         .get("logos_release").copied().unwrap_or(0.0);
-    let langs_with_data = data.summary.geometric_mean_speedup_vs_c.len();
+
+    let interp = &*INTERP_DATA;
+    // Headline numbers, all framed as "x the speed of <baseline>" (higher = faster).
+    let logos_apples = logos_apples_geomean(data);
+    let interp_speed = interp_speed_vs_v8(interp);
+    let collapse_count = data.benchmarks.iter().filter(|b| collapse_note(&b.id).is_some()).count();
+    let apples_count = data.benchmarks.len().saturating_sub(collapse_count);
 
     let bench = &data.benchmarks[active_bench()];
     let bench_sources = &sources[active_bench()];
@@ -969,6 +1363,71 @@ pub fn Benchmarks() -> Element {
     summary_entries.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
     let summary_max = summary_entries.first().map(|e| e.1).unwrap_or(1.0);
 
+    // Interpreter vs V8, for the active benchmark (at its own calibrated N)
+    let interp_bench = interp.benchmarks.iter().find(|ib| ib.id == bench.id);
+    // (label, color, median_ms, is_logos, node_floored)
+    let mut interp_bars: Vec<(&'static str, &'static str, f64, bool, bool)> = Vec::new();
+    let mut interp_n = String::new();
+    let mut interp_engine = String::new();
+    let mut interp_active_speed: Option<f64> = None;
+    if let Some(ib) = interp_bench {
+        interp_n = ib.reference_size.clone();
+        interp_engine = ib.interpreter_engine.clone();
+        if let Some(t) = interp_ref(ib) {
+            for id in ["logos_interp", "js", "python", "ruby"] {
+                if let Some(tr) = t.get(id) {
+                    let lbl = match id {
+                        "js" => "Node / V8",
+                        "python" => "Python",
+                        "ruby" => "Ruby",
+                        _ => "LOGOS (interpreted)",
+                    };
+                    let col = match id {
+                        "js" => "#f7df1e",
+                        "python" => "#3776ab",
+                        "ruby" => "#cc342d",
+                        _ => "#ff8c00",
+                    };
+                    interp_bars.push((lbl, col, tr.median_ms, id == "logos_interp", id == "js" && node_floored(tr)));
+                }
+            }
+            if let (Some(j), Some(l)) = (t.get("js"), t.get("logos_interp")) {
+                if l.median_ms > 0.0 {
+                    interp_active_speed = Some(j.median_ms / l.median_ms);
+                }
+            }
+        }
+    }
+    interp_bars.sort_by(|a, b| a.2.partial_cmp(&b.2).unwrap_or(std::cmp::Ordering::Equal));
+    let interp_max = interp_bars.iter().map(|e| e.2).fold(0.0_f64, f64::max).max(1e-9);
+    if interp_engine.is_empty() { interp_engine = "\u{2014}".to_string(); }
+    let interp_offfloor = interp.benchmarks.iter().filter(|ib| {
+        interp_ref(ib).and_then(|t| {
+            let j = t.get("js")?;
+            t.get("logos_interp")?;
+            Some(!node_floored(j))
+        }).unwrap_or(false)
+    }).count();
+    let interp_node_ver = if interp.metadata.node.is_empty() { "Node".to_string() } else { format!("Node {}", interp.metadata.node) };
+
+    // Cold-start floor (serverless / CLI): time to launch the engine and run a
+    // trivial program. Smaller is faster. (label, color, mean_ms, is_logos)
+    let mut startup_bars: Vec<(&'static str, &'static str, f64, bool)> = Vec::new();
+    for id in ["logos_interp", "js", "python", "ruby"] {
+        if let Some(t) = interp.startup.engines.get(id) {
+            if t.mean_ms > 0.0 {
+                let lbl = match id { "logos_interp" => "LOGOS interp", "js" => "Node / V8", "python" => "Python", "ruby" => "Ruby", _ => id };
+                let col = match id { "logos_interp" => "#ff8c00", "js" => "#f7df1e", "python" => "#3776ab", "ruby" => "#cc342d", _ => "#94a3b8" };
+                startup_bars.push((lbl, col, t.mean_ms, id == "logos_interp"));
+            }
+        }
+    }
+    startup_bars.sort_by(|a, b| a.2.partial_cmp(&b.2).unwrap_or(std::cmp::Ordering::Equal));
+    let startup_max = startup_bars.iter().map(|e| e.2).fold(0.0_f64, f64::max).max(1e-9);
+    let startup_logos = interp.startup.engines.get("logos_interp").map(|t| t.mean_ms).unwrap_or(0.0);
+    let startup_node = interp.startup.engines.get("js").map(|t| t.mean_ms).unwrap_or(0.0);
+    let startup_vs_v8 = if startup_logos > 0.0 { startup_node / startup_logos } else { 0.0 };
+
     // Source code languages to show (not LOGOS — that's always visible)
     let source_langs = ["c", "cpp", "rust", "zig", "go", "java", "js", "python", "ruby", "nim"];
 
@@ -1015,6 +1474,7 @@ pub fn Benchmarks() -> Element {
             nav { class: "bench-section-nav",
                 a { href: "#overview", "Overview" }
                 a { href: "#performance", "Performance" }
+                a { href: "#interpreter", "Interpreter" }
                 a { href: "#source", "Source Code" }
                 a { href: "#compilation", "Compilation" }
                 a { href: "#summary", "Summary" }
@@ -1022,20 +1482,35 @@ pub fn Benchmarks() -> Element {
             }
 
             div { class: "bench-content",
-                // Summary cards
+                // Summary cards — each eyebrow states what is being compared
                 div { class: "bench-summary",
                     div { class: "bench-summary-card",
-                        div { class: "bench-summary-value cyan", "{logos_vs_c:.2}x" }
-                        div { class: "bench-summary-label", "LOGOS vs C (geometric mean)" }
+                        div { class: "bench-summary-eyebrow", "LOGOS compiled vs C" }
+                        div { class: "bench-summary-value cyan",
+                            "{logos_vs_c:.2}x"
+                            sup { "*" }
+                        }
+                        div { class: "bench-summary-label", "the speed of C (geomean)" }
                     }
                     div { class: "bench-summary-card",
-                        div { class: "bench-summary-value green", "{data.benchmarks.len()}" }
-                        div { class: "bench-summary-label", "Benchmarks" }
+                        div { class: "bench-summary-eyebrow", "Same algorithm as C" }
+                        div { class: "bench-summary-value green", "{logos_apples:.2}x" }
+                        div { class: "bench-summary-label", "the speed of C (geomean)" }
                     }
                     div { class: "bench-summary-card",
-                        div { class: "bench-summary-value purple", "{langs_with_data}" }
-                        div { class: "bench-summary-label", "Languages tested" }
+                        div { class: "bench-summary-eyebrow", "Interpreted LOGOS vs V8" }
+                        div { class: "bench-summary-value purple", "{startup_vs_v8:.1}x" }
+                        div { class: "bench-summary-label", "faster cold start than V8" }
                     }
+                }
+
+                div { class: "bench-note",
+                    "The headline covers all {data.benchmarks.len()} benchmarks. On {collapse_count} of them the LOGOS "
+                    "compiler reduces the work itself, for example by folding a recursive function into a closed form, so "
+                    "it runs a faster algorithm than the C version rather than just faster machine code. Those wins are "
+                    "real, and the generated Rust for each is shown in the Source Code section below. The second number is "
+                    "the geometric mean over the remaining {apples_count} benchmarks, where LOGOS and C compile the same "
+                    "algorithm. Both numbers are \u{201c}x the speed of C\u{201d}, so higher is faster."
                 }
 
                 // Benchmark tabs (shared across performance, source, compilation)
@@ -1051,6 +1526,9 @@ pub fn Benchmarks() -> Element {
                                 source_open.set([false; 10]);
                             },
                             "{b.name}"
+                            if collapse_note(&b.id).is_some() {
+                                span { class: "bench-tab-badge", title: "Algorithm collapsed by the LOGOS compiler", "\u{26a1}" }
+                            }
                         }
                     }
                 }
@@ -1059,8 +1537,17 @@ pub fn Benchmarks() -> Element {
                 div { class: "bench-section", id: "performance",
                     div { class: "bench-section-title", "{bench.name}" }
                     div { class: "bench-section-desc",
-                        "{bench.description} (n={ref_size})"
+                        "{bench.description} (n = {ref_size})"
                     }
+
+                    if let Some(note) = collapse_note(&bench.id) {
+                        div { class: "bench-callout",
+                            span { class: "bench-callout-icon", "\u{26a1}" }
+                            span { "{note}" }
+                        }
+                    }
+
+                    div { class: "bench-chart-hint", "Wall-clock time at n = {ref_size} \u{2014} shorter bar is faster." }
 
                     div { class: "bench-chart",
                         for (tier, entries) in compiled_grouped.iter() {
@@ -1157,6 +1644,14 @@ pub fn Benchmarks() -> Element {
                         }
                     }
 
+                    // Scaling curve — time vs problem size across the benchmarked sizes
+                    div {
+                        class: "bench-section-desc",
+                        style: "margin: 24px 0 6px; color: rgba(229,231,235,0.72); font-weight: 600;",
+                        "Scaling \u{2014} time vs problem size (log\u{2013}log)"
+                    }
+                    {scaling_chart(bench, &data.languages)}
+
                     // Collapsible: Detailed Statistics
                     button {
                         class: "bench-collapsible-btn",
@@ -1217,6 +1712,116 @@ pub fn Benchmarks() -> Element {
                                                     td { "\u{2014}" }
                                                     td { "\u{2014}" }
                                                 }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // =============== INTERPRETER vs V8 ===============
+                div { class: "bench-section", id: "interpreter",
+                    div { class: "bench-section-title", "Interpreted LOGOS vs JavaScript" }
+                    div { class: "bench-section-desc",
+                        "The LOGOS interpreter (bytecode VM + copy-and-patch JIT) against {interp_node_ver} / V8."
+                    }
+
+                    div { class: "bench-summary", style: "margin-bottom: 20px;",
+                        div { class: "bench-summary-card",
+                            div { class: "bench-summary-value cyan", "{startup_vs_v8:.1}x" }
+                            div { class: "bench-summary-label", "faster cold start than V8" }
+                        }
+                        div { class: "bench-summary-card",
+                            div { class: "bench-summary-value", style: "color:#ff8c00;", "{startup_logos:.1}ms" }
+                            div { class: "bench-summary-label", "LOGOS interpreter cold start" }
+                        }
+                        div { class: "bench-summary-card",
+                            div { class: "bench-summary-value purple", "{interp_speed:.2}x" }
+                            div { class: "bench-summary-label", "the speed of V8 on compute (geomean)" }
+                        }
+                    }
+
+                    // Cold-start chart (serverless / CLI win)
+                    if !startup_bars.is_empty() {
+                        div { class: "bench-chart-hint", style: "font-weight:600;color:rgba(229,231,235,0.72);margin-top:4px;",
+                            "Cold start \u{2014} launch the engine and run a trivial program ({interp.startup.runs} runs, shorter is faster)"
+                        }
+                        div { class: "bench-chart",
+                            for (label, color, mean, is_logos) in startup_bars.iter() {
+                                {
+                                    let pct = (*mean / startup_max * 100.0).min(100.0);
+                                    let time_str = format_time(*mean);
+                                    let show_inside = pct > 18.0;
+                                    let bar_class = if *is_logos { "bench-bar-fill logos-highlight" } else { "bench-bar-fill" };
+                                    rsx! {
+                                        div { class: "bench-bar-row",
+                                            div { class: "bench-bar-label", "{label}" }
+                                            div { class: "bench-bar-track",
+                                                div { class: "{bar_class}", style: "width: {pct:.1}%; background: {color};",
+                                                    if show_inside { span { class: "bench-bar-time", "{time_str}" } }
+                                                }
+                                            }
+                                            if !show_inside { span { class: "bench-bar-time-outside", "{time_str}" } }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        div { class: "bench-note", style: "margin-top:14px;margin-bottom:0;",
+                            "A native binary has no VM to warm up, so the LOGOS interpreter reaches first output in "
+                            strong { "{startup_logos:.1}ms" }
+                            " versus V8\u{2019}s {startup_node:.0}ms, about "
+                            strong { "{startup_vs_v8:.1}x quicker" }
+                            ", which is what matters for short-lived work like cloud functions, CLI tools, and scripts. "
+                            "On long-running loops V8\u{2019}s optimizing JIT pulls ahead: the interpreter is competitive on "
+                            "memory-bound work and behind on heavy compute, a geometric mean of {interp_speed:.2}x the "
+                            "speed of V8 across {interp_offfloor} benchmarks."
+                        }
+                    }
+
+                    div { class: "bench-chart-hint", style: "font-weight:600;color:rgba(229,231,235,0.72);margin-top:22px;",
+                        "{bench.name} (engine: {interp_engine})"
+                    }
+
+                    if bench.id == "ackermann" {
+                        div { class: "bench-callout",
+                            span { class: "bench-callout-icon", "\u{26a1}" }
+                            span { "Interpreted recursion is capped at the shared MAX_CALL_DEPTH (1000 frames), and ackermann(3,7)=1021 exceeds it \u{2014} so the interpreter runs it at a reduced m. Deep recursion only completes in compiled mode, where the optimizer collapses it." }
+                        }
+                    }
+
+                    if interp_bars.is_empty() {
+                        div { class: "bench-chart-hint", "No interpreter result for {bench.name} (skipped, or not yet supported by the interpreter)." }
+                    } else {
+                        div { class: "bench-chart-hint",
+                            "Wall-clock time at n = {interp_n} \u{2014} shorter is faster."
+                            if let Some(s) = interp_active_speed {
+                                " The interpreter runs at {s:.2}x the speed of V8 here."
+                            }
+                        }
+                        div { class: "bench-chart",
+                            for (label, color, median, is_logos, _floored) in interp_bars.iter() {
+                                {
+                                    let pct = (*median / interp_max * 100.0).min(100.0);
+                                    let time_str = format_time(*median);
+                                    let show_inside = pct > 15.0;
+                                    let bar_class = if *is_logos { "bench-bar-fill logos-highlight" } else { "bench-bar-fill" };
+                                    rsx! {
+                                        div { class: "bench-bar-row",
+                                            div { class: "bench-bar-label", "{label}" }
+                                            div { class: "bench-bar-track",
+                                                div {
+                                                    class: "{bar_class}",
+                                                    style: "width: {pct:.1}%; background: {color};",
+                                                    if show_inside {
+                                                        span { class: "bench-bar-time", "{time_str}" }
+                                                    }
+                                                }
+                                            }
+                                            if !show_inside {
+                                                span { class: "bench-bar-time-outside", "{time_str}" }
                                             }
                                         }
                                     }
@@ -1293,7 +1898,11 @@ pub fn Benchmarks() -> Element {
                 // =============== COMPILATION ===============
                 div { class: "bench-section", id: "compilation",
                     div { class: "bench-section-title", "Compilation Times" }
-                    div { class: "bench-section-desc", "Time to compile each benchmark from source." }
+                    div { class: "bench-section-desc",
+                        "Time to compile each benchmark from source, at the same flags used for the runtime numbers. "
+                        "LOGOS compiles English to Rust, then invokes rustc at full optimization (-O3, fat LTO, "
+                        "target-cpu=native) \u{2014} so its bar includes the Rust compile."
+                    }
 
                     div { class: "bench-chart",
                         for (name, mean, _stddev, is_largo) in compile_entries.iter() {
@@ -1362,7 +1971,7 @@ pub fn Benchmarks() -> Element {
                 // =============== SUMMARY ===============
                 div { class: "bench-section", id: "summary",
                     div { class: "bench-section-title", "Cross-Benchmark Summary" }
-                    div { class: "bench-section-desc", "Geometric mean speedup vs C across all {data.benchmarks.len()} benchmarks (log scale, higher is better)." }
+                    div { class: "bench-section-desc", "Geometric-mean speed vs C across all {data.benchmarks.len()} benchmarks (log scale, higher is faster)." }
 
                     div { class: "bench-chart",
                         for (label, val, color, is_logos) in summary_entries.iter() {
@@ -1420,11 +2029,13 @@ pub fn Benchmarks() -> Element {
                         class: if methodology_open() { "bench-collapsible-body open" } else { "bench-collapsible-body" },
                         div { class: "bench-methodology",
                             ul {
-                                li { "Each benchmark measured with hyperfine ({data.metadata.runs.unwrap_or(20)} runs, {data.metadata.warmup.unwrap_or(5)} warmup)." }
+                                li { "Each benchmark measured with hyperfine ({data.metadata.runs.unwrap_or(20)} runs, {data.metadata.warmup.unwrap_or(5)} warmup); the bars show the median." }
                                 li { "CPU: {data.metadata.cpu}." }
                                 li { "OS: {data.metadata.os}." }
-                                li { "All benchmarks produce identical verified output across all languages." }
-                                li { "Geometric mean speedup computed across all {data.benchmarks.len()} benchmarks at their reference sizes." }
+                                li { "Every implementation runs the same algorithm and produces identical, verified output." }
+                                li { "All compiled languages are built at full, matched optimization (see flags below) \u{2014} no language is handicapped relative to LOGOS." }
+                                li { "Two geometric means are reported vs C: the headline keeps all {data.benchmarks.len()} benchmarks; the apples-to-apples figure removes the {collapse_count} where the LOGOS compiler collapses the algorithm (\u{26a1}). Every collapse is auditable in the generated Rust per benchmark." }
+                                li { "The Interpreter-vs-V8 section is a separate peer comparison (LOGOS bytecode VM + JIT against Node/V8) at interpreter-calibrated sizes, so its n differs from the compiled section." }
                             }
 
                             h3 { "Compiler Versions" }
@@ -1454,14 +2065,16 @@ pub fn Benchmarks() -> Element {
                                     }
                                 }
                                 tbody {
-                                    tr { td { "C" } td { "gcc -O2 -lm" } }
-                                    tr { td { "C++" } td { "g++ -O2 -std=c++17" } }
-                                    tr { td { "Rust" } td { "rustc --edition 2021 -O" } }
-                                    tr { td { "Zig" } td { "zig build-exe -O ReleaseFast" } }
-                                    tr { td { "Go" } td { "go build (default)" } }
-                                    tr { td { "Java" } td { "javac (JIT)" } }
-                                    tr { td { "Nim" } td { "nim c -d:release" } }
-                                    tr { td { "LOGOS" } td { "largo build --release (codegen to Rust, then rustc)" } }
+                                    tr { td { "C" } td { "gcc -O3 -march=native -flto -lm" } }
+                                    tr { td { "C++" } td { "g++ -O3 -march=native -flto -std=c++17" } }
+                                    tr { td { "Rust" } td { "rustc --edition 2021 -C opt-level=3 -C lto=fat -C codegen-units=1 -C target-cpu=native" } }
+                                    tr { td { "Zig" } td { "zig build-exe -O ReleaseFast -mcpu native" } }
+                                    tr { td { "Go" } td { "go build (Go has no -O levels; this is its optimizing release build)" } }
+                                    tr { td { "Java" } td { "javac, run on the HotSpot JIT" } }
+                                    tr { td { "Nim" } td { "nim c -d:release --passC:\"-O3 -march=native\"" } }
+                                    tr { td { "JavaScript" } td { "node (V8 JIT)" } }
+                                    tr { td { "LOGOS" } td { "largo build --release \u{2192} generated Rust \u{2192} rustc -C opt-level=3 -C lto=fat -C codegen-units=1 -C target-cpu=native" } }
+                                    tr { td { "LOGOS (interpreted)" } td { "largo run --interpret (bytecode VM + copy-and-patch JIT)" } }
                                 }
                             }
 

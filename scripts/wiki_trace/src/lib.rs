@@ -330,15 +330,21 @@ fn is_function_word(lower: &str) -> bool {
     )
 }
 
-/// High-precision signal of an actionable lexicon gap: the lexer fell back to
-/// `Adjective` (its default for unknown lowercase words) or `Other`, the word is
-/// not a closed-class function word, and it is absent from EVERY lexicon database
-/// in every POS (with morphology resolved). We trust the lexer's `Verb`/`Noun`
-/// tags — those mean the lexer *recognized* the word, so they are never gaps.
-/// Unknown capitalized words are left as proper-name candidates (precision over
-/// recall).
+/// High-precision signal of an actionable lexicon gap: a lowercase content word
+/// the lexer kept as an open-class token (`Adjective`/`Noun`/`Other`), that is
+/// not a closed-class function word, and is absent from EVERY lexicon database in
+/// every POS (with morphology resolved). The lexer's unknown-word FALLBACK is now
+/// `Noun` (it treats unknown lowercase content words as nouns — domain items like
+/// dance styles / place names — for NL/puzzle parsing), so a `Noun`-tagged word
+/// is NOT proof of recognition; the database lookup (`lexical_status == Unknown`)
+/// is the real discriminator and keeps genuinely-known nouns ("cat") out. A
+/// `Verb` tag still means the lexer recognized the word. Unknown capitalized words
+/// are left as proper-name candidates (precision over recall).
 fn is_actionable_gap(text: &str, category: &TokenCategory) -> bool {
-    if !matches!(category, TokenCategory::Adjective | TokenCategory::Other) {
+    if !matches!(
+        category,
+        TokenCategory::Adjective | TokenCategory::Noun | TokenCategory::Other
+    ) {
         return false;
     }
     let first_lower = text.chars().next().map(|c| c.is_lowercase()).unwrap_or(false);

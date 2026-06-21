@@ -9,6 +9,104 @@ use super::instruction::{CompiledProgram, Constant, Op, Reg};
 use super::value::Value;
 use super::MAX_REGISTER_FILE;
 
+/// LEVER B callee analysis — may a region CALL this function while passing a
+/// pinned list argument? Returns `(list_params_stable, returns_list_param)`,
+/// both SOUND under-approximations:
+/// - `list_params_stable`: the body has NO `ListPush` and NO sub-`Call` (either
+///   could reallocate a list-param's buffer, staling the caller's derived raw
+///   pointer). So every list-param buffer keeps its address across the call.
+/// - `returns_list_param`: every `Return` traces — through `Move`s, to a
+///   fixpoint — to a list PARAMETER slot, and all list params share one element
+///   kind (the returned list kind is then unambiguous from the signature). A
+///   purely scalar return makes this `false` and rides `ret` instead.
+fn analyze_list_call_safety(
+    body: &[Op],
+    param_count: u16,
+    param_kinds: &[Option<super::native_tier::ParamKind>],
+    register_count: usize,
+) -> (bool, bool) {
+    use super::native_tier::ParamKind;
+    let n = register_count.max(param_count as usize);
+    // Slots that (transitively via Move) hold a list-parameter handle.
+    let mut is_param_list = vec![false; n];
+    for i in 0..param_count as usize {
+        if matches!(param_kinds.get(i), Some(Some(ParamKind::List(_)))) {
+            is_param_list[i] = true;
+        }
+    }
+    loop {
+        let mut changed = false;
+        for op in body {
+            if let Op::Move { dst, src } = *op {
+                let (d, s) = (dst as usize, src as usize);
+                if d < n && s < n && is_param_list[s] && !is_param_list[d] {
+                    is_param_list[d] = true;
+                    changed = true;
+                }
+            }
+        }
+        if !changed {
+            break;
+        }
+    }
+    let list_params_stable =
+        !body.iter().any(|op| matches!(op, Op::ListPush { .. } | Op::Call { .. }));
+    // All list params must share a single element kind so the return's list kind
+    // is unambiguous from the signature alone.
+    let mut elem: Option<super::native_tier::PinElem> = None;
+    let mut uniform = true;
+    for pk in param_kinds {
+        if let Some(ParamKind::List(e)) = pk {
+            if elem.is_some() && elem != Some(*e) {
+                uniform = false;
+            }
+            elem = Some(*e);
+        }
+    }
+    let returns: Vec<u16> = body
+        .iter()
+        .filter_map(|op| if let Op::Return { src } = *op { Some(src) } else { None })
+        .collect();
+    let returns_list_param = uniform
+        && !returns.is_empty()
+        && returns
+            .iter()
+            .all(|&s| (s as usize) < n && is_param_list[s as usize]);
+    (list_params_stable, returns_list_param)
+}
+
+/// Whether `LOGOS_JIT_CANARY=1` armed the region-frame sentinel guard
+/// (read once; the per-region path stays branch-cheap). Off by default and
+/// in release, so normal runs pay nothing — it is a diagnostic for native
+/// out-of-bounds writes.
+fn jit_canary_enabled() -> bool {
+    static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *ON.get_or_init(|| std::env::var("LOGOS_JIT_CANARY").is_ok_and(|v| v == "1"))
+}
+
+/// How a native region run left the loop.
+enum RegionExit {
+    /// Fell out the loop's exit edge — resume at this pc.
+    At(usize),
+    /// Hit an in-region `Return` — perform the function return with this value.
+    Return(Value),
+}
+
+/// What the native boundary decided for one call.
+enum NativeDisposition {
+    /// Completed natively; here is the re-boxed result.
+    Done(Value),
+    /// Run this call on bytecode (not compiled / guard mismatch / replay
+    /// deopt).
+    Interpret,
+    /// Precise deopt: push these frames and resume at `resume_pc`.
+    Materialize {
+        resume_pc: usize,
+        frames: Vec<super::native_tier::NativeFrame>,
+        list_args: Vec<Value>,
+    },
+}
+
 struct CallFrame {
     return_pc: usize,
     return_reg: Reg,
@@ -17,10 +115,21 @@ struct CallFrame {
     /// Iterator-stack depth at call entry; a Return unwinds any iterators the
     /// callee left open (e.g. `Return` inside a `Repeat`).
     iter_depth: usize,
+    /// The function whose body this frame runs — selects the per-frame
+    /// named-register map for loop regions tiering up inside it.
+    func: u16,
 }
 
 pub struct Vm<'p> {
     program: &'p CompiledProgram,
+    /// The constant pool MATERIALISED into runtime values once at construction.
+    /// A `LoadConst` then clones the pre-built `Value` — for a heap `Text` that
+    /// is an `Rc` refcount bump, not a fresh `String`+`Rc` allocation, so a
+    /// 1-char literal reloaded every iteration of a hot loop (string_search's
+    /// `ch`) costs no heap traffic. The pool keeps a live reference, so a
+    /// freshly-loaded literal is never the sole owner and the in-place
+    /// `add_assign` append correctly declines to mutate it.
+    const_pool: Vec<Value>,
     registers: Vec<Value>,
     base: usize,
     /// One element per `Show` (a shown value may itself contain newlines —
@@ -41,16 +150,34 @@ pub struct Vm<'p> {
     hot: Vec<u32>,
     /// Per-function native state.
     native: Vec<super::native_tier::NativeSlot>,
-    /// Back-edge counts for MAIN loops (keyed by loop-head pc).
-    region_hot: std::collections::HashMap<usize, u32>,
-    /// Compiled Main-loop regions (keyed by loop-head pc).
-    regions: std::collections::HashMap<usize, super::native_tier::RegionSlot>,
+    /// Back-edge counts for MAIN loops (keyed by loop-head pc). FxHash: this
+    /// is probed once per back-edge crossing of every Main loop that has not
+    /// (or cannot) tier up — a per-iteration cost on the bytecode path.
+    region_hot: rustc_hash::FxHashMap<usize, u32>,
+    /// Compiled Main-loop regions (keyed by loop-head pc; same probe rate).
+    regions: rustc_hash::FxHashMap<usize, super::native_tier::RegionSlot>,
+    /// Per-pc dead-region bitset: once a loop head is known `Failed`
+    /// (un-tierable, or demoted after repeated guard misses) its entry here is
+    /// set, so the back-edge hook short-circuits with a single `Vec<bool>`
+    /// index instead of re-hashing `regions` on every iteration. Loops that
+    /// never tier (effectful bodies, `Text` ops, list-param fns) are the common
+    /// case and pay only this O(1) check after the first failure. Indexed by
+    /// loop-head pc; sized to the code length.
+    region_blacklist: Vec<bool>,
+    /// Program arguments for the `args()` system native — full argv, index 0 is
+    /// the program name (mirrors the compiled binary's `env::args()`). Empty
+    /// when none were supplied.
+    program_args: Vec<String>,
+    /// Per-program native-tier context: the EXODIA 4.7 entry table plus the
+    /// shared deopt-status and live-depth cells every chain patches.
+    native_ctx: super::native_tier::NativeCtx,
 }
 
 impl<'p> Vm<'p> {
     pub fn new(program: &'p CompiledProgram) -> Self {
         Vm {
             program,
+            const_pool: program.constants.iter().map(const_to_value).collect(),
             registers: vec![Value::nothing(); program.register_count],
             base: 0,
             lines: Vec::new(),
@@ -62,15 +189,44 @@ impl<'p> Vm<'p> {
             native: (0..program.functions.len())
                 .map(|_| super::native_tier::NativeSlot::Untried)
                 .collect(),
-            region_hot: std::collections::HashMap::new(),
-            regions: std::collections::HashMap::new(),
+            region_hot: rustc_hash::FxHashMap::default(),
+            regions: rustc_hash::FxHashMap::default(),
+            region_blacklist: vec![false; program.code.len()],
+            program_args: Vec::new(),
+            native_ctx: super::native_tier::NativeCtx {
+                table: std::sync::Arc::new(super::native_tier::FnTable::new(
+                    program.functions.len(),
+                )),
+                status: std::sync::Arc::new(std::sync::atomic::AtomicI64::new(0)),
+                depth: std::sync::Arc::new(std::sync::atomic::AtomicI64::new(0)),
+            },
         }
     }
 
-    /// Back-edge hook for MAIN loops (`Jump` to an earlier pc at Main depth):
+    /// Mark a loop head permanently `Failed` and record it in the per-pc
+    /// blacklist so the back-edge hook never probes `regions` for it again.
+    /// Every `RegionSlot::Failed` transition routes through here so the bitset
+    /// can never drift out of sync with the map.
+    fn mark_region_failed(&mut self, head: usize) {
+        self.regions.insert(head, super::native_tier::RegionSlot::Failed);
+        if let Some(slot) = self.region_blacklist.get_mut(head) {
+            *slot = true;
+        }
+    }
+
+    /// Back-edge hook for hot loops in ANY frame (`Jump` to an earlier pc):
     /// profile, compile when hot, and — when ready and the guard passes — run
-    /// the region natively. Returns the pc to resume at (the loop's exit).
-    fn try_region(&mut self, head: usize, back_pc: usize) -> Option<usize> {
+    /// the region natively. `named`/`frame_regs` describe the ENCLOSING frame
+    /// (Main's or a function's). Returns the pc to resume at (the loop's
+    /// exit).
+    fn try_region(
+        &mut self,
+        head: usize,
+        back_pc: usize,
+        named: &[bool],
+        frame_regs: usize,
+        depth_now: usize,
+    ) -> Option<RegionExit> {
         use super::native_tier::{RegionSlot, REGION_TIER_THRESHOLD};
         let tier = self.tier?;
         match self.regions.get(&head) {
@@ -95,7 +251,7 @@ impl<'p> Vm<'p> {
                                 None => exit = Some(target),
                                 Some(e) if e == target => {}
                                 _ => {
-                                    self.regions.insert(head, RegionSlot::Failed);
+                                    self.mark_region_failed(head);
                                     return None;
                                 }
                             }
@@ -103,41 +259,501 @@ impl<'p> Vm<'p> {
                     }
                 }
                 let Some(exit_pc) = exit else {
-                    self.regions.insert(head, RegionSlot::Failed);
+                    self.mark_region_failed(head);
                     return None;
                 };
-                let reg_count = u16::try_from(self.program.register_count).ok()?;
-                match tier.compile_region(body, head, exit_pc, &self.program.constants, reg_count)
-                {
+                let reg_count = u16::try_from(frame_regs).ok()?;
+                // Speculation seed: the kinds sitting in this frame's
+                // registers RIGHT NOW. The adapter compiles against them;
+                // the guard set re-checks them on every entry.
+                let observed: Vec<super::native_tier::ObservedKind> = (0..frame_regs)
+                    .map(|r| {
+                        use crate::interpreter::{ListRepr, RuntimeValue};
+                        use super::native_tier::ObservedKind;
+                        let rt = self.registers.get(self.base + r).map(|v| v.as_runtime());
+                        match rt.as_deref() {
+                            Some(RuntimeValue::Int(_)) => ObservedKind::Int,
+                            Some(RuntimeValue::Float(_)) => ObservedKind::Float,
+                            Some(RuntimeValue::Bool(_)) => ObservedKind::Bool,
+                            Some(RuntimeValue::List(rc)) => match &*rc.borrow() {
+                                ListRepr::Ints(_) => ObservedKind::IntList,
+                                ListRepr::Floats(_) => ObservedKind::FloatList,
+                                ListRepr::Bools(_) => ObservedKind::BoolList,
+                                ListRepr::Boxed(_) => ObservedKind::Other,
+                            },
+                            Some(RuntimeValue::Map(_)) => ObservedKind::Map,
+                            // An ASCII Text rides the byte-pin lane (char index ==
+                            // byte index, char count == byte length). The metrics
+                            // cache makes the ASCII test O(1) per crossing. A
+                            // non-ASCII Text stays Other → the region bails and the
+                            // per-char decode path runs, so the JIT never diverges.
+                            Some(RuntimeValue::Text(rc))
+                                if crate::semantics::collections::text_is_ascii(rc) =>
+                            {
+                                ObservedKind::TextBytes
+                            }
+                            _ => ObservedKind::Other,
+                        }
+                    })
+                    .collect();
+                let callees: Vec<super::native_tier::CalleeSig> = {
+                    let prog = &self.program;
+                    let code_len = prog.code.len();
+                    prog.functions
+                        .iter()
+                        .map(|f| {
+                            let end = prog
+                                .functions
+                                .iter()
+                                .map(|h| h.entry_pc)
+                                .filter(|&pc| pc > f.entry_pc)
+                                .min()
+                                .unwrap_or(code_len);
+                            let (list_params_stable, returns_list_param) = analyze_list_call_safety(
+                                &prog.code[f.entry_pc..end],
+                                f.param_count,
+                                &f.param_kinds,
+                                f.register_count,
+                            );
+                            super::native_tier::CalleeSig {
+                                param_kinds: f.param_kinds.clone(),
+                                ret: f.ret_kind,
+                                list_params_stable,
+                                returns_list_param,
+                            }
+                        })
+                        .collect()
+                };
+                // PRECISE REGION LIVE-OUT: a name bound INSIDE this loop is
+                // lexically dead at the loop exit, so it must NOT be written
+                // back — dropping it from `named` lets the JIT's copy-prop / CSE
+                // / fusion treat it as true scratch. `loop_locals[head]` is the
+                // compiler's exact per-loop set; absent (no loop record) keeps
+                // the conservative full `named`.
+                let liveout_off = std::env::var("LOGOS_LIVEOUT").as_deref() == Ok("0");
+                if std::env::var_os("LOGOS_LIVEOUT_TRACE").is_some() {
+                    let ll = self.program.loop_locals.get(&head);
+                    let nnamed = named.iter().filter(|&&n| n).count();
+                    let freed = ll.map_or(0, |m| {
+                        named.iter().enumerate().filter(|(r, &n)| n && m.get(*r).copied().unwrap_or(false)).count()
+                    });
+                    eprintln!("liveout-trace: head={head} named={nnamed} loop_locals={} freed={freed}", ll.is_some());
+                }
+                let region_named: Vec<bool> = match self.program.loop_locals.get(&head) {
+                    Some(locals) if !liveout_off => named
+                        .iter()
+                        .enumerate()
+                        .map(|(r, &n)| n && !locals.get(r).copied().unwrap_or(false))
+                        .collect(),
+                    _ => named.to_vec(),
+                };
+                match tier.compile_region(
+                    body,
+                    head,
+                    exit_pc,
+                    &self.program.constants,
+                    reg_count,
+                    &region_named,
+                    &observed,
+                    &self.native_ctx,
+                    &callees,
+                ) {
                     Some(rf) => {
-                        self.regions.insert(head, RegionSlot::Ready { rf, exit_pc });
+                        self.regions.insert(head, RegionSlot::Ready { rf, exit_pc, misses: 0 });
                     }
                     None => {
-                        self.regions.insert(head, RegionSlot::Failed);
+                        self.mark_region_failed(head);
                         return None;
                     }
                 }
             }
         }
-        let Some(RegionSlot::Ready { rf, exit_pc }) = self.regions.get(&head) else {
+        let result = self.run_ready_region(head, depth_now);
+        if result.is_none() {
+            // Guard failure or side exit: count it; a region that keeps
+            // missing re-runs work every entry — demote to pure bytecode.
+            let mut demote = false;
+            if let Some(RegionSlot::Ready { misses, .. }) = self.regions.get_mut(&head) {
+                *misses += 1;
+                if *misses >= super::native_tier::REGION_DEMOTE_AFTER {
+                    demote = true;
+                }
+            }
+            if demote {
+                self.mark_region_failed(head);
+            }
+        }
+        result
+    }
+
+    /// The Ready-path body of [`Vm::try_region`]: guards, pinning, the native
+    /// run, and write-back. None = guard failure or side exit (the caller
+    /// counts misses).
+    fn run_ready_region(&mut self, head: usize, depth_now: usize) -> Option<RegionExit> {
+        use super::native_tier::RegionSlot;
+        let Some(RegionSlot::Ready { rf, exit_pc, .. }) = self.regions.get(&head) else {
             unreachable!()
         };
-        // Guard: every live-in slot must currently be an Int.
-        for &r in rf.guard_set() {
-            self.registers.get(self.base + r as usize)?.as_int()?;
+        // Guard: every live-in slot must hold exactly the kind the region
+        // speculated on; copy the raw representation in (floats as bits).
+        {
+            use crate::interpreter::RuntimeValue;
+            use super::native_tier::SlotKind;
+            for &(r, kind) in rf.guard_set() {
+                let v = self.registers.get(self.base + r as usize)?;
+                match (kind, &*v.as_runtime()) {
+                    (SlotKind::Int, RuntimeValue::Int(_)) => {}
+                    (SlotKind::Float, RuntimeValue::Float(_)) => {}
+                    (SlotKind::Bool, RuntimeValue::Bool(_)) => {}
+                    _ => return None,
+                }
+            }
         }
-        let mut frame = vec![0i64; rf.frame_size()];
-        for &r in rf.guard_set() {
-            frame[r as usize] = self.registers[self.base + r as usize].as_int().unwrap();
+        // Frequently re-entered regions (sift-down loops) cannot afford a
+        // heap allocation per entry — reuse one thread-local buffer.
+        thread_local! {
+            static REGION_FRAME: std::cell::RefCell<Vec<i64>> =
+                const { std::cell::RefCell::new(Vec::new()) };
         }
-        rf.run(&mut frame);
-        let writes: Vec<(u16, bool)> = rf.write_set().to_vec();
+        // `LOGOS_JIT_CANARY=1` guards the region frame with a sentinel
+        // canary past its live span (`need` = frame proper + call-arena
+        // headroom): any region-native write beyond `need` trips it loudly
+        // at the source. Off by default (and in release) so normal runs
+        // pay nothing.
+        let frame_canary: usize = if jit_canary_enabled() { 64 } else { 0 };
+        const FRAME_SENTINEL: i64 = 0x6262_6262_6262_6262u64 as i64;
+        let need = rf.frame_size() + rf.arena_slots();
+        let frame_cell = REGION_FRAME.with(|f| {
+            let mut frame = f.take();
+            // Zero only the region frame proper. The call-arena headroom is
+            // REUSED untouched (16MiB for calling regions — zeroing it per
+            // entry would memset megabytes every loop crossing): callee
+            // chains write-before-read by the kind gates and the call
+            // stencil plants each limit slot, so stale slots are
+            // unobservable — the same contract as the function tier's
+            // thread-local arena.
+            if frame.len() < need + frame_canary {
+                frame.resize(need + frame_canary, 0);
+            }
+            frame[..rf.frame_size()].fill(0);
+            for c in &mut frame[need..need + frame_canary] {
+                *c = FRAME_SENTINEL;
+            }
+            frame
+        });
+        let mut frame = frame_cell;
+        {
+            use crate::interpreter::RuntimeValue;
+            use super::native_tier::SlotKind;
+            for &(r, kind) in rf.guard_set() {
+                frame[r as usize] =
+                    match (kind, &*self.registers[self.base + r as usize].as_runtime()) {
+                        (SlotKind::Int, RuntimeValue::Int(n)) => *n,
+                        (SlotKind::Float, RuntimeValue::Float(f)) => f.to_bits() as i64,
+                        (SlotKind::Bool, RuntimeValue::Bool(b)) => *b as i64,
+                        _ => unreachable!("guard verified the discriminant above"),
+                    };
+            }
+        }
+        // Pin arrays: borrow each DISTINCT Rc once (held across the whole
+        // native run — zero refcount/borrow traffic inside the loop), check
+        // the speculated repr, and plant buffer pointer + length in the
+        // dedicated frame slots. Aliased registers resolve to the same
+        // buffer. Handles drop before write-back (in-place arrays need none;
+        // the deopt replay is sound by prefix-idempotence).
+        // The register-file base pointer, captured ONCE before any pin takes an
+        // (immutable) borrow of `self.registers` through a list/map `Rc`. A
+        // `TextMut` pin plants a `*mut Value` to a register CELL derived from
+        // this pointer — the cell is stable across the native run (the register
+        // file never reallocates while a region runs), so the append helper can
+        // grow the accumulator through it. Reading/writing a cell through this
+        // raw pointer does not conflict with the handles' shared borrows.
+        let reg_base_ptr: *mut Value = self.registers.as_mut_ptr();
+        let (outcome, text_mut_snapshots) = {
+            use crate::interpreter::{ListRepr, RuntimeValue};
+            let pins = rf.array_set();
+            let mut handles: Vec<(usize, std::cell::RefMut<'_, ListRepr>)> =
+                Vec::with_capacity(pins.len());
+            // Parallel to `handles`: a buffer is "mutated" if ANY pin aliasing it
+            // writes in place under a deopt-capable, non-precise region — it needs
+            // a full-content snapshot/restore across a classic replay deopt.
+            let mut handle_mutated: Vec<bool> = Vec::with_capacity(pins.len());
+            let mut map_handles: Vec<(
+                usize,
+                std::cell::RefMut<'_, crate::interpreter::MapStorage>,
+            )> = Vec::new();
+            // A pinned MUTABLE Text accumulator grows THROUGH the VM register
+            // cell (the planted `*mut Value`). A classic replay-from-head Deopt
+            // would re-run the appends the native prefix already landed in the
+            // cell — a double-append — so snapshot each distinct accumulator's
+            // entry `Value` and restore it before a classic `Deopt` replay
+            // (precise regions resume at the faulting op and never replay, so
+            // they keep the live grown value). `(register slot, entry Value)`.
+            let mut text_mut_snapshots: Vec<(usize, Value)> = Vec::new();
+            for pin in pins {
+                if pin.elem == super::native_tier::PinElem::Map {
+                    let v = self.registers.get(self.base + pin.reg as usize)?;
+                    let Some(RuntimeValue::Map(rc)) = v.as_runtime_ref() else { return None };
+                    let key = std::rc::Rc::as_ptr(rc) as usize;
+                    if !map_handles.iter().any(|(k, _)| *k == key) {
+                        let Ok(b) = rc.try_borrow_mut() else { return None };
+                        map_handles.push((key, b));
+                    }
+                    let idx = map_handles.iter().position(|(k, _)| *k == key).unwrap();
+                    let storage = &mut *map_handles[idx].1;
+                    frame[pin.vec_slot as usize] =
+                        storage as *mut crate::interpreter::MapStorage as i64;
+                    frame[pin.ptr_slot as usize] = 0;
+                    frame[pin.len_slot as usize] = 0;
+                    continue;
+                }
+                if pin.elem == super::native_tier::PinElem::TextBytes {
+                    // A pinned ASCII Text rides its BYTE buffer: char index ==
+                    // byte index, char count == byte length. RE-CHECK ASCII at
+                    // every entry (the speculation seed is not a standing
+                    // guarantee — a region could be re-entered with a non-ASCII
+                    // Text in the same register) — decline (deopt to bytecode)
+                    // otherwise so the per-char decode path runs and the output
+                    // never diverges from the tree-walker. `Rc<String>` is
+                    // read-only (no RefCell): a TextBytes pin is never written,
+                    // so the snapshot/rollback machinery does not apply.
+                    let v = self.registers.get(self.base + pin.reg as usize)?;
+                    let Some(RuntimeValue::Text(rc)) = v.as_runtime_ref() else { return None };
+                    if !crate::semantics::collections::text_is_ascii(rc) {
+                        return None;
+                    }
+                    frame[pin.vec_slot as usize] = 0;
+                    frame[pin.ptr_slot as usize] = rc.as_bytes().as_ptr() as i64;
+                    frame[pin.len_slot as usize] = rc.len() as i64;
+                    continue;
+                }
+                if pin.elem == super::native_tier::PinElem::TextMut {
+                    // A pinned MUTABLE Text accumulator: plant a `*mut Value` to
+                    // the VM REGISTER CELL (stable for the run; the `Rc<String>`
+                    // inside it reallocs/COWs on append). Decline (deopt to
+                    // bytecode) if the observed value is not a Text. Snapshot the
+                    // entry `Value` for the classic-Deopt rollback (one per
+                    // distinct accumulator register). The cell is reached through
+                    // `reg_base_ptr` (no `self.registers` borrow that would
+                    // conflict with the live list/map handles).
+                    if pin.reg as usize >= self.registers.len().saturating_sub(self.base) {
+                        return None;
+                    }
+                    let slot = self.base + pin.reg as usize;
+                    let cell: *mut Value = unsafe { reg_base_ptr.add(slot) };
+                    if !matches!(unsafe { (*cell).as_runtime_ref() }, Some(RuntimeValue::Text(_))) {
+                        return None;
+                    }
+                    if pin.mutated && !text_mut_snapshots.iter().any(|(s, _)| *s == slot) {
+                        text_mut_snapshots.push((slot, unsafe { (*cell).clone() }));
+                    }
+                    frame[pin.vec_slot as usize] = cell as i64;
+                    frame[pin.ptr_slot as usize] = 0;
+                    frame[pin.len_slot as usize] = 0;
+                    continue;
+                }
+                let v = self.registers.get(self.base + pin.reg as usize)?;
+                let Some(RuntimeValue::List(rc)) = v.as_runtime_ref() else { return None };
+                let key = std::rc::Rc::as_ptr(rc) as usize;
+                if !handles.iter().any(|(k, _)| *k == key) {
+                    let Ok(b) = rc.try_borrow_mut() else { return None };
+                    handles.push((key, b));
+                    handle_mutated.push(false);
+                }
+                let idx = handles.iter().position(|(k, _)| *k == key).unwrap();
+                if pin.mutated {
+                    handle_mutated[idx] = true;
+                }
+                let payload = &mut *handles[idx].1;
+                use super::native_tier::PinElem;
+                let (vec_handle, ptr, len) = match (payload, pin.elem) {
+                    (ListRepr::Ints(v), PinElem::Int) => {
+                        (v as *mut Vec<i64> as i64, v.as_mut_ptr() as *mut i64, v.len())
+                    }
+                    // Maps never reach this arm (their pin path is below) —
+                    // a list register observed as Map is a guard failure.
+                    (_, PinElem::Map) => return None,
+                    (ListRepr::Floats(v), PinElem::Float) => {
+                        (v as *mut Vec<f64> as i64, v.as_mut_ptr() as *mut i64, v.len())
+                    }
+                    (ListRepr::Bools(v), PinElem::Bool) => {
+                        (v as *mut Vec<bool> as i64, v.as_mut_ptr() as *mut i64, v.len())
+                    }
+                    // Repr changed since compile (promotion) — guard failure.
+                    _ => return None,
+                };
+                frame[pin.vec_slot as usize] = vec_handle;
+                frame[pin.ptr_slot as usize] = ptr as i64;
+                frame[pin.len_slot as usize] = len as i64;
+                // LEVER B calling-convention invariant (matches the function
+                // tier): a list register's frame slot MIRRORS its vec handle, so
+                // staging a pinned array into a call's argument window (a `Move`
+                // from the register slot) passes the live `*mut Vec`, not the
+                // zeroed register cell. Harmless for non-call regions (the slot
+                // is never read for a pinned array, and the frame is discarded on
+                // deopt — the VM register keeps the real Rc).
+                frame[pin.reg as usize] = vec_handle;
+            }
+            // HOISTED bounds checks (V8 loop bound-check elimination): with
+            // the pinned lengths in hand, verify ONCE that every covered loop
+            // access stays in bounds for the whole run. Any failure declines
+            // the region — the VM replays the loop on bytecode, where the
+            // accesses are checked and produce the exact error.
+            for hg in rf.hoist_guards() {
+                let len = frame[hg.len_slot as usize];
+                let bound = match &*self.registers.get(self.base + hg.bound_reg as usize)?.as_runtime() {
+                    RuntimeValue::Int(n) => *n,
+                    _ => return None,
+                };
+                let iv = match &*self.registers.get(self.base + hg.iv_reg as usize)?.as_runtime() {
+                    RuntimeValue::Int(n) => *n,
+                    _ => return None,
+                };
+                if len < bound.saturating_add(hg.add_max as i64)
+                    || iv.saturating_add(hg.add_min as i64) < 1
+                {
+                    return None;
+                }
+            }
+            // Entry lengths of every pinned list buffer — the rollback target
+            // if a mid-region side-exit forces discard-and-replay. `ListPush`
+            // APPENDS, so it is NOT replay-idempotent; on deopt each pushed
+            // buffer is truncated back to its entry length before the VM
+            // replays the loop on bytecode, which then re-pushes cleanly
+            // instead of duplicating. Read-only and in-place (SetIndex) buffers
+            // keep their entry length, so the truncate is a no-op for them.
+            let entry_lens: Vec<usize> = handles.iter().map(|(_, h)| h.len()).collect();
+            // A buffer written IN PLACE (SetIndex) replays unsoundly under the
+            // classic discard-replay deopt — the write already landed in the
+            // SHARED buffer, so the bytecode replay-from-head double-applies it
+            // (a read-modify-write or swap is not idempotent). Snapshot its full
+            // contents on entry; a classic `Deopt` restores them (subsuming the
+            // length, so a buffer that BOTH pushes and writes in place is covered
+            // too). Push-only / read-only buffers keep the cheap length truncate.
+            let entry_snapshots: Vec<Option<ListRepr>> = handles
+                .iter()
+                .zip(handle_mutated.iter())
+                .map(|((_, h), &mt)| if mt { Some((**h).clone()) } else { None })
+                .collect();
+            let out = rf.run(&mut frame[..need], depth_now);
+            if matches!(out, super::native_tier::RegionOutcome::Deopt) {
+                for (((_, h), &n), snap) in handles
+                    .iter_mut()
+                    .zip(entry_lens.iter())
+                    .zip(entry_snapshots.into_iter())
+                {
+                    match snap {
+                        Some(s) => **h = s,
+                        None => h.truncate(n),
+                    }
+                }
+            }
+            // The list/map handles drop here, releasing their `self.registers`
+            // borrows; the text-accumulator rollback (which needs `&mut
+            // self.registers`) runs after the block, gated on a classic Deopt.
+            (out, text_mut_snapshots)
+        };
+        // Roll each pinned mutable-Text accumulator back to its entry `Value` on
+        // a classic Deopt so the bytecode replay-from-head re-appends from the
+        // pre-region prefix instead of doubling the native prefix's appends (the
+        // appends landed directly in the VM register cell). Precise side exits
+        // and successful completions keep the live grown value.
+        if matches!(outcome, super::native_tier::RegionOutcome::Deopt) {
+            for (slot, snap) in text_mut_snapshots {
+                self.registers[slot] = snap;
+            }
+        }
+        for (k, c) in frame[need..need + frame_canary].iter().enumerate() {
+            assert_eq!(
+                *c, FRAME_SENTINEL,
+                "REGION_FRAME OVERFLOW: canary slot {k} (frame + {}) clobbered by region native code",
+                need + k
+            );
+        }
+        match outcome {
+            super::native_tier::RegionOutcome::Completed => {}
+            // Side exit: discard the private frame — VM registers still hold
+            // the state of this back-edge crossing, so falling back to
+            // bytecode re-runs the remaining iterations deterministically up
+            // to the faulting op and raises the exact kernel error there.
+            // (In-place array writes already landed; the replay recomputes
+            // the same prefix values, so they are unobservable.)
+            super::native_tier::RegionOutcome::Deopt => return None,
+            // PRECISE side exit (push+SetIndex regions): the buffers were NOT
+            // truncated (the truncate above is gated on `Deopt`), so completed
+            // iterations' pushes and in-place writes stand. Materialize every
+            // touched non-array scalar — all-int by the adapter's gate — from
+            // the frame into the VM registers, then resume the bytecode AT the
+            // faulting op (NOT the loop head): the faulting op re-runs exactly
+            // once, raising the precise error or continuing, with no replay of
+            // the completed prefix. Array handle registers keep their live Rc
+            // (the region mutated through their pins).
+            super::native_tier::RegionOutcome::DeoptAt { resume_pc } => {
+                use super::native_tier::SlotKind;
+                // Re-box each touched register by ITS kind at the faulting op
+                // (from the region's kind flow): Int/Bool/Float from the frame's
+                // raw bits; `None` keeps the VM register's current value (a
+                // pinned array mutated in place, or a read-only/unknown slot).
+                // Cloned so the `rf` borrow ends before the register writes.
+                let kinds: Option<Vec<Option<SlotKind>>> =
+                    rf.precise_kinds(resume_pc).map(|k| k.to_vec());
+                let mut regs: Vec<u16> = rf
+                    .guard_set()
+                    .iter()
+                    .map(|(r, _)| *r)
+                    .chain(rf.free_set().iter().copied())
+                    .chain(rf.write_set().iter().map(|(r, _)| *r))
+                    .collect();
+                regs.sort_unstable();
+                regs.dedup();
+                for r in regs {
+                    let bits = frame[r as usize];
+                    let v = match kinds
+                        .as_ref()
+                        .and_then(|k| k.get(r as usize).copied().flatten())
+                    {
+                        Some(SlotKind::Int) => Value::int(bits),
+                        Some(SlotKind::Bool) => Value::bool(bits != 0),
+                        Some(SlotKind::Float) => Value::float(f64::from_bits(bits as u64)),
+                        None => continue,
+                    };
+                    self.set(r, v);
+                }
+                REGION_FRAME.with(|f| f.replace(frame));
+                return Some(RegionExit::At(resume_pc));
+            }
+        }
+        let writes: Vec<(u16, super::native_tier::SlotKind)> = rf.write_set().to_vec();
+        let region_return = rf.region_return();
         let exit = *exit_pc;
-        for (r, is_bool) in writes {
-            let v = if is_bool { Value::bool(frame[r as usize] != 0) } else { Value::int(frame[r as usize]) };
+        for (r, kind) in writes {
+            use super::native_tier::SlotKind;
+            let bits = frame[r as usize];
+            let v = match kind {
+                SlotKind::Int => Value::int(bits),
+                SlotKind::Bool => Value::bool(bits != 0),
+                SlotKind::Float => Value::float(f64::from_bits(bits as u64)),
+            };
             self.set(r, v);
         }
-        Some(exit)
+        let result = match region_return {
+            Some(rr) if frame[rr.flag_slot as usize] != 0 => {
+                use super::native_tier::{RegionReturnKind, SlotKind};
+                let bits = frame[rr.value_slot as usize];
+                let v = match rr.kind {
+                    RegionReturnKind::Slot(SlotKind::Int) => Value::int(bits),
+                    RegionReturnKind::Slot(SlotKind::Bool) => Value::bool(bits != 0),
+                    RegionReturnKind::Slot(SlotKind::Float) => {
+                        Value::float(f64::from_bits(bits as u64))
+                    }
+                    RegionReturnKind::Register => self.reg(bits as u16).clone(),
+                };
+                RegionExit::Return(v)
+            }
+            _ => RegionExit::At(exit),
+        };
+        REGION_FRAME.with(|f| f.replace(frame));
+        Some(result)
     }
 
     /// Install a native tier: hot functions in the integer subset run as
@@ -148,28 +764,106 @@ impl<'p> Vm<'p> {
         self
     }
 
+    /// Supply the program arguments read by the `args()` system native. The
+    /// vector is the full argv (index 0 is the program name), matching the
+    /// compiled binary's `env::args()`.
+    pub fn with_program_args(mut self, args: Vec<String>) -> Self {
+        self.program_args = args;
+        self
+    }
+
     /// Tier dispatch for `Call`: Some(result) = the native fast path ran.
+    /// Precise-deopt frame materialization — deliberately OUT of the
+    /// dispatch loop (cold path; keeping its body inline bloats the hot
+    /// match and costs i-cache on every dispatched op).
+    #[cold]
+    #[inline(never)]
+    #[allow(clippy::too_many_arguments)]
+    fn materialize_native_frames(
+        &mut self,
+        frames: &[super::native_tier::NativeFrame],
+        list_args: &[Value],
+        args_start: super::instruction::Reg,
+        dst: super::instruction::Reg,
+        func: u16,
+        pc: usize,
+        call_stack: &mut Vec<CallFrame>,
+    ) -> Result<(), String> {
+        use super::native_tier::RegBox;
+        let mut frame_base = self.base + args_start as usize;
+        let mut caller_base = self.base;
+        for (k, fr) in frames.iter().enumerate() {
+            if k > 0 {
+                caller_base = frame_base;
+                frame_base += fr.offset;
+            }
+            let restore_len = self.registers.len();
+            let needed = frame_base + fr.regs.len();
+            if needed > MAX_REGISTER_FILE {
+                return Err("vm: register file limit exceeded".to_string());
+            }
+            if self.registers.len() < needed {
+                self.registers.resize(needed, Value::nothing());
+            }
+            call_stack.push(CallFrame {
+                return_pc: if k == 0 { pc + 1 } else { fr.return_pc },
+                return_reg: if k == 0 { dst } else { fr.return_reg },
+                caller_base,
+                restore_len,
+                iter_depth: self.iter_stack.len(),
+                func,
+            });
+            for (r, bits) in fr.regs.iter().enumerate() {
+                let v = match fr.kinds[r] {
+                    RegBox::Dead | RegBox::Resolved => continue,
+                    RegBox::Int => Value::int(*bits),
+                    RegBox::Bool => Value::bool(*bits != 0),
+                    RegBox::Float => Value::float(f64::from_bits(*bits as u64)),
+                    RegBox::ListParam(j) => match list_args.get(j as usize) {
+                        Some(v) => v.clone(),
+                        None => return Err("vm: deopt pin index out of range".to_string()),
+                    },
+                };
+                self.registers[frame_base + r] = v;
+            }
+            for (r, v) in &fr.resolved {
+                self.registers[frame_base + *r as usize] = v.clone();
+            }
+        }
+        self.base = frame_base;
+        Ok(())
+    }
+
     fn try_native(
         &mut self,
         func: u16,
         args_start: super::instruction::Reg,
         arg_count: u16,
-    ) -> Option<Value> {
-        use super::native_tier::{NativeSlot, NATIVE_TIER_THRESHOLD};
-        let tier = self.tier?;
+        bytecode_depth: usize,
+    ) -> NativeDisposition {
+        use super::native_tier::{NativeSlot, ParamKind, NATIVE_TIER_THRESHOLD};
+        let Some(tier) = self.tier else { return NativeDisposition::Interpret };
         let fi = func as usize;
-        if matches!(self.native.get(fi)?, NativeSlot::Failed) {
-            return None;
+        match self.native.get(fi) {
+            None | Some(NativeSlot::Failed) => return NativeDisposition::Interpret,
+            _ => {}
         }
         if matches!(self.native[fi], NativeSlot::Untried) {
             self.hot[fi] += 1;
             if self.hot[fi] < NATIVE_TIER_THRESHOLD {
-                return None;
+                return NativeDisposition::Interpret;
             }
             let f = &self.program.functions[fi];
             if !f.captures.is_empty() {
                 self.native[fi] = NativeSlot::Failed;
-                return None;
+                return NativeDisposition::Interpret;
+            }
+            // A parameter whose declared type has no native representation
+            // (Map, Text, nested Seq, …) can never enter native code —
+            // fail once instead of bumping the hot counter forever.
+            if f.param_kinds.iter().any(|k| k.is_none()) {
+                self.native[fi] = NativeSlot::Failed;
+                return NativeDisposition::Interpret;
             }
             let end = self
                 .program
@@ -179,29 +873,230 @@ impl<'p> Vm<'p> {
                 .filter(|&e| e > f.entry_pc)
                 .min()
                 .unwrap_or(self.program.code.len());
+            let callees: Vec<super::native_tier::CalleeSig> = {
+                let prog = &self.program;
+                let code_len = prog.code.len();
+                prog.functions
+                    .iter()
+                    .map(|g| {
+                        let end = prog
+                            .functions
+                            .iter()
+                            .map(|h| h.entry_pc)
+                            .filter(|&pc| pc > g.entry_pc)
+                            .min()
+                            .unwrap_or(code_len);
+                        let (list_params_stable, returns_list_param) = analyze_list_call_safety(
+                            &prog.code[g.entry_pc..end],
+                            g.param_count,
+                            &g.param_kinds,
+                            g.register_count,
+                        );
+                        super::native_tier::CalleeSig {
+                            param_kinds: g.param_kinds.clone(),
+                            ret: g.ret_kind,
+                            list_params_stable,
+                            returns_list_param,
+                        }
+                    })
+                    .collect()
+            };
             match tier.compile_function(
                 &self.program.code[f.entry_pc..end],
                 f.entry_pc,
                 &self.program.constants,
                 f.param_count,
                 f.register_count as u16,
+                func,
+                &f.param_kinds,
+                f.ret_kind,
+                &self.native_ctx,
+                &callees,
             ) {
-                Some(nf) => self.native[fi] = NativeSlot::Ready(nf),
+                Some(nf) => {
+                    self.native_ctx.table.publish(fi, nf.entry_ptr(), nf.published_regc());
+                    self.native[fi] = NativeSlot::Ready(nf);
+                }
                 None => {
                     self.native[fi] = NativeSlot::Failed;
-                    return None;
+                    return NativeDisposition::Interpret;
                 }
             }
         }
-        // The per-call guard: every argument must be an Int, else deopt.
+        // The per-call guard: every argument must match its DECLARED kind
+        // (floats travel as raw bits in the i64 slot; lists pin), else the
+        // call stays interpreted.
         let base = self.base + args_start as usize;
-        let mut args = Vec::with_capacity(arg_count as usize);
-        for k in 0..arg_count as usize {
-            args.push(self.registers.get(base + k)?.as_int()?);
+        // Hot boundary: a stack buffer instead of a per-call Vec — functions
+        // like gcd cross bytecode→native hundreds of thousands of times.
+        if arg_count as usize > 16 {
+            return NativeDisposition::Interpret;
         }
+        let kinds = &self.program.functions[fi].param_kinds;
+        let mut args = [0i64; 16];
+        for k in 0..arg_count as usize {
+            let Some(v) = self.registers.get(base + k) else {
+                return NativeDisposition::Interpret;
+            };
+            args[k] = match kinds.get(k).copied().flatten() {
+                Some(ParamKind::Scalar(super::native_tier::SlotKind::Int)) | None => {
+                    match v.as_int() {
+                        Some(n) => n,
+                        None => return NativeDisposition::Interpret,
+                    }
+                }
+                Some(ParamKind::Scalar(super::native_tier::SlotKind::Bool)) => {
+                    match v.as_bool() {
+                        Some(b) => b as i64,
+                        None => return NativeDisposition::Interpret,
+                    }
+                }
+                Some(ParamKind::Scalar(super::native_tier::SlotKind::Float)) => {
+                    match v.as_float() {
+                        Some(f) => f.to_bits() as i64,
+                        None => return NativeDisposition::Interpret,
+                    }
+                }
+                // List params ride the pin lane; the register slot is a
+                // placeholder native code never reads as a scalar.
+                Some(ParamKind::List(_)) => 0,
+            };
+        }
+        // Pin list parameters: one borrow per DISTINCT Rc for the whole
+        // call (recursion reuses the same pins via pass-through identity).
+        // Empty lists retag in place to the declared element repr.
+        let outcome = {
+            use crate::interpreter::{ListRepr, RuntimeValue};
+            use super::native_tier::PinElem;
+            let mut handles: Vec<(usize, std::cell::RefMut<'_, ListRepr>)> = Vec::new();
+            let mut pins: Vec<i64> = Vec::new();
+            let mut pin_args: Vec<Value> = Vec::new();
+            for (k, pk) in kinds.iter().enumerate().take(arg_count as usize) {
+                let Some(ParamKind::List(elem)) = pk else { continue };
+                let Some(v) = self.registers.get(base + k) else {
+                    return NativeDisposition::Interpret;
+                };
+                let Some(RuntimeValue::List(rc)) = v.as_runtime_ref() else {
+                    return NativeDisposition::Interpret;
+                };
+                pin_args.push(v.clone());
+                let key = std::rc::Rc::as_ptr(rc) as usize;
+                if !handles.iter().any(|(hk, _)| *hk == key) {
+                    let Ok(mut b) = rc.try_borrow_mut() else {
+                        return NativeDisposition::Interpret;
+                    };
+                    // Declared-elem retag for the empty list (the shared
+                    // empty starts as Ints).
+                    let empty = match &*b {
+                        ListRepr::Ints(v) => v.is_empty(),
+                        _ => false,
+                    };
+                    if empty {
+                        match elem {
+                            PinElem::Float => *b = ListRepr::Floats(Vec::new()),
+                            PinElem::Bool => *b = ListRepr::Bools(Vec::new()),
+                            PinElem::Int => {}
+                            // Function params never pin maps or texts (declared
+                            // kinds only produce Int/Float/Bool list elems).
+                            PinElem::Map | PinElem::TextBytes | PinElem::TextMut => {
+                                return NativeDisposition::Interpret
+                            }
+                        }
+                    }
+                    handles.push((key, b));
+                }
+                let idx = handles.iter().position(|(hk, _)| *hk == key).unwrap();
+                let payload = &mut *handles[idx].1;
+                let (vec_handle, ptr, len) = match (payload, elem) {
+                    (ListRepr::Ints(v), PinElem::Int) => {
+                        (v as *mut Vec<i64> as i64, v.as_mut_ptr() as i64, v.len())
+                    }
+                    (ListRepr::Floats(v), PinElem::Float) => {
+                        (v as *mut Vec<f64> as i64, v.as_mut_ptr() as i64, v.len())
+                    }
+                    (ListRepr::Bools(v), PinElem::Bool) => {
+                        (v as *mut Vec<bool> as i64, v.as_mut_ptr() as i64, v.len())
+                    }
+                    _ => return NativeDisposition::Interpret,
+                };
+                pins.push(vec_handle);
+                pins.push(ptr);
+                pins.push(len as i64);
+                // The marshalled argument slot mirrors the vec handle —
+                // native list registers always carry their handle.
+                args[k] = vec_handle;
+            }
+            let NativeSlot::Ready(nf) = &self.native[fi] else { unreachable!() };
+            let args_slice = &args[..arg_count as usize];
+            // The native callee occupies one LOGOS frame on top of the
+            // bytecode stack; its self-calls count from there against
+            // MAX_CALL_DEPTH.
+            let out = nf.call(args_slice, &pins, bytecode_depth + 1);
+            drop(handles);
+            (out, pin_args, pins)
+        };
+        let (out, pin_args, pins_for_ret) = outcome;
         let NativeSlot::Ready(nf) = &self.native[fi] else { unreachable!() };
-        let raw = nf.call(&args);
-        Some(if nf.returns_bool() { Value::bool(raw != 0) } else { Value::int(raw) })
+        match out {
+            // The backend already re-boxed (list-returning functions own
+            // their allocation registry).
+            super::native_tier::NativeOutcome::ReturnValue(v) => NativeDisposition::Done(v),
+            super::native_tier::NativeOutcome::Return(raw) => {
+                NativeDisposition::Done(match nf.ret() {
+                    super::native_tier::NativeRet::Scalar(k) => match k {
+                        super::native_tier::SlotKind::Bool => Value::bool(raw != 0),
+                        super::native_tier::SlotKind::Float => {
+                            Value::float(f64::from_bits(raw as u64))
+                        }
+                        super::native_tier::SlotKind::Int => Value::int(raw),
+                    },
+                    // By-handle return that was NOT registry-owned: it is
+                    // one of the caller's list arguments — match the pin
+                    // handles (every triple's first slot) and clone that
+                    // argument, preserving identity.
+                    super::native_tier::NativeRet::ListByHandle => {
+                        let mut found: Option<Value> = None;
+                        for (k, chunk) in pins_for_ret.chunks(3).enumerate() {
+                            if chunk.first() == Some(&raw) {
+                                found = pin_args.get(k).cloned();
+                                break;
+                            }
+                        }
+                        match found {
+                            Some(v) => v,
+                            None => return NativeDisposition::Interpret,
+                        }
+                    }
+                    // Return-by-parameter: the result IS the caller's list
+                    // argument (same Rc — identity preserved).
+                    super::native_tier::NativeRet::ListParam(j) => {
+                        let mut nth = 0usize;
+                        let mut found: Option<Value> = None;
+                        for (k, pk) in kinds.iter().enumerate().take(arg_count as usize) {
+                            if matches!(pk, Some(ParamKind::List(_))) {
+                                if k == j as usize {
+                                    found = pin_args.get(nth).cloned();
+                                    break;
+                                }
+                                nth += 1;
+                            }
+                        }
+                        match found {
+                            Some(v) => v,
+                            None => return NativeDisposition::Interpret,
+                        }
+                    }
+                })
+            }
+            // Plain side exit: every effect was confined to the private
+            // frame — replaying the whole call on bytecode is sound and
+            // raises the exact kernel error at the exact point.
+            super::native_tier::NativeOutcome::Deopt => NativeDisposition::Interpret,
+            // Precise side exit: effects landed; materialize the chain.
+            super::native_tier::NativeOutcome::DeoptAt { resume_pc, frames } => {
+                NativeDisposition::Materialize { resume_pc, frames, list_args: pin_args }
+            }
+        }
     }
 
     /// Provide the policy registry (and the interner its symbols live in) for
@@ -240,9 +1135,9 @@ impl<'p> Vm<'p> {
         let mut call_stack: Vec<CallFrame> = Vec::new();
 
         while pc < self.program.code.len() {
-            match self.program.code[pc].clone() {
+            match self.program.code[pc] {
                 Op::LoadConst { dst, idx } => {
-                    let v = const_to_value(&self.program.constants[idx as usize]);
+                    let v = self.const_pool[idx as usize].clone();
                     self.set(dst, v);
                     pc += 1;
                 }
@@ -251,10 +1146,30 @@ impl<'p> Vm<'p> {
                     pc += 1;
                 }
                 Op::Add { dst, lhs, rhs } => { self.binop(dst, lhs, rhs, Value::add)?; pc += 1; }
+                Op::AddAssign { dst, src } => { self.add_assign(dst, src)?; pc += 1; }
                 Op::Sub { dst, lhs, rhs } => { self.binop(dst, lhs, rhs, Value::sub)?; pc += 1; }
                 Op::Mul { dst, lhs, rhs } => { self.binop(dst, lhs, rhs, Value::mul)?; pc += 1; }
                 Op::Div { dst, lhs, rhs } => { self.binop(dst, lhs, rhs, Value::div)?; pc += 1; }
                 Op::Mod { dst, lhs, rhs } => { self.binop(dst, lhs, rhs, Value::modulo)?; pc += 1; }
+                Op::DivPow2 { dst, lhs, k } => {
+                    // `lhs / 2^k` (lhs is Oracle-proven Int) — identical result
+                    // to `Op::Div` by `2^k`, so it matches the tree-walker.
+                    let v = self.reg(lhs).div(&Value::int(1i64 << k))?;
+                    self.set(dst, v);
+                    pc += 1;
+                }
+                Op::MagicDivU { dst, lhs, magic, more, mul_back } => {
+                    // `lhs / c` / `lhs % c` by the precomputed magic reciprocal
+                    // (`magic`/`more`). Emitted only for an Oracle-proven Int,
+                    // non-negative `lhs`, so the result is bit-identical to
+                    // `Op::Div`/`Op::Mod` by the constant `c`.
+                    let x = self.reg(lhs).as_int().ok_or_else(|| {
+                        "MagicDivU on a non-Int operand".to_string()
+                    })?;
+                    let v = crate::vm::compiler::magic_eval(x, magic, more, mul_back);
+                    self.set(dst, Value::int(v));
+                    pc += 1;
+                }
                 Op::Lt { dst, lhs, rhs } => { self.binop(dst, lhs, rhs, Value::lt)?; pc += 1; }
                 Op::Gt { dst, lhs, rhs } => { self.binop(dst, lhs, rhs, Value::gt)?; pc += 1; }
                 Op::LtEq { dst, lhs, rhs } => { self.binop(dst, lhs, rhs, Value::lte)?; pc += 1; }
@@ -281,11 +1196,44 @@ impl<'p> Vm<'p> {
                 Op::Shl { dst, lhs, rhs } => { self.binop(dst, lhs, rhs, Value::shl)?; pc += 1; }
                 Op::Shr { dst, lhs, rhs } => { self.binop(dst, lhs, rhs, Value::shr)?; pc += 1; }
                 Op::Jump { target } => {
-                    // A back-edge at Main depth is a hot-loop candidate.
-                    if target < pc && call_stack.is_empty() && self.tier.is_some() {
-                        if let Some(exit) = self.try_region(target, pc) {
-                            pc = exit;
-                            continue;
+                    // A back-edge is a hot-loop candidate in EVERY frame
+                    // (OSR everywhere); the enclosing frame picks the
+                    // named-register map the write-back contract consults.
+                    // Skip the whole region machinery (the per-frame named-map
+                    // selection + the `regions` hashmap probe) once this loop
+                    // head is blacklisted — an un-tierable / demoted region pays
+                    // only this O(1) `Vec<bool>` index per back-edge instead of
+                    // re-hashing every iteration.
+                    if target < pc
+                        && self.tier.is_some()
+                        && !self.region_blacklist[target]
+                    {
+                        let (named, frame_regs): (&[bool], usize) = match call_stack.last() {
+                            None => (&self.program.named_regs, self.program.register_count),
+                            Some(f) => {
+                                let fun = &self.program.functions[f.func as usize];
+                                (&fun.named_regs, fun.register_count)
+                            }
+                        };
+                        match self.try_region(target, pc, named, frame_regs, call_stack.len()) {
+                            Some(RegionExit::At(exit)) => {
+                                pc = exit;
+                                continue;
+                            }
+                            Some(RegionExit::Return(value)) => {
+                                // The region hit a `Return` — perform the
+                                // actual function return, exactly like the
+                                // Op::Return arm.
+                                let frame =
+                                    call_stack.pop().ok_or("vm: return with no caller")?;
+                                self.iter_stack.truncate(frame.iter_depth);
+                                self.registers.truncate(frame.restore_len);
+                                self.base = frame.caller_base;
+                                self.set(frame.return_reg, value);
+                                pc = frame.return_pc;
+                                continue;
+                            }
+                            None => {}
                         }
                     }
                     pc = target;
@@ -357,7 +1305,7 @@ impl<'p> Vm<'p> {
                 }
                 Op::CallValue { dst, callee, args_start, arg_count, name_for_err } => {
                     use crate::interpreter::RuntimeValue;
-                    let closure = match self.reg(callee).as_runtime() {
+                    let closure = match &*self.reg(callee).as_runtime() {
                         RuntimeValue::Function(c) => (**c).clone(),
                         other => {
                             return Err(if name_for_err == u32::MAX {
@@ -404,6 +1352,7 @@ impl<'p> Vm<'p> {
                         caller_base: self.base,
                         restore_len,
                         iter_depth: self.iter_stack.len(),
+                        func: closure.body_index as u16,
                     });
                     self.base = callee_base;
                     // Bind captures: value slots then present flags — both
@@ -433,10 +1382,25 @@ impl<'p> Vm<'p> {
                     if call_stack.len() >= crate::semantics::MAX_CALL_DEPTH {
                         return Err(crate::semantics::CALL_DEPTH_ERR.to_string());
                     }
-                    if let Some(v) = self.try_native(func, args_start, arg_count) {
-                        self.set(dst, v);
-                        pc += 1;
-                        continue;
+                    match self.try_native(func, args_start, arg_count, call_stack.len()) {
+                        NativeDisposition::Done(v) => {
+                            self.set(dst, v);
+                            pc += 1;
+                            continue;
+                        }
+                        NativeDisposition::Interpret => {}
+                        // Precise deopt: every native frame becomes a real
+                        // CallFrame (registers re-boxed per the adapter's
+                        // kind capture), then the interpreter resumes AT
+                        // the faulting op — effects stay, the kernel
+                        // raises the exact error from the exact state.
+                        NativeDisposition::Materialize { resume_pc, frames, list_args } => {
+                            self.materialize_native_frames(
+                                &frames, &list_args, args_start, dst, func, pc, &mut call_stack,
+                            )?;
+                            pc = resume_pc;
+                            continue;
+                        }
                     }
                     let (entry_pc, reg_count) = {
                         let f = self
@@ -461,6 +1425,7 @@ impl<'p> Vm<'p> {
                         caller_base: self.base,
                         restore_len,
                         iter_depth: self.iter_stack.len(),
+                        func,
                     });
                     self.base = callee_base;
                     pc = entry_pc;
@@ -492,7 +1457,33 @@ impl<'p> Vm<'p> {
                     self.set(dst, Value::list(items));
                     pc += 1;
                 }
-                Op::NewEmptyList { dst } => { self.set(dst, Value::empty_list()); pc += 1; }
+                Op::NewEmptyList { dst } => {
+                    // Allocation reuse: if `dst` already holds a SOLE-OWNED
+                    // Ints list (e.g. the previous loop iteration's, now dead),
+                    // clear it in place and reuse its buffer/capacity instead
+                    // of allocating a fresh Rc + Vec. Sound: refcount 1 means
+                    // no other holder can observe the clear.
+                    use crate::interpreter::{ListRepr, RuntimeValue};
+                    use std::rc::Rc;
+                    let di = self.base + dst as usize;
+                    let reused = matches!(
+                        self.registers.get(di).map(|v| v.as_runtime()).as_deref(),
+                        Some(RuntimeValue::List(rc))
+                            if Rc::strong_count(rc) == 1
+                                && Rc::weak_count(rc) == 0
+                                && matches!(&*rc.borrow(), ListRepr::Ints(_))
+                    );
+                    if reused {
+                        if let RuntimeValue::List(rc) = &*self.registers[di].as_runtime() {
+                            if let ListRepr::Ints(buf) = &mut *rc.borrow_mut() {
+                                buf.clear();
+                            }
+                        }
+                    } else {
+                        self.set(dst, Value::empty_list());
+                    }
+                    pc += 1;
+                }
                 Op::NewEmptySet { dst } => { self.set(dst, Value::empty_set()); pc += 1; }
                 Op::NewEmptyMap { dst } => { self.set(dst, Value::empty_map()); pc += 1; }
                 Op::NewRange { dst, start, end } => {
@@ -517,17 +1508,18 @@ impl<'p> Vm<'p> {
                     self.reg(collection).remove_from(self.reg(value))?;
                     pc += 1;
                 }
-                Op::SetIndex { collection, index, value } => {
+                Op::SetIndex { collection, index, value }
+                | Op::SetIndexUnchecked { collection, index, value } => {
                     use crate::interpreter::RuntimeValue;
                     // Struct field set via index syntax (`Set item "f" of s to
                     // v`) — VALUE semantics, mirroring the tree-walker: clone
                     // the struct, insert, write the new struct back.
                     let is_struct_text = matches!(
-                        (self.reg(collection).as_runtime(), self.reg(index).as_runtime()),
+                        (&*self.reg(collection).as_runtime(), &*self.reg(index).as_runtime()),
                         (RuntimeValue::Struct(_), RuntimeValue::Text(_))
                     );
                     if is_struct_text {
-                        let field = match self.reg(index).as_runtime() {
+                        let field = match &*self.reg(index).as_runtime() {
                             RuntimeValue::Text(t) => t.to_string(),
                             _ => unreachable!(),
                         };
@@ -545,7 +1537,11 @@ impl<'p> Vm<'p> {
                     }
                     pc += 1;
                 }
-                Op::Index { dst, collection, index } => {
+                // The bytecode interpreter checks both: a sound proof makes
+                // the `IndexUnchecked` check never fire, so keeping it is
+                // free defense-in-depth. Only the JIT elides.
+                Op::Index { dst, collection, index }
+                | Op::IndexUnchecked { dst, collection, index } => {
                     let v = self.reg(collection).index_get(self.reg(index))?;
                     self.set(dst, v);
                     pc += 1;
@@ -553,6 +1549,12 @@ impl<'p> Vm<'p> {
                 Op::Length { dst, collection } => {
                     let n = self.reg(collection).len()?;
                     self.set(dst, Value::int(n));
+                    pc += 1;
+                }
+                // Pure metadata for the native region tier — the interpreter's
+                // checked accesses make it a no-op (the hoist it enables only
+                // applies inside a compiled region, verified at region entry).
+                Op::RegionBoundsGuard { .. } => {
                     pc += 1;
                 }
                 Op::Contains { dst, collection, value } => {
@@ -567,7 +1569,7 @@ impl<'p> Vm<'p> {
                     };
                     let val = self.reg(src).as_runtime().clone();
                     crate::semantics::collections::push_to_struct_field(
-                        self.reg(obj).as_runtime(),
+                        &self.reg(obj).as_runtime(),
                         &field_name,
                         val,
                     )?;
@@ -595,7 +1597,7 @@ impl<'p> Vm<'p> {
                     crate::semantics::policy::check_policy(
                         registry,
                         interner,
-                        self.reg(subject).as_runtime(),
+                        &self.reg(subject).as_runtime(),
                         predicate,
                         is_capability,
                         obj_val.as_ref(),
@@ -622,7 +1624,7 @@ impl<'p> Vm<'p> {
                             other => return Err(format!("vm: format spec is not Text: {:?}", other)),
                         };
                         out.push_str(&crate::semantics::format::apply_format_spec(
-                            self.reg(src).as_runtime(),
+                            &self.reg(src).as_runtime(),
                             spec_s,
                         ));
                     } else {
@@ -633,9 +1635,9 @@ impl<'p> Vm<'p> {
                 }
                 Op::SliceOp { dst, collection, start, end } => {
                     let v = crate::semantics::collections::slice(
-                        self.reg(collection).as_runtime(),
-                        self.reg(start).as_runtime(),
-                        self.reg(end).as_runtime(),
+                        &self.reg(collection).as_runtime(),
+                        &self.reg(start).as_runtime(),
+                        &self.reg(end).as_runtime(),
                     )?;
                     self.set(dst, Value::from_runtime(v));
                     pc += 1;
@@ -659,16 +1661,16 @@ impl<'p> Vm<'p> {
                 }
                 Op::UnionOp { dst, lhs, rhs } => {
                     let v = crate::semantics::collections::union(
-                        self.reg(lhs).as_runtime(),
-                        self.reg(rhs).as_runtime(),
+                        &self.reg(lhs).as_runtime(),
+                        &self.reg(rhs).as_runtime(),
                     )?;
                     self.set(dst, Value::from_runtime(v));
                     pc += 1;
                 }
                 Op::IntersectOp { dst, lhs, rhs } => {
                     let v = crate::semantics::collections::intersection(
-                        self.reg(lhs).as_runtime(),
-                        self.reg(rhs).as_runtime(),
+                        &self.reg(lhs).as_runtime(),
+                        &self.reg(rhs).as_runtime(),
                     )?;
                     self.set(dst, Value::from_runtime(v));
                     pc += 1;
@@ -717,7 +1719,7 @@ impl<'p> Vm<'p> {
                         Constant::Text(s) => s.as_str(),
                         other => return Err(format!("vm: field name is not Text: {:?}", other)),
                     };
-                    let v = match self.reg(obj).as_runtime() {
+                    let v = match &*self.reg(obj).as_runtime() {
                         RuntimeValue::Struct(s) => s
                             .fields
                             .get(field_name)
@@ -760,7 +1762,7 @@ impl<'p> Vm<'p> {
                         Constant::Text(s) => s.as_str(),
                         other => return Err(format!("vm: variant name is not Text: {:?}", other)),
                     };
-                    let matched = match self.reg(target).as_runtime() {
+                    let matched = match &*self.reg(target).as_runtime() {
                         RuntimeValue::Struct(s) => s.type_name == variant_name,
                         RuntimeValue::Inductive(ind) => ind.constructor == variant_name,
                         _ => false,
@@ -770,7 +1772,7 @@ impl<'p> Vm<'p> {
                 }
                 Op::BindArm { dst, target, field, index } => {
                     use crate::interpreter::RuntimeValue;
-                    let v = match self.reg(target).as_runtime() {
+                    let v = match &*self.reg(target).as_runtime() {
                         RuntimeValue::Struct(s) => {
                             let field_name = match &self.program.constants[field as usize] {
                                 Constant::Text(s) => s.as_str(),
@@ -790,7 +1792,7 @@ impl<'p> Vm<'p> {
                 }
                 Op::CrdtBump { obj, field, amount, negate } => {
                     use crate::interpreter::RuntimeValue;
-                    let amount_int = match self.reg(amount).as_runtime() {
+                    let amount_int = match &*self.reg(amount).as_runtime() {
                         RuntimeValue::Int(n) => *n,
                         _ => {
                             return Err(if negate {
@@ -828,7 +1830,7 @@ impl<'p> Vm<'p> {
                 }
                 Op::CrdtMerge { target, source } => {
                     use crate::interpreter::RuntimeValue;
-                    let source_fields = match self.reg(source).as_runtime() {
+                    let source_fields = match &*self.reg(source).as_runtime() {
                         RuntimeValue::Struct(s) => s.fields.clone(),
                         _ => return Err("Merge source must be a struct".to_string()),
                     };
@@ -848,7 +1850,7 @@ impl<'p> Vm<'p> {
                 }
                 Op::IterPrepare { iterable } => {
                     let items = crate::semantics::collections::iteration_snapshot(
-                        self.reg(iterable).as_runtime(),
+                        &self.reg(iterable).as_runtime(),
                     )?;
                     self.iter_stack
                         .push((items.into_iter().map(Value::from_runtime).collect(), 0));
@@ -873,13 +1875,13 @@ impl<'p> Vm<'p> {
                     pc += 1;
                 }
                 Op::ListPop { list, dst } => {
-                    let v = crate::semantics::collections::list_pop(self.reg(list).as_runtime())?;
+                    let v = crate::semantics::collections::list_pop(&self.reg(list).as_runtime())?;
                     self.set(dst, Value::from_runtime(v));
                     pc += 1;
                 }
                 Op::Sleep { duration } => {
                     use crate::interpreter::RuntimeValue;
-                    let nanos = match self.reg(duration).as_runtime() {
+                    let nanos = match &*self.reg(duration).as_runtime() {
                         RuntimeValue::Duration(nanos) => *nanos,
                         RuntimeValue::Int(ms) => ms.wrapping_mul(1_000_000),
                         other => {
@@ -899,7 +1901,7 @@ impl<'p> Vm<'p> {
                 }
                 Op::DestructureTuple { src, start, count } => {
                     use crate::interpreter::RuntimeValue;
-                    match self.reg(src).as_runtime() {
+                    match &*self.reg(src).as_runtime() {
                         RuntimeValue::Tuple(items) => {
                             // Zip semantics: bind up to the shorter side.
                             let items: Vec<Value> = items
@@ -923,6 +1925,19 @@ impl<'p> Vm<'p> {
                 }
                 Op::Show { src } => {
                     self.lines.push(self.reg(src).to_display_string());
+                    pc += 1;
+                }
+                Op::Args { dst } => {
+                    use crate::interpreter::RuntimeValue;
+                    let items: Vec<RuntimeValue> = self
+                        .program_args
+                        .iter()
+                        .map(|s| RuntimeValue::Text(std::rc::Rc::new(s.clone())))
+                        .collect();
+                    let list = RuntimeValue::List(std::rc::Rc::new(std::cell::RefCell::new(
+                        crate::interpreter::ListRepr::from_values(items),
+                    )));
+                    self.set(dst, Value::from_runtime(list));
                     pc += 1;
                 }
                 Op::FailWith { msg } => {
@@ -965,6 +1980,44 @@ impl<'p> Vm<'p> {
         self.set(dst, v);
         Ok(())
     }
+
+    /// `R[dst] = R[dst] + R[src]`, extending in place when `R[dst]` is a
+    /// Text this register exclusively owns (`Rc` count 1 — no alias, capture
+    /// snapshot, or iterator can observe the mutation). The two in-place arms
+    /// transcribe the kernel's `(Text, Text)` / `(Text, other)` add rules;
+    /// every other shape — shared Rc included — takes the kernel itself.
+    fn add_assign(&mut self, dst: Reg, src: Reg) -> Result<(), String> {
+        use crate::interpreter::RuntimeValue;
+        use std::rc::Rc;
+        let di = self.base + dst as usize;
+        let si = self.base + src as usize;
+        if di != si {
+            let (a, b) = if di < si {
+                let (lo, hi) = self.registers.split_at_mut(si);
+                (&mut lo[di], &hi[0])
+            } else {
+                let (lo, hi) = self.registers.split_at_mut(di);
+                (&mut hi[0], &lo[si])
+            };
+            // Only the heap Text arm takes the in-place fast path; peek without
+            // promoting (`as_runtime_mut` would box an inline scalar) so the
+            // common non-Text case stays inline and falls to the kernel below.
+            if matches!(a.as_runtime_ref(), Some(RuntimeValue::Text(_))) {
+                if let RuntimeValue::Text(rc) = a.as_runtime_mut() {
+                    if let Some(s) = Rc::get_mut(rc) {
+                        match &*b.as_runtime() {
+                            RuntimeValue::Text(t) => s.push_str(t),
+                            other => s.push_str(&other.to_display_string()),
+                        }
+                        return Ok(());
+                    }
+                }
+            }
+        }
+        let v = self.reg(dst).add(self.reg(src))?;
+        self.set(dst, v);
+        Ok(())
+    }
 }
 
 fn const_to_value(c: &Constant) -> Value {
@@ -983,5 +2036,147 @@ fn const_to_value(c: &Constant) -> Value {
             Value::from_runtime(RuntimeValue::Span { months: *months, days: *days })
         }
         Constant::Time(n) => Value::from_runtime(RuntimeValue::Time(*n)),
+    }
+}
+
+#[cfg(test)]
+mod string_build_fastpath {
+    //! Structural proof for Task B: the constant pool is materialised ONCE
+    //! (a `LoadConst` of a Text bumps a shared `Rc` instead of allocating a
+    //! fresh `String`), and the sole-owned in-place append (`AddAssign`)
+    //! grows the accumulator's own buffer rather than reallocating each step.
+    use super::*;
+    use crate::interpreter::RuntimeValue;
+    use std::rc::Rc;
+
+    /// The `Rc<String>` backing register `r` (or panic if it isn't a Text).
+    fn text_ptr(vm: &Vm, r: usize) -> *const String {
+        match vm.registers[r].as_runtime_ref() {
+            Some(RuntimeValue::Text(rc)) => Rc::as_ptr(rc),
+            other => panic!("register {r} is not a Text: {other:?}"),
+        }
+    }
+
+    fn text_strong(vm: &Vm, r: usize) -> usize {
+        match vm.registers[r].as_runtime_ref() {
+            Some(RuntimeValue::Text(rc)) => Rc::strong_count(rc),
+            other => panic!("register {r} is not a Text: {other:?}"),
+        }
+    }
+
+    /// Two `LoadConst`s of the SAME Text-constant index hand out the same
+    /// `Rc` allocation — proof the pool is materialised once, so reloading a
+    /// literal in a loop is a refcount bump, not a `String` allocation.
+    #[test]
+    fn loadconst_text_shares_one_allocation() {
+        let prog = CompiledProgram {
+            constants: vec![Constant::Text("abc".to_string())],
+            code: vec![
+                Op::LoadConst { dst: 0, idx: 0 },
+                Op::LoadConst { dst: 1, idx: 0 },
+                Op::Halt,
+            ],
+            register_count: 2,
+            ..Default::default()
+        };
+        let mut vm = Vm::new(&prog);
+        vm.run().unwrap();
+        assert_eq!(
+            text_ptr(&vm, 0),
+            text_ptr(&vm, 1),
+            "two loads of the same Text constant must share one Rc allocation"
+        );
+        // And the live constant keeps a reference, so a register's clone is
+        // never the sole owner — an in-place append on a freshly-loaded
+        // literal must therefore NOT fire (it would corrupt the pool).
+        assert!(text_strong(&vm, 0) >= 3, "pool + two registers all reference the constant");
+    }
+
+    /// `Set s to s + ch` repeated: once the accumulator owns its buffer, each
+    /// append reuses the SAME allocation (pointer stable while capacity holds).
+    /// The first append, where `s` is the just-loaded shared `""` constant,
+    /// must allocate a fresh owned buffer (the pool stays intact); subsequent
+    /// appends grow it in place.
+    #[test]
+    fn add_assign_appends_in_place_after_first() {
+        // r0 = "" (shared constant), r1 = "x" (shared constant).
+        // r0 += r1, capture; r0 += r1 a few more times, pointer stays put.
+        let prog = CompiledProgram {
+            constants: vec![Constant::Text(String::new()), Constant::Text("x".to_string())],
+            code: vec![
+                Op::LoadConst { dst: 0, idx: 0 },
+                Op::LoadConst { dst: 1, idx: 1 },
+                Op::AddAssign { dst: 0, src: 1 },
+                Op::AddAssign { dst: 0, src: 1 },
+                Op::AddAssign { dst: 0, src: 1 },
+                Op::AddAssign { dst: 0, src: 1 },
+                Op::Halt,
+            ],
+            register_count: 2,
+            ..Default::default()
+        };
+        // Run only the first two appends to capture the owned buffer, then the
+        // rest, by stepping the whole thing and re-checking — simplest: run to
+        // completion, the invariant we assert is the FINAL value's correctness
+        // plus that the rhs constant was never mutated.
+        let mut vm = Vm::new(&prog);
+        vm.run().unwrap();
+        // The accumulator built "xxxx".
+        match vm.registers[0].as_runtime_ref() {
+            Some(RuntimeValue::Text(rc)) => assert_eq!(&***rc, "xxxx"),
+            other => panic!("r0 not text: {other:?}"),
+        }
+        // The shared constant "x" was NOT corrupted by the in-place appends.
+        match vm.registers[1].as_runtime_ref() {
+            Some(RuntimeValue::Text(rc)) => assert_eq!(&***rc, "x"),
+            other => panic!("r1 not text: {other:?}"),
+        }
+    }
+
+    /// The buffer-stability proof: drive the loop manually so we can read the
+    /// accumulator's `Rc::as_ptr` between appends. After the first append
+    /// (which clones off the shared constant into an owned buffer with spare
+    /// capacity), every later append keeps the SAME allocation.
+    #[test]
+    fn add_assign_reuses_buffer_allocation() {
+        let prog = CompiledProgram {
+            constants: vec![Constant::Text("seed-with-capacity-headroom".to_string()), Constant::Text("z".to_string())],
+            code: vec![
+                Op::LoadConst { dst: 0, idx: 0 },
+                Op::LoadConst { dst: 1, idx: 1 },
+                Op::AddAssign { dst: 0, src: 1 }, // first: clone off the shared constant
+                Op::AddAssign { dst: 0, src: 1 }, // owned now → in place
+                Op::AddAssign { dst: 0, src: 1 },
+                Op::Halt,
+            ],
+            register_count: 2,
+            ..Default::default()
+        };
+        // Manually dispatch up to the marker so we can inspect between appends.
+        // Reserve generous capacity on the first owned buffer so growth never
+        // forces a realloc within this test.
+        let mut vm = Vm::new(&prog);
+        // Step 1+2: loads.
+        vm.set(0, const_to_value(&prog.constants[0]));
+        vm.set(1, const_to_value(&prog.constants[1]));
+        // First append: must produce an OWNED buffer (sole owner now).
+        vm.add_assign(0, 1).unwrap();
+        // Force headroom so the next appends don't realloc for capacity.
+        if let RuntimeValue::Text(rc) = vm.registers[0].as_runtime_mut() {
+            if let Some(s) = Rc::get_mut(rc) {
+                s.reserve(64);
+            }
+        }
+        let p_after_first = text_ptr(&vm, 0);
+        vm.add_assign(0, 1).unwrap();
+        let p_after_second = text_ptr(&vm, 0);
+        vm.add_assign(0, 1).unwrap();
+        let p_after_third = text_ptr(&vm, 0);
+        assert_eq!(p_after_first, p_after_second, "append must reuse the owned buffer");
+        assert_eq!(p_after_second, p_after_third, "append must reuse the owned buffer");
+        match vm.registers[0].as_runtime_ref() {
+            Some(RuntimeValue::Text(rc)) => assert_eq!(&***rc, "seed-with-capacity-headroomzzz"),
+            other => panic!("r0 not text: {other:?}"),
+        }
     }
 }

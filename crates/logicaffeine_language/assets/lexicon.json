@@ -12,6 +12,7 @@
     "and": "And",
     "but": "And",
     "or": "Or",
+    "nor": "Or",
     "until": "Until",
     "release": "Release",
     "weak-until": "WeakUntil",
@@ -27,6 +28,7 @@
     "whom": "Who",
     "what": "What",
     "where": "Where",
+    "whose": "Whose",
     "when": "When",
     "why": "Why",
     "does": "Does",
@@ -226,8 +228,6 @@
         "gerund": "having"
       },
       "synonyms": [
-        "possess",
-        "own",
         "hold"
       ],
       "antonyms": [
@@ -252,7 +252,8 @@
         "gerund": "seeing"
       },
       "features": [
-        "Perception"
+        "Perception",
+        "Transitive"
       ]
     },
     {
@@ -264,7 +265,8 @@
         "gerund": "giving"
       },
       "features": [
-        "Ditransitive"
+        "Ditransitive",
+        "Transitive"
       ]
     },
     {
@@ -274,7 +276,10 @@
         "past": "took",
         "participle": "taken",
         "gerund": "taking"
-      }
+      },
+      "features": [
+        "Transitive"
+      ]
     },
     {
       "lemma": "Go",
@@ -302,7 +307,8 @@
         "gerund": "making"
       },
       "features": [
-        "Resultative"
+        "Resultative",
+        "Transitive"
       ]
     },
     {
@@ -370,7 +376,10 @@
       "forms": {
         "past": "found",
         "gerund": "finding"
-      }
+      },
+      "features": [
+        "Transitive"
+      ]
     },
     {
       "lemma": "Put",
@@ -416,7 +425,10 @@
       "forms": {
         "past": "built",
         "gerund": "building"
-      }
+      },
+      "features": [
+        "Transitive"
+      ]
     },
     {
       "lemma": "Speak",
@@ -434,7 +446,10 @@
         "past": "wrote",
         "participle": "written",
         "gerund": "writing"
-      }
+      },
+      "features": [
+        "Transitive"
+      ]
     },
     {
       "lemma": "Hold",
@@ -442,7 +457,10 @@
       "forms": {
         "past": "held",
         "gerund": "holding"
-      }
+      },
+      "features": [
+        "Transitive"
+      ]
     },
     {
       "lemma": "Meet",
@@ -692,7 +710,10 @@
         "past": "wore",
         "participle": "worn",
         "gerund": "wearing"
-      }
+      },
+      "features": [
+        "Transitive"
+      ]
     },
     {
       "lemma": "Break",
@@ -2389,7 +2410,10 @@
     {
       "lemma": "Approve",
       "class": "Achievement",
-      "regular": true
+      "regular": true,
+      "features": [
+        "Transitive"
+      ]
     },
     {
       "lemma": "Argue",
@@ -2454,7 +2478,10 @@
     {
       "lemma": "Bake",
       "class": "Accomplishment",
-      "regular": true
+      "regular": true,
+      "features": [
+        "Transitive"
+      ]
     },
     {
       "lemma": "Balance",
@@ -2589,6 +2616,22 @@
       ]
     },
     {
+      "lemma": "Brew",
+      "class": "Activity",
+      "regular": true,
+      "features": [
+        "Transitive"
+      ]
+    },
+    {
+      "lemma": "Steep",
+      "class": "Activity",
+      "regular": true,
+      "features": [
+        "Transitive"
+      ]
+    },
+    {
       "lemma": "Borrow",
       "class": "Achievement",
       "regular": true
@@ -2656,7 +2699,10 @@
       "forms": {
         "past": "bought",
         "gerund": "buying"
-      }
+      },
+      "features": [
+        "Transitive"
+      ]
     },
     {
       "lemma": "Calculate",
@@ -3043,7 +3089,10 @@
     {
       "lemma": "Create",
       "class": "Accomplishment",
-      "regular": true
+      "regular": true,
+      "features": [
+        "Transitive"
+      ]
     },
     {
       "lemma": "Creep",
@@ -3195,7 +3244,10 @@
     {
       "lemma": "Deliver",
       "class": "Achievement",
-      "regular": true
+      "regular": true,
+      "features": [
+        "Transitive"
+      ]
     },
     {
       "lemma": "Demand",
@@ -3243,7 +3295,10 @@
     {
       "lemma": "Design",
       "class": "Accomplishment",
-      "regular": true
+      "regular": true,
+      "features": [
+        "Transitive"
+      ]
     },
     {
       "lemma": "Desire",
@@ -3302,7 +3357,10 @@
     {
       "lemma": "Direct",
       "class": "Activity",
-      "regular": true
+      "regular": true,
+      "features": [
+        "Transitive"
+      ]
     },
     {
       "lemma": "Disappear",
@@ -3317,7 +3375,10 @@
     {
       "lemma": "Discover",
       "class": "Achievement",
-      "regular": true
+      "regular": true,
+      "features": [
+        "Transitive"
+      ]
     },
     {
       "lemma": "Discuss",
@@ -3644,7 +3705,10 @@
     {
       "lemma": "Expect",
       "class": "State",
-      "regular": true
+      "regular": true,
+      "features": [
+        "Transitive"
+      ]
     },
     {
       "lemma": "Experience",
@@ -3785,7 +3849,10 @@
     {
       "lemma": "Film",
       "class": "Activity",
-      "regular": true
+      "regular": true,
+      "features": [
+        "Transitive"
+      ]
     },
     {
       "lemma": "Filter",
@@ -3933,7 +4000,10 @@
     {
       "lemma": "Found",
       "class": "Achievement",
-      "regular": true
+      "regular": true,
+      "features": [
+        "Transitive"
+      ]
     },
     {
       "lemma": "Frame",
@@ -4015,7 +4085,10 @@
         "past": "got",
         "participle": "gotten",
         "gerund": "getting"
-      }
+      },
+      "features": [
+        "Transitive"
+      ]
     },
     {
       "lemma": "Glance",
@@ -4109,7 +4182,10 @@
     {
       "lemma": "Handle",
       "class": "Activity",
-      "regular": true
+      "regular": true,
+      "features": [
+        "Transitive"
+      ]
     },
     {
       "lemma": "Hang",
@@ -4147,7 +4223,10 @@
     {
       "lemma": "Head",
       "class": "Activity",
-      "regular": true
+      "regular": true,
+      "features": [
+        "Transitive"
+      ]
     },
     {
       "lemma": "Heal",
@@ -4182,7 +4261,10 @@
     {
       "lemma": "Hire",
       "class": "Achievement",
-      "regular": true
+      "regular": true,
+      "features": [
+        "Transitive"
+      ]
     },
     {
       "lemma": "Hit",
@@ -4210,7 +4292,10 @@
     {
       "lemma": "Host",
       "class": "Activity",
-      "regular": true
+      "regular": true,
+      "features": [
+        "Transitive"
+      ]
     },
     {
       "lemma": "Hug",
@@ -4608,7 +4693,10 @@
       "forms": {
         "past": "led",
         "gerund": "leading"
-      }
+      },
+      "features": [
+        "Transitive"
+      ]
     },
     {
       "lemma": "Leak",
@@ -4720,7 +4808,10 @@
     {
       "lemma": "Locate",
       "class": "Achievement",
-      "regular": true
+      "regular": true,
+      "features": [
+        "Transitive"
+      ]
     },
     {
       "lemma": "Lock",
@@ -5079,7 +5170,10 @@
     {
       "lemma": "Own",
       "class": "State",
-      "regular": true
+      "regular": true,
+      "features": [
+        "Transitive"
+      ]
     },
     {
       "lemma": "Pack",
@@ -5091,7 +5185,8 @@
       "class": "Accomplishment",
       "regular": true,
       "features": [
-        "Resultative"
+        "Resultative",
+        "Transitive"
       ]
     },
     {
@@ -5429,7 +5524,10 @@
     {
       "lemma": "Produce",
       "class": "Accomplishment",
-      "regular": true
+      "regular": true,
+      "features": [
+        "Transitive"
+      ]
     },
     {
       "lemma": "Program",
@@ -5501,7 +5599,10 @@
     {
       "lemma": "Publish",
       "class": "Achievement",
-      "regular": true
+      "regular": true,
+      "features": [
+        "Transitive"
+      ]
     },
     {
       "lemma": "Pull",
@@ -5526,7 +5627,10 @@
     {
       "lemma": "Purchase",
       "class": "Achievement",
-      "regular": true
+      "regular": true,
+      "features": [
+        "Transitive"
+      ]
     },
     {
       "lemma": "Pursue",
@@ -5740,7 +5844,10 @@
     {
       "lemma": "Release",
       "class": "Achievement",
-      "regular": true
+      "regular": true,
+      "features": [
+        "Transitive"
+      ]
     },
     {
       "lemma": "Rely",
@@ -6061,7 +6168,10 @@
     {
       "lemma": "Schedule",
       "class": "Achievement",
-      "regular": true
+      "regular": true,
+      "features": [
+        "Transitive"
+      ]
     },
     {
       "lemma": "Score",
@@ -6132,7 +6242,10 @@
     {
       "lemma": "Serve",
       "class": "Activity",
-      "regular": true
+      "regular": true,
+      "features": [
+        "Transitive"
+      ]
     },
     {
       "lemma": "Settle",
@@ -7084,7 +7197,10 @@
     {
       "lemma": "Train",
       "class": "Accomplishment",
-      "regular": true
+      "regular": true,
+      "features": [
+        "Transitive"
+      ]
     },
     {
       "lemma": "Transfer",
@@ -7285,7 +7401,10 @@
     {
       "lemma": "Use",
       "class": "Activity",
-      "regular": true
+      "regular": true,
+      "features": [
+        "Transitive"
+      ]
     },
     {
       "lemma": "Utilize",
@@ -7460,7 +7579,10 @@
       "forms": {
         "past": "won",
         "gerund": "winning"
-      }
+      },
+      "features": [
+        "Transitive"
+      ]
     },
     {
       "lemma": "Wind",
@@ -7676,9 +7798,81 @@
         "past": "activated",
         "gerund": "activating"
       }
+    },
+    {
+      "lemma": "Source",
+      "class": "Achievement",
+      "regular": true,
+      "features": [
+        "Transitive"
+      ]
+    },
+    {
+      "lemma": "Acquire",
+      "class": "Achievement",
+      "regular": true,
+      "features": [
+        "Transitive"
+      ]
+    },
+    {
+      "lemma": "Mail",
+      "class": "Accomplishment",
+      "regular": true,
+      "features": [
+        "Transitive"
+      ]
+    },
+    {
+      "lemma": "Donate",
+      "class": "Accomplishment",
+      "regular": true,
+      "features": [
+        "Transitive"
+      ]
+    },
+    {
+      "lemma": "Rate",
+      "class": "Achievement",
+      "regular": true
+    },
+    {
+      "lemma": "Assign",
+      "class": "Achievement",
+      "regular": true,
+      "features": [
+        "Transitive"
+      ]
+    },
+    {
+      "lemma": "Depict",
+      "class": "State",
+      "regular": true,
+      "features": [
+        "Transitive"
+      ]
+    },
+    {
+      "lemma": "Issue",
+      "class": "Accomplishment",
+      "regular": true,
+      "features": [
+        "Transitive"
+      ]
     }
   ],
   "nouns": [
+    {
+      "lemma": "Native",
+      "sort": "Human"
+    },
+    {
+      "lemma": "Item",
+      "forms": {
+        "plural": "items"
+      },
+      "sort": "Physical"
+    },
     {
       "lemma": "Man",
       "forms": {
@@ -8472,6 +8666,10 @@
       "sort": "Physical"
     },
     {
+      "lemma": "Base",
+      "sort": "Physical"
+    },
+    {
       "lemma": "President",
       "sort": "Human"
     },
@@ -8961,6 +9159,10 @@
     },
     {
       "lemma": "Shirt",
+      "sort": "Physical"
+    },
+    {
+      "lemma": "Suit",
       "sort": "Physical"
     },
     {
@@ -11228,7 +11430,7 @@
     },
     {
       "lemma": "Trip",
-      "sort": "Abstract"
+      "sort": "Event"
     },
     {
       "lemma": "Travel",
@@ -11475,11 +11677,11 @@
     },
     {
       "lemma": "Holiday",
-      "sort": "Abstract"
+      "sort": "Event"
     },
     {
       "lemma": "Vacation",
-      "sort": "Abstract"
+      "sort": "Event"
     },
     {
       "lemma": "Rest",
@@ -12714,7 +12916,8 @@
       "features": [
         "Subsective",
         "Gradable",
-        "Vague"
+        "Vague",
+        "Decreasing"
       ]
     },
     {
@@ -12741,7 +12944,8 @@
       "features": [
         "Subsective",
         "Gradable",
-        "Vague"
+        "Vague",
+        "Decreasing"
       ]
     },
     {
@@ -12761,7 +12965,8 @@
         "Subsective",
         "Gradable",
         "EventModifier",
-        "Vague"
+        "Vague",
+        "Decreasing"
       ]
     },
     {
@@ -12779,7 +12984,8 @@
       "features": [
         "Subsective",
         "Gradable",
-        "Vague"
+        "Vague",
+        "Decreasing"
       ]
     },
     {
@@ -12797,7 +13003,8 @@
       "features": [
         "Subsective",
         "Gradable",
-        "Vague"
+        "Vague",
+        "Decreasing"
       ]
     },
     {
@@ -12813,7 +13020,8 @@
       "regular": true,
       "features": [
         "Intersective",
-        "Gradable"
+        "Gradable",
+        "Decreasing"
       ]
     },
     {
@@ -12847,7 +13055,8 @@
       "regular": true,
       "features": [
         "Intersective",
-        "Gradable"
+        "Gradable",
+        "Decreasing"
       ]
     },
     {
@@ -12863,7 +13072,8 @@
       "regular": true,
       "features": [
         "Intersective",
-        "Gradable"
+        "Gradable",
+        "Decreasing"
       ]
     },
     {
@@ -12905,7 +13115,8 @@
       "features": [
         "Intersective",
         "Gradable",
-        "Vague"
+        "Vague",
+        "Decreasing"
       ]
     },
     {
@@ -12924,7 +13135,8 @@
         "Intersective",
         "Gradable",
         "Weather",
-        "Vague"
+        "Vague",
+        "Decreasing"
       ]
     },
     {
@@ -12975,7 +13187,8 @@
       "regular": true,
       "features": [
         "Intersective",
-        "Gradable"
+        "Gradable",
+        "Decreasing"
       ]
     },
     {
@@ -13098,7 +13311,8 @@
       "lemma": "Bad",
       "regular": true,
       "features": [
-        "Subsective"
+        "Subsective",
+        "Decreasing"
       ]
     },
     {
@@ -13238,7 +13452,8 @@
       "features": [
         "Intersective",
         "Gradable",
-        "Vague"
+        "Vague",
+        "Decreasing"
       ]
     },
     {
@@ -13523,7 +13738,8 @@
       "features": [
         "Intersective",
         "Gradable",
-        "Vague"
+        "Vague",
+        "Decreasing"
       ]
     },
     {
@@ -14087,7 +14303,8 @@
       "regular": true,
       "features": [
         "Intersective",
-        "Gradable"
+        "Gradable",
+        "Decreasing"
       ]
     },
     {
@@ -14111,7 +14328,8 @@
       "regular": true,
       "features": [
         "Subsective",
-        "Gradable"
+        "Gradable",
+        "Decreasing"
       ]
     },
     {
@@ -14224,7 +14442,8 @@
       "regular": true,
       "features": [
         "Intersective",
-        "Gradable"
+        "Gradable",
+        "Decreasing"
       ]
     },
     {
@@ -14740,7 +14959,8 @@
       "regular": true,
       "features": [
         "Intersective",
-        "Gradable"
+        "Gradable",
+        "Decreasing"
       ]
     },
     {
@@ -15024,7 +15244,8 @@
       "regular": true,
       "features": [
         "Intersective",
-        "Gradable"
+        "Gradable",
+        "Decreasing"
       ]
     },
     {
@@ -15582,6 +15803,10 @@
     "needn": "need not",
     "oughtn": "ought not"
   },
+  "abbreviations": [
+    "ft", "in", "m", "mr", "mrs", "ms", "dr", "mt", "st", "jr", "sr",
+    "sq", "ml", "no", "ave", "rd", "vs", "approx"
+  ],
   "not_adverbs": [
     "friendly",
     "lovely",
@@ -15713,7 +15938,9 @@
       "increas",
       "decreas",
       "chang",
-      "pric"
+      "pric",
+      "cycl",
+      "skydiv"
     ],
     "needs_e_ed": [
       "persuad",
@@ -15774,7 +16001,9 @@
       "examin",
       "smil",
       "arriv",
-      "rac"
+      "rac",
+      "cycl",
+      "skydiv"
     ],
     "stemming_exceptions": [
       "themselves",
@@ -15814,6 +16043,7 @@
     "meters": "Length",
     "foot": "Length",
     "feet": "Length",
+    "ft": "Length",
     "yard": "Length",
     "yards": "Length",
     "mile": "Length",
@@ -16236,6 +16466,28 @@
     "ordinarily",
     "customarily"
   ],
+  "degree_adverbs": [
+    "somewhat",
+    "slightly",
+    "much",
+    "far",
+    "considerably",
+    "significantly",
+    "marginally",
+    "substantially",
+    "vastly",
+    "moderately",
+    "appreciably",
+    "noticeably",
+    "markedly",
+    "decidedly",
+    "fractionally",
+    "a bit",
+    "a little",
+    "a lot",
+    "a tad",
+    "a touch"
+  ],
   "institution_metonyms": [
     "white_house",
     "whitehouse",
@@ -16249,5 +16501,19 @@
     "moscow",
     "beijing",
     "capitol_hill"
+  ],
+  "months": [
+    "january",
+    "february",
+    "march",
+    "april",
+    "may",
+    "june",
+    "july",
+    "august",
+    "september",
+    "october",
+    "november",
+    "december"
   ]
 }

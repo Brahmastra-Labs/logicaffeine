@@ -7,7 +7,7 @@ fn run_both(ops: &[MicroOp], inputs: &[i64]) -> (i64, i64) {
     let chain = compile_straightline(ops).expect("compile");
     let mut jit_frame = vec![0i64; 64];
     jit_frame[..inputs.len()].copy_from_slice(inputs);
-    let jit = chain.run_with_frame(&mut jit_frame);
+    let jit = chain.run_with_frame(&mut jit_frame).expect_return();
 
     let mut ref_frame = vec![0i64; 64];
     ref_frame[..inputs.len()].copy_from_slice(inputs);
@@ -26,10 +26,10 @@ fn jit_add_two_arguments() {
     let mut frame = vec![0i64; 8];
     frame[0] = 3;
     frame[1] = 5;
-    assert_eq!(chain.run_with_frame(&mut frame), 8);
+    assert_eq!(chain.run_with_frame(&mut frame).expect_return(), 8);
     frame[0] = i64::MAX;
     frame[1] = 1;
-    assert_eq!(chain.run_with_frame(&mut frame), i64::MIN);
+    assert_eq!(chain.run_with_frame(&mut frame).expect_return(), i64::MIN);
 }
 
 #[test]
@@ -42,7 +42,7 @@ fn jit_slot_set_writes_are_visible_in_the_frame() {
     ];
     let chain = compile_straightline(&ops).expect("compile");
     let mut frame = vec![0i64; 8];
-    assert_eq!(chain.run_with_frame(&mut frame), 42);
+    assert_eq!(chain.run_with_frame(&mut frame).expect_return(), 42);
     assert_eq!(frame[5], 42);
     assert_eq!(frame[6], 42);
 }
@@ -154,7 +154,7 @@ fn jit_ten_thousand_seeded_programs_match_reference() {
         let chain = compile_straightline(&ops).expect("compile");
         let mut jit_frame = vec![0i64; 64];
         jit_frame[..inputs.len()].copy_from_slice(&inputs);
-        let jit = chain.run_with_frame(&mut jit_frame);
+        let jit = chain.run_with_frame(&mut jit_frame).expect_return();
 
         let mut ref_frame = vec![0i64; 64];
         ref_frame[..inputs.len()].copy_from_slice(&inputs);

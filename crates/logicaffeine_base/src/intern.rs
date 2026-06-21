@@ -48,6 +48,14 @@ impl Symbol {
     pub fn index(self) -> usize {
         self.0 as usize
     }
+
+    /// Reconstructs a symbol from an internal index — the inverse of
+    /// [`Symbol::index`]. Sound only for an index produced by `index()` on a
+    /// symbol from the same interner (the bounds prover round-trips symbols
+    /// through their dense indices as `LinearExpr` variable ids).
+    pub fn from_index(i: usize) -> Symbol {
+        Symbol(i as u32)
+    }
 }
 
 impl Default for Symbol {

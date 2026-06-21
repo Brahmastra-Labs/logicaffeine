@@ -139,6 +139,19 @@ impl Sort {
             _ => false,
         }
     }
+
+    /// Whether this sort denotes an OCCASION — an occurrence or happening whose
+    /// head noun behaves as a soft type. For occasion sorts, "the [modifier]
+    /// [head]" lets the modifier do the referring (the same event can be a
+    /// "trip", a "vacation", or a "holiday"), so two such definite descriptions
+    /// corefer when their modifier matches and their head sorts agree.
+    ///
+    /// Concrete physical objects (box, ball) are NOT occasions: "the red box"
+    /// and "the red ball" are distinct things even though both are `Physical`,
+    /// so they must never corefer through a shared modifier.
+    pub fn is_occasion(self) -> bool {
+        matches!(self, Sort::Event)
+    }
 }
 
 /// Grammatical number for nouns and agreement.
@@ -502,6 +515,14 @@ pub enum Feature {
     ///
     /// Examples: "bald", "tall", "heavy", "rich", "old", "big"
     Vague,
+
+    /// Negative-pole (decreasing) gradable adjective: the comparative denotes a
+    /// SMALLER value on the canonical measured scale, so an arithmetic comparative
+    /// subtracts rather than adds ("narrower" → less wingspan, "lighter" → less
+    /// weight). The unmarked positive pole ("wide", "long", "heavy") increases.
+    ///
+    /// Examples: "narrow", "short", "small", "light", "cheap", "slow", "young"
+    Decreasing,
 }
 
 impl Feature {
@@ -544,6 +565,7 @@ impl Feature {
             "EventModifier" => Some(Feature::EventModifier),
             "Relational" => Some(Feature::Relational),
             "Vague" => Some(Feature::Vague),
+            "Decreasing" => Some(Feature::Decreasing),
             _ => None,
         }
     }

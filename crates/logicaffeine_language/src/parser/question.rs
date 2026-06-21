@@ -76,6 +76,53 @@ impl<'a, 'ctx, 'int> QuestionParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int> 
             }));
         }
 
+        // "Who is a lawyer?" / "Who is the doctor?" / "Who is mortal?" — a COPULA
+        // wh-question. The complement (a nominal or an adjective) is predicated of
+        // the answer variable → Question{x, P(x)}; the wh-word IS the subject, so a
+        // bare predicate over `x` is exactly the goal whose witness is the answer.
+        if matches!(
+            self.peek().kind,
+            TokenType::Is | TokenType::Are | TokenType::Was | TokenType::Were
+        ) {
+            self.advance(); // copula
+            // "Who is in Maine?" / "What is on the table?" — a PP complement →
+            // Question{x, In(x, Maine)}: the answer is the entity standing in that
+            // relation. The locative question a logic grid asks ("who is in <state>",
+            // "who is in <year>").
+            if self.check_preposition() && !self.check_by_preposition() {
+                let prep_sym = match self.advance().kind {
+                    TokenType::Preposition(s) => s,
+                    _ => unreachable!("guarded by check_preposition"),
+                };
+                let obj = self.parse_noun_phrase(false)?;
+                let body = self.ctx.exprs.alloc(LogicExpr::Predicate {
+                    name: prep_sym,
+                    args: self
+                        .ctx
+                        .terms
+                        .alloc_slice([var_term, Term::Constant(obj.noun)]),
+                    world: None,
+                });
+                return Ok(self.ctx.exprs.alloc(LogicExpr::Question {
+                    wh_variable: var_name,
+                    body,
+                }));
+            }
+            if matches!(self.peek().kind, TokenType::Article(_)) {
+                self.advance(); // optional determiner ("a", "an", "the")
+            }
+            let pred = self.consume_content_word()?;
+            let body = self.ctx.exprs.alloc(LogicExpr::Predicate {
+                name: pred,
+                args: self.ctx.terms.alloc_slice([var_term]),
+                world: None,
+            });
+            return Ok(self.ctx.exprs.alloc(LogicExpr::Question {
+                wh_variable: var_name,
+                body,
+            }));
+        }
+
         if self.check_verb() {
             let verb = self.consume_verb();
             let mut args = vec![var_term];

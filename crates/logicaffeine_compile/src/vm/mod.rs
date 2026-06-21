@@ -5,11 +5,19 @@
 //! the native copy-and-patch JIT tiers up from. Built incrementally, RED-first,
 //! differential-tested against the tree-walker.
 
-mod compiler;
+pub mod compiler;
 #[cfg(test)]
 mod fuzz;
 mod instruction;
 mod machine;
+/// WS-F representation overhaul: the narrow (8-byte) NaN-boxed register-file
+/// value (see the module docs). Under `feature = "narrow-value"` it backs
+/// [`value::Value`] and the VM register file; the default build keeps the fat
+/// `RuntimeValue` path, so the scalar accessors/arith here are exercised only by
+/// the in-module tests then. `allow(dead_code)` keeps the default build quiet
+/// about the methods only the narrow path calls.
+#[cfg_attr(not(feature = "narrow-value"), allow(dead_code))]
+mod nanbox;
 mod native_tier;
 mod value;
 
@@ -17,7 +25,10 @@ pub use compiler::Compiler;
 pub use instruction::{CompiledProgram, Constant, Op};
 pub use machine::Vm;
 pub use native_tier::{
-    install_native_tier, installed_native_tier, NativeFn, NativeTier, RegionFn,
+    install_native_tier, installed_native_tier, ArrayPin, CalleeSig, FnTable, HoistGuard, NativeCtx,
+    NativeFn,
+    NativeFrame, NativeOutcome, NativeRet, NativeTier, ObservedKind, ParamKind, PinElem,
+    RegBox, RegionFn, RegionOutcome, RegionReturn, RegionReturnKind, SlotKind,
     NATIVE_TIER_THRESHOLD, REGION_TIER_THRESHOLD,
 };
 pub use value::Value;
@@ -41,6 +52,19 @@ pub const MAX_REGISTER_FILE: usize = 1 << 20;
 /// entirely; tracked as future work.)
 pub const MAX_EXPR_DEPTH: usize = 64;
 
+/// Shannon entropy of a two-outcome branch profile, in bits (EXODIA 3.3).
+/// 0.0 = perfectly predictable (the hardware branch predictor wins; Tier-1
+/// code is fine), 1.0 = a coin flip (Tier-2 should restructure the branch
+/// away). Zero samples are zero entropy.
+pub fn branch_entropy(taken: u64, not_taken: u64) -> f64 {
+    let total = taken + not_taken;
+    if total == 0 || taken == 0 || not_taken == 0 {
+        return 0.0;
+    }
+    let p = taken as f64 / total as f64;
+    -(p * p.log2() + (1.0 - p) * (1.0 - p).log2())
+}
+
 /// Compile a statement block to bytecode and run it, returning captured output.
 pub fn compile_and_run(stmts: &[Stmt], interner: &Interner) -> Result<String, String> {
     let program = Compiler::compile(stmts, interner)?;
@@ -62,13 +86,49 @@ pub fn run_to_outcome(
     types: Option<&crate::analysis::TypeRegistry>,
     policies: Option<&crate::analysis::PolicyRegistry>,
 ) -> (String, Option<String>) {
-    let program = match Compiler::compile_with_types(stmts, interner, types) {
+    let oracle = crate::optimize::oracle_analyze_with(stmts, interner);
+    let program = match Compiler::compile_with_oracle(stmts, interner, types, Some(oracle)) {
         Ok(p) => p,
         Err(e) => return (String::new(), Some(e)),
     };
     let mut vm = Vm::new(&program);
     if let Some(tier) = installed_native_tier() {
         vm = vm.with_native_tier(tier);
+    }
+    if let Some(registry) = policies {
+        vm = vm.with_policy_ctx(registry, interner);
+    }
+    match vm.run() {
+        Ok(()) => (vm.output().to_string(), None),
+        Err(e) => (vm.output().to_string(), Some(e)),
+    }
+}
+
+/// [`run_to_outcome`] with the program argument vector for the `args()`
+/// system native (full argv; index 0 is the program name) and an optional
+/// caller-supplied native tier. A `Some(tier)` overrides the process-wide
+/// installed tier — differential suites use a private tier per program so
+/// its compile counters are isolated from every other test in the binary.
+pub fn run_to_outcome_with_args(
+    stmts: &[Stmt],
+    interner: &Interner,
+    types: Option<&crate::analysis::TypeRegistry>,
+    policies: Option<&crate::analysis::PolicyRegistry>,
+    program_args: &[String],
+    tier: Option<&dyn NativeTier>,
+) -> (String, Option<String>) {
+    let oracle = crate::optimize::oracle_analyze_with(stmts, interner);
+    let program = match Compiler::compile_with_oracle(stmts, interner, types, Some(oracle)) {
+        Ok(p) => p,
+        Err(e) => return (String::new(), Some(e)),
+    };
+    let mut vm = Vm::new(&program).with_program_args(program_args.to_vec());
+    let chosen: Option<&dyn NativeTier> = match tier {
+        Some(t) => Some(t),
+        None => installed_native_tier().map(|t| t as &dyn NativeTier),
+    };
+    if let Some(t) = chosen {
+        vm = vm.with_native_tier(t);
     }
     if let Some(registry) = policies {
         vm = vm.with_policy_ctx(registry, interner);
@@ -1980,6 +2040,14 @@ mod tests {
         // of crashing the host. The tree-walker's SYNC path burns many native
         // frames per LOGOS call, so this runs on a big-stack thread (debug
         // frames are huge; release frames fit a normal stack at depth 1000).
+        //
+        // The recursion is deliberately NON-tail (`spin(n+1) - 1`): the call's
+        // result feeds a subtraction, so it is not in tail position and is NOT
+        // tail-call-optimized on any tier. (A direct `return spin(n+1)` is a
+        // self-tail-call and would run in constant stack forever — TCO is a
+        // language semantic here, covered by the `tco` differential tests.)
+        // Subtraction also dodges the AOT accumulator transform, which only
+        // strength-reduces `+`/`*`, so this stays unbounded recursion everywhere.
         std::thread::Builder::new()
             .stack_size(256 * 1024 * 1024)
             .spawn(|| {
@@ -1991,10 +2059,15 @@ mod tests {
                 let n = it.intern("n");
                 let x = it.intern("x");
                 let int_ty = ta.alloc(TypeExpr::Primitive(it.intern("Int")));
-                let body: &[Stmt] = sa.alloc_slice(vec![ret(calle(
+                let body: &[Stmt] = sa.alloc_slice(vec![ret(bin(
                     &ea,
-                    spin,
-                    vec![bin(&ea, BinaryOpKind::Add, idref(&ea, n), num(&ea, 1))],
+                    BinaryOpKind::Subtract,
+                    calle(
+                        &ea,
+                        spin,
+                        vec![bin(&ea, BinaryOpKind::Add, idref(&ea, n), num(&ea, 1))],
+                    ),
+                    num(&ea, 1),
                 ))]);
                 let stmts = vec![
                     fndef(spin, vec![(n, int_ty)], body),
@@ -2791,6 +2864,11 @@ mod tests {
         // (1M) near depth ~350 — well before the 1000 call-depth limit. The
         // VM must error, not consume unbounded memory. (VM-only: the
         // tree-walker would blow the native stack on this program.)
+        //
+        // The recursion is NON-tail (`spin(n+1) - 1`): a direct `return spin(n+1)`
+        // is a self-tail-call and TCO loops it in constant stack (one frame, no
+        // register growth), so it would never hit the cap. The `- 1` keeps the
+        // call out of tail position so real frames accumulate.
         let ea: Arena<Expr> = Arena::new();
         let sa: Arena<Stmt> = Arena::new();
         let ta: Arena<TypeExpr> = Arena::new();
@@ -2806,10 +2884,11 @@ mod tests {
         let cond = bin(&ea, BinaryOpKind::GtEq, idref(&ea, n), num(&ea, 900));
         let wide: Vec<&Expr> = (0..3000).map(|_| num(&ea, 0)).collect();
         let rec = calle(&ea, spin, vec![bin(&ea, BinaryOpKind::Add, idref(&ea, n), num(&ea, 1))]);
+        let rec_nontail = bin(&ea, BinaryOpKind::Subtract, rec, num(&ea, 1));
         let body: &[Stmt] = sa.alloc_slice(vec![
             Stmt::If { cond, then_block: then_blk, else_block: None },
             letb(big, list_lit(&ea, wide)),
-            ret(rec),
+            ret(rec_nontail),
         ]);
         let stmts = vec![
             fndef(spin, vec![(n, int_ty)], body),

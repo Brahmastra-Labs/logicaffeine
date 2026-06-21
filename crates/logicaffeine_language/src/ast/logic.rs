@@ -279,7 +279,7 @@ pub enum VoiceOperator {
 ///
 /// Captures the internal structure of noun phrases including determiners,
 /// modifiers, and possessives for correct semantic composition.
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy)]
 pub struct NounPhrase<'a> {
     /// Definiteness: the (definite), a/an (indefinite), or bare (none).
     pub definiteness: Option<Definiteness>,

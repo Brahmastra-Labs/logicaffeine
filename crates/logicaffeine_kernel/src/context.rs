@@ -5,6 +5,7 @@
 
 use crate::term::Term;
 use std::collections::HashMap;
+use std::sync::Arc;
 
 /// Typing context: maps variable names to their types.
 ///
@@ -17,31 +18,39 @@ use std::collections::HashMap;
 /// - Declarations (e.g., hypotheses like h1 : P -> Q)
 #[derive(Debug, Clone, Default)]
 pub struct Context {
-    /// Local variable bindings (from λ and Π)
-    bindings: HashMap<String, Term>,
+    /// Local variable bindings (from λ and Π) — the only part that grows during type
+    /// inference (one entry per enclosing binder). The context is `extend`ed (cloned) at
+    /// every binder, so the binding TYPES are shared behind `Arc`: cloning the map copies
+    /// pointers, not whole proposition types.
+    bindings: HashMap<String, Arc<Term>>,
 
+    /// The global environment below is FIXED during inference but the context is
+    /// `extend`ed (cloned) at every λ/Π. Sharing it behind `Rc` makes that clone O(1)
+    /// instead of deep-copying every premise type — the difference between linear and
+    /// quadratic checking of a large certified proof.
+    ///
     /// Inductive type definitions: name -> sort (e.g., "Nat" -> Type 0)
-    inductives: HashMap<String, Term>,
+    inductives: Arc<HashMap<String, Term>>,
 
     /// Constructor definitions: name -> (inductive_name, type)
-    constructors: HashMap<String, (String, Term)>,
+    constructors: Arc<HashMap<String, (String, Term)>>,
 
     /// Order of constructor registration per inductive.
     /// HashMap doesn't preserve insertion order, so we track it explicitly.
-    constructor_order: HashMap<String, Vec<String>>,
+    constructor_order: Arc<HashMap<String, Vec<String>>>,
 
     /// Declaration bindings (axioms/hypotheses): name -> type
     /// Used for certifying proofs where hypotheses are assumed.
-    declarations: HashMap<String, Term>,
+    declarations: Arc<HashMap<String, Term>>,
 
     /// Definition bodies: name -> (type, body)
     /// Definitions are transparent - they unfold during normalization.
     /// Distinguished from declarations (axioms) which have no body.
-    definitions: HashMap<String, (Term, Term)>,
+    definitions: Arc<HashMap<String, (Term, Term)>>,
 
     /// Hint database: theorem names marked as hints for auto tactic.
     /// When auto fails with decision procedures, it tries to apply these hints.
-    hints: Vec<String>,
+    hints: Arc<Vec<String>>,
 }
 
 impl Context {
@@ -49,23 +58,23 @@ impl Context {
     pub fn new() -> Self {
         Context {
             bindings: HashMap::new(),
-            inductives: HashMap::new(),
-            constructors: HashMap::new(),
-            constructor_order: HashMap::new(),
-            declarations: HashMap::new(),
-            definitions: HashMap::new(),
-            hints: Vec::new(),
+            inductives: Arc::new(HashMap::new()),
+            constructors: Arc::new(HashMap::new()),
+            constructor_order: Arc::new(HashMap::new()),
+            declarations: Arc::new(HashMap::new()),
+            definitions: Arc::new(HashMap::new()),
+            hints: Arc::new(Vec::new()),
         }
     }
 
     /// Add a local binding to this context (mutates in place).
     pub fn add(&mut self, name: &str, ty: Term) {
-        self.bindings.insert(name.to_string(), ty);
+        self.bindings.insert(name.to_string(), Arc::new(ty));
     }
 
     /// Look up a local variable's type in the context.
     pub fn get(&self, name: &str) -> Option<&Term> {
-        self.bindings.get(name)
+        self.bindings.get(name).map(|t| t.as_ref())
     }
 
     /// Create a new context extended with an additional local binding.
@@ -81,7 +90,7 @@ impl Context {
     ///
     /// The `sort` is the type of the inductive (e.g., Type 0 for Nat).
     pub fn add_inductive(&mut self, name: &str, sort: Term) {
-        self.inductives.insert(name.to_string(), sort);
+        Arc::make_mut(&mut self.inductives).insert(name.to_string(), sort);
     }
 
     /// Register a constructor for an inductive type.
@@ -91,11 +100,11 @@ impl Context {
     ///
     /// Constructors are tracked in registration order for match expressions.
     pub fn add_constructor(&mut self, name: &str, inductive: &str, ty: Term) {
-        self.constructors
+        Arc::make_mut(&mut self.constructors)
             .insert(name.to_string(), (inductive.to_string(), ty));
 
         // Track constructor order for this inductive
-        self.constructor_order
+        Arc::make_mut(&mut self.constructor_order)
             .entry(inductive.to_string())
             .or_default()
             .push(name.to_string());
@@ -106,7 +115,7 @@ impl Context {
     /// Used for proof certification where hypotheses are assumed.
     /// Example: h1 : P -> Q
     pub fn add_declaration(&mut self, name: &str, ty: Term) {
-        self.declarations.insert(name.to_string(), ty);
+        Arc::make_mut(&mut self.declarations).insert(name.to_string(), ty);
     }
 
     /// Register a definition: name : type := body
@@ -114,7 +123,7 @@ impl Context {
     /// Definitions are transparent and unfold during normalization (delta reduction).
     /// This distinguishes them from declarations (axioms) which have no body.
     pub fn add_definition(&mut self, name: String, ty: Term, body: Term) {
-        self.definitions.insert(name, (ty, body));
+        Arc::make_mut(&mut self.definitions).insert(name, (ty, body));
     }
 
     /// Look up a global definition (inductive, constructor, definition, or declaration).
@@ -236,7 +245,7 @@ impl Context {
     /// procedures fail. This allows auto to "learn" from proven theorems.
     pub fn add_hint(&mut self, name: &str) {
         if !self.hints.contains(&name.to_string()) {
-            self.hints.push(name.to_string());
+            Arc::make_mut(&mut self.hints).push(name.to_string());
         }
     }
 

@@ -75,15 +75,48 @@ struct Piece {
 #[derive(Default)]
 pub struct JitBuffer {
     pieces: Vec<Piece>,
+    patch_marks: Vec<(usize, u8)>,
 }
 
 /// A finished, executable chain.
 #[derive(Debug)]
 pub struct JitChain {
     page: JitPage,
+    pieces: usize,
+    /// Literal-pool offsets awaiting the post-finish self-entry patch.
+    patch_slots: Vec<usize>,
 }
 
 impl JitChain {
+    /// Wrap a finished, self-contained block of machine code (no stencil
+    /// pieces, no post-seal patch slots) as a runnable chain. The contiguous
+    /// register-allocated region backend (`compile_region_regalloc`) emits its
+    /// whole function as one such block, then runs it through the SAME
+    /// `run_with_frame` ABI as a stencil chain.
+    ///
+    /// `pieces` is the logical op count (diagnostics only); the executable is
+    /// one contiguous function regardless.
+    pub fn from_code(code: &[u8], pieces: usize) -> Result<JitChain, crate::JitError> {
+        let page = JitPage::new(code)?;
+        Ok(JitChain { page, pieces, patch_slots: Vec::new() })
+    }
+
+    /// Write `value` into every marked literal-pool slot (the self-call
+    /// entry address, known only after layout). Errs on targets without
+    /// post-seal patching (Apple Silicon MAP_JIT) — callers fall back to
+    /// the table-indirect call.
+    pub fn patch_marked(&self, value: u64) -> Result<(), crate::JitError> {
+        for &slot in &self.patch_slots {
+            self.page.patch_word(slot, value)?;
+        }
+        Ok(())
+    }
+
+    /// Whether any slots await the self-entry patch.
+    pub fn has_patch_marks(&self) -> bool {
+        !self.patch_slots.is_empty()
+    }
+
     /// The CPS entry point: `fn(base, sp) -> i64` — `base` is the frame (the
     /// compiled function's register slots), `sp` the operand-stack top.
     ///
@@ -91,8 +124,13 @@ impl JitChain {
     /// `base` must point at a frame at least as large as every patched slot
     /// index; `sp` must point into an operand stack with capacity for the
     /// chain's pushes; the page must outlive every call.
-    pub unsafe fn entry(&self) -> unsafe extern "C" fn(*mut i64, *mut i64) -> i64 {
-        std::mem::transmute::<*const u8, unsafe extern "C" fn(*mut i64, *mut i64) -> i64>(
+    pub unsafe fn entry(
+        &self,
+    ) -> unsafe extern "C" fn(*mut i64, *mut i64, i64, i64, i64, i64, f64, f64, f64, f64, f64, f64) -> i64 {
+        std::mem::transmute::<
+            *const u8,
+            unsafe extern "C" fn(*mut i64, *mut i64, i64, i64, i64, i64, f64, f64, f64, f64, f64, f64) -> i64,
+        >(
             self.page.as_ptr(),
         )
     }
@@ -105,9 +143,40 @@ impl JitChain {
 
     /// Run the chain over the given frame (slot 0 = VM register 0, …), with a
     /// fresh operand stack. The frame is read AND written by slot stencils.
+    ///
+    /// `LOGOS_JIT_CANARY=1` guards the operand stack with a sentinel canary
+    /// past its end: any stencil that pushes beyond the 256-slot stack (a
+    /// pc/sp miscompile) trips it loudly at the source instead of silently
+    /// corrupting adjacent memory. It is env-gated rather than always-on
+    /// because this runs per chain — millions of times for hot recursion —
+    /// so the default (and every release build) pays nothing.
     pub fn run_with_frame(&self, frame: &mut [i64]) -> i64 {
-        let mut stack = vec![0i64; 256];
-        unsafe { (self.entry())(frame.as_mut_ptr(), stack.as_mut_ptr()) }
+        const STACK: usize = 256;
+        const CANARY: usize = 64;
+        const SENTINEL: i64 = 0x5151_5151_5151_5151u64 as i64;
+        if jit_canary_enabled() {
+            let mut stack = vec![0i64; STACK + CANARY];
+            for c in &mut stack[STACK..] {
+                *c = SENTINEL;
+            }
+            let r = unsafe {
+                (self.entry())(frame.as_mut_ptr(), stack.as_mut_ptr(), 0, 0, 0, 0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0)
+            };
+            for (k, c) in stack[STACK..].iter().enumerate() {
+                assert_eq!(
+                    *c, SENTINEL,
+                    "OPERAND STACK OVERFLOW: canary slot {k} (stack base + {}) clobbered",
+                    STACK + k
+                );
+            }
+            return r;
+        }
+        let mut stack = vec![0i64; STACK];
+        // Threaded registers enter zeroed; a pinned chain's prologue
+        // reloads them from the frame before any use.
+        unsafe {
+            (self.entry())(frame.as_mut_ptr(), stack.as_mut_ptr(), 0, 0, 0, 0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0)
+        }
     }
 
     /// The mapped code+pool bytes (diagnostics/tests).
@@ -119,6 +188,19 @@ impl JitChain {
     pub fn base(&self) -> u64 {
         self.page.as_ptr() as u64
     }
+
+    /// How many stencil pieces were glued (diagnostics/tests — the
+    /// tail-jump economics of a lowering).
+    pub fn piece_count(&self) -> usize {
+        self.pieces
+    }
+}
+
+/// Whether `LOGOS_JIT_CANARY=1` armed the operand-stack / region-frame
+/// sentinel guards (read once; the per-chain path stays branch-cheap).
+pub fn jit_canary_enabled() -> bool {
+    static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *ON.get_or_init(|| std::env::var("LOGOS_JIT_CANARY").is_ok_and(|v| v == "1"))
 }
 
 const PIECE_ALIGN: usize = 16;
@@ -136,6 +218,19 @@ impl JitBuffer {
 
     /// Append a stencil instance; the returned [`Label`] is its address for
     /// continuation holes (including back-edges to earlier pieces).
+    /// Mark hole `n` of the LAST pushed piece for post-finish patching
+    /// (the self-call entry slot).
+    pub fn mark_patch_hole(&mut self, hole_n: u8) {
+        let pi = self.pieces.len().checked_sub(1).expect("mark after a push");
+        self.patch_marks.push((pi, hole_n));
+    }
+
+    /// How many stencil pieces have been pushed so far (the index the next
+    /// `push_stencil` will occupy). Used to assert PASS-1/PASS-2 agreement.
+    pub fn pieces_pushed(&self) -> usize {
+        self.pieces.len()
+    }
+
     pub fn push_stencil(&mut self, stencil: &'static Stencil, holes: &[HoleValue]) -> Label {
         self.pieces.push(Piece { stencil, holes: holes.to_vec() });
         Label(self.pieces.len() - 1)
@@ -174,7 +269,7 @@ impl JitBuffer {
         let mut slot_cursor = align_up(cursor, SLOT_SIZE);
 
         for (pi, piece) in self.pieces.iter().enumerate() {
-            let mut per_hole: Vec<Option<usize>> = vec![None; 8];
+            let mut per_hole: Vec<Option<usize>> = vec![None; 9];
             for hv in &piece.holes {
                 if let HoleValue::Const(n, _) = hv {
                     if per_hole[*n as usize].is_none() {
@@ -220,6 +315,7 @@ impl JitBuffer {
         }
 
         let pieces = self.pieces;
+        let patch_marks = self.patch_marks;
         let mut patch_err: Option<BufferError> = None;
         let page = JitPage::with_layout(total_len, |base| {
             let mut buf = vec![0u8; total_len];
@@ -310,6 +406,12 @@ impl JitBuffer {
         if let Some(e) = patch_err {
             return Err(e);
         }
-        Ok(JitChain { page })
+        let patch_slots: Vec<usize> = patch_marks
+            .iter()
+            .map(|&(pi, n)| {
+                value_slot[pi][n as usize].expect("marked hole has a const value slot")
+            })
+            .collect();
+        Ok(JitChain { page, pieces: pieces.len(), patch_slots })
     }
 }

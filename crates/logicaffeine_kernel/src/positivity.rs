@@ -51,26 +51,20 @@ fn check_strictly_positive(inductive: &str, constructor: &str, ty: &Term) -> Ker
             body_type,
             ..
         } => {
-            // Check the parameter type A
-            // If A = I directly, it's a recursive argument (allowed)
-            // Otherwise, I must not occur in A at all (checked via occurs_in)
-            match param_type.as_ref() {
-                Term::Global(name) if name == inductive => {
-                    // Direct recursive argument - allowed
-                }
-                _ => {
-                    // A is not directly I, so I must not occur anywhere in A
-                    if occurs_in(inductive, param_type) {
-                        return Err(KernelError::PositivityViolation {
-                            inductive: inductive.to_string(),
-                            constructor: constructor.to_string(),
-                            reason: format!(
-                                "'{}' occurs in negative position (inside parameter type)",
-                                inductive
-                            ),
-                        });
-                    }
-                }
+            // Check the parameter type A.
+            // If A is a recursive argument (`I` applied to its parameters, with
+            // `I` not occurring in the arguments — `I`, `I a`, `List A`, …), it
+            // is a strictly-positive recursive occurrence (allowed). Otherwise
+            // `I` must not occur in A at all.
+            if !is_recursive_arg(inductive, param_type) && occurs_in(inductive, param_type) {
+                return Err(KernelError::PositivityViolation {
+                    inductive: inductive.to_string(),
+                    constructor: constructor.to_string(),
+                    reason: format!(
+                        "'{}' occurs in negative position (inside parameter type)",
+                        inductive
+                    ),
+                });
             }
 
             // Recursively check the body type B
@@ -88,20 +82,15 @@ fn check_strictly_positive(inductive: &str, constructor: &str, ty: &Term) -> Ker
             param_type, body, ..
         } => {
             // Same rule as Pi for param_type
-            match param_type.as_ref() {
-                Term::Global(name) if name == inductive => {}
-                _ => {
-                    if occurs_in(inductive, param_type) {
-                        return Err(KernelError::PositivityViolation {
-                            inductive: inductive.to_string(),
-                            constructor: constructor.to_string(),
-                            reason: format!(
-                                "'{}' occurs in negative position (inside lambda parameter)",
-                                inductive
-                            ),
-                        });
-                    }
-                }
+            if !is_recursive_arg(inductive, param_type) && occurs_in(inductive, param_type) {
+                return Err(KernelError::PositivityViolation {
+                    inductive: inductive.to_string(),
+                    constructor: constructor.to_string(),
+                    reason: format!(
+                        "'{}' occurs in negative position (inside lambda parameter)",
+                        inductive
+                    ),
+                });
             }
             check_strictly_positive(inductive, constructor, body)
         }
@@ -132,6 +121,23 @@ fn check_strictly_positive(inductive: &str, constructor: &str, ty: &Term) -> Ker
         // Hole: type placeholder, no occurrences to check
         Term::Hole => Ok(()),
     }
+}
+
+/// True if `term` is a strictly-positive recursive occurrence of `inductive`:
+/// the inductive applied to zero or more arguments (`I`, `I a`, `List A B`, …)
+/// where `inductive` does not itself occur in any of those arguments. This is
+/// the "recursive argument" form a constructor parameter may legitimately take;
+/// a PARAMETERIZED inductive's recursive field is `I` applied to its parameters
+/// (`MyList A`), not the bare global `I`.
+fn is_recursive_arg(inductive: &str, term: &Term) -> bool {
+    let mut head = term;
+    let mut args: Vec<&Term> = Vec::new();
+    while let Term::App(func, arg) = head {
+        args.push(arg.as_ref());
+        head = func.as_ref();
+    }
+    matches!(head, Term::Global(name) if name == inductive)
+        && args.iter().all(|a| !occurs_in(inductive, a))
 }
 
 /// Check if the inductive name occurs anywhere in the term.

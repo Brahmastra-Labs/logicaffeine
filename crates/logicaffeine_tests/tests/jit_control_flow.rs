@@ -6,7 +6,7 @@ fn run_both(ops: &[MicroOp], inputs: &[i64]) -> (i64, i64, Vec<i64>, Vec<i64>) {
     let chain = compile_straightline(ops).expect("compile");
     let mut jit_frame = vec![0i64; 64];
     jit_frame[..inputs.len()].copy_from_slice(inputs);
-    let jit = chain.run_with_frame(&mut jit_frame);
+    let jit = chain.run_with_frame(&mut jit_frame).expect_return();
 
     let mut ref_frame = vec![0i64; 64];
     ref_frame[..inputs.len()].copy_from_slice(inputs);
@@ -190,7 +190,7 @@ fn run_loop_fuzz(seeds: std::ops::Range<u64>) {
 
         let chain = compile_straightline(&ops).expect("compile");
         let mut jit_frame = vec![0i64; 64];
-        let jit = chain.run_with_frame(&mut jit_frame);
+        let jit = chain.run_with_frame(&mut jit_frame).expect_return();
 
         let mut ref_frame = vec![0i64; 64];
         let reference =

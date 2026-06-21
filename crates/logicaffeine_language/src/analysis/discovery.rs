@@ -258,7 +258,10 @@ impl<'a> DiscoveryPass<'a> {
     /// Phase 50: Parse a policy condition
     /// Handles: field comparisons, predicate references, and OR/AND combinators
     fn parse_policy_condition(&mut self, subject_type: Symbol, object_type: Option<Symbol>) -> PolicyCondition {
-        let first = self.parse_atomic_condition(subject_type, object_type);
+        // Left-fold the FULL n-ary chain. Returning after the first connective
+        // silently dropped every conjunct/disjunct past the second atom, making
+        // an AND-policy over-permissive and an OR-policy over-restrictive.
+        let mut acc = self.parse_atomic_condition(subject_type, object_type);
 
         // Check for OR/AND combinators
         loop {
@@ -283,7 +286,7 @@ impl<'a> DiscoveryPass<'a> {
                     self.advance();
                 }
                 let right = self.parse_atomic_condition(subject_type, object_type);
-                return PolicyCondition::And(Box::new(first), Box::new(right));
+                acc = PolicyCondition::And(Box::new(acc), Box::new(right));
             } else if self.check_word("OR") {
                 self.advance();
                 // Skip newlines after OR
@@ -291,13 +294,13 @@ impl<'a> DiscoveryPass<'a> {
                     self.advance();
                 }
                 let right = self.parse_atomic_condition(subject_type, object_type);
-                return PolicyCondition::Or(Box::new(first), Box::new(right));
+                acc = PolicyCondition::Or(Box::new(acc), Box::new(right));
             } else {
                 break;
             }
         }
 
-        first
+        acc
     }
 
     /// Phase 50: Parse an atomic condition

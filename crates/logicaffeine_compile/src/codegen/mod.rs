@@ -71,9 +71,17 @@ pub(crate) mod bindings;
 pub(crate) mod tce;
 pub(crate) mod marshal;
 pub(crate) mod peephole;
+pub(crate) mod hoist;
 pub(crate) mod stmt;
 pub(crate) mod expr;
 pub(crate) mod program;
+pub(crate) mod worklist;
+pub(crate) mod affine_array;
+pub(crate) mod narrow;
+pub(crate) mod i64_map;
+pub(crate) mod fast_div;
+pub(crate) mod entry_guard;
+pub(crate) mod strsearch;
 
 // ─── External API re-exports ────────────────────────────────────────────────
 // These preserve the public API used by compile.rs, ui_bridge.rs, and test files.
@@ -81,6 +89,7 @@ pub(crate) mod program;
 pub use context::{RefinementContext, VariableCapabilities, empty_var_caps};
 pub use detection::{collect_async_functions, collect_pipe_sender_params, collect_pipe_vars};
 pub use program::codegen_program;
+pub use hoist::force_disable_for_test as force_disable_borrow_hoist_for_test;
 pub use ffi::generate_c_header;
 pub use bindings::{generate_python_bindings, generate_typescript_bindings};
 pub use expr::{codegen_expr, codegen_assertion, codegen_term};
@@ -105,6 +114,7 @@ pub(crate) use expr::{
 pub(crate) use stmt::{get_root_identifier, is_copy_type, has_copy_element_type, has_copy_value_type};
 pub(crate) use peephole::{
     try_emit_for_range_pattern, try_emit_vec_fill_pattern, try_emit_swap_pattern,
+    try_emit_prefix_reverse,
     try_emit_seq_copy_pattern, try_emit_seq_from_slice_pattern,
     try_emit_bare_slice_push_pattern,
     try_emit_vec_with_capacity_pattern, try_emit_merge_capacity_pattern,

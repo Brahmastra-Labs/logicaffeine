@@ -17,6 +17,57 @@ use crate::intern::{Interner, Symbol};
 use super::instruction::{CompiledFunction, CompiledProgram, ConstIdx, Constant, FuncIdx, Op, Reg};
 use super::{MAX_EXPR_DEPTH, MAX_REGISTERS_PER_FRAME};
 
+/// Whether the W24 constant-divisor magic-reciprocal lowering is enabled.
+/// Default ON (it is bit-identical to `Op::Div`/`Op::Mod` for the proven
+/// non-negative dividend it gates on, validated by the corpus differential).
+/// `LOGOS_MAGIC_DIV=0` is the kill-switch — also the A/B handle for measuring
+/// the lever's effect on a quiet box. Read once.
+pub fn magic_div_enabled() -> bool {
+    static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *ON.get_or_init(|| std::env::var("LOGOS_MAGIC_DIV").map_or(true, |v| v != "0"))
+}
+
+/// Precompute the unsigned magic-reciprocal constants `(magic, more)` for a
+/// constant divisor `c` (`c != 0`), reusing the single canonical
+/// [`logicaffeine_data::LogosDivU64`] generator — the same algorithm the AOT
+/// `compile_to_rust` path emits, exhaustively proven against hardware `/`/`%`.
+/// The `more` byte encoding (low 6 bits = shift, `0x40` = the 65-bit add-marker
+/// path, `0x80` = the pure-shift power-of-two path) is exactly what
+/// [`magic_eval`] consumes.
+pub fn magic_u64_gen(c: u64) -> (u64, u8) {
+    logicaffeine_data::LogosDivU64::new(c).parts()
+}
+
+/// Evaluate the magic reciprocal: `x / c` when `mul_back == 0`, else `x % c`
+/// (`mul_back == c`). `x` is the dividend reinterpreted as `u64` — sound because
+/// the op is emitted ONLY for a proven non-negative `x`, where the i64 bit
+/// pattern equals the mathematical value and the unsigned quotient/remainder
+/// equal the signed truncating ones. The remainder is `x - q*c` computed in
+/// wrapping i64 (the low 64 bits agree with the u64 difference), bit-exact with
+/// the kernel's `wrapping_rem` for non-negative `x`.
+pub fn magic_eval(x: i64, magic: u64, more: u8, mul_back: i64) -> i64 {
+    const SHIFT_MASK: u8 = 0x3F;
+    const ADD_MARKER: u8 = 0x40;
+    const SHIFT_PATH: u8 = 0x80;
+    let n = x as u64;
+    let q = if more & SHIFT_PATH != 0 {
+        n >> (more & SHIFT_MASK)
+    } else {
+        let hi = (((magic as u128) * (n as u128)) >> 64) as u64;
+        if more & ADD_MARKER != 0 {
+            let t = (n.wrapping_sub(hi) >> 1).wrapping_add(hi);
+            t >> (more & SHIFT_MASK)
+        } else {
+            hi >> (more & SHIFT_MASK)
+        }
+    };
+    if mul_back == 0 {
+        q as i64
+    } else {
+        x.wrapping_sub((q as i64).wrapping_mul(mul_back))
+    }
+}
+
 /// Constant-pool dedup key. Floats are keyed by bit pattern so that distinct
 /// NaN payloads and -0.0/0.0 stay distinct pool entries.
 #[derive(Clone, PartialEq, Eq, Hash)]
@@ -50,6 +101,54 @@ fn const_key(c: &Constant) -> ConstKey {
     }
 }
 
+/// Which i64-slot kind a DECLARED scalar type compiles to, if any.
+fn slot_kind_of_type(
+    ty: &crate::ast::stmt::TypeExpr,
+    interner: &Interner,
+) -> Option<super::native_tier::SlotKind> {
+    use super::native_tier::SlotKind;
+    use crate::ast::stmt::TypeExpr;
+    match ty {
+        // Float reaches the AST as Named (the Primitive set is Int, Nat,
+        // Text, Bool) — accept the scalar names through either variant.
+        TypeExpr::Primitive(sym) | TypeExpr::Named(sym) => match interner.resolve(*sym) {
+            "Int" | "Nat" => Some(SlotKind::Int),
+            "Float" => Some(SlotKind::Float),
+            "Bool" => Some(SlotKind::Bool),
+            _ => None,
+        },
+        TypeExpr::Refinement { base, .. } => slot_kind_of_type(base, interner),
+        _ => None,
+    }
+}
+
+/// A DECLARED parameter's native representation: scalar slot or pinned
+/// `Seq of <scalar>`.
+fn param_kind_of_type(
+    ty: &crate::ast::stmt::TypeExpr,
+    interner: &Interner,
+) -> Option<super::native_tier::ParamKind> {
+    use super::native_tier::{ParamKind, PinElem, SlotKind};
+    use crate::ast::stmt::TypeExpr;
+    if let Some(k) = slot_kind_of_type(ty, interner) {
+        return Some(ParamKind::Scalar(k));
+    }
+    if let TypeExpr::Generic { base, params } = ty {
+        if interner.resolve(*base) == "Seq" && params.len() == 1 {
+            return match slot_kind_of_type(&params[0], interner) {
+                Some(SlotKind::Int) => Some(ParamKind::List(PinElem::Int)),
+                Some(SlotKind::Float) => Some(ParamKind::List(PinElem::Float)),
+                Some(SlotKind::Bool) => Some(ParamKind::List(PinElem::Bool)),
+                None => None,
+            };
+        }
+    }
+    if let TypeExpr::Refinement { base, .. } = ty {
+        return param_kind_of_type(base, interner);
+    }
+    None
+}
+
 pub struct Compiler<'i> {
     interner: &'i Interner,
     code: Vec<Op>,
@@ -67,6 +166,25 @@ pub struct Compiler<'i> {
     // tree-walker's execute_block undo-scope.
     scopes: Vec<HashMap<Symbol, Reg>>,
     next_reg: Reg,
+    /// Registers bound to a NAME (Let targets, params, loop variables,
+    /// captures) in any frame compiled so far. Everything else is a
+    /// statement-local scratch — dead at every statement boundary by the
+    /// allocator's recycling discipline. Snapshotted for Main into
+    /// `CompiledProgram::named_regs`, where the region JIT uses it to skip
+    /// write-back (and pre-state preservation) for scratch slots.
+    named: Vec<bool>,
+    /// Loop heads (back-edge target pcs) currently being compiled, outermost
+    /// first. Every `mark_named` while this is non-empty records the register as
+    /// a LOOP-LOCAL of each enclosing loop — bound inside a loop body, so it is
+    /// lexically dead the instant the loop exits (the scope is popped).
+    loop_stack: Vec<usize>,
+    /// `loop_locals[head]` = the registers bound inside the loop whose region
+    /// head is `head` (absolute pc). The region JIT subtracts these from the
+    /// write-back set: a slot dead at the loop exit must not be written back,
+    /// which is what lets copy-prop/CSE/fusion treat it as true scratch. Keyed
+    /// by absolute pc (Main and every function share one code array), valued by
+    /// the OWNING frame's register indices.
+    loop_locals: std::collections::HashMap<usize, Vec<bool>>,
     /// High-water mark of `next_reg` for the current frame — block scopes
     /// recycle registers, so the frame's true size is the maximum ever
     /// reached, not the final `next_reg`.
@@ -79,6 +197,14 @@ pub struct Compiler<'i> {
     // Whether we are compiling a function body (false ⇒ Main, where a
     // top-level Break/Return halts the program).
     in_function: bool,
+    /// Self-tail-call optimization context for the function currently being
+    /// compiled: `(name, entry_pc, param_count)`. A self-call in TAIL position
+    /// (`Return f(args)`, or a `Set/Let x = f(args)` immediately followed by
+    /// `Return x`) is lowered to "reassign params 0..param_count, jump to
+    /// entry_pc" instead of Call+Return — turning self-tail-recursion into a
+    /// loop (constant stack, no per-call frame round-trip). `None` outside any
+    /// function and for non-self / non-arity-matching calls.
+    tail_fn: Option<(Symbol, usize, u16)>,
     // Promoted globals: Main TOP-LEVEL Let names referenced from function or
     // closure bodies, with their slot in the runtime globals table.
     promoted: HashMap<Symbol, u16>,
@@ -86,6 +212,18 @@ pub struct Compiler<'i> {
     // frame registers — a captured-global access reads the snapshot when the
     // flag is set and the LIVE global otherwise (tree-walker fall-through).
     closure_ctx: Option<HashMap<Symbol, (Reg, Reg)>>,
+    /// Oracle range-analysis facts (M9) for the program being compiled.
+    /// Present only on the live run path; when set, an `Index` whose
+    /// `index_provably_in_bounds` holds is emitted as `IndexUnchecked`
+    /// (bounds-check elimination, V8/LLVM-style). Keyed on the AST `Expr`
+    /// pointers of THESE stmts, so the facts must be analyzed on the exact
+    /// snapshot being compiled.
+    oracle: Option<crate::optimize::OracleFacts>,
+    /// Per-enclosing-loop sets of arrays whose region-entry `RegionBoundsGuard`
+    /// was successfully emitted. A speculative access elides ONLY when its
+    /// array is in some enclosing frame — the compiler's half of the
+    /// elision ⟺ guard ⟺ VM-check invariant.
+    hoist_enabled: Vec<std::collections::HashSet<Symbol>>,
 }
 
 /// How a name resolves at a point in compilation.
@@ -123,6 +261,20 @@ impl<'i> Compiler<'i> {
         interner: &'i Interner,
         types: Option<&crate::analysis::TypeRegistry>,
     ) -> Result<CompiledProgram, String> {
+        Self::compile_with_oracle(stmts, interner, types, None)
+    }
+
+    /// Like [`compile_with_types`], plus the Oracle's range-analysis facts
+    /// (M9) for bounds-check elimination. The live run path computes these
+    /// on the exact (optimized) snapshot it then compiles, so an `Index`
+    /// proven in-bounds becomes `IndexUnchecked`. `None` ⇒ every index
+    /// stays checked (the codegen / test paths).
+    pub fn compile_with_oracle(
+        stmts: &[Stmt],
+        interner: &'i Interner,
+        types: Option<&crate::analysis::TypeRegistry>,
+        oracle: Option<crate::optimize::OracleFacts>,
+    ) -> Result<CompiledProgram, String> {
         let mut c = Compiler {
             interner,
             code: Vec::new(),
@@ -133,12 +285,18 @@ impl<'i> Compiler<'i> {
             struct_defs: HashMap::new(),
             scopes: vec![HashMap::new()],
             next_reg: 0,
+            named: Vec::new(),
+            loop_stack: Vec::new(),
+            loop_locals: std::collections::HashMap::new(),
             max_reg: 0,
             expr_depth: 0,
             flow_stack: Vec::new(),
+            tail_fn: None,
+            hoist_enabled: Vec::new(),
             in_function: false,
             promoted: HashMap::new(),
             closure_ctx: None,
+            oracle,
         };
 
         // Struct definitions from the type registry (mirrors the tree-walker's
@@ -170,7 +328,7 @@ impl<'i> Compiler<'i> {
             if let Stmt::StructDef { name, fields, .. } = s {
                 c.struct_defs.insert(*name, fields.clone());
             }
-            if let Stmt::FunctionDef { name, params, .. } = s {
+            if let Stmt::FunctionDef { name, params, return_type, .. } = s {
                 if c.fn_index.contains_key(name) {
                     return Err(format!("vm: function '{}' defined twice", interner.resolve(*name)));
                 }
@@ -183,6 +341,12 @@ impl<'i> Compiler<'i> {
                         .map_err(|_| "vm: too many parameters".to_string())?,
                     register_count: 0,
                     captures: Vec::new(),
+                    named_regs: Vec::new(),
+                    param_kinds: params
+                        .iter()
+                        .map(|(_, ty)| param_kind_of_type(ty, interner))
+                        .collect(),
+                    ret_kind: return_type.and_then(|ty| slot_kind_of_type(ty, interner)),
                 });
             }
         }
@@ -214,6 +378,8 @@ impl<'i> Compiler<'i> {
         }
         c.emit(Op::Halt);
         let main_regs = c.max_reg as usize;
+        let mut named_regs = c.named.clone();
+        named_regs.resize(main_regs, false);
 
         // Pass 2b: compile each function body, recording its entry point.
         for s in stmts {
@@ -222,19 +388,50 @@ impl<'i> Compiler<'i> {
                 let entry_pc = c.code.len();
                 c.begin_scope();
                 c.in_function = true;
+                c.named.clear();
                 for (i, (psym, _ty)) in params.iter().enumerate() {
                     c.scopes.last_mut().unwrap().insert(*psym, i as Reg);
+                    c.mark_named(i as Reg);
                 }
                 c.next_reg = params.len() as Reg;
+                // Parameters occupy registers 0..n even when the body
+                // allocates no temps — register_count must cover them or
+                // the native frame's limit slot aliases a parameter.
+                c.max_reg = c.max_reg.max(c.next_reg);
                 debug_assert!(params.len() <= MAX_REGISTERS_PER_FRAME);
-                for st in *body {
-                    c.compile_stmt(st)?;
+                c.tail_fn = Some((*name, entry_pc, params.len() as u16));
+                let body_slice: &[Stmt] = body;
+                let mut bk = 0;
+                while bk < body_slice.len() {
+                    // TAIL-CALL PAIR: `Set/Let x = self(args)` immediately
+                    // followed by `Return x` is a self-tail-call (x is returned,
+                    // never read after) — lower it to the loop-back instead of
+                    // call+return. A direct `Return self(args)` is handled in the
+                    // Return arm of compile_stmt (a Return is inherently tail).
+                    if bk + 1 < body_slice.len() {
+                        if let Some(args) = crate::tail_call::tail_pair_args(
+                            &body_slice[bk],
+                            &body_slice[bk + 1],
+                            *name,
+                            params.len(),
+                        ) {
+                            c.emit_tail_call(args, entry_pc, params.len() as u16)?;
+                            bk += 2;
+                            continue;
+                        }
+                    }
+                    c.compile_stmt(&body_slice[bk])?;
+                    bk += 1;
                 }
+                c.tail_fn = None;
                 // Fall off the end → return nothing.
                 c.emit(Op::ReturnNothing);
                 let f = &mut c.functions[idx as usize];
                 f.entry_pc = entry_pc;
                 f.register_count = c.max_reg as usize;
+                let mut fnamed = c.named.clone();
+                fnamed.resize(f.register_count, false);
+                f.named_regs = fnamed;
             }
         }
 
@@ -245,6 +442,8 @@ impl<'i> Compiler<'i> {
             functions: c.functions,
             fn_index: c.fn_index,
             globals: global_names,
+            named_regs,
+            loop_locals: c.loop_locals,
         })
     }
 
@@ -271,6 +470,147 @@ impl<'i> Compiler<'i> {
     /// Resolve a name through the enclosing block scopes (innermost first).
     fn lookup_local(&self, sym: Symbol) -> Option<Reg> {
         self.scopes.iter().rev().find_map(|s| s.get(&sym).copied())
+    }
+
+    /// Is `sym`'s region-entry bounds guard active in some enclosing loop?
+    fn is_hoist_enabled(&self, sym: Symbol) -> bool {
+        self.hoist_enabled.iter().any(|s| s.contains(&sym))
+    }
+
+    /// Should `item index of collection` be emitted UNCHECKED? Either the
+    /// Oracle proved it statically, or it is speculatively in bounds AND its
+    /// array's region-entry guard was emitted for an enclosing loop (so the VM
+    /// verifies it before any unchecked native access runs).
+    fn index_in_bounds(&self, collection: &Expr, index: &Expr) -> bool {
+        let Some(o) = self.oracle.as_ref() else { return false };
+        if o.index_provably_in_bounds(collection, index) {
+            // A symbolic `% m` element-bound elision carries a `m >= 1`
+            // precondition the AOT discharges with a preheader `assert!`. The VM
+            // emits no such guard, so it KEEPS the runtime check (it is the safe
+            // reference, and `largo run` is not the benchmark path) rather than
+            // risk an unchecked native access when `m <= 0`.
+            return o.index_positivity_guards(index).is_empty();
+        }
+        o.index_is_speculative(index)
+            && matches!(collection, Expr::Identifier(s) if self.is_hoist_enabled(*s))
+    }
+
+    /// `x / 2^k` where the divisor is a literal power of two and the Oracle
+    /// proves the dividend is `Int` → the shift amount `k` (`1..=62`), else
+    /// `None`. Type-safety is the crux: `Op::Div` dispatches int/float at
+    /// runtime on the dividend, so lowering to a shift is sound ONLY for an
+    /// integer dividend. The literal divisor is visible here pre-hoist, so this
+    /// fires for loop-invariant divisors the JIT's in-region detector misses.
+    fn divpow2_shift(&self, left: &Expr, right: &Expr) -> Option<u32> {
+        let Expr::Literal(Literal::Number(d)) = right else { return None };
+        let d = *d;
+        if d < 2 || (d & (d - 1)) != 0 {
+            return None;
+        }
+        let k = d.trailing_zeros();
+        if !(1..=62).contains(&k) {
+            return None;
+        }
+        if self.oracle.as_ref()?.expr_scalar(left)? != crate::optimize::ScalarKind::Int {
+            return None;
+        }
+        Some(k)
+    }
+
+    /// `x % 2^k` where the divisor is a literal power of two AND the Oracle
+    /// proves the dividend is `Int` and NON-NEGATIVE → the low-bit mask
+    /// `2^k - 1`, else `None`. On a two's-complement i64 the truncated
+    /// remainder agrees with `x & (2^k - 1)` only when `x >= 0` (the sign of
+    /// `x % m` follows the dividend, so `(-1) % 8 == -1 != 7 == (-1) & 7`); the
+    /// non-negativity gate is the SOUNDNESS condition — exactly the gate the AOT
+    /// e-graph's `mod-pow2-and` rule applies. The literal divisor is visible
+    /// here pre-hoist, so this fires for loop-invariant moduli the JIT's
+    /// in-region detector misses (histogram's `% 2^31` LCG feedback). The win:
+    /// a register-form `AndEager` (1-cycle AND, which the JIT lowers to a
+    /// `BitAnd` stencil) instead of `Op::Mod`'s idiv on BOTH the VM and JIT.
+    fn modpow2_mask(&self, left: &Expr, right: &Expr) -> Option<i64> {
+        let Expr::Literal(Literal::Number(d)) = right else { return None };
+        let d = *d;
+        if d < 2 || (d & (d - 1)) != 0 {
+            return None;
+        }
+        let k = d.trailing_zeros();
+        if !(1..=62).contains(&k) {
+            return None;
+        }
+        let oracle = self.oracle.as_ref()?;
+        if oracle.expr_scalar(left)? != crate::optimize::ScalarKind::Int {
+            return None;
+        }
+        if !oracle.expr_proven_nonneg(left) {
+            return None;
+        }
+        Some(d - 1)
+    }
+
+    /// `x / c` or `x % c` where the divisor is a literal constant `c > 0` that is
+    /// NOT a power of two (W5's `divpow2_shift`/`modpow2_mask` own powers of two)
+    /// AND the Oracle proves `x` is `Int` and NON-NEGATIVE → the precomputed
+    /// `(magic, more)` for the unsigned magic-reciprocal sequence, else `None`.
+    ///
+    /// SOUNDNESS — the unsigned magic equals the signed truncating `/`/`%` only
+    /// for a non-negative dividend: `x.wrapping_div(c)` / `x.wrapping_rem(c)`
+    /// equal `(x as u64) / c` / `(x as u64) % c` exactly when `x >= 0` and
+    /// `c > 0` (both operands non-negative, no overflow edge — `c` is a literal
+    /// `> 0` so `MIN/-1` is impossible). For `x < 0` the signs disagree, so the
+    /// non-negativity gate is the soundness condition — exactly the gate
+    /// `modpow2_mask` and the AOT `fast_div` lever apply. The literal divisor is
+    /// visible here pre-hoist, so this fires for loop-invariant moduli the JIT's
+    /// in-region detector misses (matrix's `% 1000000007`, histogram's `% 1000`).
+    fn magic_div_const(&self, left: &Expr, right: &Expr) -> Option<(u64, u8)> {
+        if !magic_div_enabled() {
+            return None;
+        }
+        let Expr::Literal(Literal::Number(d)) = right else { return None };
+        let d = *d;
+        // `c > 0` and NOT a power of two (pow2 is W5's AND/shift territory).
+        if d < 2 || (d & (d - 1)) == 0 {
+            return None;
+        }
+        let oracle = self.oracle.as_ref()?;
+        if oracle.expr_scalar(left)? != crate::optimize::ScalarKind::Int {
+            return None;
+        }
+        if !oracle.expr_proven_nonneg(left) {
+            return None;
+        }
+        Some(magic_u64_gen(d as u64))
+    }
+
+    /// Emit `RegionBoundsGuard` for each hoist descriptor the Oracle recorded
+    /// for the loop `stmt`, returning the set of arrays whose guard was
+    /// emitted (only those are then eligible for speculative elision). All
+    /// three symbols must resolve to local registers, and the loop must read
+    /// the array's length nowhere stale — guaranteed by the Oracle's analysis.
+    fn emit_hoist_guards(&mut self, stmt: &Stmt) -> std::collections::HashSet<Symbol> {
+        let mut enabled = std::collections::HashSet::new();
+        let Some(oracle) = self.oracle.as_ref() else { return enabled };
+        let descs = oracle
+            .hoist_descs_for(stmt as *const Stmt as usize)
+            .to_vec();
+        for d in descs {
+            let (Some(array), Some(bound), Some(iv)) = (
+                self.lookup_local(d.array),
+                self.lookup_local(d.bound),
+                self.lookup_local(d.iv),
+            ) else {
+                continue;
+            };
+            self.emit(Op::RegionBoundsGuard {
+                array,
+                bound,
+                iv,
+                add_max: d.add_max,
+                add_min: d.add_min,
+            });
+            enabled.insert(d.array);
+        }
+        enabled
     }
 
     /// Emit the runtime "Undefined variable" failure — unbound names are a
@@ -371,6 +711,33 @@ impl<'i> Compiler<'i> {
         self.reserve_regs(1)
     }
 
+    /// Emit a self-tail-call as a LOOP-BACK (TCO): evaluate every argument into a
+    /// FRESH temp first — so a parameter read by a later argument is never
+    /// clobbered by an earlier parameter store — then move the temps into the
+    /// parameter slots `0..param_count` and jump to the function entry. This
+    /// turns self-tail-recursion into constant-stack iteration (no per-call frame
+    /// round-trip, no `MAX_CALL_DEPTH` ceiling for tail calls).
+    fn emit_tail_call(
+        &mut self,
+        args: &[&Expr],
+        entry_pc: usize,
+        param_count: u16,
+    ) -> Result<(), String> {
+        let mut temps = Vec::with_capacity(args.len());
+        for a in args {
+            let t = self.alloc_reg()?;
+            self.compile_expr_into(a, t)?;
+            temps.push(t);
+        }
+        for (i, t) in temps.into_iter().enumerate() {
+            if t != i as Reg {
+                self.emit(Op::Move { dst: i as Reg, src: t });
+            }
+        }
+        self.emit(Op::Jump { target: entry_pc });
+        Ok(())
+    }
+
     /// Reserve `n` consecutive registers, returning the first.
     fn reserve_regs(&mut self, n: u16) -> Result<Reg, String> {
         let start = self.next_reg;
@@ -384,6 +751,15 @@ impl<'i> Compiler<'i> {
         self.next_reg = next as Reg;
         if self.next_reg > self.max_reg {
             self.max_reg = self.next_reg;
+        }
+        // Scratch reserved inside a loop is a per-iteration temp, dead at the
+        // loop exit — record it as a loop-local so the region JIT treats it as
+        // true scratch even when it recycled a (now-dead) named variable's slot
+        // (the fannkuch `perm[hi]` transfer temp that blocked swap fusion).
+        if !self.loop_stack.is_empty() {
+            for r in start..(next as Reg) {
+                self.record_loop_local(r);
+            }
         }
         Ok(start)
     }
@@ -417,11 +793,42 @@ impl<'i> Compiler<'i> {
     /// the innermost scope (shadowing any outer binding).
     fn let_reg(&mut self, sym: Symbol) -> Result<Reg, String> {
         if let Some(&r) = self.scopes.last().unwrap().get(&sym) {
+            self.mark_named(r);
             Ok(r)
         } else {
             let r = self.alloc_reg()?;
             self.scopes.last_mut().unwrap().insert(sym, r);
+            self.mark_named(r);
             Ok(r)
+        }
+    }
+
+    /// Record that `r` carries a user-visible name in the current frame.
+    fn mark_named(&mut self, r: Reg) {
+        let i = r as usize;
+        if self.named.len() <= i {
+            self.named.resize(i + 1, false);
+        }
+        self.named[i] = true;
+        self.record_loop_local(r);
+    }
+
+    /// Record register `r` as LOCAL to every enclosing loop — lexically dead at
+    /// each loop's exit — so the region JIT drops it from the write-back set.
+    /// Called for named bindings (`mark_named`) AND for anonymous scratch
+    /// reserved inside a loop: a per-iteration temp is dead at the loop exit too,
+    /// and may have recycled a now-dead named variable's slot (block-scope reuse).
+    /// Without this, such a temp keeps that slot's stale `named` flag and the
+    /// region JIT treats it as live — blocking fusions like the swap idiom
+    /// (fannkuch's `perm[hi]` transfer temp).
+    fn record_loop_local(&mut self, r: Reg) {
+        let i = r as usize;
+        for &head in &self.loop_stack {
+            let m = self.loop_locals.entry(head).or_default();
+            if m.len() <= i {
+                m.resize(i + 1, false);
+            }
+            m[i] = true;
         }
     }
 
@@ -454,6 +861,25 @@ impl<'i> Compiler<'i> {
                     self.emit(Op::GlobalSet { idx, src: scratch });
                     return Ok(());
                 }
+                // `Let var be a new Seq/Set/Map` (a fresh EMPTY collection):
+                // bind first and construct directly into the var's register.
+                // An empty constructor reads nothing, so the
+                // evaluate-in-old-environment rule below is moot — and writing
+                // into the var's stable register lets the loop-carried reuse
+                // path (NewEmptyList over a sole-owned buffer) fire across
+                // iterations instead of allocating fresh every pass.
+                if let Expr::New { type_name, init_fields, .. } = value {
+                    if init_fields.is_empty()
+                        && matches!(
+                            self.interner.resolve(*type_name),
+                            "Seq" | "List" | "Set" | "HashSet" | "Map" | "HashMap"
+                        )
+                    {
+                        let dst = self.let_reg(*var)?;
+                        self.compile_expr_into(value, dst)?;
+                        return Ok(());
+                    }
+                }
                 // The value is evaluated BEFORE the new binding exists (the
                 // tree-walker evaluates in the old environment): `Let x be
                 // x + 1` in a block reads the OUTER x. Compile into a scratch
@@ -467,6 +893,18 @@ impl<'i> Compiler<'i> {
             Stmt::Set { target, value } => {
                 match self.resolve_name(*target) {
                     NameRef::Local(dst) => {
+                        // `Set x to x + e1 + … + ek`: lower to an AddAssign
+                        // chain (in-place Text append; identical fold for
+                        // every other type). Only when each later term
+                        // provably never observes x — see add_assign_chain.
+                        if let Some(terms) = add_assign_chain(*target, value) {
+                            for term in terms {
+                                let scratch = self.alloc_reg()?;
+                                self.compile_expr_into(term, scratch)?;
+                                self.emit(Op::AddAssign { dst, src: scratch });
+                            }
+                            return Ok(());
+                        }
                         // Never compile directly into the live target: a
                         // multi-op value (interpolation accumulation, branch
                         // joins) would clobber the register before reading it
@@ -519,6 +957,28 @@ impl<'i> Compiler<'i> {
                 } else if self.in_function {
                     match value {
                         Some(e) => {
+                            // TCO: a direct self-tail-call `Return self(args)` is
+                            // inherently in tail position — lower it to the
+                            // loop-back (reassign params + jump to entry) instead
+                            // of a real call + return.
+                            if let Some((tf, entry_pc, pc)) = self.tail_fn {
+                                // Do NOT TCO across a `Repeat` (for-in): the
+                                // loop-back jump would skip its `IterPop`,
+                                // stacking abandoned iterators. (A `While`
+                                // holds no runtime state, so jumping out of it
+                                // is fine; `Zone`s are handled above.)
+                                let in_repeat = self.flow_stack.iter().any(|c| {
+                                    matches!(c, FlowCtx::Loop { is_repeat: true, .. })
+                                });
+                                if !in_repeat {
+                                    if let Some(args) =
+                                        crate::tail_call::direct_self_tail_args(*e, tf, pc as usize)
+                                    {
+                                        self.emit_tail_call(args, entry_pc, pc)?;
+                                        return Ok(());
+                                    }
+                                }
+                            }
                             let src = self.compile_expr(e)?;
                             self.emit(Op::Return { src });
                         }
@@ -656,12 +1116,17 @@ impl<'i> Compiler<'i> {
                     self.compile_expr_into(value, s2)?;
                     return self.emit_fail("SetIndex collection must be an identifier");
                 }
+                let proven = self.index_in_bounds(collection, index);
                 let (sym, nr) = self.resolve_collection(collection)?;
                 match self.collection_reg(sym, &nr)? {
                     Some(coll) => {
                         let idx = self.compile_expr(index)?;
                         let val = self.compile_expr(value)?;
-                        self.emit(Op::SetIndex { collection: coll, index: idx, value: val });
+                        if proven {
+                            self.emit(Op::SetIndexUnchecked { collection: coll, index: idx, value: val });
+                        } else {
+                            self.emit(Op::SetIndex { collection: coll, index: idx, value: val });
+                        }
                         // Structs are VALUE types: the struct-field form of
                         // SetIndex rewrites the register, so a promoted/global
                         // or captured name needs the write-back (a no-op for
@@ -729,7 +1194,16 @@ impl<'i> Compiler<'i> {
                 Ok(())
             }
             Stmt::While { cond, body, .. } => {
+                // Region-entry bounds hoists go at the loop head (the back-edge
+                // target), so they fall inside any region formed for the loop.
                 let loop_start = self.current_pc();
+                // Track names bound inside this loop body (the region head is
+                // `loop_start`, the back-edge target) so the JIT can treat them
+                // as dead-at-exit scratch. Pushed before the cond (re-evaluated
+                // each iteration, so cond-bound names are loop-local too).
+                self.loop_stack.push(loop_start);
+                let enabled = self.emit_hoist_guards(s);
+                self.hoist_enabled.push(enabled);
                 let c = self.compile_expr(cond)?;
                 let jexit = self.emit_placeholder_jump_if_false(c);
                 self.flow_stack.push(FlowCtx::Loop { breaks: Vec::new(), is_repeat: false });
@@ -738,6 +1212,8 @@ impl<'i> Compiler<'i> {
                     self.compile_stmt(st)?;
                 }
                 self.exit_block(mark);
+                self.hoist_enabled.pop();
+                self.loop_stack.pop();
                 self.emit(Op::Jump { target: loop_start });
                 let exit_pc = self.current_pc();
                 self.patch_jump_target(jexit, exit_pc)?;
@@ -1117,6 +1593,48 @@ impl<'i> Compiler<'i> {
                 self.compile_short_circuit(false, left, right, dst)
             }
             Expr::BinaryOp { op, left, right } => {
+                // Int `x / 2^k` → single `DivPow2` op (the JIT lowers it to the
+                // 1-op shift stencil): replaces idiv, fires for loop-invariant
+                // divisors, no scratch-register pressure.
+                if matches!(op, BinaryOpKind::Divide) {
+                    if let Some(k) = self.divpow2_shift(left, right) {
+                        let lhs = self.compile_expr(left)?;
+                        self.emit(Op::DivPow2 { dst, lhs, k: k as u8 });
+                        return Ok(());
+                    }
+                    // Proven-non-negative Int `x / c` (c a constant non-pow2) →
+                    // the magic reciprocal (mul-high + shift) instead of idiv.
+                    if let Some((magic, more)) = self.magic_div_const(left, right) {
+                        let lhs = self.compile_expr(left)?;
+                        self.emit(Op::MagicDivU { dst, lhs, magic, more, mul_back: 0 });
+                        return Ok(());
+                    }
+                }
+                // Proven-non-negative Int `x % 2^k` → `x & (2^k - 1)`, emitted
+                // as the existing register-form `AndEager` (Int×Int is bitwise
+                // AND): replaces idiv with a 1-cycle AND, which the JIT lowers to
+                // a `BitAnd` stencil. Gated on Oracle-proven non-negativity —
+                // unsound for negative dividends.
+                if matches!(op, BinaryOpKind::Modulo) {
+                    if let Some(mask) = self.modpow2_mask(left, right) {
+                        let lhs = self.compile_expr(left)?;
+                        let rhs = self.alloc_reg()?;
+                        let idx = self.add_const(Constant::Int(mask))?;
+                        self.emit(Op::LoadConst { dst: rhs, idx });
+                        self.emit(Op::AndEager { dst, lhs, rhs });
+                        return Ok(());
+                    }
+                    // Proven-non-negative Int `x % c` (c a constant non-pow2) →
+                    // the magic reciprocal: `x - (x/c)*c` via mul-high + shift,
+                    // instead of idiv. `mul_back == c` selects the remainder.
+                    if let Expr::Literal(Literal::Number(c)) = right {
+                        if let Some((magic, more)) = self.magic_div_const(left, right) {
+                            let lhs = self.compile_expr(left)?;
+                            self.emit(Op::MagicDivU { dst, lhs, magic, more, mul_back: *c });
+                            return Ok(());
+                        }
+                    }
+                }
                 let lhs = self.compile_expr(left)?;
                 let rhs = self.compile_expr(right)?;
                 self.emit(binop_op(*op, dst, lhs, rhs)?);
@@ -1174,9 +1692,17 @@ impl<'i> Compiler<'i> {
                 Ok(())
             }
             Expr::Index { collection, index } => {
+                // Bounds-check elimination: if the Oracle proved this index
+                // in `[1, length]` (range analysis, M9), emit the unchecked
+                // form — the JIT drops the bounds branch. Checked otherwise.
+                let proven = self.index_in_bounds(collection, index);
                 let c = self.compile_expr(collection)?;
                 let i = self.compile_expr(index)?;
-                self.emit(Op::Index { dst, collection: c, index: i });
+                if proven {
+                    self.emit(Op::IndexUnchecked { dst, collection: c, index: i });
+                } else {
+                    self.emit(Op::Index { dst, collection: c, index: i });
+                }
                 Ok(())
             }
             Expr::Contains { collection, value } => {
@@ -1300,6 +1826,7 @@ impl<'i> Compiler<'i> {
                 let start = self.reserve_regs(count)?;
                 for (i, sym) in syms.iter().enumerate() {
                     self.scopes.last_mut().unwrap().insert(*sym, start + i as Reg);
+                    self.mark_named(start + i as Reg);
                 }
                 loop_start = self.current_pc();
                 next_idx = self.code.len();
@@ -1553,6 +2080,15 @@ impl<'i> Compiler<'i> {
             return Ok(());
         }
 
+        // `args()` is the program-argument system native (declared `## To
+        // native args ()`); it resolves to the VM's stored argv, like the
+        // compiled binary's `env::args()`. Intercepted by name BEFORE the
+        // empty native-decl body would be reached, mirroring `show`.
+        if name == "args" {
+            self.emit(Op::Args { dst });
+            return Ok(());
+        }
+
         if let Some(id) = builtin_from_name(name) {
             if let Err(msg) = check_arity(id, args.len()) {
                 let idx = self.add_const(Constant::Text(msg))?;
@@ -1781,6 +2317,16 @@ impl<'i> Compiler<'i> {
             param_count,
             register_count: 0,
             captures: captures.clone(),
+            named_regs: Vec::new(),
+            // Closures carry no declarations — all-Int is the historical
+            // entry-guard contract.
+            param_kinds: vec![
+                Some(super::native_tier::ParamKind::Scalar(
+                    super::native_tier::SlotKind::Int
+                ));
+                param_count as usize
+            ],
+            ret_kind: None,
         });
 
         // Shelve the enclosing frame's compilation state.
@@ -1790,17 +2336,20 @@ impl<'i> Compiler<'i> {
         let saved_flow = std::mem::take(&mut self.flow_stack);
         let saved_in_fn = self.in_function;
         let saved_ctx = self.closure_ctx.take();
+        let saved_named = std::mem::take(&mut self.named);
 
         self.in_function = true;
         let p = param_count;
         let cap_n = captures.len() as Reg;
         for (i, (psym, _)) in params.iter().enumerate() {
             self.scopes.last_mut().unwrap().insert(*psym, i as Reg);
+            self.mark_named(i as Reg);
         }
         let mut ctx: HashMap<Symbol, (Reg, Reg)> = HashMap::new();
         for (k, (sym, global)) in captures.iter().enumerate() {
             let value = p + k as Reg;
             self.scopes.last_mut().unwrap().insert(*sym, value);
+            self.mark_named(value);
             if global.is_some() {
                 ctx.insert(*sym, (value, p + cap_n + k as Reg));
             }
@@ -1825,6 +2374,9 @@ impl<'i> Compiler<'i> {
             Ok(())
         })();
         self.functions[func_idx as usize].register_count = self.max_reg as usize;
+        let mut cnamed = std::mem::replace(&mut self.named, saved_named);
+        cnamed.resize(self.functions[func_idx as usize].register_count, false);
+        self.functions[func_idx as usize].named_regs = cnamed;
 
         // Restore the enclosing frame's state (even when the body failed).
         self.scopes = saved_scopes;
@@ -2029,6 +2581,112 @@ fn literal_const(lit: &Literal) -> Result<Constant, String> {
         Literal::Time(nanos) => Ok(Constant::Time(*nanos)),
         Literal::Text(_) => unreachable!("Text literals are interned and handled by the caller"),
     }
+}
+
+/// Match `value` as the left-spine `target + e1 + … + ek` (k ≥ 1), the
+/// accumulate shape `Set x to x + …` lowers to an [`Op::AddAssign`] chain —
+/// the exact left-fold the expression denotes: same kernel calls, same
+/// evaluation order, same error points, but folding into the target register
+/// at each step so a sole-owner Text can extend in place.
+///
+/// Soundness: the first term evaluates before any fold touches the register,
+/// so it may mention the target freely. Every LATER term runs after a fold —
+/// it must provably never observe the target ([`expr_avoids`]), or the chain
+/// would read a partially-folded value the original expression never exposes.
+fn add_assign_chain<'a>(target: Symbol, value: &'a Expr<'a>) -> Option<Vec<&'a Expr<'a>>> {
+    let mut terms: Vec<&Expr> = Vec::new();
+    let mut cur = value;
+    loop {
+        match cur {
+            Expr::BinaryOp { op: BinaryOpKind::Add, left, right } => {
+                terms.push(right);
+                cur = left;
+            }
+            Expr::Identifier(sym) if *sym == target => break,
+            _ => return None,
+        }
+    }
+    if terms.is_empty() {
+        return None;
+    }
+    terms.reverse();
+    if terms[1..].iter().all(|t| expr_avoids(t, target)) {
+        Some(terms)
+    } else {
+        None
+    }
+}
+
+/// True when `e` provably never observes `sym`: every node comes from a
+/// closed set of value-only forms with no `Identifier(sym)` anywhere.
+/// Closures are conservatively "may observe" — they snapshot captures at
+/// evaluation, and under the AddAssign rewrite that snapshot would see the
+/// partially-folded register. Named calls cannot read the caller's locals
+/// (and the rewrite only fires for locals), so only their argument
+/// expressions need scanning. Anything unrecognized fails closed.
+fn expr_avoids(e: &Expr, sym: Symbol) -> bool {
+    use crate::ast::stmt::StringPart;
+    let mut stack: Vec<&Expr> = vec![e];
+    while let Some(e) = stack.pop() {
+        match e {
+            Expr::Identifier(s) => {
+                if *s == sym {
+                    return false;
+                }
+            }
+            Expr::Literal(_) | Expr::OptionNone => {}
+            Expr::BinaryOp { left, right, .. }
+            | Expr::Union { left, right }
+            | Expr::Intersection { left, right }
+            | Expr::Range { start: left, end: right } => {
+                stack.push(left);
+                stack.push(right);
+            }
+            Expr::Not { operand } => stack.push(operand),
+            Expr::Call { args, .. } => stack.extend(args.iter().copied()),
+            Expr::CallExpr { callee, args } => {
+                stack.push(callee);
+                stack.extend(args.iter().copied());
+            }
+            Expr::Index { collection, index } => {
+                stack.push(collection);
+                stack.push(index);
+            }
+            Expr::Slice { collection, start, end } => {
+                stack.push(collection);
+                stack.push(start);
+                stack.push(end);
+            }
+            Expr::Copy { expr } => stack.push(expr),
+            Expr::Length { collection } => stack.push(collection),
+            Expr::Contains { collection, value } => {
+                stack.push(collection);
+                stack.push(value);
+            }
+            Expr::List(items) | Expr::Tuple(items) => stack.extend(items.iter().copied()),
+            Expr::FieldAccess { object, .. } => stack.push(object),
+            Expr::New { init_fields, .. } => {
+                stack.extend(init_fields.iter().map(|(_, fe)| *fe));
+            }
+            Expr::NewVariant { fields, .. } => {
+                stack.extend(fields.iter().map(|(_, fe)| *fe));
+            }
+            Expr::OptionSome { value } => stack.push(value),
+            Expr::WithCapacity { value, capacity } => {
+                stack.push(value);
+                stack.push(capacity);
+            }
+            Expr::InterpolatedString(parts) => {
+                for p in parts {
+                    if let StringPart::Expr { value, .. } = p {
+                        stack.push(value);
+                    }
+                }
+            }
+            _ => return false,
+        }
+    }
+    true
 }
 
 fn binop_op(op: BinaryOpKind, dst: Reg, lhs: Reg, rhs: Reg) -> Result<Op, String> {

@@ -115,12 +115,112 @@ fn get_run_id() -> u64 {
     })
 }
 
+/// Shard count for the e2e cargo cache under nextest. Keep in sync with the
+/// `e2e-subprocess` group's max-threads in .config/nextest.toml: group slots are
+/// 0..max-threads, so concurrently running tests always land in distinct shards
+/// and never contend on Cargo's build-dir lock.
+const E2E_TARGET_SHARDS: u64 = 12;
+
 fn get_shared_target_dir() -> &'static PathBuf {
     SHARED_TARGET_DIR.get_or_init(|| {
-        let dir = std::env::temp_dir().join("logos_e2e_cache");
+        let shard = std::env::var("NEXTEST_TEST_GROUP_SLOT")
+            .ok()
+            .and_then(|s| s.parse::<u64>().ok())
+            .or_else(|| {
+                std::env::var("NEXTEST_TEST_GLOBAL_SLOT")
+                    .ok()
+                    .and_then(|s| s.parse::<u64>().ok())
+                    .map(|n| n % E2E_TARGET_SHARDS)
+            });
+        let dir = match shard {
+            Some(s) => std::env::temp_dir().join(format!("logos_e2e_cache_{s}")),
+            None => std::env::temp_dir().join("logos_e2e_cache"),
+        };
         std::fs::create_dir_all(&dir).expect("Failed to create shared target dir");
+        // Safety valve: per-project artifacts are pruned after every test
+        // (see prune_project_artifacts), so the cache holds only shared
+        // dependency builds and stays a few GB. Anything that slips through
+        // (interrupted tests, binaries built before the pruning landed) is
+        // collected here BY AGE — generated-project artifacts older than an
+        // hour cannot belong to a live test, while a whole-directory wipe
+        // would delete dependency rmeta out from under CONCURRENT builds in
+        // the same shard (global-slot tests share shards modulo the count).
+        let stale = std::time::SystemTime::now() - std::time::Duration::from_secs(3600);
+        for sub in ["debug", "debug/deps", "debug/incremental", "debug/.fingerprint"] {
+            let Ok(rd) = std::fs::read_dir(dir.join(sub)) else { continue };
+            for e in rd.flatten() {
+                let name = e.file_name();
+                let n = name.to_string_lossy();
+                let generated = n.starts_with("logos_e2e_")
+                    || n.starts_with("logos_clink_")
+                    || n.starts_with("logos_run_")
+                    || n.starts_with("liblogos_e2e_")
+                    || n.starts_with("liblogos_clink_");
+                if !generated {
+                    continue;
+                }
+                let old_enough = e
+                    .metadata()
+                    .and_then(|m| m.modified())
+                    .map(|t| t < stale)
+                    .unwrap_or(false);
+                if old_enough {
+                    let path = e.path();
+                    let _ = if path.is_dir() {
+                        std::fs::remove_dir_all(&path)
+                    } else {
+                        std::fs::remove_file(&path)
+                    };
+                }
+            }
+        }
         dir
     })
+}
+
+/// Delete one generated project's artifacts from the shared cache,
+/// KEEPING the third-party dependency builds (the entire speed win).
+/// Every project has a unique name, so without this the cache accretes a
+/// binary + deps/incremental/fingerprint entries per test forever —
+/// hundreds of GB per shard across repeated suite runs.
+fn prune_project_artifacts(target: &std::path::Path, pkg_name: &str) {
+    let stem = pkg_name.replace('-', "_");
+    let debug = target.join("debug");
+    let _ = std::fs::remove_file(debug.join(pkg_name));
+    let _ = std::fs::remove_file(debug.join(format!("{pkg_name}.d")));
+    let _ = std::fs::remove_file(debug.join(format!("lib{stem}.a")));
+    let _ = std::fs::remove_file(debug.join(format!("lib{stem}.so")));
+    for sub in ["deps", "incremental", ".fingerprint", "build"] {
+        let Ok(rd) = std::fs::read_dir(debug.join(sub)) else { continue };
+        for e in rd.flatten() {
+            let name = e.file_name();
+            let n = name.to_string_lossy();
+            if n.starts_with(&format!("{stem}-"))
+                || n.starts_with(&format!("lib{stem}-"))
+                || n.starts_with(&format!("{pkg_name}-"))
+            {
+                let path = e.path();
+                let _ = if path.is_dir() {
+                    std::fs::remove_dir_all(&path)
+                } else {
+                    std::fs::remove_file(&path)
+                };
+            }
+        }
+    }
+}
+
+/// Seed a generated project with the workspace's Cargo.lock so dependency
+/// resolution is pinned to the exact versions the workspace tests against.
+/// Without this every project re-resolves from the registry cache, and a newly
+/// published transitive version (e.g. `time` 0.3.48 vs `rcgen` 0.11.3) can
+/// break every e2e build mid-run.
+fn seed_lockfile(workspace_root: &std::path::Path, project_dir: &std::path::Path) {
+    std::fs::copy(
+        workspace_root.join("Cargo.lock"),
+        project_dir.join("Cargo.lock"),
+    )
+    .expect("Failed to seed Cargo.lock into generated project");
 }
 
 pub struct E2EResult {
@@ -136,6 +236,20 @@ pub struct CompileResult {
     pub success: bool,
     pub rust_code: String,
     pub _temp_dir: tempfile::TempDir,  // Keep alive to prevent cleanup
+}
+
+impl Drop for CompileResult {
+    fn drop(&mut self) {
+        // The test has finished with the binary — drop its artifacts from
+        // the shared cache (dependency builds stay).
+        if let (Some(dir), Some(name)) =
+            (self.binary_path.parent(), self.binary_path.file_name())
+        {
+            if let Some(target) = dir.parent() {
+                prune_project_artifacts(target, &name.to_string_lossy());
+            }
+        }
+    }
 }
 
 /// Format user-declared dependencies as Cargo.toml lines.
@@ -211,6 +325,7 @@ rayon = "1"
     std::fs::create_dir_all(project_dir.join("src")).unwrap();
     std::fs::write(project_dir.join("Cargo.toml"), cargo_toml).unwrap();
     std::fs::write(project_dir.join("src/main.rs"), &rust_code).unwrap();
+    seed_lockfile(workspace_root, project_dir);
 
     // 4. Build (but don't run) - use shared target dir for caching
     //    Try --offline first, fall back to online if cache isn't warm.
@@ -240,6 +355,112 @@ rayon = "1"
         rust_code,
         _temp_dir: temp_dir,
     }
+}
+
+/// Compile LOGOS source to optimized LLVM IR (release profile) and return
+/// the .ll text. The bounds-hint pass/fail check greps `_logos_main` for
+/// `panic_bounds_check` in this output.
+#[allow(dead_code)]
+pub fn compile_logos_llvm_ir(source: &str) -> String {
+    let compile_output = compile_program_full(source)
+        .unwrap_or_else(|e| panic!("LOGOS compile error: {:?}\n\nSource:\n{}", e, source));
+    let rust_code = compile_output.rust_code;
+    let user_deps = format_user_deps(&compile_output.dependencies);
+
+    let temp_dir = tempfile::tempdir().expect("temp dir");
+    let project_dir = temp_dir.path();
+
+    let pkg_id = COMPILE_COUNTER.fetch_add(1, Ordering::SeqCst);
+    let pkg_name = format!("logos_ir_{}_{}", get_run_id(), pkg_id);
+    let manifest_dir = std::env::var("CARGO_MANIFEST_DIR")
+        .map(PathBuf::from)
+        .unwrap_or_else(|_| std::env::current_dir().unwrap());
+    let workspace_root = manifest_dir.parent().unwrap().parent().unwrap();
+    let cargo_toml = format!(
+        r#"[package]
+name = "{}"
+version = "0.1.0"
+edition = "2021"
+
+[profile.release]
+codegen-units = 1
+
+[dependencies]
+logicaffeine-data = {{ path = "{}/crates/logicaffeine_data" }}
+logicaffeine-system = {{ path = "{}/crates/logicaffeine_system", features = ["full"] }}
+tokio = {{ version = "1", features = ["rt-multi-thread", "macros"] }}
+serde = {{ version = "1", features = ["derive"] }}
+rayon = "1"
+{}"#,
+        pkg_name,
+        workspace_root.display(),
+        workspace_root.display(),
+        user_deps
+    );
+
+    std::fs::create_dir_all(project_dir.join("src")).unwrap();
+    std::fs::write(project_dir.join("Cargo.toml"), cargo_toml).unwrap();
+    std::fs::write(project_dir.join("src/main.rs"), &rust_code).unwrap();
+    seed_lockfile(workspace_root, project_dir);
+
+    let output = Command::new("cargo")
+        .args(["rustc", "--release", "--quiet", "--offline", "--", "--emit=llvm-ir"])
+        .current_dir(project_dir)
+        .env("CARGO_TARGET_DIR", get_shared_target_dir())
+        .output()
+        .expect("cargo rustc --emit=llvm-ir");
+    let output = if !output.status.success() && String::from_utf8_lossy(&output.stderr).contains("--offline") {
+        Command::new("cargo")
+            .args(["rustc", "--release", "--quiet", "--", "--emit=llvm-ir"])
+            .current_dir(project_dir)
+            .env("CARGO_TARGET_DIR", get_shared_target_dir())
+            .output()
+            .expect("cargo rustc --emit=llvm-ir")
+    } else {
+        output
+    };
+    assert!(
+        output.status.success(),
+        "release IR build failed.\nstderr: {}\n\nGenerated Rust:\n{}",
+        String::from_utf8_lossy(&output.stderr),
+        rust_code
+    );
+
+    let deps_dir = get_shared_target_dir().join("release/deps");
+    let prefix = pkg_name.replace('-', "_");
+    let ll_path = std::fs::read_dir(&deps_dir)
+        .expect("read deps dir")
+        .filter_map(|e| e.ok().map(|e| e.path()))
+        .find(|p| {
+            p.extension().map_or(false, |x| x == "ll")
+                && p.file_stem()
+                    .and_then(|s| s.to_str())
+                    .map_or(false, |s| s.starts_with(&prefix))
+        })
+        .unwrap_or_else(|| panic!("no .ll emitted for {} in {}", prefix, deps_dir.display()));
+    let ir = std::fs::read_to_string(&ll_path).expect("read .ll");
+    let _ = std::fs::remove_file(&ll_path);
+    prune_project_artifacts(get_shared_target_dir(), &pkg_name);
+    ir
+}
+
+/// Extract one function's definition body from LLVM IR text by symbol
+/// substring (e.g. "_logos_main").
+#[allow(dead_code)]
+pub fn llvm_ir_function<'a>(ir: &'a str, symbol: &str) -> &'a str {
+    let def_start = ir
+        .match_indices("\ndefine ")
+        .find(|(i, _)| {
+            let line_end = ir[*i + 1..].find('\n').map(|j| i + 1 + j).unwrap_or(ir.len());
+            ir[*i..line_end].contains(symbol)
+        })
+        .map(|(i, _)| i + 1)
+        .unwrap_or_else(|| panic!("no define line containing `{}` in IR", symbol));
+    let body_end = ir[def_start..]
+        .find("\n}")
+        .map(|j| def_start + j + 2)
+        .unwrap_or(ir.len());
+    &ir[def_start..body_end]
 }
 
 /// Compile LOGOS source and run the generated Rust, returning result.
@@ -293,6 +514,7 @@ rayon = "1"
     std::fs::create_dir_all(project_dir.join("src")).unwrap();
     std::fs::write(project_dir.join("Cargo.toml"), cargo_toml).unwrap();
     std::fs::write(project_dir.join("src/main.rs"), &rust_code).unwrap();
+    seed_lockfile(workspace_root, project_dir);
 
     // 4. Run - use shared target dir for caching
     //    Try --offline first to avoid transient crates.io failures, fall back to online.
@@ -317,6 +539,8 @@ rayon = "1"
     } else {
         output
     };
+
+    prune_project_artifacts(get_shared_target_dir(), &pkg_name);
 
     E2EResult {
         stdout: String::from_utf8_lossy(&output.stdout).to_string(),
@@ -590,6 +814,7 @@ rayon = "1"
     std::fs::create_dir_all(project_dir.join("src")).unwrap();
     std::fs::write(project_dir.join("Cargo.toml"), cargo_toml).unwrap();
     std::fs::write(project_dir.join("src/lib.rs"), &lib_code).unwrap();
+    seed_lockfile(workspace_root, project_dir);
 
     // 3. Build the staticlib — try offline first, fall back to online
     let build_output = Command::new("cargo")
@@ -679,6 +904,8 @@ rayon = "1"
         .output()
         .expect("run test binary");
 
+    prune_project_artifacts(get_shared_target_dir(), &pkg_name);
+
     CLinkResult {
         stdout: String::from_utf8_lossy(&run_output.stdout).to_string(),
         stderr: String::from_utf8_lossy(&run_output.stderr).to_string(),
@@ -758,6 +985,48 @@ pub fn assert_interpreter_output(source: &str, expected: &str) {
         result.output.trim(),
         expected,
         "\nSource:\n{}",
+        source
+    );
+}
+
+/// DIFFERENTIAL-CORRECTNESS GATE: the compiled binary and the interpreter MUST
+/// agree on a program's outcome (both succeed with identical output, or both
+/// fail). This is the CI invariant that catches the whole class of bug where a
+/// codegen optimization silently changes a program's meaning relative to the
+/// reference engine — e.g. an unsound buffer swap, or an aliased SetIndex
+/// double-borrow. The interpreter (VM + tree-walker, cross-checked by the debug
+/// shadow oracle) is the reference; codegen must match it.
+#[allow(dead_code)]
+pub fn assert_compiled_equals_interpreted(source: &str) {
+    let compiled = run_logos(source);
+    let interp = run_interpreter(source);
+    assert_eq!(
+        compiled.success, interp.success,
+        "DIFFERENTIAL MISMATCH: compiled.success={} but interpreter.success={}\n\
+         Source:\n{}\n\ncompiled stderr:\n{}\n\ninterpreter error:\n{}\n\nGenerated Rust:\n{}",
+        compiled.success, interp.success, source, compiled.stderr, interp.error, compiled.rust_code
+    );
+    if compiled.success {
+        assert_eq!(
+            compiled.stdout.trim(),
+            interp.output.trim(),
+            "DIFFERENTIAL MISMATCH: compiled and interpreter produced different output\n\
+             Source:\n{}\n\nGenerated Rust:\n{}",
+            source, compiled.rust_code
+        );
+    }
+}
+
+/// Differential gate + an expected value, so a regression in BOTH engines (they
+/// agree but on the wrong answer) is still caught.
+#[allow(dead_code)]
+pub fn assert_compiled_equals_interpreted_eq(source: &str, expected: &str) {
+    assert_compiled_equals_interpreted(source);
+    let interp = run_interpreter(source);
+    assert_eq!(
+        interp.output.trim(),
+        expected,
+        "Both engines agree but not on the expected value.\nSource:\n{}",
         source
     );
 }

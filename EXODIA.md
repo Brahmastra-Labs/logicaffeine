@@ -111,6 +111,16 @@ Prove the partial evaluator completely removes interpreter dispatch overhead for
 
 ## Phase 1: The Oracle (Abstract Interpretation)
 
+**Status: COMPLETE (2026-06-12).** The five rich domains (intervals with the
+widening-threshold ladder, types, shapes, nullability, aliases) deliver
+per-expression facts through `OracleFacts` (keyed by arena address), with
+per-function analyses seeded from declared parameter types and
+widening-to-fixpoint loop analysis. Consumers live: the run-path optimizer
+(`optimize_for_run`), the Architect's conditional rewrites
+(`div-pow2-shr`/`mod-pow2-and` fire only on proven non-negativity), and the
+bounds-elision query `index_provably_in_bounds`. Gate:
+`phase_exodia_oracle.rs`.
+
 **Goal:** Mathematically prove variable states ahead of time to completely eliminate runtime guards and bounds checks.
 
 ### 1.1 Define Abstract Domains
@@ -374,6 +384,17 @@ Test patterns:
 
 ## Phase 2: The Forge (SMT-Backed Superoptimization)
 
+**Status: IN PROGRESS (2026-06-12).** Layer (a) specs + layer (b) witness
+verification live in the `logicaffeine_synth` crate (outside
+default-members, like every Z3 crate): BV64 specifications for the integer
+micro-op family with kernel-exact semantics (bvsdiv/bvsrem wrap MIN/−1 and
+take the dividend's sign; shift amounts mask to six bits), satisfiability +
+commutativity + division-precondition gates, and a three-way witness
+harness (Z3 models + adversarial corners through the REAL copy-and-patch
+machine code, `reference_eval`, and the spec). Gate: `phase_exodia_forge.rs`
+(behind `verification`). CEGIS template synthesis, the `.tlib` library and
+the ISA-proof layer (decoder + machine semantics, M16) remain.
+
 **Goal:** Generate flawless, optimal machine code templates for the Tier 1 JIT without writing a standard compiler backend.
 
 ### 2.1 Formal Semantics Translation
@@ -507,6 +528,17 @@ Test patterns:
 
 ## Phase 3: The Tier 1 JIT (Instant Compilation)
 
+**Status: SUBSTANTIALLY COMPLETE (2026-06-12).** The copy-and-patch tier is
+production (`largo run --interpret` = optimizer → VM → JIT): 3-address
+stencils, int/float/bitwise/array families, speculative typed regions with
+precise exits, native self-calls through the per-program FnTable (the 4.7
+hot-swap seam), declared param/return kinds (floats and bools cross the
+boundary), LIST parameters with region-grade precise-state deopt (the
+quicksort shape), regions calling scalar-pure functions natively (the
+spectral_norm shape), sqrt as a leaf stencil, and a run-path tiny-function
+inliner. Geomean vs Node: 7.32× → 1.48× with six benchmarks beating V8.
+Register-threading variants + linear scan (3.1) remain the open closer.
+
 **Goal:** Execute LOGOS code with zero latency by gluing templates together at the speed of `memcpy`.
 
 ### 3.1 Linear Scan Register Routing
@@ -607,6 +639,18 @@ impl EntropyProfiler {
 ---
 
 ## Phase 4: The Architect (Tier 2 E-Graph Optimizer)
+
+**Status: CORE COMPLETE (2026-06-12, sprints 17–22).** `UnionFind` extracted
+to `logicaffeine_base` (the kernel's congruence closure and the compiler's
+e-graph share one engine); `CompilerEGraph` with hash-consing, congruence
+worklists, budgeted saturation (8 iters / 10k nodes, deterministic);
+Groups 1–3 + commutativity/associativity + point-interval constant folding,
+EVERY rule carrying a kernel-checked soundness certificate (ring tactic for
+polynomial identities — valid in ℤ/2⁶⁴ —, kernel-normalized Bool case
+analysis, adversarial bitvector grids pending their M15 Z3 upgrade); Oracle
+facts seed class data; `optimize_program_v2` wired behind the `exodia`
+feature (D12). Gate: `phase_exodia_architect.rs`. Defunctionalization +
+fusion (sprints 23–24) and the runtime Tier-2 trigger remain.
 
 **Goal:** Achieve global optimization for "hot" loops without the Phase-Ordering Problem.
 

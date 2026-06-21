@@ -193,7 +193,10 @@ impl<'a> DisplayWith for LogicExpr<'a> {
                 write!(f, "{}({}, {})", interner.resolve(data.verb), data.subject.with(interner), data.object.with(interner))
             }
             LogicExpr::Modal { vector, operand } => {
-                let op = match (vector.domain, vector.force >= 0.5) {
+                // Boundary must match the formatter (formatter.rs) and the Kripke
+                // lowering (semantics/kripke.rs): force == 0.5 (ability/epistemic
+                // can/could/may) is the weak/possibility side (◇), not necessity.
+                let op = match (vector.domain, vector.force > 0.5) {
                     (crate::ast::ModalDomain::Alethic, true) => "□",
                     (crate::ast::ModalDomain::Alethic, false) => "◇",
                     (crate::ast::ModalDomain::Deontic, true) => "O",
@@ -547,5 +550,26 @@ mod tests {
             operand: expr_arena.alloc(LogicExpr::Atom(p)),
         };
         assert_eq!(expr.with(&interner).to_string(), "□(Rain)");
+    }
+
+    /// BUG-033: force == 0.5 (ability/epistemic can/could/may) is the
+    /// possibility side (◇), as the formatter and Kripke lowering both treat it.
+    /// The debug display must agree, not render □.
+    #[test]
+    fn expr_modal_display_force_half_is_possibility_not_necessity() {
+        let mut interner = Interner::new();
+        let expr_arena: Arena<LogicExpr> = Arena::new();
+        let fly = interner.intern("Fly");
+        let expr = LogicExpr::Modal {
+            vector: crate::ast::ModalVector {
+                domain: crate::ast::ModalDomain::Alethic,
+                force: 0.5,
+                flavor: crate::ast::ModalFlavor::Root,
+                modal_base: None,
+                ordering_source: None,
+            },
+            operand: expr_arena.alloc(LogicExpr::Atom(fly)),
+        };
+        assert_eq!(expr.with(&interner).to_string(), "◇(Fly)");
     }
 }

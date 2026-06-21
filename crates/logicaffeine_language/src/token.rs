@@ -71,6 +71,9 @@ pub enum MeasureKind {
 /// fixed SI time units (ns, ms, s, etc.) used in Duration.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CalendarUnit {
+    Second,
+    Minute,
+    Hour,
     Day,
     Week,
     Month,
@@ -427,6 +430,7 @@ pub enum TokenType {
     Who,
     What,
     Where,
+    Whose,
     When,
     Why,
     Does,

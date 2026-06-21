@@ -50,6 +50,53 @@ Show countDown(10000).
     );
 }
 
+/// The `Let x be self(args); Return x` pair is a self-tail-call too — the AOT
+/// must lower it to the same constant-stack loop the VM and tree-walker use, so
+/// the TCO semantic is identical on every tier. Without pair TCE this function
+/// would recurse (no `loop {`), so the codegen-shape assertion is the RED guard.
+#[cfg(not(target_arch = "wasm32"))]
+#[test]
+fn e2e_opt_tco_let_return_pair() {
+    let code = r#"## To sumL (n: Int) and (acc: Int) -> Int:
+    If n is at most 0:
+        Return acc.
+    Let r be sumL(n - 1, acc + n).
+    Return r.
+
+## Main
+Show sumL(10000, 0).
+"#;
+    assert_exact_output(code, "50005000");
+    let rust = compile_to_rust(code).unwrap();
+    assert!(rust.contains("loop {"),
+        "Let-Return pair tail call should be lowered to a TCE loop, got:\n{}", rust);
+    assert!(rust.contains("continue;"),
+        "TCE loop-back should reassign params and continue, got:\n{}", rust);
+}
+
+/// The `Set x to self(args); Return x` pair (mutable binding) is the quicksort
+/// second-recursion shape — also a self-tail-call, also TCE'd on the AOT.
+#[cfg(not(target_arch = "wasm32"))]
+#[test]
+fn e2e_opt_tco_set_return_pair() {
+    let code = r#"## To sumS (n: Int) and (acc: Int) -> Int:
+    If n is at most 0:
+        Return acc.
+    Let mutable r be 0.
+    Set r to sumS(n - 1, acc + n).
+    Return r.
+
+## Main
+Show sumS(10000, 0).
+"#;
+    assert_exact_output(code, "50005000");
+    let rust = compile_to_rust(code).unwrap();
+    assert!(rust.contains("loop {"),
+        "Set-Return pair tail call should be lowered to a TCE loop, got:\n{}", rust);
+    assert!(rust.contains("continue;"),
+        "TCE loop-back should reassign params and continue, got:\n{}", rust);
+}
+
 // =============================================================================
 // Constant Propagation
 // =============================================================================
@@ -324,7 +371,9 @@ Show sumTo(10).
 #[cfg(not(target_arch = "wasm32"))]
 #[test]
 fn e2e_opt_fxhashmap_codegen() {
-    // Maps should use FxHashMap (via the Map type alias) instead of std::collections::HashMap
+    // Maps must never use std::collections::HashMap. A non-aliased local
+    // `Map of Int to Int` lowers further, to the specialized open-addressing
+    // `LogosI64Map` (Phase D); other maps use the FxHashMap-backed `Map` alias.
     let code = r#"## Main
 Let counts be a new Map of Int to Int.
 Set item 1 of counts to 10.
@@ -334,12 +383,20 @@ Show item 1 of counts.
     assert_exact_output(code, "10");
     let rust = compile_to_rust(code).unwrap();
     // The codegen should NOT emit std::collections::HashMap — it uses the Map alias
-    // which now resolves to FxHashMap in the runtime
+    // (FxHashMap-backed) or the specialized LogosI64Map.
     assert!(!rust.contains("std::collections::HashMap"),
         "Map codegen should not use std::collections::HashMap, got:\n{}", rust);
-    // The type registration should use FxHashMap
-    assert!(rust.contains("FxHashMap") || rust.contains("Map::<"),
-        "Map codegen should use FxHashMap or Map alias, got:\n{}", rust);
+    // The type registration uses FxHashMap (Map alias) or a specialized map tier
+    // (open-addressing LogosI64Map, or the i32-narrowed LogosI32Map for bounded
+    // keys/values).
+    assert!(
+        rust.contains("FxHashMap")
+            || rust.contains("Map::<")
+            || rust.contains("LogosI64Map")
+            || rust.contains("LogosI32Map"),
+        "Map codegen should use FxHashMap, the Map alias, or a specialized LogosI*Map, got:\n{}",
+        rust
+    );
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -3277,22 +3334,24 @@ Show item (capacity + 1) of prev.
 #[cfg(not(target_arch = "wasm32"))]
 #[test]
 fn e2e_opt_double_buffer_codegen() {
+    // The SOUND double-buffer: `curr` is allocated fresh (`new Seq`) each
+    // iteration, so the buffer-reuse optimization (detect_buffer_reuse_in_body)
+    // can soundly reuse the old buffer via mem::swap + clear.
     let code = r#"## Main
 Let n be 3.
 Let capacity be 4.
 Let cols be capacity + 1.
 Let mutable prev be a new Seq of Int.
-Let mutable curr be a new Seq of Int.
 Let mutable j be 0.
 While j is less than cols:
     Push 0 to prev.
-    Push 0 to curr.
     Set j to j + 1.
 Let mutable i be 0.
 While i is less than n:
+    Let mutable curr be a new Seq of Int.
     Let mutable w be 0.
     While w is at most capacity:
-        Set item (w + 1) of curr to item (w + 1) of prev + 1.
+        Push (item (w + 1) of prev + 1) to curr.
         Set w to w + 1.
     Set prev to curr.
     Set i to i + 1.
@@ -3301,12 +3360,17 @@ Show item (capacity + 1) of prev.
     assert_exact_output(code, "3");
     let rust = compile_to_rust(code).unwrap();
     assert!(rust.contains("mem::swap") || rust.contains("std::mem::swap"),
-        "Double-buffer should emit mem::swap, got:\n{}", rust);
+        "Fresh-buffer double-buffer should emit mem::swap, got:\n{}", rust);
 }
 
 #[cfg(not(target_arch = "wasm32"))]
 #[test]
 fn e2e_opt_double_buffer_knapsack_correctness() {
+    // Sound double-buffer under reference semantics: `curr` is a FRESH `new Seq`
+    // each iteration (built via Push, reading only `prev`), so `Set prev to curr`
+    // aliases prev to an independent buffer. Correct 0/1 knapsack on both the
+    // compiler and the interpreter (the old `Set X to Y`->swap version aliased
+    // and degraded to UNbounded knapsack on the interpreter).
     assert_exact_output(
         r#"## To native args () -> Seq of Text
 ## To native parseInt (s: Text) -> Int
@@ -3323,23 +3387,23 @@ While i is less than n:
     Set i to i + 1.
 Let cols be capacity + 1.
 Let mutable prev be a new Seq of Int.
-Let mutable curr be a new Seq of Int.
 Set i to 0.
 While i is less than cols:
     Push 0 to prev.
-    Push 0 to curr.
     Set i to i + 1.
 Set i to 0.
 While i is less than n:
+    Let mutable curr be a new Seq of Int.
     Let wi be item (i + 1) of weights.
     Let vi be item (i + 1) of vals.
     Let mutable w be 0.
     While w is at most capacity:
-        Set item (w + 1) of curr to item (w + 1) of prev.
+        Let mutable best be item (w + 1) of prev.
         If w is at least wi:
             Let take be item (w - wi + 1) of prev + vi.
-            If take is greater than item (w + 1) of curr:
-                Set item (w + 1) of curr to take.
+            If take is greater than best:
+                Set best to take.
+        Push best to curr.
         Set w to w + 1.
     Set prev to curr.
     Set i to i + 1.
@@ -3894,5 +3958,87 @@ Push (10 * 2) to arr.
 Show arr.
 "#,
         "[-1, 5, 20]",
+    );
+}
+
+// =============================================================================
+// O5a: LLVM-level bounds-check elimination (the pass/fail grep, automated)
+// =============================================================================
+
+/// The inclusive-bound DP shape (knapsack's loss case, minus the window
+/// access that needs O5): with the strict `<` hint, every counter-shaped
+/// access elides and `_logos_main` contains ZERO panic_bounds_check.
+#[cfg(not(target_arch = "wasm32"))]
+#[test]
+fn e2e_o5a_inclusive_dp_zero_panic_bounds_check() {
+    let source = r#"## To native parseInt (s: Text) -> Int
+
+## Main
+Let n be parseInt("64").
+Let mutable prev be a new Seq of Int.
+Let mutable curr be a new Seq of Int.
+Let mutable k be 0.
+While k is less than n + 1:
+    Push 1 to prev.
+    Push 0 to curr.
+    Set k to k + 1.
+Let mutable i be 0.
+While i is less than 8:
+    Let mutable w be 0.
+    While w is at most n:
+        Set item (w + 1) of curr to item (w + 1) of prev + w.
+        Set w to w + 1.
+    Set i to i + 1.
+Let mutable total be 0.
+Set k to 0.
+While k is at most n:
+    Set total to total + item (k + 1) of curr.
+    Set k to k + 1.
+Show total.
+"#;
+    let ir = common::compile_logos_llvm_ir(source);
+    let main_fn = common::llvm_ir_function(&ir, "_logos_main");
+    let checks = main_fn.matches("panic_bounds_check").count();
+    assert_eq!(
+        checks, 0,
+        "inclusive-DP loops should have zero bounds checks in _logos_main; found {}.\nIR excerpt:\n{}",
+        checks,
+        &main_fn[..main_fn.len().min(4000)]
+    );
+}
+
+/// Regression guard: prefix_sum's shape already reaches zero bounds checks
+/// today — the hint rework must keep it there.
+#[cfg(not(target_arch = "wasm32"))]
+#[test]
+fn e2e_o5a_prefix_sum_keeps_zero_panic_bounds_check() {
+    let source = r#"## To native parseInt (s: Text) -> Int
+
+## Main
+Let n be parseInt("512").
+Let mutable arr be a new Seq of Int.
+Let mutable i be 0.
+While i is less than n:
+    Push ((i * 7) % 100) to arr.
+    Set i to i + 1.
+Set i to 1.
+While i is less than n:
+    Set item (i + 1) of arr to item (i + 1) of arr + item i of arr.
+    Set i to i + 1.
+Let mutable total be 0.
+Set i to 0.
+While i is less than n:
+    Set total to total + item (i + 1) of arr.
+    Set i to i + 1.
+Show total.
+"#;
+    let ir = common::compile_logos_llvm_ir(source);
+    let main_fn = common::llvm_ir_function(&ir, "_logos_main");
+    let checks = main_fn.matches("panic_bounds_check").count();
+    assert_eq!(
+        checks, 0,
+        "prefix-sum scan should keep zero bounds checks in _logos_main; found {}.\nIR excerpt:\n{}",
+        checks,
+        &main_fn[..main_fn.len().min(4000)]
     );
 }

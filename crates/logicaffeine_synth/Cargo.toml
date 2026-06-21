@@ -1,0 +1,16 @@
+[package]
+name = "logicaffeine-synth"
+version = "0.9.17"
+edition.workspace = true
+authors.workspace = true
+repository.workspace = true
+homepage.workspace = true
+keywords.workspace = true
+categories.workspace = true
+rust-version.workspace = true
+license = "BUSL-1.1"
+description = "EXODIA Forge: Z3 stencil specifications, witness verification and template synthesis (offline tooling — never in the runtime path)"
+
+[dependencies]
+z3 = "0.12"
+logicaffeine-forge = { version = "0.9.17", path = "../logicaffeine_forge" }

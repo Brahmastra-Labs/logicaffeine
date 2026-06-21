@@ -20,6 +20,9 @@ node_modules/
 *.pdf
 test_results*.txt
 
+# Test run logs (scripts/run-all-tests.sh)
+/logs/
+
 # IDE
 .idea/
 .vscode/
@@ -31,6 +34,13 @@ benchmarks/.logos-bench-target/
 benchmarks/bin/
 benchmarks/generated/
 benchmarks/results/raw/
+benchmarks/results/raw-local/
+benchmarks/results/raw-logos-vs-c/
+benchmarks/results/local.json
+benchmarks/results/local-logos-vs-c.json
+benchmarks/results/c_results.json
+benchmarks/results/c-baselines.json
+logs/
 # asm/llvm-ir dumps (~620MB, regenerate via run-logos-vs-c.sh)
 benchmarks/asm/
 

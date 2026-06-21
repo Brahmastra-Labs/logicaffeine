@@ -63,12 +63,19 @@ pub struct CertificationContext<'a> {
     kernel_ctx: &'a Context,
     /// Local variables in scope (from lambda abstractions)
     locals: Vec<String>,
-    /// Local *hypotheses* in scope, keyed by the proposition they prove.
-    /// Introduced by reductio (the assumed proposition) and case analysis (the
-    /// case formula / its negation in each branch). A `PremiseMatch` whose
-    /// conclusion matches one of these resolves to its bound variable rather
-    /// than to a global axiom.
-    local_hyps: Vec<(ProofExpr, String)>,
+    /// Local *hypotheses* in scope, keyed by the proposition they prove and
+    /// paired with the kernel term that witnesses it. Introduced by reductio
+    /// (the assumed proposition), case analysis (the case formula / its negation
+    /// in each branch), and existential elimination (the witness body and its
+    /// projected conjuncts). A `PremiseMatch` whose conclusion matches one of
+    /// these resolves to its witness term rather than to a global axiom. The
+    /// witness is usually a bound variable (`Term::Var`), but for a projected
+    /// conjunct of an `And` hypothesis it is a `Match` that eliminates the
+    /// conjunction.
+    /// Each entry is shared behind `Arc` so extending the context at a binder copies
+    /// pointers, not whole (proposition, witness) pairs — building a large certified
+    /// proof extends this thousands of times.
+    local_hyps: Vec<std::sync::Arc<(ProofExpr, Term)>>,
     /// Induction state for IH resolution (only set during step case)
     induction_state: Option<InductionState>,
 }
@@ -98,8 +105,16 @@ impl<'a> CertificationContext<'a> {
     /// Create a new context with an additional local hypothesis: a proof of
     /// `prop` is available under the name `var`.
     fn with_local_hyp(&self, prop: &ProofExpr, var: &str) -> Self {
+        self.with_local_hyp_term(prop, Term::Var(var.to_string()))
+    }
+
+    /// Create a new context with an additional local hypothesis: a proof of
+    /// `prop` is given by the kernel term `witness`. Unlike [`with_local_hyp`],
+    /// the witness need not be a bare variable — e.g. a projection that
+    /// eliminates an `And` to recover one conjunct.
+    fn with_local_hyp_term(&self, prop: &ProofExpr, witness: Term) -> Self {
         let mut new_hyps = self.local_hyps.clone();
-        new_hyps.push((prop.clone(), var.to_string()));
+        new_hyps.push(std::sync::Arc::new((prop.clone(), witness)));
         Self {
             kernel_ctx: self.kernel_ctx,
             locals: self.locals.clone(),
@@ -113,13 +128,13 @@ impl<'a> CertificationContext<'a> {
         format!("_hyp{}", self.local_hyps.len())
     }
 
-    /// If `conclusion` is proved by a local hypothesis, return its variable.
+    /// If `conclusion` is proved by a local hypothesis, return its witness term.
     fn get_local_hyp(&self, conclusion: &ProofExpr) -> Option<Term> {
         self.local_hyps
             .iter()
             .rev()
-            .find(|(prop, _)| prop == conclusion)
-            .map(|(_, var)| Term::Var(var.clone()))
+            .find(|h| h.0 == *conclusion)
+            .map(|h| h.1.clone())
     }
 
     /// Create a new context with induction state for step case certification.
@@ -444,12 +459,19 @@ pub fn certify(tree: &DerivationTree, ctx: &CertificationContext) -> KernelResul
             Ok(applied)
         }
 
-        // Existential Elimination: from ∃x.P(x) and a proof of ⊥ that uses a
-        // fresh witness `c` with hypothesis P(c), eliminate the existential.
+        // Existential Elimination: from ∃x.P(x) and a proof of the goal that uses
+        // a fresh witness `c` with hypothesis P(c), eliminate the existential.
         // Curry-Howard: pattern-match the existential —
-        //   match ex return (λ_:Ex Entity P. False) with witness c h => <⊥ proof>
+        //   match ex return (λ_:Ex Entity P. Goal) with witness c h => <Goal proof>
         // The witness `c` is the Match-bound variable, so within the body we turn
-        // the placeholder constant `c` into that bound variable.
+        // the placeholder constant `c` into that bound variable. Two shapes flow
+        // through here: the prove-⊥ form (`cert_derive_falsum`, conclusion ⊥, body
+        // references the whole `P(c)`) and the forward form (`try_existential_
+        // elimination`, conclusion = the actual goal, body references the FLATTENED
+        // conjuncts of `P(c)`). The motive's body is the conclusion's type — ⊥
+        // gives `False`, recovering the prove-⊥ case unchanged — and the body
+        // proof sees both the whole `P(c)` and each of its conjuncts (the latter
+        // recovered by genuine ∧-elimination of `h`).
         InferenceRule::ExistentialElim { witness } => {
             if tree.premises.len() != 2 {
                 return Err(KernelError::CertificationError(
@@ -476,10 +498,17 @@ pub fn certify(tree: &DerivationTree, ctx: &CertificationContext) -> KernelResul
             // Discriminant: the proof of the existential (type Ex Entity P).
             let disc = certify(exist_premise, ctx)?;
 
-            // Body: certify with P(c) available as a local hypothesis, then bind
-            // the witness by rewriting the placeholder Global(c) to Var(c).
-            let h = ctx.fresh_hyp_name();
-            let body_ctx = ctx.with_local_hyp(&p_c_expr, &h);
+            // The witness body is proved by the bound hypothesis `h : P(c)`. Bind
+            // the whole body (the prove-⊥ form references it directly) AND every
+            // flattened conjunct, each recovered by ∧-eliminating `h` (the forward
+            // form references the conjuncts separately).
+            let h = format!("_exh_{}", witness);
+            let h_var = Term::Var(h.clone());
+            let mut body_ctx = ctx.with_local_hyp_term(&p_c_expr, h_var.clone());
+            for (conjunct, proj) in collect_conjunct_hyps(&p_c_expr, &h_var)? {
+                body_ctx = body_ctx.with_local_hyp_term(&conjunct, proj);
+            }
+
             let body_raw = certify(body, &body_ctx)?;
             let c_global = Term::Global(witness.clone());
             let c_var = Term::Var(witness.clone());
@@ -487,15 +516,13 @@ pub fn certify(tree: &DerivationTree, ctx: &CertificationContext) -> KernelResul
             let p_c_type =
                 substitute_term_in_kernel(&proof_expr_to_type(&p_c_expr)?, &c_global, &c_var);
 
-            // Motive: λ_:(Ex Entity P). False  (the goal ⊥ ignores the witness).
-            let ex_type = proof_expr_to_type(&exist_premise.conclusion)?;
-            let motive = Term::Lambda {
-                param: "_".to_string(),
-                param_type: Box::new(ex_type),
-                body: Box::new(Term::Global("False".to_string())),
-            };
+            // CONSTANT motive: the witness does not escape — the goal is closed (it does
+            // not mention `c`) — so pass the goal type raw and let the kernel synthesize
+            // `λ_:(Ex Entity P). Goal` from the discriminant's own type. (⊥ ↦ `False`,
+            // keeping the prove-⊥ form intact.)
+            let motive = proof_expr_to_type(&tree.conclusion)?;
 
-            // Case for `witness`: λ(c:Entity). λ(h:P(c)). <⊥ proof>
+            // Case for `witness`: λ(c:Entity). λ(h:P(c)). <Goal proof>
             let case = Term::Lambda {
                 param: witness.clone(),
                 param_type: Box::new(Term::Global("Entity".to_string())),
@@ -762,6 +789,204 @@ pub fn certify(tree: &DerivationTree, ctx: &CertificationContext) -> KernelResul
             Ok(Term::App(Box::new(neg_neg_c), Box::new(neg_c)))
         }
 
+        // Disjunctive syllogism: from `A ∨ B` and `¬A`, conclude `B` (and the
+        // mirror `¬B` ⊢ `A`). Curry-Howard, intuitionistically (no excluded
+        // middle): match the `Or A B` proof. In the branch whose disjunct is
+        // refuted, apply the negation `Not X = X → False` to the bound proof of
+        // `X`, obtaining `False`, then eliminate `False` into the goal (a match
+        // with no cases — `False` has no constructors). The surviving branch
+        // returns its bound proof, which IS the goal.
+        InferenceRule::DisjunctionElim => {
+            if tree.premises.len() != 2 {
+                return Err(KernelError::CertificationError(
+                    "DisjunctionElim requires exactly 2 premises (disjunction, negation)"
+                        .to_string(),
+                ));
+            }
+            let disj_premise = &tree.premises[0];
+            let neg_premise = &tree.premises[1];
+
+            let (left, right) = match &disj_premise.conclusion {
+                ProofExpr::Or(l, r) => (l.as_ref().clone(), r.as_ref().clone()),
+                other => {
+                    return Err(KernelError::CertificationError(format!(
+                        "DisjunctionElim first premise must conclude a disjunction, got {:?}",
+                        other
+                    )))
+                }
+            };
+            let refuted = match &neg_premise.conclusion {
+                ProofExpr::Not(inner) => inner.as_ref().clone(),
+                other => {
+                    return Err(KernelError::CertificationError(format!(
+                        "DisjunctionElim second premise must conclude a negation, got {:?}",
+                        other
+                    )))
+                }
+            };
+
+            let left_is_refuted = conclusions_match(&refuted, &left);
+            let right_is_refuted = conclusions_match(&refuted, &right);
+            if left_is_refuted == right_is_refuted {
+                return Err(KernelError::CertificationError(format!(
+                    "DisjunctionElim negation {:?} matches neither (or both) disjuncts of {:?}",
+                    refuted, disj_premise.conclusion
+                )));
+            }
+
+            let goal_type = proof_expr_to_type(&tree.conclusion)?;
+            let disc = certify(disj_premise, ctx)?;
+            let neg_term = certify(neg_premise, ctx)?;
+
+            // CONSTANT motive: pass the goal type raw (see DisjunctionCases) — the kernel
+            // rebuilds `λ_:disc_type. goal` from the discriminant's `Or` type.
+            let motive = goal_type.clone();
+
+            // A branch that returns its bound proof directly (the surviving
+            // disjunct equals the goal): λ(__d:D). __d.
+            let return_case = |disjunct: &ProofExpr, binder: &str| -> KernelResult<Term> {
+                Ok(Term::Lambda {
+                    param: binder.to_string(),
+                    param_type: Box::new(proof_expr_to_type(disjunct)?),
+                    body: Box::new(Term::Var(binder.to_string())),
+                })
+            };
+            // A branch whose disjunct is refuted: λ(__d:D). False_elim G ((¬D) __d).
+            let absurd_case = |disjunct: &ProofExpr, binder: &str| -> KernelResult<Term> {
+                let falsum = Term::App(
+                    Box::new(neg_term.clone()),
+                    Box::new(Term::Var(binder.to_string())),
+                );
+                let ex_falso = Term::Match {
+                    discriminant: Box::new(falsum),
+                    motive: Box::new(Term::Lambda {
+                        param: "_".to_string(),
+                        param_type: Box::new(Term::Global("False".to_string())),
+                        body: Box::new(goal_type.clone()),
+                    }),
+                    cases: vec![],
+                };
+                Ok(Term::Lambda {
+                    param: binder.to_string(),
+                    param_type: Box::new(proof_expr_to_type(disjunct)?),
+                    body: Box::new(ex_falso),
+                })
+            };
+
+            let left_case = if left_is_refuted {
+                absurd_case(&left, "__dl")?
+            } else {
+                return_case(&left, "__dl")?
+            };
+            let right_case = if right_is_refuted {
+                absurd_case(&right, "__dr")?
+            } else {
+                return_case(&right, "__dr")?
+            };
+
+            Ok(Term::Match {
+                discriminant: Box::new(disc),
+                motive: Box::new(motive),
+                cases: vec![left_case, right_case],
+            })
+        }
+
+        // Disjunction elimination to a COMMON conclusion (here always ⊥): from
+        // `A ∨ B`, a proof of the goal assuming `A`, and a proof assuming `B`,
+        // Curry-Howard matches the `Or` and runs the matching branch. Each branch
+        // binds its disjunct — and, when the disjunct is a conjunction, each
+        // conjunct (recovered by ∧-elimination, as in `ExistentialElim`) — as a
+        // local hypothesis, so the branch proof may cite them directly. This is the
+        // case analysis a grid's of-pair / either-or / closure clause needs, and it
+        // is intuitionistic (no excluded middle).
+        InferenceRule::DisjunctionCases => {
+            if tree.premises.len() != 3 {
+                return Err(KernelError::CertificationError(
+                    "DisjunctionCases requires exactly 3 premises (disjunction, A-branch, B-branch)"
+                        .to_string(),
+                ));
+            }
+            let disj_premise = &tree.premises[0];
+            let (left, right) = match &disj_premise.conclusion {
+                ProofExpr::Or(l, r) => (l.as_ref().clone(), r.as_ref().clone()),
+                other => {
+                    return Err(KernelError::CertificationError(format!(
+                        "DisjunctionCases first premise must conclude a disjunction, got {:?}",
+                        other
+                    )))
+                }
+            };
+            let disc = certify(disj_premise, ctx)?;
+            // CONSTANT motive (the goal is independent of which disjunct held): pass the
+            // goal TYPE raw and let the kernel synthesize `λ_:disc_type. goal` from the
+            // discriminant's `Or` type. This keeps the large, left-nested `Or` OUT of the
+            // emitted term at EVERY nested case split — the O(n²) certification blowup.
+            let motive = proof_expr_to_type(&tree.conclusion)?;
+
+            let build_arm = |disjunct: &ProofExpr,
+                             branch: &DerivationTree,
+                             binder: &str|
+             -> KernelResult<Term> {
+                let h_var = Term::Var(binder.to_string());
+                let mut bctx = ctx.with_local_hyp_term(disjunct, h_var.clone());
+                for (conjunct, proj) in collect_conjunct_hyps(disjunct, &h_var)? {
+                    bctx = bctx.with_local_hyp_term(&conjunct, proj);
+                }
+                let body = certify(branch, &bctx)?;
+                Ok(Term::Lambda {
+                    param: binder.to_string(),
+                    param_type: Box::new(proof_expr_to_type(disjunct)?),
+                    body: Box::new(body),
+                })
+            };
+
+            // FRESH binder names (`_hyp{depth}`), not fixed `__dcl`/`__dcr`: a branch
+            // may itself contain a nested case-analysis, and a reused name would let the
+            // inner binder CAPTURE an outer disjunct hypothesis in the kernel term (a
+            // leaf citing the outer disjunct resolves to the inner λ of the wrong type).
+            let lname = ctx.fresh_hyp_name();
+            let rname = ctx.fresh_hyp_name();
+            let left_case = build_arm(&left, &tree.premises[1], &lname)?;
+            let right_case = build_arm(&right, &tree.premises[2], &rname)?;
+
+            Ok(Term::Match {
+                discriminant: Box::new(disc),
+                motive: Box::new(motive),
+                cases: vec![left_case, right_case],
+            })
+        }
+
+        // Conjunction elimination: from a proof of `A ∧ B`, recover the conjunct
+        // (`A` or `B`, whichever the conclusion names) by `∧`-elimination.
+        InferenceRule::ConjunctionElim => {
+            if tree.premises.len() != 1 {
+                return Err(KernelError::CertificationError(
+                    "ConjunctionElim requires exactly 1 premise (the conjunction)".to_string(),
+                ));
+            }
+            let conj_premise = &tree.premises[0];
+            let (a, b) = match &conj_premise.conclusion {
+                ProofExpr::And(l, r) => (l.as_ref().clone(), r.as_ref().clone()),
+                other => {
+                    return Err(KernelError::CertificationError(format!(
+                        "ConjunctionElim premise must conclude a conjunction, got {:?}",
+                        other
+                    )))
+                }
+            };
+            let take_left = conclusions_match(&tree.conclusion, &a);
+            if !take_left && !conclusions_match(&tree.conclusion, &b) {
+                return Err(KernelError::CertificationError(format!(
+                    "ConjunctionElim conclusion {:?} matches neither conjunct of {:?}",
+                    tree.conclusion, conj_premise.conclusion
+                )));
+            }
+            let disc = certify(conj_premise, ctx)?;
+            let left_type = proof_expr_to_type(&a)?;
+            let right_type = proof_expr_to_type(&b)?;
+            Ok(project_conjunct(&disc, &left_type, &right_type, take_left))
+        }
+
         // Z3 oracle results are deliberately NOT certifiable. The oracle attests
         // *satisfiability* but hands back no checkable proof term — so it can
         // never be turned into a kernel certificate, and a goal discharged only
@@ -874,6 +1099,67 @@ fn substitute_term_in_kernel(term: &Term, from: &Term, to: &Term) -> Term {
             body: Box::new(substitute_term_in_kernel(body, from, to)),
         },
         other => other.clone(),
+    }
+}
+
+/// Eliminate an `And A B` proof `disc` to recover one conjunct.
+///
+/// Builds `match disc return C with conj => λ(__l:A).λ(__r:B). __x`
+/// (a CONSTANT motive — the kernel re-derives `λ_:And A B. C` from `disc`'s type)
+/// where `C` is the chosen conjunct's type and `__x` is the corresponding bound
+/// proof. This is genuine ∧-elimination — `And` is the inductive with the single
+/// constructor `conj : Π P Q. P → Q → And P Q`, so the singleton-eliminator match
+/// is total and the recovered term has exactly the conjunct's type.
+fn project_conjunct(
+    disc: &Term,
+    left_type: &Term,
+    right_type: &Term,
+    take_left: bool,
+) -> Term {
+    let chosen = if take_left { left_type } else { right_type };
+    let result = if take_left { "__l" } else { "__r" };
+    let case = Term::Lambda {
+        param: "__l".to_string(),
+        param_type: Box::new(left_type.clone()),
+        body: Box::new(Term::Lambda {
+            param: "__r".to_string(),
+            param_type: Box::new(right_type.clone()),
+            body: Box::new(Term::Var(result.to_string())),
+        }),
+    };
+    Term::Match {
+        discriminant: Box::new(disc.clone()),
+        // CONSTANT motive: pass the chosen conjunct's type raw; the kernel synthesizes
+        // `λ_:disc_type. C` from the discriminant's own `And A B` type (type_checker's
+        // Match arm wraps a Sort-typed motive automatically), keeping the conjunction
+        // — which carries the of-pair's nested XOR — OUT of the emitted term.
+        motive: Box::new(chosen.clone()),
+        cases: vec![case],
+    }
+}
+
+/// Collect each leaf conjunct of `expr` paired with a kernel term that proves it,
+/// derived from `witness` (a proof of `proof_expr_to_type(expr)`). A non-`And`
+/// proposition is its own single leaf, proved directly by `witness`. An
+/// `And(l, r)` yields the leaves of `l` (proved by projecting `l` out of
+/// `witness`) followed by the leaves of `r` (projecting `r`). This mirrors the
+/// engine's `flatten_conjunction`, so the body proof — which references the
+/// flattened conjuncts as separate premises — finds each one as a local
+/// hypothesis backed by a sound ∧-elimination.
+fn collect_conjunct_hyps(expr: &ProofExpr, witness: &Term) -> KernelResult<Vec<(ProofExpr, Term)>> {
+    match expr {
+        ProofExpr::And(l, r) => {
+            let left_type = proof_expr_to_type(l)?;
+            let right_type = proof_expr_to_type(r)?;
+
+            let left_proj = project_conjunct(witness, &left_type, &right_type, true);
+            let right_proj = project_conjunct(witness, &left_type, &right_type, false);
+
+            let mut hyps = collect_conjunct_hyps(l, &left_proj)?;
+            hyps.extend(collect_conjunct_hyps(r, &right_proj)?);
+            Ok(hyps)
+        }
+        _ => Ok(vec![(expr.clone(), witness.clone())]),
     }
 }
 
@@ -1147,14 +1433,30 @@ pub(crate) fn proof_expr_to_type(expr: &ProofExpr) -> KernelResult<Term> {
 ///
 /// This bridges the proof engine's term representation to the kernel's.
 /// Used for converting witness terms in quantifier instantiation.
+/// Translate the shared IR's canonical arithmetic function names to the kernel's
+/// internal ring vocabulary. The proof IR is canonicalised to `Add`/`Sub`/`Mul`/
+/// `Div` (so the SMT oracle recognises it); the kernel's LIA prover ([`crate::arith`])
+/// and its ring axioms are written in lowercase `add`/`sub`/`mul`/`div`. This is the
+/// single translation boundary — every other name passes through verbatim.
+fn kernel_arith_name(name: &str) -> &str {
+    match name {
+        "Add" => "add",
+        "Sub" => "sub",
+        "Mul" => "mul",
+        "Div" => "div",
+        other => other,
+    }
+}
+
 pub(crate) fn proof_term_to_kernel_term(term: &ProofTerm) -> KernelResult<Term> {
     match term {
         ProofTerm::Constant(name) => Ok(Term::Global(name.clone())),
         ProofTerm::Variable(name) => Ok(Term::Var(name.clone())),
         ProofTerm::BoundVarRef(name) => Ok(Term::Var(name.clone())),
         ProofTerm::Function(name, args) => {
-            // Build nested applications: f(a, b) -> ((f a) b)
-            let mut result = Term::Global(name.clone());
+            // Build nested applications: f(a, b) -> ((f a) b). Canonical arithmetic
+            // names are lowered to the kernel's ring vocabulary at this boundary.
+            let mut result = Term::Global(kernel_arith_name(name).to_string());
             for arg in args {
                 let arg_term = proof_term_to_kernel_term(arg)?;
                 result = Term::App(Box::new(result), Box::new(arg_term));
@@ -1321,5 +1623,50 @@ fn substitute_var_in_term(term: &ProofTerm, from: &str, to: &str) -> ProofTerm {
                 .map(|t| substitute_var_in_term(t, from, to))
                 .collect(),
         ),
+    }
+}
+
+#[cfg(test)]
+mod canonical_arith_boundary_tests {
+    use super::*;
+
+    #[test]
+    fn kernel_arith_name_maps_canonical_to_ring() {
+        // The shared IR is canonicalised to Add/Sub/Mul/Div; the kernel ring axioms
+        // and LIA prover speak lowercase add/sub/mul/div. The boundary translates.
+        assert_eq!(kernel_arith_name("Add"), "add");
+        assert_eq!(kernel_arith_name("Sub"), "sub");
+        assert_eq!(kernel_arith_name("Mul"), "mul");
+        assert_eq!(kernel_arith_name("Div"), "div");
+        // Everything else passes through verbatim (measure fns, relations, names).
+        assert_eq!(kernel_arith_name("Score"), "Score");
+        assert_eq!(kernel_arith_name("add"), "add");
+    }
+
+    #[test]
+    fn canonical_add_lowers_to_kernel_ring_head() {
+        // ProofTerm::Function("Add", [x, y]) must lower to ((add x) y) so the
+        // kernel arith prover (which matches Global("add")) can discharge it.
+        let t = proof_term_to_kernel_term(&ProofTerm::Function(
+            "Add".to_string(),
+            vec![
+                ProofTerm::Variable("x".to_string()),
+                ProofTerm::Variable("y".to_string()),
+            ],
+        ))
+        .expect("Add term converts to a kernel term");
+        match t {
+            Term::App(f, _) => match *f {
+                Term::App(g, _) => match *g {
+                    Term::Global(name) => assert_eq!(
+                        name, "add",
+                        "canonical Add must lower to the kernel ring name 'add'; got {name}"
+                    ),
+                    other => panic!("expected a Global head, got {:?}", other),
+                },
+                other => panic!("expected a nested App, got {:?}", other),
+            },
+            other => panic!("expected an App, got {:?}", other),
+        }
     }
 }

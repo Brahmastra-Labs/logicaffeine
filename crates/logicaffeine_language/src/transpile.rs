@@ -759,12 +759,16 @@ impl<'a> LogicExpr<'a> {
                 let mut subj_buf = String::new();
                 if fmt.preserve_case() {
                     subject.write_to_raw(&mut subj_buf, interner)?;
+                } else if fmt.use_full_names() {
+                    subject.write_to_full(&mut subj_buf, registry, interner)?;
                 } else {
                     subject.write_to(&mut subj_buf, registry, interner)?;
                 }
                 let mut obj_buf = String::new();
                 if fmt.preserve_case() {
                     object.write_to_raw(&mut obj_buf, interner)?;
+                } else if fmt.use_full_names() {
+                    object.write_to_full(&mut obj_buf, registry, interner)?;
                 } else {
                     object.write_to(&mut obj_buf, registry, interner)?;
                 }
@@ -772,6 +776,8 @@ impl<'a> LogicExpr<'a> {
                     let mut diff_buf = String::new();
                     if fmt.preserve_case() {
                         diff.write_to_raw(&mut diff_buf, interner)?;
+                    } else if fmt.use_full_names() {
+                        diff.write_to_full(&mut diff_buf, registry, interner)?;
                     } else {
                         diff.write_to(&mut diff_buf, registry, interner)?;
                     }
