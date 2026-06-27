@@ -1,13 +1,13 @@
 {
-  "id": "C_6.48",
+  "id": "C_6.110",
   "type": "multiple_choice",
   "difficulty": 1,
   "prompt": "T is sufficient for F",
   "options": [
-    "$ (\\\\sim T \\\\supset \\\\, \\\\sim F) $",
-    "$ (T \\\\supset F) $",
-    "$ (T \\\\equiv F) $",
-    "$ T \\\\supset F $"
+    "$ (\\sim T \\supset \\, \\sim F) $",
+    "$ (T \\supset F) $",
+    "$ (T \\equiv F) $",
+    "$ T \\supset F $"
   ],
   "correct": 1,
   "hint": "If A is 'sufficient' for B, does that mean A guarantees B, or B guarantees A?",

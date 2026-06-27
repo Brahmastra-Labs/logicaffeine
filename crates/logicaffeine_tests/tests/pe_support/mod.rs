@@ -208,19 +208,20 @@ pub fn count_dispatch(residual: &str) -> usize {
     compile::count_dispatch(residual)
 }
 
-/// Assert two observations describe the same observable behavior.
+/// The behavioral comparison underlying [`assert_same_behavior`], returning the
+/// human-readable difference instead of panicking. `None` ⇔ the two observations
+/// describe the same observable behavior under `mode`.
 ///
 /// The output stream must always match exactly (the strongest, engine-independent
 /// signal). Values match per `mode`: `Strict` requires Value==Value / Nothing==Nothing /
 /// Error==Error; `Lenient` additionally treats `Nothing` ≡ `Error` (the VNothing-vs-Err
-/// boundary). A `Timeout` never matches anything.
-pub fn assert_same_behavior(a: &Observation, b: &Observation, mode: CmpMode) {
-    assert_eq!(
-        a.output, b.output,
-        "output streams differ:\n  a = {:?}\n  b = {:?}",
-        a, b
-    );
-
+/// boundary). A `Timeout` never matches anything. Sharing this with the asserting
+/// wrapper lets callers collect *name-tagged* divergences across a corpus without
+/// re-deriving (and risking drift from) the exact comparison semantics.
+pub fn behavior_diff(a: &Observation, b: &Observation, mode: CmpMode) -> Option<String> {
+    if a.output != b.output {
+        return Some(format!("output streams differ:\n  a = {:?}\n  b = {:?}", a, b));
+    }
     let same_value = match (&a.value, &b.value) {
         (Outcome::Value(x), Outcome::Value(y)) => x == y,
         (Outcome::Nothing, Outcome::Nothing) => true,
@@ -231,11 +232,21 @@ pub fn assert_same_behavior(a: &Observation, b: &Observation, mode: CmpMode) {
         }
         _ => false,
     };
-    assert!(
-        same_value,
-        "values differ under {:?}:\n  a = {:?}\n  b = {:?}",
-        mode, a.value, b.value
-    );
+    if !same_value {
+        return Some(format!(
+            "values differ under {:?}:\n  a = {:?}\n  b = {:?}",
+            mode, a.value, b.value
+        ));
+    }
+    None
+}
+
+/// Assert two observations describe the same observable behavior. Panics with the
+/// exact divergence (see [`behavior_diff`] for the comparison semantics).
+pub fn assert_same_behavior(a: &Observation, b: &Observation, mode: CmpMode) {
+    if let Some(diff) = behavior_diff(a, b, mode) {
+        panic!("{diff}");
+    }
 }
 
 /// Convenience correctness gate: the tree-walker and the PE residual agree, and the

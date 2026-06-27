@@ -7,5 +7,5 @@
   "constraints": {
     "Verb": ["Intransitive"]
   },
-  "hint": "Every N V = ∀x(N(x) → V(x))."
+  "hint": "Universal joined by →: ∀x(Noun(x) → ∃e(Verb(e) ∧ Agent(e, x))). The verb becomes an event with x as its Agent."
 }

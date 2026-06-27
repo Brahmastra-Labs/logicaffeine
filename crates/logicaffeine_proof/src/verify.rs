@@ -40,6 +40,23 @@ pub struct VerifiedProof {
     pub verification_error: Option<String>,
 }
 
+/// A user-introduced predicate definition (Rung 0a), expressed in the proof
+/// layer's own vocabulary so `logicaffeine_proof` keeps its
+/// no-language-dependency invariant. Read as `name(params) :↔ definiens`.
+///
+/// Registered as a δ-unfoldable kernel definition (not an inlined expansion), so
+/// the definiendum stays a first-class, citable node: `bachelor(x)` remains
+/// `bachelor(x)` in the proposition, defeq to its meaning by δ-reduction.
+#[derive(Debug, Clone)]
+pub struct Definition {
+    /// The definiendum predicate name (e.g. `"bachelor"`).
+    pub name: String,
+    /// The parameter names the definiendum binds (e.g. `["x"]`).
+    pub params: Vec<String>,
+    /// The definiens — the body the definiendum abbreviates.
+    pub definiens: ProofExpr,
+}
+
 /// Prove `goal` from `premises`, certify the derivation, and kernel-check it.
 ///
 /// This is the canonical pipeline. Symbols are extracted from the premises and
@@ -51,6 +68,122 @@ pub fn prove_certify_check(premises: &[ProofExpr], goal: &ProofExpr) -> Verified
     prove_certify_check_bounded(premises, goal, 100)
 }
 
+/// One theorem in a dependency-ordered library: proved from its own `premises` plus
+/// the conclusions of the theorems it `cites`. This is the unit the multi-theorem
+/// driver discharges in citation order (the Euclid-graph engine).
+pub struct LibraryTheorem {
+    pub name: String,
+    pub premises: Vec<ProofExpr>,
+    pub goal: ProofExpr,
+    /// Names of earlier theorems whose conclusions this proof relies on.
+    pub cites: Vec<String>,
+}
+
+/// The outcome of proving one theorem in a library.
+pub struct LibraryResult {
+    pub name: String,
+    pub verified: bool,
+    pub verification_error: Option<String>,
+}
+
+/// Order theorems so every citation precedes its citer. A theorem is ready once all
+/// the theorems it cites (by name; unknown names are treated as external givens) are
+/// already ordered. Any theorems left in a citation cycle are appended last (they
+/// will simply fail to find their cyclic lemma). Stable: independent theorems keep
+/// their input order.
+fn citation_order(theorems: &[LibraryTheorem]) -> Vec<usize> {
+    use std::collections::HashSet;
+    let known: HashSet<&str> = theorems.iter().map(|t| t.name.as_str()).collect();
+    let mut placed: HashSet<usize> = HashSet::new();
+    let mut placed_names: HashSet<&str> = HashSet::new();
+    let mut order = Vec::with_capacity(theorems.len());
+    loop {
+        let mut progressed = false;
+        for (i, t) in theorems.iter().enumerate() {
+            if placed.contains(&i) {
+                continue;
+            }
+            let ready = t
+                .cites
+                .iter()
+                .all(|c| !known.contains(c.as_str()) || placed_names.contains(c.as_str()));
+            if ready {
+                order.push(i);
+                placed.insert(i);
+                placed_names.insert(t.name.as_str());
+                progressed = true;
+            }
+        }
+        if !progressed {
+            break;
+        }
+    }
+    for i in 0..theorems.len() {
+        if !placed.contains(&i) {
+            order.push(i);
+        }
+    }
+    order
+}
+
+/// Discharge a library of theorems in citation order. Each theorem is proved from
+/// its own premises plus the conclusions of the (already-proved) theorems it cites,
+/// so a citation graph is walked exactly like the scraped Euclid dependency graph.
+/// Results are returned in the INPUT order. A citation of an unproved/failed theorem
+/// simply isn't available as a premise (so the dependent proof fails too).
+pub fn prove_library(theorems: &[LibraryTheorem]) -> Vec<LibraryResult> {
+    prove_library_with_axioms(&[], theorems)
+}
+
+/// Like [`prove_library`] but with a shared `axioms` base in scope for every
+/// theorem — a named theory (e.g. the Tarski geometry axioms) on which the whole
+/// dependency graph is discharged.
+pub fn prove_library_with_axioms(
+    axioms: &[ProofExpr],
+    theorems: &[LibraryTheorem],
+) -> Vec<LibraryResult> {
+    use std::collections::HashMap;
+    let mut proved: HashMap<&str, &ProofExpr> = HashMap::new();
+    let mut by_name: HashMap<&str, LibraryResult> = HashMap::new();
+
+    for &i in &citation_order(theorems) {
+        let t = &theorems[i];
+        let mut premises = axioms.to_vec();
+        premises.extend(t.premises.iter().cloned());
+        for cite in &t.cites {
+            if let Some(goal) = proved.get(cite.as_str()) {
+                premises.push((*goal).clone());
+            }
+        }
+        let vp = prove_certify_check(&premises, &t.goal);
+        if vp.verified {
+            proved.insert(t.name.as_str(), &t.goal);
+        }
+        by_name.insert(
+            t.name.as_str(),
+            LibraryResult {
+                name: t.name.clone(),
+                verified: vp.verified,
+                verification_error: vp.verification_error,
+            },
+        );
+    }
+
+    theorems
+        .iter()
+        .map(|t| by_name.remove(t.name.as_str()).expect("every theorem produces a result"))
+        .collect()
+}
+
+/// Like [`prove_certify_check`] but with user [`Definition`]s in scope (Rung 0a).
+pub fn prove_certify_check_with_defs(
+    premises: &[ProofExpr],
+    goal: &ProofExpr,
+    definitions: &[Definition],
+) -> VerifiedProof {
+    prove_certify_check_bounded_with_defs(premises, goal, definitions, 100)
+}
+
 /// Like [`prove_certify_check`] but caps the backward-chainer search depth, so a
 /// goal the kernel cannot reach fails FAST instead of exhausting the default depth.
 /// Keeps "prove-with-ours-first" cheap when answering a grid cell by cell: a
@@ -60,7 +193,64 @@ pub fn prove_certify_check_bounded(
     goal: &ProofExpr,
     max_depth: usize,
 ) -> VerifiedProof {
-    let (kernel_ctx, flat_premises, abstracted_goal) = prepare_ctx(premises, goal);
+    prove_certify_check_bounded_with_defs(premises, goal, &[], max_depth)
+}
+
+/// The depth-bounded pipeline with user definitions (Rung 0a). Definitions are
+/// validated (recursion + lowering) up front, registered as δ-unfoldable kernel
+/// definitions in the context, then the goal is proved and kernel-checked. The
+/// engine still treats the definiendum opaquely during *search* (Stride 3 adds
+/// expand-for-search); δ reconciles the certified term with the folded goal type
+/// at the [`finish_check`] root.
+pub fn prove_certify_check_bounded_with_defs(
+    premises: &[ProofExpr],
+    goal: &ProofExpr,
+    definitions: &[Definition],
+    max_depth: usize,
+) -> VerifiedProof {
+    let abstracted = abstract_definitions(definitions);
+    let definitions = &abstracted[..];
+    if let Err(e) = validate_definitions(definitions) {
+        return definition_error(e);
+    }
+
+    // Expand-for-search: the backward chainer treats a definiendum opaquely, so
+    // δ-expand defined predicates in the premises and goal before search — the
+    // engine then proves over ordinary predicates. The goal *type* stays FOLDED
+    // (abstracted from the ORIGINAL goal), so the certified proposition is still
+    // `glorp(A)`, reconciled to its unfolding by δ at the `finish_check` root.
+    //
+    // FAST PATH: with no definitions, the originals pass through untouched — no
+    // expansion walk, no clone — so ordinary theorems pay nothing for Rung 0a.
+    let expanded: Option<(Vec<ProofExpr>, ProofExpr)> = if definitions.is_empty() {
+        None
+    } else {
+        let defmap: HashMap<&str, &Definition> =
+            definitions.iter().map(|d| (d.name.as_str(), d)).collect();
+        let ep = premises
+            .iter()
+            .map(|p| expand_defs_in_expr(p, &defmap, 0))
+            .collect();
+        let eg = expand_defs_in_expr(goal, &defmap, 0);
+        Some((ep, eg))
+    };
+    let (search_premises, search_goal): (&[ProofExpr], &ProofExpr) = match &expanded {
+        Some((ep, eg)) => (ep, eg),
+        None => (premises, goal),
+    };
+
+    // Build the context and hypotheses from the (expanded) search premises so the
+    // certifier's PremiseMatch leaves resolve.
+    let (kernel_ctx, flat_premises, prepared_goal) =
+        prepare_ctx_with_defs(search_premises, search_goal, definitions);
+    // Folded goal type: when nothing was expanded, `prepared_goal` is already the
+    // folded form; otherwise re-abstract the ORIGINAL goal (the definiendum stays
+    // a citable node).
+    let abstracted_goal = if expanded.is_none() {
+        prepared_goal
+    } else {
+        BackwardChainer::new().abstract_all_events(goal)
+    };
 
     // === Prove ===
     let mut engine = BackwardChainer::new();
@@ -68,7 +258,10 @@ pub fn prove_certify_check_bounded(
     for premise in &flat_premises {
         engine.add_axiom(premise.clone());
     }
-    let derivation = match engine.prove(goal.clone()) {
+    // The engine searches over event-ABSTRACTED premises, so the goal must be
+    // abstracted to the same form (`Alice admires Bob` ⇒ `admire(Alice, Bob)`).
+    let search_goal = engine.abstract_all_events(search_goal);
+    let derivation = match engine.prove(search_goal) {
         Ok(d) => d,
         Err(e) => {
             return VerifiedProof {
@@ -96,20 +289,49 @@ pub fn check_derivation(
     goal: &ProofExpr,
     derivation: DerivationTree,
 ) -> VerifiedProof {
-    let (kernel_ctx, _flat_premises, abstracted_goal) = prepare_ctx(premises, goal);
+    check_derivation_with_defs(premises, goal, &[], derivation)
+}
+
+/// Like [`check_derivation`] but with user [`Definition`]s in scope (Rung 0a), so
+/// an externally-built derivation of a definiens can certify against a goal
+/// stated with the definiendum — δ reconciles them at the root.
+pub fn check_derivation_with_defs(
+    premises: &[ProofExpr],
+    goal: &ProofExpr,
+    definitions: &[Definition],
+    derivation: DerivationTree,
+) -> VerifiedProof {
+    let abstracted = abstract_definitions(definitions);
+    let definitions = &abstracted[..];
+    if let Err(e) = validate_definitions(definitions) {
+        return definition_error(e);
+    }
+    let (kernel_ctx, _flat_premises, abstracted_goal) =
+        prepare_ctx_with_defs(premises, goal, definitions);
     finish_check(kernel_ctx, &abstracted_goal, derivation)
 }
 
 /// Build the kernel context shared by [`prove_certify_check_bounded`] and
-/// [`check_derivation`]: register the standard library, the event-ABSTRACTED,
-/// conjunction-SPLIT premises as hypotheses `h1, h2, …`, and every predicate/constant
-/// referenced. Returns the context, the flattened premises, and the abstracted goal.
-fn prepare_ctx(
+/// [`check_derivation`]: register the standard library, any user [`Definition`]s
+/// (Rung 0a), the event-ABSTRACTED, conjunction-SPLIT premises as hypotheses
+/// `h1, h2, …`, and every predicate/constant referenced. Returns the context, the
+/// flattened premises, and the abstracted goal.
+fn prepare_ctx_with_defs(
     premises: &[ProofExpr],
     goal: &ProofExpr,
+    definitions: &[Definition],
 ) -> (Context, Vec<ProofExpr>, ProofExpr) {
     let mut kernel_ctx = Context::new();
     StandardLibrary::register(&mut kernel_ctx);
+
+    // Rung 0a: register user definitions FIRST, so a definiendum becomes a
+    // δ-unfoldable definition (with a body) rather than an opaque axiom. The
+    // opaque `register_predicate` pass below then skips it (idempotent on
+    // `get_global`). `validate_definitions` already rejected recursive /
+    // unlowerable definitions, so registration here cannot loop.
+    for def in definitions {
+        register_definition(&mut kernel_ctx, def);
+    }
 
     // The search, the hypotheses, and the goal type must all live in ONE
     // language: the engine's event-ABSTRACTED form (∃e(Lie(e) ∧ Agent(e, m))
@@ -129,7 +351,11 @@ fn prepare_ctx(
     let engine_for_abstraction = BackwardChainer::new();
     let mut flat_premises = Vec::new();
     for premise in premises {
-        split_conjuncts(&engine_for_abstraction.abstract_all_events(premise), &mut flat_premises);
+        let abstracted = engine_for_abstraction.abstract_all_events(premise);
+        // Biconditional elimination: rewrite `P ↔ Q` premises into `(P→Q) ∧ (Q→P)`
+        // (the kernel has no `Iff` type), so either direction is usable by the
+        // existing implication + modus-ponens machinery after conjunction split.
+        split_conjuncts(&expand_iff(&abstracted), &mut flat_premises);
     }
     let abstracted_goal = engine_for_abstraction.abstract_all_events(goal);
 
@@ -139,10 +365,36 @@ fn prepare_ctx(
         collector.collect(premise);
     }
     collector.collect(&abstracted_goal);
+    // Definiens bodies reference atomic predicates (and constants) that must be
+    // registered opaquely too, or kernel type-checking of the definition body
+    // fails. The definiendum itself is already a global (registered above), so
+    // `register_predicate` skips it.
+    for def in definitions {
+        collector.collect(&def.definiens);
+    }
     for (name, arity) in collector.predicates() {
         register_predicate(&mut kernel_ctx, name, arity);
     }
+    for (name, arity) in collector.functions() {
+        register_function(&mut kernel_ctx, name, arity);
+    }
+    // Atoms in arithmetic/comparison positions are `Int`, declared before the
+    // generic `Entity` constants so `register_constant` skips them.
+    for name in collector.int_atoms() {
+        if kernel_ctx.get_global(name).is_none() {
+            kernel_ctx.add_declaration(name, Term::Global("Int".to_string()));
+        }
+    }
+    // Definition parameters are λ-bound in the registered body, not constants;
+    // skip them so the definiens does not leak a spurious `p : Entity` global.
+    let param_names: HashSet<&str> = definitions
+        .iter()
+        .flat_map(|d| d.params.iter().map(String::as_str))
+        .collect();
     for name in collector.constants() {
+        if param_names.contains(name.as_str()) {
+            continue;
+        }
         register_constant(&mut kernel_ctx, name);
     }
 
@@ -165,7 +417,7 @@ fn finish_check(
 ) -> VerifiedProof {
     let trace = std::env::var("LOGOS_TRACE").is_ok();
     // === Certify ===
-    let t_cert = std::time::Instant::now();
+    let t_cert = trace.then(std::time::Instant::now);
     let proof_term = {
         let cert_ctx = CertificationContext::new(&kernel_ctx);
         match certify(&derivation, &cert_ctx) {
@@ -181,7 +433,7 @@ fn finish_check(
             }
         }
     };
-    if trace {
+    if let Some(t_cert) = t_cert {
         eprintln!(
             "[cert] certify(build) {:.2?} → {} kernel-term nodes",
             t_cert.elapsed(),
@@ -194,7 +446,7 @@ fn finish_check(
     // Otherwise a certifier that produced a well-formed proof of the *wrong*
     // proposition would be wrongly accepted. We compute the goal's kernel type
     // and require the inferred type to match it (up to definitional equality).
-    let t_infer = std::time::Instant::now();
+    let t_infer = trace.then(std::time::Instant::now);
     let inferred = match infer_type(&kernel_ctx, &proof_term) {
         Ok(t) => t,
         Err(e) => {
@@ -207,7 +459,7 @@ fn finish_check(
             };
         }
     };
-    if trace {
+    if let Some(t_infer) = t_infer {
         eprintln!("[cert] infer_type(check) {:.2?}", t_infer.elapsed());
     }
 
@@ -335,19 +587,56 @@ fn collect_premise_leaves<'a>(tree: &'a DerivationTree, out: &mut Vec<&'a ProofE
 /// type-check.
 struct SymbolCollector {
     predicates: HashMap<String, usize>,
+    functions: HashMap<String, usize>,
     constants: HashSet<String>,
+    /// Atoms that occur in an arithmetic/comparison argument position, so must be
+    /// typed `Int` (not the `Entity` default) — `le`/`lt`/… need `Int` operands.
+    int_atoms: HashSet<String>,
 }
 
 impl SymbolCollector {
     fn new() -> Self {
         SymbolCollector {
             predicates: HashMap::new(),
+            functions: HashMap::new(),
             constants: HashSet::new(),
+            int_atoms: HashSet::new(),
+        }
+    }
+
+    /// Mark a term that sits in an Int position. Atoms become `Int`; nested
+    /// arithmetic propagates the Int-ness to its own operands.
+    fn mark_int(&mut self, term: &ProofTerm) {
+        match term {
+            // Numeric literals lower to `Lit(Int)` (certifier) — no declaration.
+            ProofTerm::Constant(s) if s.parse::<i64>().is_ok() => {}
+            ProofTerm::Constant(s) | ProofTerm::Variable(s) | ProofTerm::BoundVarRef(s) => {
+                self.int_atoms.insert(s.clone());
+            }
+            ProofTerm::Function(name, args)
+                if matches!(name.as_str(), "add" | "sub" | "mul" | "div" | "mod") =>
+            {
+                for a in args {
+                    self.mark_int(a);
+                }
+            }
+            _ => {}
         }
     }
 
     fn note_predicate(&mut self, name: &str, arity: usize) {
         self.predicates
+            .entry(name.to_string())
+            .and_modify(|a| *a = (*a).max(arity))
+            .or_insert(arity);
+    }
+
+    /// A `ProofTerm::Function` is Entity-valued (a function on entities), never a
+    /// proposition — only `ProofExpr::Predicate` is propositional. Registering it
+    /// as `Entity → … → Entity` (not `… → Prop`) lets `F(a)` appear inside terms
+    /// like `Eq Entity (F a) (F b)`, the basis for congruence.
+    fn note_function(&mut self, name: &str, arity: usize) {
+        self.functions
             .entry(name.to_string())
             .and_modify(|a| *a = (*a).max(arity))
             .or_insert(arity);
@@ -395,7 +684,19 @@ impl SymbolCollector {
                 }
             }
             ProofTerm::Function(name, args) => {
-                self.note_predicate(name, args.len());
+                // Arithmetic / comparison builtins are prelude globals (typed
+                // `Int → … → Int`/`Bool`); don't re-declare them, but type their
+                // operands as `Int`. Other functions are uninterpreted (Entity).
+                if matches!(
+                    name.as_str(),
+                    "le" | "lt" | "ge" | "gt" | "add" | "sub" | "mul" | "div" | "mod"
+                ) {
+                    for arg in args {
+                        self.mark_int(arg);
+                    }
+                } else {
+                    self.note_function(name, args.len());
+                }
                 for arg in args {
                     self.collect_term(arg);
                 }
@@ -406,6 +707,14 @@ impl SymbolCollector {
 
     fn predicates(&self) -> impl Iterator<Item = (&String, usize)> {
         self.predicates.iter().map(|(n, a)| (n, *a))
+    }
+
+    fn functions(&self) -> impl Iterator<Item = (&String, usize)> {
+        self.functions.iter().map(|(n, a)| (n, *a))
+    }
+
+    fn int_atoms(&self) -> impl Iterator<Item = &String> {
+        self.int_atoms.iter()
     }
 
     fn constants(&self) -> impl Iterator<Item = &String> {
@@ -445,10 +754,443 @@ fn register_predicate(ctx: &mut Context, name: &str, arity: usize) {
     ctx.add_declaration(name, ty);
 }
 
+/// Register a function symbol `f : Entity → … → Entity → Entity` of the given arity
+/// (idempotent). Unlike a predicate, a function is Entity-valued, so `f(a)` is a
+/// term that can be compared by equality and rewritten under congruence.
+fn register_function(ctx: &mut Context, name: &str, arity: usize) {
+    if ctx.get_global(name).is_some() {
+        return;
+    }
+    let mut ty = Term::Global("Entity".to_string());
+    for _ in 0..arity {
+        ty = Term::Pi {
+            param: "_".to_string(),
+            param_type: Box::new(Term::Global("Entity".to_string())),
+            body_type: Box::new(ty),
+        };
+    }
+    ctx.add_declaration(name, ty);
+}
+
 /// Register a constant `c : Entity` (idempotent).
 fn register_constant(ctx: &mut Context, name: &str) {
     if ctx.get_global(name).is_some() {
         return;
     }
     ctx.add_declaration(name, Term::Global("Entity".to_string()));
+}
+
+/// A failed-verification result carrying a definition-level error message.
+fn definition_error(message: String) -> VerifiedProof {
+    VerifiedProof {
+        derivation: None,
+        proof_term: None,
+        kernel_ctx: Context::new(),
+        verified: false,
+        verification_error: Some(message),
+    }
+}
+
+/// Abstract neo-Davidsonian events in each definiens into first-order form — the
+/// SAME transformation premises and goals get in [`prepare_ctx_with_defs`]. A
+/// definiens over a verb (`someone admires x` ⇒ a `NeoEvent`) becomes an ordinary
+/// predicate the kernel can type and the engine can match against the theorem's
+/// (also-abstracted) events.
+fn abstract_definitions(definitions: &[Definition]) -> Vec<Definition> {
+    let abstractor = BackwardChainer::new();
+    definitions
+        .iter()
+        .map(|d| Definition {
+            name: d.name.clone(),
+            params: d.params.clone(),
+            definiens: abstractor.abstract_all_events(&d.definiens),
+        })
+        .collect()
+}
+
+/// Reject definitions that cannot be soundly registered (Rung 0a guards):
+/// self-recursive definienda (δ-unfolding would not terminate) and definiens
+/// bodies the kernel lowering cannot type. Surfacing these up front gives a
+/// clear message instead of a silent opaque fallback or a fuel-capped failure.
+///
+/// Mutual recursion *across* definitions is a Rung 0b (library DAG) concern and
+/// is not yet detected here; the kernel's normalize fuel cap is the backstop —
+/// an unguarded cycle fails the proof, it never hangs or returns a false proof.
+fn validate_definitions(definitions: &[Definition]) -> Result<(), String> {
+    if definitions.is_empty() {
+        return Ok(());
+    }
+    for def in definitions {
+        if let Err(e) = proof_expr_to_type(&def.definiens) {
+            return Err(format!("cannot lower definition `{}`: {:?}", def.name, e));
+        }
+    }
+    // δ-unfolding a cycle (self or mutual) would not terminate. The def→def graph
+    // catches both; `find_definition_cycle` returns the offending names.
+    if let Some(cycle) = find_definition_cycle(definitions) {
+        return Err(format!(
+            "circular definition among {{{}}}: a definition may not recursively refer \
+             to itself, directly or transitively",
+            cycle.join(", ")
+        ));
+    }
+    Ok(())
+}
+
+/// Register one definition as a δ-unfoldable kernel definition:
+/// `name : Entity → … → Prop := λ(p₁:Entity)…λ(pₙ:Entity). <definiens>`.
+///
+/// The definiens lowers its parameters to `Global(p)` (constants), but a kernel
+/// `Lambda` binds `Var(p)` — so we rewrite `Global(p) → Var(p)` for each
+/// parameter before abstracting. Assumes [`validate_definitions`] has passed.
+fn register_definition(ctx: &mut Context, def: &Definition) {
+    if ctx.get_global(&def.name).is_some() {
+        return;
+    }
+    let mut body = match proof_expr_to_type(&def.definiens) {
+        Ok(b) => b,
+        Err(_) => {
+            // Defensive: validation should have caught this. Keep the context
+            // well-formed by registering the definiendum as an opaque predicate.
+            register_predicate(ctx, &def.name, def.params.len());
+            return;
+        }
+    };
+    for p in &def.params {
+        body = subst_global_to_var(body, p);
+    }
+    // Abstract innermost-last so parameters bind left-to-right.
+    for p in def.params.iter().rev() {
+        body = Term::Lambda {
+            param: p.clone(),
+            param_type: Box::new(Term::Global("Entity".to_string())),
+            body: Box::new(body),
+        };
+    }
+    let mut ty = Term::Sort(Universe::Prop);
+    for _ in &def.params {
+        ty = Term::Pi {
+            param: "_".to_string(),
+            param_type: Box::new(Term::Global("Entity".to_string())),
+            body_type: Box::new(ty),
+        };
+    }
+    ctx.add_definition(def.name.clone(), ty, body);
+}
+
+/// Rewrite every free `Global(name)` in `term` to `Var(name)` — used to turn a
+/// definiens parameter (lowered as a global constant) into a bindable variable
+/// before λ-abstraction.
+fn subst_global_to_var(term: Term, name: &str) -> Term {
+    match term {
+        Term::Global(n) => {
+            if n == name {
+                Term::Var(n)
+            } else {
+                Term::Global(n)
+            }
+        }
+        Term::App(f, a) => Term::App(
+            Box::new(subst_global_to_var(*f, name)),
+            Box::new(subst_global_to_var(*a, name)),
+        ),
+        Term::Pi { param, param_type, body_type } => Term::Pi {
+            param,
+            param_type: Box::new(subst_global_to_var(*param_type, name)),
+            body_type: Box::new(subst_global_to_var(*body_type, name)),
+        },
+        Term::Lambda { param, param_type, body } => Term::Lambda {
+            param,
+            param_type: Box::new(subst_global_to_var(*param_type, name)),
+            body: Box::new(subst_global_to_var(*body, name)),
+        },
+        Term::Match { discriminant, motive, cases } => Term::Match {
+            discriminant: Box::new(subst_global_to_var(*discriminant, name)),
+            motive: Box::new(subst_global_to_var(*motive, name)),
+            cases: cases.into_iter().map(|c| subst_global_to_var(c, name)).collect(),
+        },
+        Term::Fix { name: fix_name, body } => Term::Fix {
+            name: fix_name,
+            body: Box::new(subst_global_to_var(*body, name)),
+        },
+        other => other,
+    }
+}
+
+/// Collect, into `out`, every predicate name in `expr` that is one of the
+/// `defined` names — i.e. the definitions this expression directly *uses*. Walks
+/// the propositional structure (predicates are δ-expanded only in predicate
+/// position, so that is exactly what we scan). Deduplicated, insertion-ordered.
+fn collect_defined_predicates(expr: &ProofExpr, defined: &HashSet<&str>, out: &mut Vec<String>) {
+    match expr {
+        ProofExpr::Predicate { name, .. } => {
+            if defined.contains(name.as_str()) && !out.iter().any(|n| n == name) {
+                out.push(name.clone());
+            }
+        }
+        ProofExpr::And(l, r)
+        | ProofExpr::Or(l, r)
+        | ProofExpr::Implies(l, r)
+        | ProofExpr::Iff(l, r) => {
+            collect_defined_predicates(l, defined, out);
+            collect_defined_predicates(r, defined, out);
+        }
+        ProofExpr::Not(p) => collect_defined_predicates(p, defined, out),
+        ProofExpr::ForAll { body, .. } | ProofExpr::Exists { body, .. } => {
+            collect_defined_predicates(body, defined, out)
+        }
+        _ => {}
+    }
+}
+
+/// The direct def→def `uses` edges: for each definition, the OTHER definitions
+/// its definiens references. O(total definiens size); membership is O(1).
+fn def_edges(definitions: &[Definition]) -> Vec<(String, Vec<String>)> {
+    let defined: HashSet<&str> = definitions.iter().map(|d| d.name.as_str()).collect();
+    definitions
+        .iter()
+        .map(|d| {
+            let mut uses = Vec::new();
+            collect_defined_predicates(&d.definiens, &defined, &mut uses);
+            (d.name.clone(), uses)
+        })
+        .collect()
+}
+
+/// Detect a cycle (self-loop or mutual) in the def→def `uses` graph via Kahn's
+/// topological elimination: if not every node can be peeled to zero in-degree,
+/// the residual nodes form/feed cycles. Returns those names (sorted), or `None`
+/// for a DAG. O(V + E).
+fn find_definition_cycle(definitions: &[Definition]) -> Option<Vec<String>> {
+    let edges = def_edges(definitions);
+    let adj: HashMap<&str, &[String]> =
+        edges.iter().map(|(n, u)| (n.as_str(), u.as_slice())).collect();
+
+    let mut indeg: HashMap<&str, usize> = adj.keys().map(|n| (*n, 0usize)).collect();
+    for deps in adj.values() {
+        for d in deps.iter() {
+            if let Some(c) = indeg.get_mut(d.as_str()) {
+                *c += 1;
+            }
+        }
+    }
+
+    let mut queue: Vec<&str> = indeg
+        .iter()
+        .filter(|(_, &c)| c == 0)
+        .map(|(n, _)| *n)
+        .collect();
+    let mut removed = 0usize;
+    while let Some(n) = queue.pop() {
+        removed += 1;
+        if let Some(deps) = adj.get(n) {
+            for d in deps.iter() {
+                if let Some(c) = indeg.get_mut(d.as_str()) {
+                    *c -= 1;
+                    if *c == 0 {
+                        queue.push(d.as_str());
+                    }
+                }
+            }
+        }
+    }
+
+    if removed == adj.len() {
+        None
+    } else {
+        let mut cyclic: Vec<String> = indeg
+            .iter()
+            .filter(|(_, &c)| c > 0)
+            .map(|(n, _)| n.to_string())
+            .collect();
+        cyclic.sort();
+        Some(cyclic)
+    }
+}
+
+/// The `uses` dependency graph among definitions and from a theorem to its
+/// definitions — the Rung 0b graph seed (each node a definition/theorem, each
+/// edge a `uses`). Direct edges only; transitive use is a query over this. This
+/// is the structure a `mathscrapes` node/edge compiles into.
+#[derive(Debug, Clone, Default)]
+pub struct DependencyGraph {
+    /// definiendum name → the defined names its definiens directly uses.
+    pub def_uses: Vec<(String, Vec<String>)>,
+    /// the defined names the theorem's premises + goal directly use.
+    pub theorem_uses: Vec<String>,
+}
+
+/// Build the [`DependencyGraph`] for a set of definitions plus a theorem
+/// (premises + goal), recording which definitions each definiens uses and which
+/// the theorem uses. Pure, allocation-light, O(total expression size).
+pub fn dependency_graph(
+    definitions: &[Definition],
+    premises: &[ProofExpr],
+    goal: &ProofExpr,
+) -> DependencyGraph {
+    let defined: HashSet<&str> = definitions.iter().map(|d| d.name.as_str()).collect();
+    let def_uses = def_edges(definitions);
+    let mut theorem_uses = Vec::new();
+    for p in premises {
+        collect_defined_predicates(p, &defined, &mut theorem_uses);
+    }
+    collect_defined_predicates(goal, &defined, &mut theorem_uses);
+    DependencyGraph {
+        def_uses,
+        theorem_uses,
+    }
+}
+
+/// Maximum δ-expansion depth for expand-for-search — a backstop against an
+/// accidental cross-definition cycle (self-recursion is already rejected by
+/// [`validate_definitions`]; cross-def cycle detection is a Rung 0b concern).
+const MAX_EXPANSION_DEPTH: usize = 64;
+
+/// δ-expand every defined predicate in `expr`: replace `def(args)` with its
+/// definiens (parameters substituted by `args`), recursively, so the result is
+/// stated purely in terms of undefined predicates the backward chainer can
+/// search over. Non-defined predicates and all other nodes are walked
+/// structurally. The identity when `defs` is empty.
+fn expand_defs_in_expr(
+    expr: &ProofExpr,
+    defs: &HashMap<&str, &Definition>,
+    depth: usize,
+) -> ProofExpr {
+    if depth >= MAX_EXPANSION_DEPTH {
+        return expr.clone();
+    }
+    match expr {
+        ProofExpr::Predicate { name, args, .. } => {
+            if let Some(def) = defs.get(name.as_str()) {
+                if def.params.len() == args.len() {
+                    let substituted = substitute_params(&def.definiens, &def.params, args);
+                    return expand_defs_in_expr(&substituted, defs, depth + 1);
+                }
+            }
+            expr.clone()
+        }
+        ProofExpr::And(l, r) => ProofExpr::And(
+            Box::new(expand_defs_in_expr(l, defs, depth)),
+            Box::new(expand_defs_in_expr(r, defs, depth)),
+        ),
+        ProofExpr::Or(l, r) => ProofExpr::Or(
+            Box::new(expand_defs_in_expr(l, defs, depth)),
+            Box::new(expand_defs_in_expr(r, defs, depth)),
+        ),
+        ProofExpr::Implies(l, r) => ProofExpr::Implies(
+            Box::new(expand_defs_in_expr(l, defs, depth)),
+            Box::new(expand_defs_in_expr(r, defs, depth)),
+        ),
+        ProofExpr::Iff(l, r) => ProofExpr::Iff(
+            Box::new(expand_defs_in_expr(l, defs, depth)),
+            Box::new(expand_defs_in_expr(r, defs, depth)),
+        ),
+        ProofExpr::Not(p) => ProofExpr::Not(Box::new(expand_defs_in_expr(p, defs, depth))),
+        ProofExpr::ForAll { variable, body } => ProofExpr::ForAll {
+            variable: variable.clone(),
+            body: Box::new(expand_defs_in_expr(body, defs, depth)),
+        },
+        ProofExpr::Exists { variable, body } => ProofExpr::Exists {
+            variable: variable.clone(),
+            body: Box::new(expand_defs_in_expr(body, defs, depth)),
+        },
+        other => other.clone(),
+    }
+}
+
+/// Substitute a definition's parameters with the actual arguments throughout its
+/// definiens, when δ-expanding a definition occurrence.
+fn substitute_params(expr: &ProofExpr, params: &[String], args: &[ProofTerm]) -> ProofExpr {
+    match expr {
+        ProofExpr::Predicate { name, args: pargs, world } => ProofExpr::Predicate {
+            name: name.clone(),
+            args: pargs.iter().map(|t| subst_term(t, params, args)).collect(),
+            world: world.clone(),
+        },
+        ProofExpr::And(l, r) => ProofExpr::And(
+            Box::new(substitute_params(l, params, args)),
+            Box::new(substitute_params(r, params, args)),
+        ),
+        ProofExpr::Or(l, r) => ProofExpr::Or(
+            Box::new(substitute_params(l, params, args)),
+            Box::new(substitute_params(r, params, args)),
+        ),
+        ProofExpr::Implies(l, r) => ProofExpr::Implies(
+            Box::new(substitute_params(l, params, args)),
+            Box::new(substitute_params(r, params, args)),
+        ),
+        ProofExpr::Iff(l, r) => ProofExpr::Iff(
+            Box::new(substitute_params(l, params, args)),
+            Box::new(substitute_params(r, params, args)),
+        ),
+        ProofExpr::Not(p) => ProofExpr::Not(Box::new(substitute_params(p, params, args))),
+        ProofExpr::ForAll { variable, body } => ProofExpr::ForAll {
+            variable: variable.clone(),
+            body: Box::new(substitute_params(body, params, args)),
+        },
+        ProofExpr::Exists { variable, body } => ProofExpr::Exists {
+            variable: variable.clone(),
+            body: Box::new(substitute_params(body, params, args)),
+        },
+        ProofExpr::Identity(l, r) => {
+            ProofExpr::Identity(subst_term(l, params, args), subst_term(r, params, args))
+        }
+        other => other.clone(),
+    }
+}
+
+/// Rewrite biconditionals into their two implications: `P ↔ Q` becomes
+/// `(P → Q) ∧ (Q → P)`. Applied to premises so biconditional elimination falls
+/// out of the existing implication + conjunction machinery (the kernel has no
+/// `Iff` type). Recurses through the propositional structure.
+fn expand_iff(expr: &ProofExpr) -> ProofExpr {
+    match expr {
+        ProofExpr::Iff(p, q) => {
+            let p = expand_iff(p);
+            let q = expand_iff(q);
+            ProofExpr::And(
+                Box::new(ProofExpr::Implies(Box::new(p.clone()), Box::new(q.clone()))),
+                Box::new(ProofExpr::Implies(Box::new(q), Box::new(p))),
+            )
+        }
+        ProofExpr::And(l, r) => {
+            ProofExpr::And(Box::new(expand_iff(l)), Box::new(expand_iff(r)))
+        }
+        ProofExpr::Or(l, r) => ProofExpr::Or(Box::new(expand_iff(l)), Box::new(expand_iff(r))),
+        ProofExpr::Implies(l, r) => {
+            ProofExpr::Implies(Box::new(expand_iff(l)), Box::new(expand_iff(r)))
+        }
+        ProofExpr::Not(p) => ProofExpr::Not(Box::new(expand_iff(p))),
+        ProofExpr::ForAll { variable, body } => ProofExpr::ForAll {
+            variable: variable.clone(),
+            body: Box::new(expand_iff(body)),
+        },
+        ProofExpr::Exists { variable, body } => ProofExpr::Exists {
+            variable: variable.clone(),
+            body: Box::new(expand_iff(body)),
+        },
+        other => other.clone(),
+    }
+}
+
+/// Substitute a parameter with its argument inside a single term. Parameters lower
+/// to `Constant`s and quantifier-bound variables are `Variable`/`BoundVarRef`, so
+/// substituting ONLY `Constant`s can never capture a bound variable — even when a
+/// definiens' quantifier reuses a parameter's name (`∀x … admire(x, x_param)`).
+fn subst_term(term: &ProofTerm, params: &[String], args: &[ProofTerm]) -> ProofTerm {
+    match term {
+        ProofTerm::Constant(n) => match params.iter().position(|p| p == n) {
+            Some(i) => args[i].clone(),
+            None => term.clone(),
+        },
+        ProofTerm::Function(name, fargs) => ProofTerm::Function(
+            name.clone(),
+            fargs.iter().map(|t| subst_term(t, params, args)).collect(),
+        ),
+        ProofTerm::Group(ts) => {
+            ProofTerm::Group(ts.iter().map(|t| subst_term(t, params, args)).collect())
+        }
+        // Bound variables (∀/∃) are never parameters — leave them untouched.
+        ProofTerm::Variable(_) | ProofTerm::BoundVarRef(_) => term.clone(),
+    }
 }

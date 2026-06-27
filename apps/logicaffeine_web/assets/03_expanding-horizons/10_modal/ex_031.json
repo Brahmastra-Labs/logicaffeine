@@ -4,12 +4,12 @@
   "difficulty": 1,
   "prompt": "It's necessary that someone is B",
   "options": [
-    "$ \\\\square ((\\\\exists x)Bx) $",
-    "$ (\\\\exists x)(\\\\square Bx) $",
-    "$ \\\\square (\\\\exists x)Bx $",
-    "$ (\\\\exists x)\\\\square Bx $"
+    "$ \\square ((\\exists x)Bx) $",
+    "$ (\\exists x)(\\square Bx) $",
+    "$ \\square (\\exists x)Bx $",
+    "$ (\\exists x)\\square Bx $"
   ],
   "correct": 2,
   "hint": "Think about what world(s) this statement is claiming something about. Is it all worlds, some worlds, or the actual world?",
-  "explanation": "In modal logic: The scope of modal operators affects meaning significantly."
+  "explanation": "Necessity scopes over the whole existential: □(∃x)Bx — in every possible world, someone is B. This is de dicto: which individual is B may change from world to world."
 }

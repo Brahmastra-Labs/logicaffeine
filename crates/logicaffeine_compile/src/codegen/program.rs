@@ -4,7 +4,8 @@ use std::fmt::Write;
 use crate::analysis::registry::{FieldDef, TypeDef, TypeRegistry};
 use crate::analysis::policy::PolicyRegistry;
 use crate::analysis::types::RustNames;
-use crate::ast::stmt::{Expr, OptFlag, Stmt, TypeExpr};
+use crate::ast::stmt::{Expr, Stmt, TypeExpr};
+use crate::optimization::{Opt, OptimizationConfig};
 use crate::intern::{Interner, Symbol};
 use crate::registry::SymbolRegistry;
 
@@ -160,11 +161,24 @@ fn narrow_seqs<'a>(
     worklists: &HashMap<Symbol, super::worklist::WorklistInfo>,
     interner: &Interner,
 ) -> HashMap<Symbol, super::narrow::NarrowInfo> {
-    if std::env::var_os("LOGOS_NO_NARROW").is_some() {
+    if !crate::optimize::active_config().is_on(crate::optimization::Opt::Narrow) {
         return HashMap::new();
     }
     let mut n = super::narrow::detect_narrowable(body, de_rc, interner);
-    n.retain(|sym, _| !affine.contains_key(sym) && !worklists.contains_key(sym));
+    n.retain(|sym, _| {
+        // A deleted affine array has no plain `Vec` to narrow — Affine preempts Narrow.
+        if affine.contains_key(sym) {
+            crate::optimize::mark_preempted(
+                crate::optimization::Opt::Affine,
+                crate::optimization::Opt::Narrow,
+            );
+            return false;
+        }
+        !worklists.contains_key(sym)
+    });
+    if !n.is_empty() {
+        crate::optimize::mark_fired(crate::optimization::Opt::Narrow);
+    }
     if std::env::var_os("LOGOS_NARROW_TRACE").is_some() {
         for (sym, info) in &n {
             eprintln!(
@@ -181,7 +195,21 @@ fn narrow_seqs<'a>(
     n
 }
 
-pub fn codegen_program(stmts: &[Stmt], registry: &TypeRegistry, policies: &PolicyRegistry, interner: &Interner, type_env: &crate::analysis::types::TypeEnv) -> String {
+pub fn codegen_program(stmts: &[Stmt], registry: &TypeRegistry, policies: &PolicyRegistry, interner: &Interner, type_env: &crate::analysis::types::TypeEnv, cfg: &OptimizationConfig) -> String {
+    codegen_program_with_proven(stmts, registry, policies, interner, type_env, cfg, "proven", None)
+}
+
+/// Like [`codegen_program`], but bundles an extracted math/logic module into the
+/// output. `proven` is the body of a Rust module — functions, `check_*` property
+/// fns, a `World`/`holds` model-checker — produced by the Forge's extraction with
+/// NO `fn main`. It is emitted as `pub mod <module_name> { … }` right after the
+/// prelude (before `user_types`), followed by `use <module_name>::*;` so a bare
+/// call in the imperative program below — e.g. `double(21)` — resolves into it.
+/// Naming the module (rather than dumping items at crate root) keeps multiple
+/// proven modules reachable and avoids polluting the imperative namespace. When
+/// `proven` is `None`/blank the output is byte-identical to [`codegen_program`].
+pub fn codegen_program_with_proven(stmts: &[Stmt], registry: &TypeRegistry, policies: &PolicyRegistry, interner: &Interner, type_env: &crate::analysis::types::TypeEnv, cfg: &OptimizationConfig, module_name: &str, proven: Option<&str>) -> String {
+    crate::optimize::set_active_config(*cfg);
     let mut output = String::new();
 
     // Prelude
@@ -226,6 +254,26 @@ pub fn codegen_program(stmts: &[Stmt], registry: &TypeRegistry, policies: &Polic
         output.push_str(&codegen_logos_runtime_preamble());
     }
 
+    // Bundled proven module: the extracted math/logic objects (functions, `check_*`
+    // property fns, `World`/`holds`) the imperative program calls into. Named so
+    // multiple proven modules stay reachable; `use super::*;` gives it the crate
+    // prelude and `use <name>::*;` brings its public items into imperative scope so
+    // a bare `double(21)` resolves into it. Emitted only when the mixed compile
+    // supplies it — otherwise the output is byte-identical to the bare imperative path.
+    if let Some(proven) = proven {
+        if !proven.trim().is_empty() {
+            writeln!(output, "pub mod {module_name} {{").unwrap();
+            writeln!(output, "    #![allow(dead_code, unused, non_snake_case)]").unwrap();
+            writeln!(output, "    use super::*;").unwrap();
+            output.push_str(proven);
+            if !proven.ends_with('\n') {
+                writeln!(output).unwrap();
+            }
+            writeln!(output, "}}").unwrap();
+            writeln!(output, "use {module_name}::*;\n").unwrap();
+        }
+    }
+
     // Phase 49: Collect CRDT register fields for special SetField handling
     // LWW fields need timestamp, MV fields don't
     let (lww_fields, mv_fields) = collect_crdt_register_fields(registry, interner);
@@ -257,7 +305,7 @@ pub fn codegen_program(stmts: &[Stmt], registry: &TypeRegistry, policies: &Polic
     };
 
     // Collect user-defined structs from registry (Phase 34: generics, Phase 47: is_portable, Phase 49: is_shared)
-    let structs: Vec<_> = registry.iter_types()
+    let mut structs: Vec<_> = registry.iter_types()
         .filter_map(|(name, def)| {
             if let TypeDef::Struct { fields, generics, is_portable, is_shared } = def {
                 if !fields.is_empty() || !generics.is_empty() {
@@ -270,9 +318,13 @@ pub fn codegen_program(stmts: &[Stmt], registry: &TypeRegistry, policies: &Polic
             }
         })
         .collect();
+    // DETERMINISM: `iter_types` walks a HashMap (random per-run order). Sort by
+    // name so the emitted Rust is byte-identical across recompiles (Rust resolves
+    // top-level types order-independently, so this can't affect correctness).
+    structs.sort_by(|a, b| interner.resolve(a.0).cmp(interner.resolve(b.0)));
 
     // Phase 33/34: Collect user-defined enums from registry (generics, Phase 47: is_portable, Phase 49: is_shared)
-    let enums: Vec<_> = registry.iter_types()
+    let mut enums: Vec<_> = registry.iter_types()
         .filter_map(|(name, def)| {
             if let TypeDef::Enum { variants, generics, is_portable, is_shared } = def {
                 if !variants.is_empty() || !generics.is_empty() {
@@ -285,6 +337,7 @@ pub fn codegen_program(stmts: &[Stmt], registry: &TypeRegistry, policies: &Polic
             }
         })
         .collect();
+    enums.sort_by(|a, b| interner.resolve(a.0).cmp(interner.resolve(b.0)));
 
     // Emit struct and enum definitions in user_types module if any exist
     if !structs.is_empty() || !enums.is_empty() {
@@ -331,7 +384,7 @@ pub fn codegen_program(stmts: &[Stmt], registry: &TypeRegistry, policies: &Polic
                 continue;
             }
             // Respect ## No Borrow / ## No Optimize annotations
-            if opt_flags.contains(&OptFlag::NoBorrow) || opt_flags.contains(&OptFlag::NoOptimize) {
+            if !crate::optimize::active_config().merged(opt_flags).is_on(Opt::Borrow) {
                 continue;
             }
             // Only DIRECT tail recursion conflicts with a borrowed param (TCE
@@ -359,6 +412,7 @@ pub fn codegen_program(stmts: &[Stmt], registry: &TypeRegistry, policies: &Polic
                 let filtered: HashSet<usize> = indices.difference(&give_indices).copied().collect();
                 if !filtered.is_empty() {
                     borrow_params_map.insert(*name, filtered);
+                    crate::optimize::mark_fired(Opt::Borrow);
                 }
             }
         }
@@ -375,7 +429,7 @@ pub fn codegen_program(stmts: &[Stmt], registry: &TypeRegistry, policies: &Polic
                 continue;
             }
             // Respect ## No Borrow / ## No Optimize annotations
-            if opt_flags.contains(&OptFlag::NoBorrow) || opt_flags.contains(&OptFlag::NoOptimize) {
+            if !crate::optimize::active_config().merged(opt_flags).is_on(Opt::Borrow) {
                 continue;
             }
             if is_tail_recursive(*name, body) || detect_accumulator_pattern(*name, body).is_some() {
@@ -396,6 +450,7 @@ pub fn codegen_program(stmts: &[Stmt], registry: &TypeRegistry, policies: &Polic
                 .collect();
             if !indices.is_empty() {
                 mut_borrow_params_map.insert(*name, indices);
+                crate::optimize::mark_fired(Opt::Borrow);
             }
         }
     }
@@ -546,7 +601,10 @@ pub fn codegen_program(stmts: &[Stmt], registry: &TypeRegistry, policies: &Polic
     // (no Rc/RefCell). A var already scalarized to `[T; N]` (O3) wins — exclude it.
     let mut de_rc_seqs = collect_de_rc_seqs(stmts, interner, &borrow_params_map, &mut_borrow_params_map, &vec_return_fns, false);
     for (sym, _) in &scalarizable_seqs {
-        de_rc_seqs.remove(sym);
+        // A `[T; N]`-scalarized var already gets the win — it preempts de-Rc here.
+        if de_rc_seqs.remove(sym) {
+            crate::optimize::mark_preempted(Opt::Scalarize, Opt::Unbox);
+        }
     }
     // Append-only worklist → pre-sized buffer + register tail (BFS frontier).
     let main_worklists = super::worklist::detect_worklists(stmts, &de_rc_seqs, interner);
@@ -555,7 +613,12 @@ pub fn codegen_program(stmts: &[Stmt], registry: &TypeRegistry, policies: &Polic
     // scalarized (`[T;N]`) or worklist symbol is already claimed — exclude it.
     let mut main_affine = super::affine_array::detect_affine_arrays(stmts, &de_rc_seqs, interner);
     main_affine.retain(|sym, _| {
-        !scalarizable_seqs.contains_key(sym) && !main_worklists.contains_key(sym)
+        // A scalarized sequence is already claimed — Scalarize preempts Affine.
+        if scalarizable_seqs.contains_key(sym) {
+            crate::optimize::mark_preempted(Opt::Scalarize, Opt::Affine);
+            return false;
+        }
+        !main_worklists.contains_key(sym)
     });
     for (sym, info) in &main_affine {
         main_ctx.register_variable_type(
@@ -673,7 +736,7 @@ fn codegen_function_def(
     borrow_params_map: &HashMap<Symbol, HashSet<usize>>,
     mut_borrow_params_map: &HashMap<Symbol, HashSet<usize>>,
     liveness: &LivenessResult,
-    opt_flags: &HashSet<OptFlag>,
+    opt_flags: &OptimizationConfig,
     fn_returns_map: &HashMap<Symbol, String>,
     vec_return_fns: &HashSet<Symbol>,
     oracle: Option<&std::rc::Rc<crate::optimize::OracleFacts>>,
@@ -694,18 +757,29 @@ fn codegen_function_def(
     let is_c_export_early = is_exported && matches!(export_target_lower.as_deref(), None | Some("c"));
 
     // TCE: Detect tail recursion eligibility (respects ## No TCO / ## No Optimize)
-    let no_tco = opt_flags.contains(&OptFlag::NoTCO) || opt_flags.contains(&OptFlag::NoOptimize);
+    let no_tco = !crate::optimize::active_config().merged(opt_flags).is_on(Opt::Tco);
     // A direct `Return self(args)` always TCE's. The `Set/Let x = self(args);
     // Return x` pair TCE's too — UNLESS the function is borrow/mut-borrow-eligible
     // (an in-place array recursion like quicksort), where that rewrite is the
     // better lowering and pair-TCE would force an owned, cloned parameter. Such
     // functions recurse only O(log n) deep, so the constant-stack guarantee is
     // moot for them anyway.
-    let pair_tce_ok = body_has_top_level_tail_pair(name, body, params.len())
+    let has_tail_pair = body_has_top_level_tail_pair(name, body, params.len());
+    // A borrow/mut-borrow-eligible function keeps the borrow rather than pair-TCE —
+    // Borrow preempts Tco (pair) for it.
+    if has_tail_pair
+        && (borrow_params_map.contains_key(&name) || mut_borrow_params_map.contains_key(&name))
+    {
+        crate::optimize::mark_preempted(Opt::Borrow, Opt::Tco);
+    }
+    let pair_tce_ok = has_tail_pair
         && !borrow_params_map.contains_key(&name)
         && !mut_borrow_params_map.contains_key(&name);
     let is_tce = !is_native && !is_c_export_early && !no_tco
         && (is_tail_recursive(name, body) || pair_tce_ok);
+    if is_tce {
+        crate::optimize::mark_fired(Opt::Tco);
+    }
     let param_syms: Vec<Symbol> = params.iter().map(|(s, _)| *s).collect();
 
     // Accumulator Introduction: Detect non-tail single-call + / * patterns
@@ -727,14 +801,26 @@ fn codegen_function_def(
 
     // Memoization: Detect pure multi-call recursive functions with hashable params
     // Respects ## No Memo / ## No Optimize annotations
-    let no_memo = opt_flags.contains(&OptFlag::NoMemo) || opt_flags.contains(&OptFlag::NoOptimize);
+    let no_memo = !crate::optimize::active_config().merged(opt_flags).is_on(Opt::Memo);
     let is_memo = !is_tce && !is_acc && !is_closed_form && !is_native && !is_c_export_early && !no_memo
         && should_memoize(name, body, params, return_type, pure_functions.contains(&name), interner);
+    if is_memo {
+        crate::optimize::mark_fired(Opt::Memo);
+    }
+    // A tail-recursive function that WOULD otherwise memoize is claimed by TCE
+    // instead — Tco preempts Memo (eval `should_memoize` only here, where `is_memo`
+    // short-circuited it via `!is_tce`, so it is computed at most once).
+    if is_tce
+        && !no_memo
+        && should_memoize(name, body, params, return_type, pure_functions.contains(&name), interner)
+    {
+        crate::optimize::mark_preempted(Opt::Tco, Opt::Memo);
+    }
 
     let needs_mut_params = is_tce || is_acc;
 
     // Peephole: respect ## No Peephole / ## No Optimize annotations
-    let no_peephole = opt_flags.contains(&OptFlag::NoPeephole) || opt_flags.contains(&OptFlag::NoOptimize);
+    let no_peephole = !crate::optimize::active_config().merged(opt_flags).is_on(Opt::Peephole);
 
     // Get borrow indices for this function (empty set if none)
     let borrow_indices = borrow_params_map.get(&name).cloned().unwrap_or_default();

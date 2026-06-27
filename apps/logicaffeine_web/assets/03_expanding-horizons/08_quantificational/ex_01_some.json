@@ -7,5 +7,5 @@
   "constraints": {
     "Verb": ["Intransitive"]
   },
-  "hint": "Existential: ∃x(Restrictor(x) ∧ Scope(x)). Use ∧ not →."
+  "hint": "Existential joined by ∧: ∃x(Noun(x) ∧ ∃e(Verb(e) ∧ Agent(e, x))). The verb itself becomes an event. Use ∧, not →."
 }

@@ -95,6 +95,16 @@ impl CallGraph {
 // Call collection from AST
 // =============================================================================
 
+/// The set of functions a block of statements calls *synchronously* (`Stmt::Call`
+/// / `Expr::Call` / closures), NOT including spawned (`LaunchTask`) targets — a
+/// spawn is a distinct concurrent thread, not a same-thread call. Used by the
+/// determinacy classifier to attribute a thread's reachable print sites.
+pub(crate) fn calls_in_stmts(stmts: &[Stmt<'_>]) -> HashSet<Symbol> {
+    let mut calls = HashSet::new();
+    collect_calls_from_stmts(stmts, &mut calls);
+    calls
+}
+
 fn collect_calls_from_stmts(stmts: &[Stmt<'_>], calls: &mut HashSet<Symbol>) {
     for stmt in stmts {
         collect_calls_from_stmt(stmt, calls);

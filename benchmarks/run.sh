@@ -340,6 +340,25 @@ try_bench() {
     [ -f "$pf" ] && MERGE_FILES+=("$pf")
 }
 
+# Peak resident memory (kB) for one command, measured ONCE (memory is a property
+# of the program + size, not of run-to-run variance, so no warmup/runs needed).
+# Uses GNU `/usr/bin/time -v`; echoes an integer kB, or the JSON `null` if time is
+# unavailable or the command fails.
+measure_memory() {
+    local cmd="$1"
+    [ -x /usr/bin/time ] || { echo null; return; }
+    local errf; errf=$(mktemp)
+    if /usr/bin/time -v $cmd >/dev/null 2>"$errf"; then
+        local kb
+        kb=$(grep -oP 'Maximum resident set size \(kbytes\): \K[0-9]+' "$errf")
+        rm -f "$errf"
+        if [ -n "$kb" ]; then echo "$kb"; else echo null; fi
+    else
+        rm -f "$errf"
+        echo null
+    fi
+}
+
 for bench in "${BENCHMARKS[@]}"; do
     if [ "$SIZES_MODE" = "ref" ]; then
         sizes="$(ref_size "$bench")"
@@ -382,6 +401,56 @@ for bench in "${BENCHMARKS[@]}"; do
 done
 
 ok "Phase 3 complete"
+
+# ===========================================================================
+# Phase 3.5: Peak memory (RSS) — measured ONCE per (benchmark, language, size).
+# One-shot (no warmup/runs), so cheap; gate with MEASURE_MEM=0 to skip. Multiple
+# sizes let the frontend fit an empirical SPACE big-O exponent like it does for time.
+# ===========================================================================
+if [ "${MEASURE_MEM:-1}" = "1" ] && [ -x /usr/bin/time ]; then
+    info "Phase 3.5: Measuring peak memory (GNU time -v)..."
+    for bench in "${BENCHMARKS[@]}"; do
+        if [ "$SIZES_MODE" = "ref" ]; then
+            mem_sizes="$(ref_size "$bench")"
+        else
+            mem_sizes=$(cat "$PROGRAMS_DIR/$bench/sizes.txt")
+        fi
+        by_size="{}"
+        for size in $mem_sizes; do
+            langs="{}"
+            add_mem() {  # lang_id  command
+                local kb; kb=$(measure_memory "$2")
+                langs=$(echo "$langs" | jq --arg l "$1" --argjson kb "$kb" '.[$l]=$kb')
+            }
+            [ -f "$BIN_DIR/${bench}_c" ]   && add_mem c    "$BIN_DIR/${bench}_c $size"
+            [ -f "$BIN_DIR/${bench}_cpp" ] && add_mem cpp  "$BIN_DIR/${bench}_cpp $size"
+            [ -f "$BIN_DIR/${bench}_rs" ]  && add_mem rust "$BIN_DIR/${bench}_rs $size"
+            [ -f "$BIN_DIR/${bench}_zig" ] && add_mem zig  "$BIN_DIR/${bench}_zig $size"
+            [ -f "$BIN_DIR/${bench}_go" ]  && add_mem go   "$BIN_DIR/${bench}_go $size"
+            [ -d "$BIN_DIR/java/$bench" ]  && add_mem java "java -cp $BIN_DIR/java/$bench Main $size"
+            [ -f "$PROGRAMS_DIR/$bench/main.js" ] && add_mem js "node $PROGRAMS_DIR/$bench/main.js $size"
+            [ -f "$BIN_DIR/${bench}_nim" ] && add_mem nim  "$BIN_DIR/${bench}_nim $size"
+            [ -f "$BIN_DIR/${bench}_logos_release" ] && add_mem logos_release "$BIN_DIR/${bench}_logos_release $size"
+            by_size=$(echo "$by_size" | jq --arg s "$size" --argjson l "$langs" '.[$s]=$l')
+        done
+        echo "{\"method\":\"gnu_time_v_maxrss_kb\",\"by_size\":$by_size}" > "$RAW_DIR/${bench}_mem.json"
+    done
+    ok "Phase 3.5 complete"
+else
+    info "Phase 3.5: memory measurement skipped (MEASURE_MEM=0 or /usr/bin/time absent)"
+fi
+
+# ===========================================================================
+# Phase 3.6: Binary size — compiled-artifact footprint per language
+# ===========================================================================
+if [ "${MEASURE_SIZE:-1}" = "1" ]; then
+    info "Phase 3.6: Measuring binary sizes..."
+    bash "$SCRIPT_DIR/measure-sizes.sh" --bins-only "${BENCHMARKS[@]}" \
+        && ok "Phase 3.6 complete" \
+        || warn "Phase 3.6: binary-size measurement failed (non-fatal)"
+else
+    info "Phase 3.6: binary-size measurement skipped (MEASURE_SIZE=0)"
+fi
 
 # ===========================================================================
 # Phase 4: Benchmark Compilation Time — per-compiler timeout isolation
@@ -593,6 +662,56 @@ bench_name() {
     esac
 }
 
+# Theoretical (time, space) complexity per benchmark — the naive algorithm each
+# language runs, tab-separated. The frontend pairs this DECLARED complexity with
+# the EMPIRICAL exponent it fits from the multi-size scaling / memory curves.
+bench_complexity() {
+    case "$1" in
+        fib)           printf 'O(2^n)\tO(n)' ;;
+        ackermann)     printf 'O(A(m,n))\tO(m)' ;;
+        nqueens)       printf 'O(n!)\tO(n)' ;;
+        bubble_sort)   printf 'O(n^2)\tO(1)' ;;
+        mergesort)     printf 'O(n log n)\tO(n)' ;;
+        quicksort)     printf 'O(n log n)\tO(log n)' ;;
+        counting_sort) printf 'O(n+k)\tO(k)' ;;
+        heap_sort)     printf 'O(n log n)\tO(1)' ;;
+        nbody)         printf 'O(k*n^2)\tO(n)' ;;
+        mandelbrot)    printf 'O(k*n^2)\tO(1)' ;;
+        spectral_norm) printf 'O(n^2)\tO(n)' ;;
+        pi_leibniz)    printf 'O(n)\tO(1)' ;;
+        gcd)           printf 'O(log n)\tO(1)' ;;
+        collatz)       printf 'O(n log n)\tO(1)' ;;
+        primes)        printf 'O(n log log n)\tO(n)' ;;
+        sieve)         printf 'O(n log log n)\tO(n)' ;;
+        matrix_mult)   printf 'O(n^3)\tO(n^2)' ;;
+        prefix_sum)    printf 'O(n)\tO(n)' ;;
+        array_reverse) printf 'O(n)\tO(n)' ;;
+        array_fill)    printf 'O(n)\tO(n)' ;;
+        collect)       printf 'O(n)\tO(n)' ;;
+        two_sum)       printf 'O(n)\tO(n)' ;;
+        histogram)     printf 'O(n)\tO(k)' ;;
+        knapsack)      printf 'O(n*W)\tO(W)' ;;
+        coins)         printf 'O(n*k)\tO(n)' ;;
+        fannkuch)      printf 'O(n*n!)\tO(n)' ;;
+        strings)       printf 'O(n)\tO(n)' ;;
+        binary_trees)  printf 'O(2^n)\tO(n)' ;;
+        loop_sum)      printf 'O(n)\tO(1)' ;;
+        fib_iterative) printf 'O(n)\tO(1)' ;;
+        graph_bfs)     printf 'O(V+E)\tO(V)' ;;
+        string_search) printf 'O(n*m)\tO(1)' ;;
+        *)             printf '?\t?' ;;
+    esac
+}
+
+# `{time, space}` JSON for the benchmark's declared complexity.
+bench_complexity_json() {
+    local ct time space
+    ct=$(bench_complexity "$1")
+    time="${ct%%$'\t'*}"
+    space="${ct##*$'\t'}"
+    jq -n --arg t "$time" --arg s "$space" '{time: $t, space: $s}'
+}
+
 bench_desc() {
     case "$1" in
         fib) echo "Naive recursive Fibonacci." ;;
@@ -651,6 +770,15 @@ assemble_benchmark() {
 
     [ -f "$PROGRAMS_DIR/$bench/main.lg" ] && logos_src=$(cat "$PROGRAMS_DIR/$bench/main.lg")
     [ -f "$GENERATED_DIR/$bench.rs" ] && gen_rust=$(cat "$GENERATED_DIR/$bench.rs")
+
+    # Per-program optimization graph (fired + blockers + dependencies), from one
+    # all-on evaluation, so the website's toggle tree pops in instantly. Never
+    # affects timing — this is metadata baked alongside the source.
+    local opt_graph='{"fired":[],"blockers":[],"dependencies":[]}'
+    if [ -f "$PROGRAMS_DIR/$bench/main.lg" ]; then
+        opt_graph=$("$LARGO" opts "$PROGRAMS_DIR/$bench/main.lg" --json 2>/dev/null \
+            || echo '{"fired":[],"blockers":[],"dependencies":[]}')
+    fi
 
     # Build scaling object
     local scaling="{}"
@@ -782,6 +910,10 @@ assemble_benchmark() {
         --argjson scaling "$scaling" \
         --argjson compilation "$compilation" \
         --argjson timeouts "$timeouts" \
+        --argjson memory "$(cat "$RAW_DIR/${bench}_mem.json" 2>/dev/null || echo null)" \
+        --argjson binary_sizes "$(cat "$RAW_DIR/${bench}_sizes.json" 2>/dev/null || echo null)" \
+        --argjson complexity "$(bench_complexity_json "$bench")" \
+        --argjson opt_graph "$opt_graph" \
         '{
             id: $id,
             name: $name,
@@ -792,7 +924,13 @@ assemble_benchmark() {
             generated_rust: $gen_rust,
             scaling: $scaling,
             compilation: $compilation,
-            timeouts: $timeouts
+            timeouts: $timeouts,
+            memory: $memory,
+            binary_sizes: $binary_sizes,
+            complexity: $complexity,
+            fired: $opt_graph.fired,
+            blockers: $opt_graph.blockers,
+            dependencies: $opt_graph.dependencies
         }'
 }
 

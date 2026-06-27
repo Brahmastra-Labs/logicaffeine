@@ -385,11 +385,11 @@ fn rewrite_stmt<'a>(
             out.extend(prelude);
             out.push(Stmt::SetIndex { collection: *collection, index: i, value: v });
         }
-        Stmt::RuntimeAssert { condition } => {
+        Stmt::RuntimeAssert { condition, hard } => {
             let mut prelude = Vec::new();
             let c = rewrite_expr(condition, cands, ea, sa, interner, counter, &mut prelude);
             out.extend(prelude);
-            out.push(Stmt::RuntimeAssert { condition: c });
+            out.push(Stmt::RuntimeAssert { condition: c , hard: *hard });
         }
         Stmt::If { cond, then_block, else_block } => {
             // The condition is evaluated once on arrival → safe to lift.

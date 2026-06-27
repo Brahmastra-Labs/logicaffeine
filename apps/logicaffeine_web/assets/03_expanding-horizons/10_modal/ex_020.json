@@ -4,10 +4,10 @@
   "difficulty": 1,
   "prompt": "If C is necessary then S is necessary",
   "options": [
-    "$ \\\\square (C \\\\supset S) $",
-    "$ \\\\square (C \\\\supset \\\\square S) $",
-    "$ \\\\square C \\\\supset \\\\square S $",
-    "$ (\\\\square C \\\\supset \\\\square S) $"
+    "$ \\square (C \\supset S) $",
+    "$ \\square (C \\supset \\square S) $",
+    "$ \\square C \\supset \\square S $",
+    "$ (\\square C \\supset \\square S) $"
   ],
   "correct": 3,
   "hint": "Is the 'if...then' itself necessary, or is it a regular conditional connecting two necessity claims?",

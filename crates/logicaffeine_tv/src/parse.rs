@@ -63,6 +63,7 @@ pub fn with_program<R>(
             &imperative_expr_arena,
             &stmt_arena,
             &mut interner,
+            &logicaffeine_compile::optimization::OptimizationConfig::from_env(),
         )
     } else {
         stmts

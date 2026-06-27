@@ -195,19 +195,21 @@ impl<'a> DiscoveryPass<'a> {
             // "A User can publish the Document if..."
             self.advance(); // consume "can"
 
-            // Get action name (e.g., "publish")
-            let action = match self.consume_noun_or_proper() {
-                Some(sym) => sym,
-                None => {
-                    // Try verb token
-                    if let Some(Token { kind: TokenType::Verb { lemma, .. }, .. }) = self.peek() {
-                        let sym = *lemma;
-                        self.advance();
-                        sym
-                    } else {
-                        return;
-                    }
+            // Get action name (e.g., "publish", "edit"). For a verb action take its
+            // LEMMA — that is exactly what the `Check ... can <verb>` site resolves
+            // (parser), so the registered and looked-up symbols agree. Using
+            // `consume_noun_or_proper` first would capture the verb LEXEME instead and
+            // every capability check would miss ("No capability 'Edit' defined").
+            let action = match self.peek() {
+                Some(Token { kind: TokenType::Verb { lemma, .. }, .. }) => {
+                    let sym = *lemma;
+                    self.advance();
+                    sym
                 }
+                _ => match self.consume_noun_or_proper() {
+                    Some(sym) => sym,
+                    None => return,
+                },
             };
 
             // Skip "the" article if present
@@ -338,7 +340,27 @@ impl<'a> DiscoveryPass<'a> {
             if self.check_word("equals") {
                 self.advance();
 
-                // Get value (string literal or identifier)
+                // First try an object-field RHS: `the document's owner`, giving a
+                // cross-field comparison `self.<field> == object.<obj_field>`. Only a
+                // literal/identifier RHS falls through to `FieldEquals`.
+                let checkpoint = self.pos;
+                if self.check_article() {
+                    self.advance();
+                }
+                if let Some(obj_ref) = self.consume_noun_or_proper() {
+                    if self.check_possessive() {
+                        self.advance(); // consume "'s"
+                        if let Some(obj_field) = self.consume_noun_or_proper() {
+                            return PolicyCondition::SubjectFieldEqualsObjectField {
+                                subject_field: field,
+                                object: obj_ref,
+                                object_field: obj_field,
+                            };
+                        }
+                    }
+                }
+                // Not an object-field reference — rewind and take a plain value.
+                self.pos = checkpoint;
                 let (value, is_string_literal) = self.consume_value();
 
                 return PolicyCondition::FieldEquals { field, value, is_string_literal };

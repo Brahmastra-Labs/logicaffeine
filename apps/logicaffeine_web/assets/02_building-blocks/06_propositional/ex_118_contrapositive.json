@@ -1,0 +1,15 @@
+{
+  "id": "C_6.118",
+  "type": "multiple_choice",
+  "difficulty": 3,
+  "prompt": "Which formula is the CONTRAPOSITIVE of P → Q (and therefore equivalent to it)?",
+  "options": [
+    "Q → P",
+    "¬P → ¬Q",
+    "¬Q → ¬P",
+    "P → ¬Q"
+  ],
+  "correct": 2,
+  "hint": "The contrapositive swaps AND negates both parts.",
+  "explanation": "The contrapositive of P → Q is ¬Q → ¬P, which has the same truth table. 'Q → P' is the converse and '¬P → ¬Q' is the inverse — both are NOT equivalent to the original (a common confusion)."
+}

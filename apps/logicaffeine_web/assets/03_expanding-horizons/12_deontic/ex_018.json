@@ -2,14 +2,14 @@
   "id": "L_12.34",
   "type": "multiple_choice",
   "difficulty": 1,
-  "prompt": "'Let everyone cheer'is consistent",
+  "prompt": "'Let everyone cheer' is consistent",
   "options": [
-    "$ \\\\lozenge (x)C\\\\underline{x} $",
-    "$ (x)C\\\\underline{x} $",
-    "$ (\\\\lozenge (x)C\\\\underline{x} ) $",
-    "$ \\\\lozenge (x)Cx $"
+    "$ \\lozenge (x)C\\underline{x} $",
+    "$ (x)C\\underline{x} $",
+    "$ (\\lozenge (x)C\\underline{x} ) $",
+    "$ \\lozenge (x)Cx $"
   ],
   "correct": 0,
   "hint": "Can a command and a description both be true without contradiction?",
-  "explanation": "In deontic logic, we distinguish the commanded action (underlined) from the description. 'You're selling but don't sell' \u2014 the first 'selling' describes what you're doing (Su), the second is a command not to (\u00acS_u). These can be consistent: you CAN be doing what you shouldn't!"
+  "explanation": "'X is consistent' means ◇X. The optative 'let everyone cheer' is (x)C͟x (the universal (x) = everyone, agent underlined); asserting its consistency wraps it in ◇: ◇(x)C͟x."
 }

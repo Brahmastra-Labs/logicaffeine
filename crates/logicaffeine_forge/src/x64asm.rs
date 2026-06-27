@@ -129,6 +129,10 @@ pub enum Cond {
     /// were UNORDERED (a NaN). The `DivF` zero-divisor guard uses this to skip
     /// the side-exit on a NaN divisor (NaN is not `0.0`).
     ParityEven,
+    /// OVERFLOW (`jo`): `cc=0x0`. OF=1 after a signed `add`/`sub`/`imul` — the
+    /// integer-overflow side-exit (`jo deopt`) for exact arithmetic: on overflow
+    /// the native tier deopts so the exact VM recomputes (and promotes to BigInt).
+    Overflow,
 }
 
 impl Cond {
@@ -147,6 +151,7 @@ impl Cond {
             Cond::BeU => 0x6, // BE (unsigned): NA
             Cond::BU => 0x2,  // B  (unsigned): C
             Cond::ParityEven => 0xA, // P/PE (parity even): unordered after ucomisd
+            Cond::Overflow => 0x0, // O (overflow): OF=1 after signed add/sub/imul
         }
     }
 }
@@ -504,6 +509,95 @@ impl Asm {
     pub fn sqrtsd_rr(&mut self, dst: Xmm, src: Xmm) {
         self.sse_sd_rr(0xF2, 0x51, dst, src);
     }
+
+    // ---- Packed double (SIMD, 2-wide) ----------------------------------------
+    // Each instruction below shares the scalar-double encoder helpers but swaps
+    // the `F2` (scalar) prefix for `66` (packed). A packed op computes BOTH f64
+    // lanes with the SAME IEEE-754 rounding as the scalar form, so each lane is
+    // bit-identical to the corresponding scalar op — the soundness invariant that
+    // makes auto-vectorization a LEGAL bit-exact lever (unlike FMA, which fuses
+    // two roundings into one and is therefore NOT bit-exact).
+
+    /// `movupd xmm, [base+disp]` (66 0F 10 /r) — load an UNALIGNED 128-bit pair.
+    /// Unaligned (not `movapd`) because frame/array slots carry no 16-byte
+    /// alignment guarantee; the unaligned form is penalty-free on modern cores
+    /// when the access happens to be aligned.
+    pub fn movupd_rm(&mut self, dst: Xmm, base: Reg, disp: i32) {
+        self.sse_sd_rm(0x66, 0x10, dst, base, disp);
+    }
+    /// `movupd [base+disp], xmm` (66 0F 11 /r) — store an unaligned 128-bit pair.
+    pub fn movupd_mr(&mut self, base: Reg, disp: i32, src: Xmm) {
+        self.sse_sd_rm(0x66, 0x11, src, base, disp);
+    }
+    /// `movupd dst, src` (66 0F 10 /r) — XMM→XMM 128-bit copy (both lanes).
+    pub fn movupd_rr(&mut self, dst: Xmm, src: Xmm) {
+        if dst == src {
+            return;
+        }
+        self.sse_sd_rr(0x66, 0x10, dst, src);
+    }
+    /// `addpd dst, src` (66 0F 58 /r) — `dst[lane] += src[lane]` for both lanes.
+    pub fn addpd_rr(&mut self, dst: Xmm, src: Xmm) {
+        self.sse_sd_rr(0x66, 0x58, dst, src);
+    }
+    /// `subpd dst, src` (66 0F 5C /r) — `dst[lane] -= src[lane]` for both lanes.
+    pub fn subpd_rr(&mut self, dst: Xmm, src: Xmm) {
+        self.sse_sd_rr(0x66, 0x5C, dst, src);
+    }
+    /// `mulpd dst, src` (66 0F 59 /r) — `dst[lane] *= src[lane]` for both lanes.
+    pub fn mulpd_rr(&mut self, dst: Xmm, src: Xmm) {
+        self.sse_sd_rr(0x66, 0x59, dst, src);
+    }
+    /// `cmppd dst, src, pred` (66 0F C2 /r ib) — per-lane compare; each lane is
+    /// set to all-ones (true) or all-zero (false). `pred`: 0=EQ 1=LT 2=LE 3=UNORD
+    /// 4=NEQ 5=NLT 6=NLE 7=ORD. The mandelbrot escape test uses LE (2).
+    pub fn cmppd_rr(&mut self, dst: Xmm, src: Xmm, pred: u8) {
+        self.buf.push(0x66);
+        self.sse_rex_rr(dst, src);
+        self.buf.push(0x0F);
+        self.buf.push(0xC2);
+        self.modrm_xmm_rr(dst, src);
+        self.buf.push(pred);
+    }
+    /// `movmskpd r32/64, xmm` (66 0F 50 /r) — extract the two lane SIGN bits into
+    /// a GP register (bit0=lane0, bit1=lane1). After a cmppd, a true lane's sign
+    /// bit is 1, so this yields the active-lane bitmask the loop-exit test reads.
+    /// The GP dst is the reg field, the XMM src the rm field.
+    pub fn movmskpd(&mut self, dst: Reg, src: Xmm) {
+        self.buf.push(0x66);
+        let rex = 0x40 | (dst.hi() << 2) | src.hi();
+        if rex != 0x40 {
+            self.buf.push(rex);
+        }
+        self.buf.push(0x0F);
+        self.buf.push(0x50);
+        self.buf.push(0b1100_0000 | (dst.lo3() << 3) | src.lo3());
+    }
+    /// `andpd dst, src` (66 0F 54 /r) — bitwise AND of both 128-bit lanes. The
+    /// branchless counter masks a packed 1.0 by the escape mask.
+    pub fn andpd_rr(&mut self, dst: Xmm, src: Xmm) {
+        self.sse_sd_rr(0x66, 0x54, dst, src);
+    }
+    /// `andnpd dst, src` (66 0F 55 /r) — `dst = (NOT dst) AND src` (128-bit).
+    pub fn andnpd_rr(&mut self, dst: Xmm, src: Xmm) {
+        self.sse_sd_rr(0x66, 0x55, dst, src);
+    }
+    /// `orpd dst, src` (66 0F 56 /r) — bitwise OR of both 128-bit lanes.
+    pub fn orpd_rr(&mut self, dst: Xmm, src: Xmm) {
+        self.sse_sd_rr(0x66, 0x56, dst, src);
+    }
+    /// `xorpd dst, src` (66 0F 57 /r) — bitwise XOR of both 128-bit lanes.
+    pub fn xorpd_rr(&mut self, dst: Xmm, src: Xmm) {
+        self.sse_sd_rr(0x66, 0x57, dst, src);
+    }
+    /// `divpd dst, src` (66 0F 5E /r) — `dst[lane] /= src[lane]` for both lanes.
+    pub fn divpd_rr(&mut self, dst: Xmm, src: Xmm) {
+        self.sse_sd_rr(0x66, 0x5E, dst, src);
+    }
+    /// `sqrtpd dst, src` (66 0F 51 /r) — `dst[lane] = sqrt(src[lane])` both lanes.
+    pub fn sqrtpd_rr(&mut self, dst: Xmm, src: Xmm) {
+        self.sse_sd_rr(0x66, 0x51, dst, src);
+    }
     /// `ucomisd a, b` (66 0F 2E /r) — unordered f64 compare setting CF/ZF/PF.
     /// NaN (unordered) sets ZF=CF=PF=1, so the seta/setae/jbe family used by the
     /// backend folds the unordered case to FALSE, matching the kernel's IEEE
@@ -569,6 +663,30 @@ impl Asm {
             self.buf.push(0x40 | (src.hi() << 2) | base.hi());
         }
         self.buf.push(0x88);
+        self.modrm_mem(src, base, disp);
+    }
+
+    /// `movsxd dst, dword [base + disp]` (REX.W 63 /r) — load FOUR bytes from
+    /// memory and SIGN-extend them into the 64-bit `dst`. The half-width
+    /// (`IntsI32`) array element load: `frame[D] = buf[i-1] as i64` over 4-byte
+    /// `i32` elements — bit-identical to `logos_stencil_arrld_i32`'s
+    /// `*(i32*)ptr as i64`.
+    pub fn movsxd_rm(&mut self, dst: Reg, base: Reg, disp: i32) {
+        self.rex(true, dst.hi(), 0, base.hi());
+        self.buf.push(0x63);
+        self.modrm_mem(dst, base, disp);
+    }
+
+    /// `mov dword [base + disp], src32` (89 /r, NO REX.W) — store the LOW 4 bytes
+    /// of `src` to memory. The half-width (`IntsI32`) element store: the value is
+    /// truncated to `i32` (lossless under the narrowing proof) — bit-identical to
+    /// `logos_stencil_arrst_i32`'s `*(i32*)ptr = v as i32`. A REX prefix (without
+    /// the W bit) is emitted only for the high-register extension bits.
+    pub fn mov_mr32(&mut self, base: Reg, disp: i32, src: Reg) {
+        if src.hi() != 0 || base.hi() != 0 {
+            self.buf.push(0x40 | (src.hi() << 2) | base.hi());
+        }
+        self.buf.push(0x89);
         self.modrm_mem(src, base, disp);
     }
 
@@ -922,6 +1040,320 @@ mod tests {
             let mut frame = [a.to_bits() as i64, b.to_bits() as i64, 0];
             let got = f64::from_bits(run_frame(&asm.resolve(), &mut frame) as u64);
             assert_eq!(got.to_bits(), (a + b).to_bits(), "a={a} b={b}");
+        }
+    }
+
+    #[test]
+    fn sse_packed_double_two_lanes_add_mul_sub() {
+        // The SIMD foundation: movupd loads/stores a 128-bit pair, and
+        // addpd/mulpd/subpd operate on BOTH f64 lanes at once. frame layout:
+        // [a0,a1, b0,b1, addOut0,addOut1, mulOut0,mulOut1, subOut0,subOut1].
+        let cases: [(f64, f64, f64, f64); 3] = [
+            (2.5, 0.5, 1.0, 3.0),
+            (-1.0, 7.25, 4.0, -2.5),
+            (0.0, -0.0, 1.0, 1.0),
+        ];
+        for (a0, a1, b0, b1) in cases {
+            let mut asm = Asm::new();
+            asm.movupd_rm(Xmm::Xmm0, Reg::Rdi, 0); // {a0,a1}
+            asm.movupd_rm(Xmm::Xmm1, Reg::Rdi, 16); // {b0,b1}
+            asm.movupd_rr(Xmm::Xmm2, Xmm::Xmm0); // copy for mul
+            asm.movupd_rr(Xmm::Xmm3, Xmm::Xmm0); // copy for sub
+            asm.addpd_rr(Xmm::Xmm0, Xmm::Xmm1); // {a0+b0, a1+b1}
+            asm.mulpd_rr(Xmm::Xmm2, Xmm::Xmm1); // {a0*b0, a1*b1}
+            asm.subpd_rr(Xmm::Xmm3, Xmm::Xmm1); // {a0-b0, a1-b1}
+            asm.movupd_mr(Reg::Rdi, 32, Xmm::Xmm0);
+            asm.movupd_mr(Reg::Rdi, 48, Xmm::Xmm2);
+            asm.movupd_mr(Reg::Rdi, 64, Xmm::Xmm3);
+            asm.ret();
+            let mut frame = [
+                a0.to_bits() as i64,
+                a1.to_bits() as i64,
+                b0.to_bits() as i64,
+                b1.to_bits() as i64,
+                0, 0, 0, 0, 0, 0,
+            ];
+            run_frame(&asm.resolve(), &mut frame);
+            let lane = |i: usize| f64::from_bits(frame[i] as u64);
+            assert_eq!(lane(4).to_bits(), (a0 + b0).to_bits(), "add lane0");
+            assert_eq!(lane(5).to_bits(), (a1 + b1).to_bits(), "add lane1");
+            assert_eq!(lane(6).to_bits(), (a0 * b0).to_bits(), "mul lane0");
+            assert_eq!(lane(7).to_bits(), (a1 * b1).to_bits(), "mul lane1");
+            assert_eq!(lane(8).to_bits(), (a0 - b0).to_bits(), "sub lane0");
+            assert_eq!(lane(9).to_bits(), (a1 - b1).to_bits(), "sub lane1");
+        }
+    }
+
+    #[test]
+    fn sse_packed_high_registers_route_rex() {
+        // Packed ops on xmm8..xmm15 must carry REX.R/REX.B exactly like scalar.
+        let cases: [(f64, f64, f64, f64); 2] = [(2.5, 0.5, 1.0, 3.0), (-1.0, 3.0, 4.0, -2.5)];
+        for (a0, a1, b0, b1) in cases {
+            let mut asm = Asm::new();
+            asm.movupd_rm(Xmm::Xmm12, Reg::Rdi, 0);
+            asm.movupd_rm(Xmm::Xmm13, Reg::Rdi, 16);
+            asm.addpd_rr(Xmm::Xmm12, Xmm::Xmm13);
+            asm.movupd_mr(Reg::Rdi, 32, Xmm::Xmm12);
+            asm.ret();
+            let mut frame = [
+                a0.to_bits() as i64,
+                a1.to_bits() as i64,
+                b0.to_bits() as i64,
+                b1.to_bits() as i64,
+                0,
+                0,
+            ];
+            run_frame(&asm.resolve(), &mut frame);
+            assert_eq!(f64::from_bits(frame[4] as u64).to_bits(), (a0 + b0).to_bits());
+            assert_eq!(f64::from_bits(frame[5] as u64).to_bits(), (a1 + b1).to_bits());
+        }
+    }
+
+    #[test]
+    fn sse_packed_double_is_bit_identical_to_scalar() {
+        // The soundness invariant that makes SIMD a LEGAL bit-exact lever (unlike
+        // FMA): each packed lane equals the scalar op on that lane, bit-for-bit,
+        // including subnormals and rounding edges.
+        let cases: [(f64, f64); 4] = [
+            (0.1, 0.2),
+            (1e308, 1e308),
+            (f64::MIN_POSITIVE, f64::MIN_POSITIVE),
+            (1.0 / 3.0, 7.0),
+        ];
+        for (a, b) in cases {
+            let mut asm = Asm::new();
+            asm.movupd_rm(Xmm::Xmm0, Reg::Rdi, 0);
+            asm.movupd_rm(Xmm::Xmm1, Reg::Rdi, 16);
+            asm.mulpd_rr(Xmm::Xmm0, Xmm::Xmm1);
+            asm.movupd_mr(Reg::Rdi, 32, Xmm::Xmm0);
+            asm.ret();
+            // Both lanes carry the same (a,b) so a scalar mulsd is the oracle.
+            let mut frame = [
+                a.to_bits() as i64,
+                a.to_bits() as i64,
+                b.to_bits() as i64,
+                b.to_bits() as i64,
+                0,
+                0,
+            ];
+            run_frame(&asm.resolve(), &mut frame);
+            assert_eq!(f64::from_bits(frame[4] as u64).to_bits(), (a * b).to_bits());
+            assert_eq!(f64::from_bits(frame[5] as u64).to_bits(), (a * b).to_bits());
+        }
+    }
+
+    #[test]
+    fn sse_packed_div_and_sqrt_two_lanes() {
+        // Completes the packed float-arithmetic set the general vectorizer maps
+        // DivF/SqrtF onto. Both lanes, bit-identical to the scalar op.
+        let cases: [(f64, f64); 4] = [(9.0, 2.0), (1.0, 3.0), (-7.5, 0.25), (2.0, 8.0)];
+        for (a, b) in cases {
+            let mut asm = Asm::new();
+            asm.movupd_rm(Xmm::Xmm0, Reg::Rdi, 0); // {a,a}
+            asm.movupd_rm(Xmm::Xmm1, Reg::Rdi, 16); // {b,b}
+            asm.divpd_rr(Xmm::Xmm0, Xmm::Xmm1); // {a/b, a/b}
+            asm.sqrtpd_rr(Xmm::Xmm1, Xmm::Xmm1); // {sqrt(b), sqrt(b)}
+            asm.movupd_mr(Reg::Rdi, 32, Xmm::Xmm0);
+            asm.movupd_mr(Reg::Rdi, 48, Xmm::Xmm1);
+            asm.ret();
+            let mut frame = [
+                a.to_bits() as i64,
+                a.to_bits() as i64,
+                b.to_bits() as i64,
+                b.to_bits() as i64,
+                0, 0, 0, 0,
+            ];
+            run_frame(&asm.resolve(), &mut frame);
+            assert_eq!(f64::from_bits(frame[4] as u64).to_bits(), (a / b).to_bits(), "div");
+            assert_eq!(f64::from_bits(frame[6] as u64).to_bits(), b.sqrt().to_bits(), "sqrt");
+        }
+    }
+
+    #[test]
+    fn sse_packed_cmple_and_movmskpd_lane_mask() {
+        // The mandelbrot escape test: cmplepd sets a lane to all-ones when
+        // a[lane] <= b[lane], and movmskpd extracts the two lane sign bits into a
+        // GP register (bit0=lane0, bit1=lane1) — the loop-exit signal.
+        let cases: [(f64, f64, f64, f64, i64); 4] = [
+            (1.0, 1.0, 4.0, 4.0, 0b11), // both <= 4
+            (9.0, 1.0, 4.0, 4.0, 0b10), // lane0 escaped (9>4), lane1 active
+            (1.0, 9.0, 4.0, 4.0, 0b01), // lane1 escaped
+            (9.0, 9.0, 4.0, 4.0, 0b00), // both escaped
+        ];
+        for (a0, a1, b0, b1, want) in cases {
+            let mut asm = Asm::new();
+            asm.movupd_rm(Xmm::Xmm0, Reg::Rdi, 0); // {a0,a1}
+            asm.movupd_rm(Xmm::Xmm1, Reg::Rdi, 16); // {b0,b1}
+            asm.cmppd_rr(Xmm::Xmm0, Xmm::Xmm1, 2); // LE: a<=b per lane
+            asm.movmskpd(Reg::Rax, Xmm::Xmm0);
+            asm.ret();
+            let mut frame = [
+                a0.to_bits() as i64,
+                a1.to_bits() as i64,
+                b0.to_bits() as i64,
+                b1.to_bits() as i64,
+            ];
+            assert_eq!(run_frame(&asm.resolve(), &mut frame), want, "a={a0},{a1}");
+        }
+    }
+
+    #[test]
+    fn sse_packed_andpd_count_increment_trick() {
+        // The branchless iteration counter: AND the all-ones-or-zero escape mask
+        // with a packed 1.0 yields 1.0 on still-active lanes and 0.0 on escaped
+        // ones; addpd then advances only the active counters. Verify the AND.
+        let allones = u64::MAX as i64; // all-ones lane (active)
+        let one = 1.0f64.to_bits() as i64;
+        let cases: [(i64, i64, f64, f64); 3] = [
+            (allones, allones, 1.0, 1.0),
+            (allones, 0, 1.0, 0.0),
+            (0, allones, 0.0, 1.0),
+        ];
+        for (m0, m1, want0, want1) in cases {
+            let mut asm = Asm::new();
+            asm.movupd_rm(Xmm::Xmm0, Reg::Rdi, 0); // mask
+            asm.movupd_rm(Xmm::Xmm1, Reg::Rdi, 16); // {1.0,1.0}
+            asm.andpd_rr(Xmm::Xmm0, Xmm::Xmm1);
+            asm.movupd_mr(Reg::Rdi, 32, Xmm::Xmm0);
+            asm.ret();
+            let mut frame = [m0, m1, one, one, 0, 0];
+            run_frame(&asm.resolve(), &mut frame);
+            assert_eq!(f64::from_bits(frame[4] as u64).to_bits(), want0.to_bits(), "lane0");
+            assert_eq!(f64::from_bits(frame[5] as u64).to_bits(), want1.to_bits(), "lane1");
+        }
+    }
+
+    #[test]
+    fn sse_packed_bitwise_or_andn_xor() {
+        // orpd / andnpd / xorpd round-trip known bit patterns (mask algebra).
+        let a = 0xF0F0_F0F0_F0F0_F0F0u64 as i64;
+        let b = 0x00FF_00FF_00FF_00FFu64 as i64;
+        let mut asm = Asm::new();
+        asm.movupd_rm(Xmm::Xmm0, Reg::Rdi, 0); // {a,a}
+        asm.movupd_rm(Xmm::Xmm1, Reg::Rdi, 16); // {b,b}
+        asm.movupd_rr(Xmm::Xmm2, Xmm::Xmm0);
+        asm.movupd_rr(Xmm::Xmm3, Xmm::Xmm0);
+        asm.orpd_rr(Xmm::Xmm0, Xmm::Xmm1); // a|b
+        asm.andnpd_rr(Xmm::Xmm2, Xmm::Xmm1); // (!a)&b
+        asm.xorpd_rr(Xmm::Xmm3, Xmm::Xmm1); // a^b
+        asm.movupd_mr(Reg::Rdi, 32, Xmm::Xmm0);
+        asm.movupd_mr(Reg::Rdi, 48, Xmm::Xmm2);
+        asm.movupd_mr(Reg::Rdi, 64, Xmm::Xmm3);
+        asm.ret();
+        let mut frame = [a, a, b, b, 0, 0, 0, 0, 0, 0];
+        run_frame(&asm.resolve(), &mut frame);
+        assert_eq!(frame[4] as u64, (a as u64) | (b as u64), "or");
+        assert_eq!(frame[6] as u64, (!(a as u64)) & (b as u64), "andn");
+        assert_eq!(frame[8] as u64, (a as u64) ^ (b as u64), "xor");
+    }
+
+    #[test]
+    fn simd_mandelbrot_pair_matches_scalar_membership_bit_exact() {
+        // PROOF-OF-ALGORITHM for the mandelbrot SIMD lever: a branchless 2-lane
+        // kernel runs the EXACT z = z*z + c recurrence of benchmarks/programs/
+        // mandelbrot/main.lg for two pixels at once, and its in-set bitmask
+        // (movmskpd of the sticky `active = AND over iters of (mag <= 4)` mask)
+        // must equal the scalar benchmark's per-pixel membership for EVERY pair.
+        // This is sound because each lane's float sequence is bit-identical to the
+        // scalar's, and membership ("never exceeded 4 within 50 iters") is
+        // unaffected by the scalar's early break (a cleared lane stays cleared).
+
+        // The exact scalar benchmark membership (with the early break).
+        fn inside_bench(cr: f64, ci: f64) -> bool {
+            let mut zr = 0.0f64;
+            let mut zi = 0.0f64;
+            let mut is_inside = true;
+            let mut iter = 0;
+            while iter < 50 {
+                let zr2 = zr * zr - zi * zi + cr;
+                let zi2 = 2.0 * zr * zi + ci;
+                zr = zr2;
+                zi = zi2;
+                if zr * zr + zi * zi > 4.0 {
+                    is_inside = false;
+                    iter = 50;
+                }
+                iter += 1;
+            }
+            is_inside
+        }
+
+        // The 2-lane SIMD kernel. Frame: [cr0,cr1, ci0,ci1, 4.0,4.0, 2.0,2.0];
+        // returns movmskpd(active) in rax (bit0=lane0 in-set, bit1=lane1 in-set).
+        let mut asm = Asm::new();
+        asm.movupd_rm(Xmm::Xmm0, Reg::Rdi, 0); // cr
+        asm.movupd_rm(Xmm::Xmm1, Reg::Rdi, 16); // ci
+        asm.movupd_rm(Xmm::Xmm2, Reg::Rdi, 32); // {4.0,4.0}
+        asm.movupd_rm(Xmm::Xmm3, Reg::Rdi, 48); // {2.0,2.0}
+        asm.xorpd_rr(Xmm::Xmm4, Xmm::Xmm4); // zr = 0
+        asm.xorpd_rr(Xmm::Xmm5, Xmm::Xmm5); // zi = 0
+        asm.xorpd_rr(Xmm::Xmm6, Xmm::Xmm6);
+        asm.cmppd_rr(Xmm::Xmm6, Xmm::Xmm6, 0); // active = (0==0) = all-ones
+        asm.mov_ri(Reg::Rcx, 0); // iter counter
+        let loop_top = asm.new_label();
+        asm.bind(loop_top);
+        // zr2 = zr*zr - zi*zi + cr   (xmm7)
+        asm.movupd_rr(Xmm::Xmm7, Xmm::Xmm4);
+        asm.mulpd_rr(Xmm::Xmm7, Xmm::Xmm4); // zr*zr
+        asm.movupd_rr(Xmm::Xmm8, Xmm::Xmm5);
+        asm.mulpd_rr(Xmm::Xmm8, Xmm::Xmm5); // zi*zi
+        asm.subpd_rr(Xmm::Xmm7, Xmm::Xmm8); // zr*zr - zi*zi
+        asm.addpd_rr(Xmm::Xmm7, Xmm::Xmm0); // + cr
+        // zi2 = 2.0*zr*zi + ci   (xmm9), parsed (2.0*zr)*zi to match the source
+        asm.movupd_rr(Xmm::Xmm9, Xmm::Xmm4);
+        asm.mulpd_rr(Xmm::Xmm9, Xmm::Xmm3); // 2.0*zr
+        asm.mulpd_rr(Xmm::Xmm9, Xmm::Xmm5); // *zi
+        asm.addpd_rr(Xmm::Xmm9, Xmm::Xmm1); // + ci
+        // commit zr=zr2, zi=zi2
+        asm.movupd_rr(Xmm::Xmm4, Xmm::Xmm7);
+        asm.movupd_rr(Xmm::Xmm5, Xmm::Xmm9);
+        // mag = zr*zr + zi*zi   (xmm7)
+        asm.movupd_rr(Xmm::Xmm7, Xmm::Xmm4);
+        asm.mulpd_rr(Xmm::Xmm7, Xmm::Xmm4);
+        asm.movupd_rr(Xmm::Xmm8, Xmm::Xmm5);
+        asm.mulpd_rr(Xmm::Xmm8, Xmm::Xmm5);
+        asm.addpd_rr(Xmm::Xmm7, Xmm::Xmm8);
+        // still_le = mag <= 4 ; active &= still_le
+        asm.cmppd_rr(Xmm::Xmm7, Xmm::Xmm2, 2);
+        asm.andpd_rr(Xmm::Xmm6, Xmm::Xmm7);
+        // Early-out when BOTH lanes have escaped (active == 0): a cleared lane
+        // stays cleared, so the result is unchanged — but we skip the remaining
+        // iterations the scalar's per-pixel break would also have skipped. This
+        // is what makes the kernel a WIN (work = max(iters_a,iters_b) not 50).
+        let done = asm.new_label();
+        asm.movmskpd(Reg::Rax, Xmm::Xmm6);
+        asm.test_rr(Reg::Rax, Reg::Rax);
+        asm.jcc(Cond::Eq, done); // both escaped -> rax already 0 (correct)
+        asm.add_ri(Reg::Rcx, 1);
+        asm.cmp_ri(Reg::Rcx, 50);
+        asm.jcc(Cond::Lt, loop_top);
+        asm.bind(done);
+        asm.ret(); // rax = movmskpd(active): final membership of both lanes
+        let code = asm.resolve();
+
+        // Sweep the benchmark's own pixel grid (n=64) and check every adjacent
+        // pair — covers deep-inside, escaped, and boundary pixels.
+        let n = 64i64;
+        for y in 0..n {
+            let ci = 2.0 * y as f64 / n as f64 - 1.0;
+            for x in 0..(n - 1) {
+                let cr0 = 2.0 * x as f64 / n as f64 - 1.5;
+                let cr1 = 2.0 * (x + 1) as f64 / n as f64 - 1.5;
+                let mut frame = [
+                    cr0.to_bits() as i64,
+                    cr1.to_bits() as i64,
+                    ci.to_bits() as i64,
+                    ci.to_bits() as i64,
+                    4.0f64.to_bits() as i64,
+                    4.0f64.to_bits() as i64,
+                    2.0f64.to_bits() as i64,
+                    2.0f64.to_bits() as i64,
+                ];
+                let got = run_frame(&code, &mut frame);
+                let want = (inside_bench(cr0, ci) as i64)
+                    | ((inside_bench(cr1, ci) as i64) << 1);
+                assert_eq!(got, want, "pixel pair x={x} y={y} cr0={cr0} cr1={cr1} ci={ci}");
+            }
         }
     }
 

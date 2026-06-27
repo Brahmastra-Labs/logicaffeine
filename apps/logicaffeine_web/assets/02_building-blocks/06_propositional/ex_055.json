@@ -4,10 +4,10 @@
   "difficulty": 1,
   "prompt": "If P, then D and N",
   "options": [
-    "$ P \\\\supset D \\\\cdot N $",
-    "$ ((P \\\\supset D) \\\\cdot N) $",
-    "$ (P \\\\supset D) \\\\cdot N $",
-    "$ (P \\\\supset (D \\\\cdot N)) $"
+    "$ P \\supset D \\cdot N $",
+    "$ ((P \\supset D) \\cdot N) $",
+    "$ (P \\supset D) \\cdot N $",
+    "$ (P \\supset (D \\cdot N)) $"
   ],
   "correct": 3,
   "hint": "Identify the main connective first. What's the primary structure of this sentence?",

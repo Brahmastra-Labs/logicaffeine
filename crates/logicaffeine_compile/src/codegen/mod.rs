@@ -82,18 +82,57 @@ pub(crate) mod i64_map;
 pub(crate) mod fast_div;
 pub(crate) mod entry_guard;
 pub(crate) mod strsearch;
+// Per-function codegen slicing for the AOT-native tier (HOTSWAP Axis-3 / P14a).
+pub(crate) mod slice;
 
 // ─── External API re-exports ────────────────────────────────────────────────
 // These preserve the public API used by compile.rs, ui_bridge.rs, and test files.
 
 pub use context::{RefinementContext, VariableCapabilities, empty_var_caps};
 pub use detection::{collect_async_functions, collect_pipe_sender_params, collect_pipe_vars};
-pub use program::codegen_program;
+pub use program::{codegen_program, codegen_program_with_proven};
+pub use slice::function_slice;
+pub use marshal::codegen_native_tier_export;
 pub use hoist::force_disable_for_test as force_disable_borrow_hoist_for_test;
 pub use ffi::generate_c_header;
 pub use bindings::{generate_python_bindings, generate_typescript_bindings};
 pub use expr::{codegen_expr, codegen_assertion, codegen_term};
 pub use stmt::codegen_stmt;
+
+// ─── Mode-B (deterministic-replay) codegen gate ─────────────────────────────
+//
+// A compile-global flag: when set, a `Select` emits the *seeded* winner-pick
+// (sharing the interpreter's choice function) instead of a raw `tokio::select!`.
+// The DEFAULT (Mode A) is off, so default emission stays byte-identical to today
+// — the one bit Phase 8 adds. Codegen is single-threaded per compile, so a
+// thread-local is the natural home; `compile::compile_to_rust_deterministic`
+// sets it for the extent of one compile and restores it after.
+
+thread_local! {
+    static SEEDED_SELECT: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+
+/// Is the deterministic-replay (Mode-B) `Select` lowering active for this compile?
+pub(crate) fn seeded_select_enabled() -> bool {
+    SEEDED_SELECT.with(|c| c.get())
+}
+
+/// Run `f` with Mode-B `Select` lowering enabled, restoring the previous mode
+/// afterwards (panic-safe). Returns `f`'s result.
+pub fn with_seeded_select<R>(f: impl FnOnce() -> R) -> R {
+    struct Restore(bool);
+    impl Drop for Restore {
+        fn drop(&mut self) {
+            SEEDED_SELECT.with(|c| c.set(self.0));
+        }
+    }
+    let _guard = SEEDED_SELECT.with(|c| {
+        let prev = c.get();
+        c.set(true);
+        Restore(prev)
+    });
+    f()
+}
 
 // ─── Internal cross-module re-exports ───────────────────────────────────────
 // These allow sibling submodules to use `use super::item` for items

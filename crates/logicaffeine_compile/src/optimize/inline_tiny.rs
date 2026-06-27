@@ -190,7 +190,7 @@ impl<'a> Inliner<'a> {
             },
             Stmt::Show { object, recipient } => Stmt::Show { object: re(object), recipient },
             Stmt::Return { value } => Stmt::Return { value: value.map(re) },
-            Stmt::RuntimeAssert { condition } => Stmt::RuntimeAssert { condition: re(condition) },
+            Stmt::RuntimeAssert { condition, hard } => Stmt::RuntimeAssert { condition: re(condition) , hard },
             Stmt::Push { value, collection } => Stmt::Push { value: re(value), collection },
             Stmt::SetIndex { collection, index, value } => {
                 Stmt::SetIndex { collection, index: re(index), value: re(value) }

@@ -371,3 +371,76 @@ fn magic_pow2_divisor_left_to_w5() {
     assert_eq!(t.magics, 0, "powers of two are W5's AND/shift lever, not magic");
     assert_runpath_matches_raw(POW2_DIVISOR, &[]);
 }
+
+// ---------------------------------------------------------------------------
+// Element-type lever (coins): a read of a homogeneously-typed collection carries
+// the collection's proven ELEMENT TYPE, so the array-element-sum modulo
+// `(item k of dp + item j of dp) % 1000000007` proves Int-typed and
+// non-negative, and the magic-reciprocal modulo gate fires. Gated OFF by default
+// (`LOGOS_ELEM_TYPE=1`), so the rewrite must NOT fire without the flag.
+// ---------------------------------------------------------------------------
+
+/// The coins inner shape: a runtime-sized Int `Seq` whose every element is a
+/// `% 1000000007` result (or a non-negative literal), summed pairwise and
+/// reduced `% 1000000007`. The dividend is `Add` of two `item _ of dp` reads —
+/// only the element-type fact gives it a concrete Int scalar kind.
+const COINS_ELEM_SHAPE: &str = "\
+## Main
+Let mutable dp be a new Seq of Int.
+Push 1 to dp.
+Let mutable i be 1.
+While i is at most 50:
+    Push 0 to dp.
+    Set i to i + 1.
+Let mutable c be 1.
+While c is at most 3:
+    Let coin be c * 2.
+    Let mutable j be coin.
+    While j is at most 50:
+        Set item (j + 1) of dp to (item (j + 1) of dp + item (j - coin + 1) of dp) % 1000000007.
+        Set j to j + 1.
+    Set c to c + 1.
+Show item 51 of dp.
+";
+
+/// Serialize env-flag flips: `LOGOS_ELEM_TYPE` is process-global, and other
+/// tests in this binary read it via `eval_type`, so a flip must not race them.
+static ELEM_TYPE_FLAG_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+#[test]
+fn coins_elem_type_off_stays_idiv_and_matches() {
+    let _g = ELEM_TYPE_FLAG_LOCK.lock().unwrap();
+    // The element-type lever is default-ON, so OFF must be requested explicitly
+    // via the config (`LOGOS_OPT_OFF=elemtype`); the default selects ON.
+    std::env::set_var("LOGOS_OPT_OFF", "elemtype");
+    let t = tally_ops(COINS_ELEM_SHAPE);
+    assert!(
+        t.mods >= 1,
+        "with the lever OFF the array-element-sum `% 1000000007` must stay a Mod \
+         (found {} Mod, {} MagicDivU)",
+        t.mods, t.magics
+    );
+    assert_runpath_matches_raw(COINS_ELEM_SHAPE, &[]);
+}
+
+#[test]
+fn coins_elem_type_on_fires_magic_and_matches() {
+    let _g = ELEM_TYPE_FLAG_LOCK.lock().unwrap();
+    std::env::remove_var("LOGOS_OPT_OFF");
+    let t = tally_ops(COINS_ELEM_SHAPE);
+    let out_on = runpath_vm_outcome(COINS_ELEM_SHAPE, &[]);
+    assert!(
+        t.magics >= 1,
+        "with the lever ON the proven Int, non-negative array-element-sum \
+         `% 1000000007` must become a MagicDivU (found {} MagicDivU, {} Mod)",
+        t.magics, t.mods
+    );
+    // The optimized output must match the raw tree-walker (correctness).
+    let tw = tw_outcome_with_args(COINS_ELEM_SHAPE, &[]);
+    assert_eq!(out_on.1, None, "lever-ON optimized VM errored");
+    assert_eq!(
+        (norm(&out_on.0), &out_on.1),
+        (norm(&tw.output), &tw.error),
+        "lever-ON VM diverged from the raw tree-walker"
+    );
+}

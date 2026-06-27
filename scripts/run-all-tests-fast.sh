@@ -27,9 +27,11 @@
 set -uo pipefail
 
 RUN_IGNORED=1
+OVERLAP_DOCTESTS=1
 for arg in "$@"; do
   case "$arg" in
     --no-ignored) RUN_IGNORED=0 ;;
+    --sequential) OVERLAP_DOCTESTS=0 ;;
     *) echo "unknown argument: $arg" >&2; exit 2 ;;
   esac
 done
@@ -50,10 +52,29 @@ if ! cargo nextest --version >/dev/null 2>&1; then
 fi
 
 # --- one suite at a time -----------------------------------------------------
-# Never overlap with another test run (shared target dir, shared machine).
-if pgrep -f 'cargo(-nextest)? (test|nextest)' >/dev/null 2>&1; then
+# Never overlap with another test run (shared target dir, shared machine). Detect the
+# actual cargo / cargo-nextest PROCESS by executable name (`pgrep -x`), NOT by a
+# command-line substring. The old `pgrep -f 'cargo(-nextest)? (test|nextest)'` also
+# matched any innocent process whose *command line mentioned* those words — a monitoring
+# `pgrep`, a launcher, this very check — so the script refused to start against its own
+# watcher shells and wedged. `cargo-nextest` stays alive for a whole nextest run (build +
+# run), so detecting it covers the common case; a plain `cargo test` is caught by reading
+# the cargo process's own argv. Our own PID and shell are never `cargo`, so no self-match.
+overlapping=""
+if pgrep -x cargo-nextest >/dev/null 2>&1; then
+  overlapping="$(pgrep -x -a cargo-nextest 2>/dev/null)"
+else
+  for _pid in $(pgrep -x cargo 2>/dev/null); do
+    [ "$_pid" = "$$" ] && continue
+    _args="$(tr '\0' ' ' < "/proc/$_pid/cmdline" 2>/dev/null)"
+    case " $_args " in
+      *" test "*|*" nextest "*) overlapping="$_args"; break ;;
+    esac
+  done
+fi
+if [ -n "$overlapping" ]; then
   echo "ERROR: another cargo test / nextest run appears to be in progress:" >&2
-  pgrep -af 'cargo(-nextest)? (test|nextest)' >&2
+  echo "$overlapping" >&2
   echo "Refusing to start a second suite. Wait for it to finish." >&2
   exit 1
 fi
@@ -89,17 +110,39 @@ fi
   echo " nextest : $(cargo nextest --version 2>/dev/null | head -1)"
   echo " z3      : $(z3 --version 2>/dev/null)"
   if (( RUN_IGNORED )); then
-    echo " command : cargo nextest run --workspace --features verification --profile full --run-ignored all"
-    echo "         + cargo test --workspace --features verification --doc --no-fail-fast -- --include-ignored"
+    echo " command : cargo nextest run --workspace --features verification --profile full --cargo-profile test-opt --run-ignored all"
+    echo "         + cargo nextest run -p logicaffeine-compile --features wasm-jit --cargo-profile test-opt -E 'binary(wasm_jit_differential) + test(wasm_jit)'"
+    echo "         + cargo test --workspace --features verification --profile test-opt --doc --no-fail-fast -- --include-ignored"
   else
-    echo " command : cargo nextest run --workspace --features verification --profile full   [--no-ignored]"
-    echo "         + cargo test --workspace --features verification --doc --no-fail-fast"
+    echo " command : cargo nextest run --workspace --features verification --profile full --cargo-profile test-opt   [--no-ignored]"
+    echo "         + cargo nextest run -p logicaffeine-compile --features wasm-jit --cargo-profile test-opt -E 'binary(wasm_jit_differential) + test(wasm_jit)'"
+    echo "         + cargo test --workspace --features verification --profile test-opt --doc --no-fail-fast"
   fi
   echo "════════════════════════════════════════════════════════════════════"
   echo
 } | tee "$LOG_FILE"
 
 START_EPOCH="$(date +%s)"
+
+# --- pass 2 (doctests): launched FIRST, in the background, to OVERLAP pass 1 ----
+# Doctests are pure compile-bound work nextest cannot schedule; running them
+# serially after nextest wastes the cores the nextest tail leaves idle. On this
+# box (dedicated to test runs) we start them up front and let them run concurrently
+# with passes 1/1b — cargo's build lock serializes the BUILDS safely, then the
+# doctest snippet-compile overlaps the nextest RUN, hiding ~the doctest time.
+# `--sequential` restores the strictly-ordered passes.
+DOCTEST_LOG="$LOG_DIR/doctest-$TIMESTAMP.log"
+DOCTEST_IGNORED_ARGS=()
+(( RUN_IGNORED )) && DOCTEST_IGNORED_ARGS+=(--include-ignored)
+run_doctests() {
+  cargo test --workspace --features verification --profile test-opt --doc --no-fail-fast -- "${DOCTEST_IGNORED_ARGS[@]}" \
+    > "$DOCTEST_LOG" 2>&1
+}
+DOCTEST_BG=""
+if (( OVERLAP_DOCTESTS )); then
+  run_doctests &
+  DOCTEST_BG=$!
+fi
 
 # --- pass 1: unit + integration tests (nextest) -------------------------------
 {
@@ -110,24 +153,45 @@ START_EPOCH="$(date +%s)"
 
 NEXTEST_IGNORED_ARGS=()
 (( RUN_IGNORED )) && NEXTEST_IGNORED_ARGS+=(--run-ignored all)
-cargo nextest run --workspace --features verification --profile full "${NEXTEST_IGNORED_ARGS[@]}" \
+cargo nextest run --workspace --features verification --profile full --cargo-profile test-opt "${NEXTEST_IGNORED_ARGS[@]}" \
   2>&1 | tee -a "$LOG_FILE"
 NEXTEST_EXIT="${PIPESTATUS[0]}"
 PASS1_EPOCH="$(date +%s)"
 
-# --- pass 2: doctests ----------------------------------------------------------
+# --- pass 1b: WASM-JIT (isolated) ---------------------------------------------
+# Run the WASM-JIT codegen + differential tests in their own pass scoped to
+# logicaffeine-compile, so `wasmi` (pulled by the `wasm-jit` feature) never enters
+# the rest of the workspace's dependency graph. Enabling `wasm-jit` workspace-wide
+# changed feature unification and broke an unrelated async-closure lifetime in
+# `interp_networking`; isolating it keeps the WASM-JIT differential linked into the
+# suite without perturbing other crates.
 {
   echo
   echo "──────────────────────────────────────────────────────────────────────"
-  echo " PASS 2/2 — cargo test --doc (doctests)"
+  echo " PASS 1b — WASM-JIT codegen + differential (logicaffeine-compile, --features wasm-jit)"
+  echo "──────────────────────────────────────────────────────────────────────"
+} | tee -a "$LOG_FILE"
+cargo nextest run -p logicaffeine-compile --features wasm-jit --cargo-profile test-opt \
+  -E 'binary(wasm_jit_differential) + test(wasm_jit)' \
+  2>&1 | tee -a "$LOG_FILE"
+WASMJIT_EXIT="${PIPESTATUS[0]}"
+
+# --- pass 2: doctests (collect the overlapped run, or run now if --sequential) -
+{
+  echo
+  echo "──────────────────────────────────────────────────────────────────────"
+  echo " PASS 2/2 — cargo test --doc (doctests${DOCTEST_BG:+, overlapped with pass 1})"
   echo "──────────────────────────────────────────────────────────────────────"
 } | tee -a "$LOG_FILE"
 
-DOCTEST_IGNORED_ARGS=()
-(( RUN_IGNORED )) && DOCTEST_IGNORED_ARGS+=(--include-ignored)
-cargo test --workspace --features verification --doc --no-fail-fast -- "${DOCTEST_IGNORED_ARGS[@]}" \
-  2>&1 | tee -a "$LOG_FILE"
-DOCTEST_EXIT="${PIPESTATUS[0]}"
+if [ -n "$DOCTEST_BG" ]; then
+  wait "$DOCTEST_BG"
+  DOCTEST_EXIT=$?
+else
+  run_doctests
+  DOCTEST_EXIT=$?
+fi
+cat "$DOCTEST_LOG" 2>/dev/null | tee -a "$LOG_FILE"
 
 END_EPOCH="$(date +%s)"
 ELAPSED=$(( END_EPOCH - START_EPOCH ))
@@ -137,6 +201,7 @@ H=$(( ELAPSED / 3600 )); M=$(( (ELAPSED % 3600) / 60 )); S=$(( ELAPSED % 60 ))
 
 EXIT_CODE=0
 (( NEXTEST_EXIT != 0 )) && EXIT_CODE="$NEXTEST_EXIT"
+(( WASMJIT_EXIT != 0 && EXIT_CODE == 0 )) && EXIT_CODE="$WASMJIT_EXIT"
 (( DOCTEST_EXIT != 0 && EXIT_CODE == 0 )) && EXIT_CODE="$DOCTEST_EXIT"
 
 # --- summary -----------------------------------------------------------------

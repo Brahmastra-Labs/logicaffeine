@@ -6,6 +6,26 @@ use crate::ui::components::main_nav::{MainNav, ActivePage};
 use crate::ui::components::footer::Footer;
 use crate::ui::seo::{JsonLdMultiple, PageHead, organization_schema, breadcrumb_schema, webpage_schema, BreadcrumbItem, pages as seo_pages};
 
+/// The toggle vector (one bool per registry optimization, in discriminant order)
+/// as an [`OptimizationConfig`]. Index `i` ↔ `REGISTRY[i].opt` ↔ bit `i`.
+fn config_from_toggles(toggles: &[bool]) -> logicaffeine_compile::optimization::OptimizationConfig {
+    let mut cfg = logicaffeine_compile::optimization::OptimizationConfig::all_off();
+    for (i, m) in logicaffeine_compile::optimization::REGISTRY.iter().enumerate() {
+        if toggles.get(i).copied().unwrap_or(false) {
+            cfg.set(m.opt, true);
+        }
+    }
+    cfg
+}
+
+/// The inverse of [`config_from_toggles`].
+fn toggles_from_config(cfg: &logicaffeine_compile::optimization::OptimizationConfig) -> Vec<bool> {
+    logicaffeine_compile::optimization::REGISTRY
+        .iter()
+        .map(|m| cfg.is_on(m.opt))
+        .collect()
+}
+
 #[derive(Deserialize)]
 struct BenchmarkData {
     metadata: Metadata,
@@ -49,6 +69,61 @@ struct Benchmark {
     compilation: HashMap<String, CompilationResult>,
     #[serde(default)]
     timeouts: HashMap<String, f64>,
+    /// Peak RSS per language per size (kB). Absent in older result files.
+    #[serde(default)]
+    memory: Option<MemoryData>,
+    /// Compiled-artifact size per language (bytes), as-built and stripped. Does not
+    /// vary with problem size, so it is a flat `by_language` map. Absent in older files.
+    #[serde(default)]
+    binary_sizes: Option<BinarySizeData>,
+    /// Declared time/space complexity. Absent in older result files.
+    #[serde(default)]
+    complexity: Option<Complexity>,
+    /// The optimizations that fired for this program (all-on), baked by the
+    /// benchmark run so the toggle tree pops in instantly. Absent in older files.
+    #[serde(default)]
+    fired: Vec<String>,
+    /// `(winner, loser)` blocker preemptions that occurred (all-on).
+    #[serde(default)]
+    blockers: Vec<(String, String)>,
+    /// `(dependent, dep)` emergent per-program dependencies (one fired only because
+    /// another was on).
+    #[serde(default)]
+    dependencies: Vec<(String, String)>,
+}
+
+#[derive(Deserialize, Clone)]
+struct MemoryData {
+    #[allow(dead_code)]
+    method: String,
+    /// size → language id → peak RSS in kB (`null` when a language was not measured).
+    by_size: HashMap<String, HashMap<String, Option<f64>>>,
+}
+
+#[derive(Deserialize, Clone)]
+struct BinarySizeData {
+    #[allow(dead_code)]
+    method: String,
+    /// language id → on-disk size of the compiled artifact in bytes.
+    by_language: HashMap<String, BinSizes>,
+}
+
+/// On-disk footprint of one artifact: the real shipped size and the code-only size
+/// after symbol stripping. Shared by per-program binaries and the engine binaries.
+#[derive(Deserialize, Clone, Copy)]
+struct BinSizes {
+    /// Size exactly as the toolchain emits it (the real shipped artifact).
+    as_built: f64,
+    /// Size after `strip --strip-all` on a throwaway copy. `null` when strip is
+    /// unavailable or the artifact carries no symbols to remove.
+    #[serde(default)]
+    stripped: Option<f64>,
+}
+
+#[derive(Deserialize, Clone)]
+struct Complexity {
+    time: String,
+    space: String,
 }
 
 #[derive(Deserialize, Clone)]
@@ -77,6 +152,192 @@ struct SummaryData {
     geometric_mean_speedup_vs_c: HashMap<String, f64>,
 }
 
+/// Fit a power law `t ≈ a·n^b` to `(n, t)` points by ordinary least squares on the
+/// log-log transform; returns the exponent `b` — the EMPIRICAL big-O growth rate
+/// the page shows next to the declared complexity. `None` for fewer than two
+/// distinct positive points (no slope to fit).
+fn empirical_exponent(points: &[(f64, f64)]) -> Option<f64> {
+    let pts: Vec<(f64, f64)> = points
+        .iter()
+        .filter(|&&(n, t)| n > 0.0 && t > 0.0)
+        .map(|&(n, t)| (n.ln(), t.ln()))
+        .collect();
+    if pts.len() < 2 {
+        return None;
+    }
+    let m = pts.len() as f64;
+    let sx: f64 = pts.iter().map(|p| p.0).sum();
+    let sy: f64 = pts.iter().map(|p| p.1).sum();
+    let sxx: f64 = pts.iter().map(|p| p.0 * p.0).sum();
+    let sxy: f64 = pts.iter().map(|p| p.0 * p.1).sum();
+    let denom = m * sxx - sx * sx;
+    if denom.abs() < 1e-12 {
+        return None; // all x equal → undefined slope
+    }
+    Some((m * sxy - sx * sy) / denom)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn empirical_exponent_fits_linear() {
+        let pts: Vec<(f64, f64)> = [10.0, 100.0, 1000.0, 10000.0].iter().map(|&n| (n, 3.0 * n)).collect();
+        let b = empirical_exponent(&pts).expect("two+ points");
+        assert!((b - 1.0).abs() < 0.01, "linear data → exponent ~1.0, got {b}");
+    }
+
+    #[test]
+    fn empirical_exponent_fits_quadratic() {
+        let pts: Vec<(f64, f64)> = [10.0, 100.0, 1000.0].iter().map(|&n| (n, 2.0 * n * n)).collect();
+        let b = empirical_exponent(&pts).expect("two+ points");
+        assert!((b - 2.0).abs() < 0.01, "quadratic data → exponent ~2.0, got {b}");
+    }
+
+    #[test]
+    fn empirical_exponent_degenerate_is_none() {
+        assert!(empirical_exponent(&[(10.0, 5.0)]).is_none(), "one point → None");
+        assert!(empirical_exponent(&[]).is_none(), "no points → None");
+        assert!(empirical_exponent(&[(5.0, 1.0), (5.0, 9.0)]).is_none(), "all-equal n → None");
+    }
+
+    #[test]
+    fn benchmark_data_deserializes_without_memory_or_complexity() {
+        // Old result files lack `memory`/`complexity`; the page must still load
+        // (BENCH_DATA is `.unwrap()`ed, so a missing field would panic the page).
+        let json = r#"{"id":"x","name":"X","description":"d","reference_size":"1",
+            "sizes":["1"],"logos_source":"","generated_rust":"","scaling":{},
+            "compilation":{}}"#;
+        let b: Benchmark = serde_json::from_str(json).expect("deserialize without memory/complexity");
+        assert!(b.memory.is_none() && b.complexity.is_none() && b.binary_sizes.is_none());
+    }
+
+    #[test]
+    fn interp_schema_backward_and_forward_compatible() {
+        // A complete TimingResult (mean..runs are required; user/system default).
+        let t = |ms: f64| {
+            format!(
+                r#"{{"mean_ms":{ms},"median_ms":{ms},"stddev_ms":0.0,"min_ms":{ms},"max_ms":{ms},"cv":0.0,"runs":10}}"#
+            )
+        };
+        // OLD JSON (pre-tiering): only `logos_interp` + `node`, no tiered geomean.
+        // Must still load (INTERP_DATA is `.unwrap()`ed → a schema break panics the page).
+        let old = format!(
+            r#"{{"metadata":{{"node":"v22","date":"x"}},
+            "benchmarks":[{{"id":"fib","name":"Fib","reference_size":"30",
+                "scaling":{{"30":{{"logos_interp":{li},"node":{nd}}}}}}}],
+            "summary":{{"geometric_mean_logos_interp_over_node":1.09}},"startup":{{}}}}"#,
+            li = t(2.0),
+            nd = t(1.0)
+        );
+        let d: InterpData = serde_json::from_str(&old).expect("old interp JSON must still load");
+        assert_eq!(d.summary.geometric_mean_logos_tiered_over_node, 0.0, "missing tiered geo defaults to 0");
+        assert!(d.interpreter_sizes.is_none(), "old interp JSON has no interpreter_sizes");
+
+        // NEW JSON: adds the `logos_tiered` engine row + the tiered geomean — both the
+        // new summary field AND the new engine in `scaling` deserialize.
+        let new = format!(
+            r#"{{"metadata":{{"node":"v22","date":"x"}},
+            "benchmarks":[{{"id":"fib","name":"Fib","reference_size":"30",
+                "scaling":{{"30":{{"logos_interp":{li},"logos_tiered":{lt},"node":{nd}}}}}}}],
+            "summary":{{"geometric_mean_logos_interp_over_node":1.09,"geometric_mean_logos_tiered_over_node":0.98}},
+            "startup":{{}}}}"#,
+            li = t(2.0),
+            lt = t(1.5),
+            nd = t(1.0)
+        );
+        let d: InterpData = serde_json::from_str(&new).expect("new interp JSON must load");
+        assert!((d.summary.geometric_mean_logos_tiered_over_node - 0.98).abs() < 1e-9);
+        assert_eq!(d.summary.geometric_mean_logos_aot_over_node, 0.0, "missing AOT geo defaults to 0");
+        let scaling = &d.benchmarks[0].scaling["30"];
+        assert!(scaling.contains_key("logos_tiered"), "tiered engine row present");
+        assert!((scaling["logos_tiered"].mean_ms - 1.5).abs() < 1e-9);
+
+        // BUNDLED JSON: adds the `logos_aot` engine row + the AOT geomean (HOTSWAP
+        // §Axis-3) — present only when a native bundle was built for the run.
+        let bundled = format!(
+            r#"{{"metadata":{{"node":"v22","date":"x"}},
+            "benchmarks":[{{"id":"fib","name":"Fib","reference_size":"30",
+                "scaling":{{"30":{{"logos_interp":{li},"logos_tiered":{lt},"logos_aot":{la},"node":{nd}}}}}}}],
+            "summary":{{"geometric_mean_logos_interp_over_node":1.09,"geometric_mean_logos_tiered_over_node":0.98,"geometric_mean_logos_aot_over_node":0.42}},
+            "startup":{{}}}}"#,
+            li = t(2.0),
+            lt = t(1.5),
+            la = t(0.6),
+            nd = t(1.0)
+        );
+        let d: InterpData = serde_json::from_str(&bundled).expect("bundled interp JSON must load");
+        assert!((d.summary.geometric_mean_logos_aot_over_node - 0.42).abs() < 1e-9);
+        let scaling = &d.benchmarks[0].scaling["30"];
+        assert!(scaling.contains_key("logos_aot"), "AOT engine row present when bundled");
+        assert!((scaling["logos_aot"].mean_ms - 0.6).abs() < 1e-9);
+    }
+
+    // ── Footprint metrics: the size data the benchmarks page now surfaces. These
+    // assert against the REAL baked-in result files, so they go RED until a
+    // `benchmarks/measure-sizes.sh --merge` backfills the JSON, then stay GREEN and
+    // guard the contract on every future run.
+
+    #[test]
+    fn every_benchmark_carries_binary_sizes() {
+        for b in &BENCH_DATA.benchmarks {
+            let sizes = b.binary_sizes.as_ref()
+                .unwrap_or_else(|| panic!("benchmark {} is missing binary_sizes", b.id));
+            assert!(!sizes.by_language.is_empty(), "benchmark {} has empty binary_sizes", b.id);
+            assert!(
+                sizes.by_language.contains_key("logos_release"),
+                "benchmark {} binary_sizes is missing the logos_release artifact", b.id
+            );
+            for (lang, s) in &sizes.by_language {
+                assert!(s.as_built > 0.0, "{}/{} as_built must be > 0, got {}", b.id, lang, s.as_built);
+                if let Some(st) = s.stripped {
+                    assert!(
+                        st > 0.0 && st <= s.as_built,
+                        "{}/{} stripped ({st}) must be in (0, as_built={}]", b.id, lang, s.as_built
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn interpreter_sizes_cover_logos_and_node() {
+        let sizes = INTERP_DATA.interpreter_sizes.as_ref()
+            .expect("latest-interp.json is missing interpreter_sizes");
+        for id in ["logos", "node"] {
+            let e = sizes.engines.get(id)
+                .unwrap_or_else(|| panic!("interpreter_sizes is missing the {id} engine"));
+            assert!(e.as_built > 0.0, "engine {id} as_built must be > 0, got {}", e.as_built);
+            if let Some(st) = e.stripped {
+                assert!(st > 0.0 && st <= e.as_built, "engine {id} stripped ({st}) out of range");
+            }
+        }
+        if let Some(w) = sizes.wasm_bundle_bytes {
+            assert!(w > 0.0, "wasm_bundle_bytes must be > 0 when present, got {w}");
+        }
+    }
+
+    #[test]
+    fn format_bytes_scales_units() {
+        assert_eq!(format_bytes(16_120.0), "16 KB");
+        assert_eq!(format_bytes(2.0 * 1024.0 * 1024.0), "2.0 MB");
+        assert_eq!(format_bytes(3.0 * 1024.0 * 1024.0 * 1024.0), "3.0 GB");
+    }
+
+    #[test]
+    fn footprint_label_only_tags_a_distinct_stripped_size() {
+        // Clearly different (Rust ~2 MB → ~300 KB stripped): the tag is shown.
+        assert_eq!(footprint_label(2_033_384.0, Some(307_280.0)), "1.9 MB (300 KB stripped)");
+        // Already-minimal binary (334592 vs 334584 both render "327 KB"): no redundant tag.
+        assert_eq!(footprint_label(334_592.0, Some(334_584.0)), "327 KB");
+        // No stripped figure (java bytecode): just the as-built size.
+        assert_eq!(footprint_label(583.0, None), "1 KB");
+        // Defensive: a stripped value not smaller than as-built is ignored.
+        assert_eq!(footprint_label(1000.0, Some(2000.0)), format_bytes(1000.0));
+    }
+}
+
 static BENCH_DATA: LazyLock<BenchmarkData> = LazyLock::new(|| {
     serde_json::from_str(include_str!("../../../../../benchmarks/results/latest.json")).unwrap()
 });
@@ -94,6 +355,22 @@ struct InterpData {
     summary: InterpSummary,
     #[serde(default)]
     startup: InterpStartup,
+    /// Engine footprint (bytes): the largo VM+JIT binary vs the host language runtimes,
+    /// plus the browser WASM bundle. Absent in older result files.
+    #[serde(default)]
+    interpreter_sizes: Option<InterpreterSizes>,
+}
+
+#[derive(Deserialize, Clone)]
+struct InterpreterSizes {
+    #[allow(dead_code)]
+    method: String,
+    /// engine id (logos, node, python, ruby, …) → on-disk size in bytes.
+    engines: HashMap<String, BinSizes>,
+    /// Largest `.wasm` in the release web bundle — the in-browser interpreter footprint.
+    /// `null` when no `dx` release build was present at measurement time.
+    #[serde(default)]
+    wasm_bundle_bytes: Option<f64>,
 }
 
 #[derive(Deserialize, Default)]
@@ -126,6 +403,14 @@ struct InterpMetadata {
 struct InterpSummary {
     #[serde(default)]
     geometric_mean_logos_interp_over_node: f64,
+    /// The TIERED engine's geomean (HOTSWAP §12) — the A/B counterpart to the eager
+    /// `_interp_` figure. `#[serde(default)]` so the pre-tiered JSON still loads.
+    #[serde(default)]
+    geometric_mean_logos_tiered_over_node: f64,
+    /// The AOT-NATIVE tier's geomean (HOTSWAP §Axis-3) — present only when a native
+    /// bundle was built for the run. `#[serde(default)]` so non-bundled JSON still loads.
+    #[serde(default)]
+    geometric_mean_logos_aot_over_node: f64,
 }
 
 #[derive(Deserialize)]
@@ -263,6 +548,8 @@ fn lang_color(lang_id: &str) -> &'static str {
         "java" => "#b07219",
         "js" => "#f7df1e",
         "logos_interp" => "#ff8c00",
+        "logos_tiered" => "#ffb84d",
+        "logos_aot" => "#00d4ff",
         "python" => "#3776ab",
         "ruby" => "#cc342d",
         "nim" => "#ffe953",
@@ -280,7 +567,9 @@ fn lang_label(lang_id: &str) -> &'static str {
         "go" => "Go",
         "java" => "Java",
         "js" => "JavaScript",
-        "logos_interp" => "LOGOS (interpreted)",
+        "logos_interp" => "LOGOS (eager)",
+        "logos_tiered" => "LOGOS (tiered)",
+        "logos_aot" => "LOGOS (AOT-native)",
         "python" => "Python",
         "ruby" => "Ruby",
         "nim" => "Nim",
@@ -416,6 +705,26 @@ fn interp_speed_vs_v8(data: &InterpData) -> f64 {
     if n > 0 { (log_sum / n as f64).exp() } else { 0.0 }
 }
 
+// LOGOS AOT-native (warm) speed vs V8 (Node time / AOT-native time), geomean over
+// the benchmarks that carry a `logos_aot` row. Higher = faster. Returns 0 when no
+// run has emitted the AOT-native tier yet, so the headline card stays hidden until
+// a real AOT-native run regenerates the data.
+fn aot_speed_vs_v8(data: &InterpData) -> f64 {
+    let mut log_sum = 0.0_f64;
+    let mut n = 0u32;
+    for b in &data.benchmarks {
+        if let Some(t) = interp_ref(b) {
+            if let (Some(js), Some(lg)) = (t.get("js"), t.get("logos_aot")) {
+                if js.mean_ms > 0.0 && lg.mean_ms > 0.0 && !node_floored(js) {
+                    log_sum += (js.mean_ms / lg.mean_ms).ln();
+                    n += 1;
+                }
+            }
+        }
+    }
+    if n > 0 { (log_sum / n as f64).exp() } else { 0.0 }
+}
+
 fn fmt_n(n: f64) -> String {
     if n >= 1.0e9 { format!("{:.0}B", n / 1.0e9) }
     else if n >= 1.0e6 { format!("{:.0}M", n / 1.0e6) }
@@ -538,7 +847,357 @@ fn scaling_chart(bench: &Benchmark, languages: &[Language]) -> Element {
     }
 }
 
+/// kB → a human byte size for the memory bars.
+fn format_mem(kb: f64) -> String {
+    if kb >= 1024.0 * 1024.0 {
+        format!("{:.1} GB", kb / 1024.0 / 1024.0)
+    } else if kb >= 1024.0 {
+        format!("{:.1} MB", kb / 1024.0)
+    } else {
+        format!("{kb:.0} KB")
+    }
+}
+
+/// bytes → a human size for the footprint bars (the byte-input sibling of `format_mem`).
+fn format_bytes(bytes: f64) -> String {
+    if bytes >= 1024.0 * 1024.0 * 1024.0 {
+        format!("{:.1} GB", bytes / 1024.0 / 1024.0 / 1024.0)
+    } else if bytes >= 1024.0 * 1024.0 {
+        format!("{:.1} MB", bytes / 1024.0 / 1024.0)
+    } else {
+        format!("{:.0} KB", bytes / 1024.0)
+    }
+}
+
+/// Bar label for a footprint: the as-built size, plus a `(… stripped)` tag only when the
+/// stripped size is smaller AND renders differently at display resolution (so an
+/// already-minimal binary never reads as the redundant "327 KB (327 KB stripped)").
+fn footprint_label(bytes: f64, stripped: Option<f64>) -> String {
+    let main = format_bytes(bytes);
+    match stripped {
+        Some(st) if st > 0.0 && st < bytes => {
+            let s = format_bytes(st);
+            if s != main { format!("{main} ({s} stripped)") } else { main }
+        }
+        _ => main,
+    }
+}
+
+/// Compiled-artifact footprint at as-built size — the size analogue of the memory
+/// bars, same visual style. Each bar is the on-disk binary; the stripped (code-only)
+/// size rides along in the label. Renders nothing until a size run populates
+/// `binary_sizes` (older files have `binary_sizes: None`).
+fn binary_size_bar_chart(bench: &Benchmark, languages: &[Language]) -> Element {
+    let sizes = match &bench.binary_sizes {
+        Some(s) => s,
+        None => return rsx! {},
+    };
+    let mut bars: Vec<(String, String, f64, Option<f64>)> = languages.iter()
+        .filter_map(|l| sizes.by_language.get(&l.id)
+            .filter(|s| s.as_built > 0.0)
+            .map(|s| (l.label.clone(), l.color.clone(), s.as_built, s.stripped)))
+        .collect();
+    if bars.is_empty() {
+        return rsx! {};
+    }
+    bars.sort_by(|a, b| a.2.partial_cmp(&b.2).unwrap_or(std::cmp::Ordering::Equal));
+    let max = bars.iter().map(|b| b.2).fold(0.0_f64, f64::max).max(1.0);
+
+    rsx! {
+        div { class: "bench-mem",
+            div { class: "bench-chart-hint", "On-disk size of the compiled program at as-built size \u{2014} shorter bar ships less. Stripped (code-only) size in parentheses." }
+            div { class: "bench-chart",
+                for (label, color, bytes, stripped) in bars.iter() {
+                    {
+                        let pct = (bytes / max * 100.0).min(100.0);
+                        let s = footprint_label(*bytes, *stripped);
+                        let show_inside = pct > 32.0;
+                        rsx! {
+                            div { class: "bench-bar-row",
+                                div { class: "bench-bar-label", "{label}" }
+                                div { class: "bench-bar-track",
+                                    div { class: "bench-bar-fill", style: "width: {pct:.1}%; background: {color};",
+                                        if show_inside {
+                                            span { class: "bench-bar-time", "{s}" }
+                                        }
+                                    }
+                                }
+                                if !show_inside {
+                                    span { class: "bench-bar-time-outside", "{s}" }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// Peak-RSS bar chart at the reference size — the memory analogue of the runtime
+/// bars, in the same visual style. Renders nothing until a `MEASURE_MEM=1` run
+/// populates `memory` in the result file (older files have `memory: None`).
+fn memory_bar_chart(bench: &Benchmark, languages: &[Language]) -> Element {
+    let mem = match &bench.memory {
+        Some(m) => m,
+        None => return rsx! {},
+    };
+    let size = if mem.by_size.contains_key(bench.reference_size.as_str()) {
+        bench.reference_size.clone()
+    } else {
+        let mut ks: Vec<(String, f64)> = mem.by_size.keys()
+            .filter_map(|s| s.parse::<f64>().ok().map(|n| (s.clone(), n)))
+            .collect();
+        ks.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal));
+        match ks.last() {
+            Some((s, _)) => s.clone(),
+            None => return rsx! {},
+        }
+    };
+    let row = match mem.by_size.get(&size) {
+        Some(r) => r,
+        None => return rsx! {},
+    };
+    let mut bars: Vec<(String, String, f64)> = languages.iter()
+        .filter_map(|l| row.get(&l.id).and_then(|v| *v)
+            .filter(|kb| *kb > 0.0)
+            .map(|kb| (l.label.clone(), l.color.clone(), kb)))
+        .collect();
+    if bars.is_empty() {
+        return rsx! {};
+    }
+    bars.sort_by(|a, b| a.2.partial_cmp(&b.2).unwrap_or(std::cmp::Ordering::Equal));
+    let max = bars.iter().map(|b| b.2).fold(0.0_f64, f64::max);
+
+    rsx! {
+        div { class: "bench-mem",
+            div { class: "bench-chart-hint", "Peak resident memory at n = {size} \u{2014} shorter bar uses less." }
+            div { class: "bench-chart",
+                for (label, color, kb) in bars.iter() {
+                    {
+                        let pct = (kb / max * 100.0).min(100.0);
+                        let s = format_mem(*kb);
+                        let show_inside = pct > 18.0;
+                        rsx! {
+                            div { class: "bench-bar-row",
+                                div { class: "bench-bar-label", "{label}" }
+                                div { class: "bench-bar-track",
+                                    div { class: "bench-bar-fill", style: "width: {pct:.1}%; background: {color};",
+                                        if show_inside {
+                                            span { class: "bench-bar-time", "{s}" }
+                                        }
+                                    }
+                                }
+                                if !show_inside {
+                                    span { class: "bench-bar-time-outside", "{s}" }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// Declared time/space complexity plus the EMPIRICAL growth exponent fit from the
+/// measured points: time from the scaling timings (present today), space from the
+/// multi-size memory data (present after a `MEASURE_MEM=1` run). Renders nothing
+/// when there is neither a declared complexity nor a fittable series.
+fn complexity_panel(bench: &Benchmark, languages: &[Language]) -> Element {
+    let mut sizes: Vec<(String, f64)> = bench.sizes.iter()
+        .filter(|s| bench.scaling.contains_key(s.as_str()))
+        .filter_map(|s| s.parse::<f64>().ok().map(|n| (s.clone(), n)))
+        .collect();
+    sizes.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal));
+
+    let time_rows: Vec<(String, String, f64)> = languages.iter().filter_map(|l| {
+        let pts: Vec<(f64, f64)> = sizes.iter().filter_map(|(s, n)| {
+            bench.scaling.get(s).and_then(|m| m.get(&l.id))
+                .filter(|t| t.median_ms > 0.0)
+                .map(|t| (*n, t.median_ms))
+        }).collect();
+        empirical_exponent(&pts).map(|e| (l.color.clone(), l.label.clone(), e))
+    }).collect();
+
+    let space_rows: Vec<(String, String, f64)> = match &bench.memory {
+        Some(mem) => {
+            let mut ms: Vec<(String, f64)> = mem.by_size.keys()
+                .filter_map(|s| s.parse::<f64>().ok().map(|n| (s.clone(), n)))
+                .collect();
+            ms.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal));
+            languages.iter().filter_map(|l| {
+                let pts: Vec<(f64, f64)> = ms.iter().filter_map(|(s, n)| {
+                    mem.by_size.get(s).and_then(|m| m.get(&l.id)).and_then(|v| *v)
+                        .filter(|kb| *kb > 0.0).map(|kb| (*n, kb))
+                }).collect();
+                empirical_exponent(&pts).map(|e| (l.color.clone(), l.label.clone(), e))
+            }).collect()
+        }
+        None => Vec::new(),
+    };
+
+    if bench.complexity.is_none() && time_rows.is_empty() && space_rows.is_empty() {
+        return rsx! {};
+    }
+
+    rsx! {
+        div { class: "bench-complexity",
+            div { class: "bench-complexity-title", "Complexity" }
+            if let Some(c) = &bench.complexity {
+                div { class: "bench-complexity-declared",
+                    span { class: "bench-complexity-chip",
+                        "time " strong { "{c.time}" }
+                    }
+                    span { class: "bench-complexity-chip",
+                        "space " strong { "{c.space}" }
+                    }
+                }
+            }
+            if !time_rows.is_empty() {
+                div { class: "bench-complexity-grid",
+                    div { class: "bench-complexity-col-title", "Measured time growth" }
+                    for (color, label, e) in time_rows.iter() {
+                        div { class: "bench-complexity-row",
+                            span { class: "bench-scaling-legend-dot", style: "background: {color};" }
+                            span { class: "bench-complexity-lang", "{label}" }
+                            span { class: "bench-complexity-exp", "t \u{2248} n^{e:.2}" }
+                        }
+                    }
+                }
+            }
+            if !space_rows.is_empty() {
+                div { class: "bench-complexity-grid",
+                    div { class: "bench-complexity-col-title", "Measured space growth" }
+                    for (color, label, e) in space_rows.iter() {
+                        div { class: "bench-complexity-row",
+                            span { class: "bench-scaling-legend-dot", style: "background: {color};" }
+                            span { class: "bench-complexity-lang", "{label}" }
+                            span { class: "bench-complexity-exp", "rss \u{2248} n^{e:.2}" }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
 const BENCHMARKS_STYLE: &str = r#"
+.bench-opt-toggles {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 6px;
+    margin: 16px 0 4px;
+}
+.bench-opt-toggle {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 10px;
+    border: 1px solid rgba(255,255,255,0.12);
+    border-radius: 6px;
+    font-size: 12px;
+    cursor: pointer;
+    user-select: none;
+    background: rgba(255,255,255,0.04);
+    color: #cdd3e0;
+    transition: border-color .15s, color .15s;
+}
+.bench-opt-toggle.off {
+    border-color: rgba(255,120,120,0.55);
+    color: #ff9a9a;
+    background: rgba(255,90,90,0.06);
+}
+.bench-opt-toggle input { cursor: pointer; margin: 0; }
+.bench-opt-toggle.on.firing {
+    border-color: rgba(0,212,255,0.6);
+    color: #00d4ff;
+    background: rgba(0,212,255,0.08);
+    box-shadow: 0 0 10px rgba(0,212,255,0.18);
+}
+.bench-opt-toggle.on.enabling {
+    border-style: dashed;
+    border-color: rgba(167,139,250,0.45);
+    color: rgba(205,211,224,0.75);
+}
+.bench-opt-toggle.on.preempted {
+    border-style: dashed;
+    border-color: rgba(247,164,29,0.35);
+    color: rgba(205,211,224,0.55);
+    background: rgba(247,164,29,0.04);
+}
+.bench-tree-row {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+}
+.bench-tree-chevron {
+    display: inline-block;
+    width: 12px;
+    flex: 0 0 12px;
+    font-size: 9px;
+    color: rgba(229,231,235,0.5);
+    cursor: pointer;
+    transition: transform 0.2s ease, color 0.15s;
+    text-align: center;
+}
+.bench-tree-chevron:hover { color: #e5e7eb; }
+.bench-tree-chevron.open { transform: rotate(90deg); }
+.bench-tree-spacer {
+    display: inline-block;
+    width: 12px;
+    flex: 0 0 12px;
+}
+.bench-opt-master {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    flex-wrap: wrap;
+    margin: 16px 0 6px;
+}
+.bench-opt-hint {
+    font-size: 12px;
+    color: rgba(229,231,235,0.5);
+}
+.bench-opt-rel {
+    font-size: 10px;
+    margin-left: 5px;
+    padding: 1px 5px;
+    border-radius: 4px;
+    background: rgba(255,255,255,0.05);
+    white-space: nowrap;
+}
+.bench-opt-rel.needs { color: #a78bfa; }
+.bench-opt-rel.beats { color: #f7a41d; }
+.bench-opt-rel.enables { color: #a78bfa; font-style: italic; }
+.bench-opt-rel.depends { color: #6ee7b7; }
+.bench-opt-rel.beaten { color: #f7a41d; font-style: italic; }
+.bench-opt-rel.beats-now {
+    color: #1a1410;
+    background: rgba(247,164,29,0.85);
+    font-weight: 700;
+}
+.bench-compiling {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    color: #00d4ff;
+    font-size: 12px;
+    font-weight: 500;
+}
+.bench-compiling::before {
+    content: "";
+    width: 11px;
+    height: 11px;
+    border: 2px solid rgba(0,212,255,0.25);
+    border-top-color: #00d4ff;
+    border-radius: 50%;
+    animation: bench-spin 0.6s linear infinite;
+}
+@keyframes bench-spin {
+    to { transform: rotate(360deg); }
+}
 .bench-container {
     min-height: 100vh;
     background: linear-gradient(135deg, #070a12 0%, #0b1022 50%, #070a12 100%);
@@ -1181,6 +1840,60 @@ const BENCHMARKS_STYLE: &str = r#"
     border-radius: 2px;
 }
 
+/* Complexity panel + memory bars */
+.bench-complexity {
+    margin: 20px 0 4px;
+    padding: 14px 16px;
+    border: 1px solid rgba(255,255,255,0.08);
+    border-radius: 8px;
+    background: rgba(255,255,255,0.02);
+}
+.bench-complexity-title {
+    font-size: 11px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    color: rgba(229,231,235,0.45);
+    margin-bottom: 10px;
+}
+.bench-complexity-declared {
+    display: flex;
+    gap: 10px;
+    flex-wrap: wrap;
+    margin-bottom: 12px;
+}
+.bench-complexity-chip {
+    font-size: 12px;
+    color: rgba(229,231,235,0.6);
+    padding: 4px 10px;
+    border-radius: 6px;
+    background: rgba(255,255,255,0.04);
+    border: 1px solid rgba(255,255,255,0.08);
+}
+.bench-complexity-chip strong { color: #93c5fd; font-weight: 700; margin-left: 4px; }
+.bench-complexity-grid {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    margin-top: 8px;
+}
+.bench-complexity-col-title {
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.4px;
+    color: rgba(229,231,235,0.35);
+    margin-bottom: 2px;
+}
+.bench-complexity-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 12px;
+}
+.bench-complexity-lang { color: rgba(229,231,235,0.7); min-width: 90px; }
+.bench-complexity-exp { color: rgba(229,231,235,0.5); font-family: ui-monospace, monospace; }
+.bench-mem { margin-top: 8px; }
+
 /* Interpreter-vs-V8 section bits */
 .bench-engine-pill {
     display: inline-flex;
@@ -1230,10 +1943,104 @@ pub fn Benchmarks() -> Element {
     let data = &*BENCH_DATA;
     let sources = &*SOURCES;
     let mut active_bench = use_signal(|| 0usize);
+    // Optimization-toggle showcase state: one on/off per registry optimization
+    // (all on by default = the normal optimized build). Flipping one inserts a
+    // `## No <X>` decorator and recompiles the Rust live, in the browser.
+    let mut opt_toggles = use_signal(|| vec![true; logicaffeine_compile::optimization::REGISTRY.len()]);
+    // Live-compile state for the toggle showcase. `live_rust` holds the last
+    // in-browser compile (None = show the pre-baked cached Rust), `compiling`
+    // drives the spinner, and `compile_gen` lets a newer toggle supersede an
+    // in-flight compile.
+    let mut live_rust = use_signal(|| Option::<String>::None);
+    let mut compiling = use_signal(|| false);
+    let mut compile_gen = use_signal(|| 0u64);
+    // The all-on optimization graph for the current benchmark — the STABLE tree
+    // structure. `base_fired` (what fires), `base_preempted` (blockers), and
+    // `base_dependencies` (emergent per-program dependencies) are seeded instantly
+    // from the baked benchmark data so switching benchmarks pops the tree in with no
+    // compile; `fired_now`/`preempted_now` reflect the CURRENT toggle state (what is
+    // firing right now), updated by the live re-trace when an optimization is off.
+    let mut base_fired = use_signal(Vec::<&'static str>::new);
+    let mut fired_now = use_signal(Vec::<&'static str>::new);
+    let mut preempted_now = use_signal(Vec::<(&'static str, &'static str)>::new);
+    let mut base_preempted = use_signal(Vec::<(&'static str, &'static str)>::new);
+    let mut base_dependencies = use_signal(Vec::<(&'static str, &'static str)>::new);
+    // Tree expand/collapse state, one bool per registry optimization (default
+    // expanded). A collapsed parent hides its requires-descendants.
+    let mut expanded = use_signal(|| vec![true; logicaffeine_compile::optimization::REGISTRY.len()]);
     let mut stats_open = use_signal(|| false);
     let mut compile_detail_open = use_signal(|| false);
     let mut methodology_open = use_signal(|| false);
     let mut source_open: Signal<[bool; 10]> = use_signal(|| [false; 10]);
+
+    // Seed the stable all-on graph from the BAKED benchmark data and re-trace the
+    // showcase Rust on toggle changes. The DEFAULT all-on view never compiles in the
+    // browser — the optimization graph is embedded in `latest.json` (baked by the
+    // benchmark run / `scripts/bake-opt-graph.sh`, exactly like the timing results)
+    // and the Rust is the pre-baked `generated_rust`, so switching benchmarks is
+    // instant. ONLY turning an optimization OFF triggers a browser compile, and only
+    // to show that toggled state's Rust + which opts then fire — the one thing that
+    // cannot be pre-computed (it is combinatorial). Tracks `active_bench` +
+    // `opt_toggles`; `compile_gen` is read via peek so the effect never re-triggers
+    // itself.
+    use_effect(move || {
+        let idx = active_bench();
+        let toggles = opt_toggles();
+        let b = &BENCH_DATA.benchmarks[idx];
+        let kw = |s: &str| logicaffeine_compile::optimization::by_keyword(s).map(|o| o.meta().keyword);
+        // The baked all-on graph (keywords → interned &'static str). Always seeds the
+        // stable tree structure — no analysis in the browser.
+        let baked_fired: Vec<&'static str> = b.fired.iter().filter_map(|s| kw(s)).collect();
+        let baked_blockers: Vec<(&'static str, &'static str)> =
+            b.blockers.iter().filter_map(|(w, l)| Some((kw(w)?, kw(l)?))).collect();
+        let baked_deps: Vec<(&'static str, &'static str)> =
+            b.dependencies.iter().filter_map(|(d, x)| Some((kw(d)?, kw(x)?))).collect();
+        base_fired.set(baked_fired.clone());
+        base_preempted.set(baked_blockers.clone());
+        base_dependencies.set(baked_deps);
+
+        let disabled: Vec<&'static str> = logicaffeine_compile::optimization::REGISTRY
+            .iter()
+            .enumerate()
+            .filter(|(i, _)| !toggles[*i])
+            .map(|(_, m)| m.keyword)
+            .collect();
+        let cache_present = !b.generated_rust.trim().is_empty();
+
+        // Default view (every optimization on): fully served from baked data — the
+        // baked fired set, the baked blockers, and the cached Rust. No compile, ever.
+        if disabled.is_empty() {
+            fired_now.set(baked_fired);
+            preempted_now.set(baked_blockers);
+            live_rust.set(if cache_present { None } else { Some(b.generated_rust.clone()) });
+            compiling.set(false);
+            return;
+        }
+
+        // An optimization is OFF — compile just this toggled state to show its Rust
+        // and which optimizations now fire.
+        let decorated =
+            logicaffeine_compile::optimization::decorate_source(&b.logos_source, &disabled);
+        let gen = *compile_gen.peek() + 1;
+        compile_gen.set(gen);
+        compiling.set(true);
+        spawn(async move {
+            gloo_timers::future::TimeoutFuture::new(30).await;
+            if *compile_gen.peek() != gen {
+                return;
+            }
+            let (rust, fired, preempted) =
+                logicaffeine_compile::compile::compile_to_rust_traced(&decorated)
+                    .unwrap_or_else(|e| (format!("// compile error: {e:?}"), Vec::new(), Vec::new()));
+            if *compile_gen.peek() != gen {
+                return;
+            }
+            fired_now.set(fired);
+            preempted_now.set(preempted);
+            live_rust.set(Some(rust));
+            compiling.set(false);
+        });
+    });
 
     let breadcrumbs = vec![
         BreadcrumbItem { name: "Home", path: "/" },
@@ -1252,11 +2059,81 @@ pub fn Benchmarks() -> Element {
     // Headline numbers, all framed as "x the speed of <baseline>" (higher = faster).
     let logos_apples = logos_apples_geomean(data);
     let interp_speed = interp_speed_vs_v8(interp);
+    let aot_speed = aot_speed_vs_v8(interp);
     let collapse_count = data.benchmarks.iter().filter(|b| collapse_note(&b.id).is_some()).count();
     let apples_count = data.benchmarks.len().saturating_sub(collapse_count);
 
     let bench = &data.benchmarks[active_bench()];
     let bench_sources = &sources[active_bench()];
+
+    // Toggle showcase — cheap, render-safe derived state only. The decorated
+    // LOGOS source is a string op; the expensive Rust compile is NOT run here
+    // (doing it on every render froze the page). With every optimization on we
+    // show the pre-baked cached Rust (`bench.generated_rust`) for an instant,
+    // no-compile view; any optimization off shows the live-compiled `live_rust`
+    // produced asynchronously by the use_effect above, with a spinner in between.
+    let opt_tog = opt_toggles();
+    let opt_disabled: Vec<&'static str> = logicaffeine_compile::optimization::REGISTRY
+        .iter()
+        .enumerate()
+        .filter(|(i, _)| !opt_tog[*i])
+        .map(|(_, m)| m.keyword)
+        .collect();
+    let opt_decorated =
+        logicaffeine_compile::optimization::decorate_source(&bench.logos_source, &opt_disabled);
+    let all_opts_on = opt_disabled.is_empty();
+
+    // The program's optimization chain as a tree, derived by the crate's
+    // `relationship_tree` from the baked all-on graph: the fired opts and the
+    // `requires` enablers they hang under (so `coins`' fired `unchecked`/
+    // `oraclehints`/`elemtype` show under `oracle`), the BLOCKERS they skipped, and
+    // the per-program DEPENDENCIES that nest one opt under another it only fired
+    // because of (dead-code under scalarization, symmetry under partial eval). Map
+    // the keyword signals back to `Opt` and hand them to the deterministic O(n²)
+    // derivation — the single source of truth for the menu-tree.
+    let opt_tree: Vec<logicaffeine_compile::optimization::OptNode> = {
+        use logicaffeine_compile::optimization::by_keyword;
+        let fired: Vec<_> = base_fired().iter().filter_map(|kw| by_keyword(kw)).collect();
+        let preempted: Vec<_> = base_preempted()
+            .iter()
+            .filter_map(|(w, l)| Some((by_keyword(w)?, by_keyword(l)?)))
+            .collect();
+        let dependencies: Vec<_> = base_dependencies()
+            .iter()
+            .filter_map(|(d, x)| Some((by_keyword(d)?, by_keyword(x)?)))
+            .collect();
+        logicaffeine_compile::optimization::relationship_tree(&fired, &preempted, &dependencies)
+    };
+
+    // Collapse visibility, parallel to `opt_tree`: walking the pre-order DFS, once
+    // a collapsed parent is seen every deeper node is hidden until depth returns to
+    // the parent's level. A single threshold suffices because the order is DFS.
+    let tree_visible: Vec<bool> = {
+        let exp = expanded();
+        let mut vis = Vec::with_capacity(opt_tree.len());
+        let mut hide_from: Option<usize> = None;
+        for node in &opt_tree {
+            if let Some(d) = hide_from {
+                if node.depth <= d {
+                    hide_from = None;
+                }
+            }
+            let visible = hide_from.is_none();
+            if visible && node.has_children && !exp.get(node.opt as usize).copied().unwrap_or(true) {
+                hide_from = Some(node.depth);
+            }
+            vis.push(visible);
+        }
+        vis
+    };
+
+    let cache_ok = !bench.generated_rust.trim().is_empty();
+    let rust_loading = (!all_opts_on || !cache_ok) && (compiling() || live_rust().is_none());
+    let rust_text: String = if all_opts_on && cache_ok {
+        bench.generated_rust.clone()
+    } else {
+        live_rust().unwrap_or_default()
+    };
     // Use reference_size if it has data, otherwise fall back to the largest benchmarked size
     let ref_size = if bench.scaling.contains_key(bench.reference_size.as_str()) {
         bench.reference_size.clone()
@@ -1270,6 +2147,9 @@ pub fn Benchmarks() -> Element {
     let ref_timeout = bench.timeouts.get(ref_size.as_str());
     if let Some(timings) = ref_timings {
         for lang in &data.languages {
+            // Node/V8 lives in the dedicated interpreter section below, not in the
+            // compiled-vs-systems-languages charts at the top.
+            if lang.id == "js" { continue; }
             if let Some(t) = timings.get(&lang.id) {
                 chart_entries.push((
                     &lang.label,
@@ -1329,6 +2209,7 @@ pub fn Benchmarks() -> Element {
     let mut stats_entries: Vec<(&str, &str, Option<&TimingResult>)> = Vec::new();
     if let Some(timings) = ref_timings {
         for lang in &data.languages {
+            if lang.id == "js" { continue; }
             if let Some(t) = timings.get(&lang.id) {
                 stats_entries.push((&lang.label, &lang.id, Some(t)));
             } else if ref_timeout.is_some() {
@@ -1356,6 +2237,7 @@ pub fn Benchmarks() -> Element {
     // Summary chart entries (geometric mean) sorted by value descending
     let mut summary_entries: Vec<(&str, f64, &str, bool)> = Vec::new();
     for lang in &data.languages {
+        if lang.id == "js" { continue; }
         if let Some(&val) = data.summary.geometric_mean_speedup_vs_c.get(&lang.id) {
             summary_entries.push((&lang.label, val, &lang.color, lang.id == "logos_release"));
         }
@@ -1374,21 +2256,15 @@ pub fn Benchmarks() -> Element {
         interp_n = ib.reference_size.clone();
         interp_engine = ib.interpreter_engine.clone();
         if let Some(t) = interp_ref(ib) {
-            for id in ["logos_interp", "js", "python", "ruby"] {
+            // The LOGOS tier ladder (eager VM → tiered VM+JIT → AOT-native, HOTSWAP
+            // §12/§Axis-3) then the peer runtimes. Data-driven: a tier renders only
+            // when its row is present, so tiered/AOT appear once the run emits them.
+            for id in ["logos_interp", "logos_tiered", "logos_aot", "js"] {
                 if let Some(tr) = t.get(id) {
-                    let lbl = match id {
-                        "js" => "Node / V8",
-                        "python" => "Python",
-                        "ruby" => "Ruby",
-                        _ => "LOGOS (interpreted)",
-                    };
-                    let col = match id {
-                        "js" => "#f7df1e",
-                        "python" => "#3776ab",
-                        "ruby" => "#cc342d",
-                        _ => "#ff8c00",
-                    };
-                    interp_bars.push((lbl, col, tr.median_ms, id == "logos_interp", id == "js" && node_floored(tr)));
+                    let lbl = if id == "js" { "Node / V8" } else { lang_label(id) };
+                    let col = lang_color(id);
+                    let is_logos = id.starts_with("logos");
+                    interp_bars.push((lbl, col, tr.median_ms, is_logos, id == "js" && node_floored(tr)));
                 }
             }
             if let (Some(j), Some(l)) = (t.get("js"), t.get("logos_interp")) {
@@ -1413,11 +2289,11 @@ pub fn Benchmarks() -> Element {
     // Cold-start floor (serverless / CLI): time to launch the engine and run a
     // trivial program. Smaller is faster. (label, color, mean_ms, is_logos)
     let mut startup_bars: Vec<(&'static str, &'static str, f64, bool)> = Vec::new();
-    for id in ["logos_interp", "js", "python", "ruby"] {
+    for id in ["logos_interp", "js"] {
         if let Some(t) = interp.startup.engines.get(id) {
             if t.mean_ms > 0.0 {
-                let lbl = match id { "logos_interp" => "LOGOS interp", "js" => "Node / V8", "python" => "Python", "ruby" => "Ruby", _ => id };
-                let col = match id { "logos_interp" => "#ff8c00", "js" => "#f7df1e", "python" => "#3776ab", "ruby" => "#cc342d", _ => "#94a3b8" };
+                let lbl = match id { "logos_interp" => "LOGOS interp", "js" => "Node / V8", _ => id };
+                let col = match id { "logos_interp" => "#ff8c00", "js" => "#f7df1e", _ => "#94a3b8" };
                 startup_bars.push((lbl, col, t.mean_ms, id == "logos_interp"));
             }
         }
@@ -1427,6 +2303,31 @@ pub fn Benchmarks() -> Element {
     let startup_logos = interp.startup.engines.get("logos_interp").map(|t| t.mean_ms).unwrap_or(0.0);
     let startup_node = interp.startup.engines.get("js").map(|t| t.mean_ms).unwrap_or(0.0);
     let startup_vs_v8 = if startup_logos > 0.0 { startup_node / startup_logos } else { 0.0 };
+
+    // Engine footprint — what you ship to run a program. (label, color, as_built, stripped, is_logos)
+    let mut engine_size_bars: Vec<(&'static str, &'static str, f64, Option<f64>, bool)> = Vec::new();
+    let mut wasm_bundle_bytes = 0.0_f64;
+    if let Some(es) = &interp.interpreter_sizes {
+        for id in ["logos", "node", "deno", "bun"] {
+            if let Some(s) = es.engines.get(id) {
+                if s.as_built > 0.0 {
+                    let lbl = match id {
+                        "logos" => "largo (LOGOS VM+JIT)",
+                        "node" => "Node / V8",
+                        "deno" => "Deno",
+                        "bun" => "Bun",
+                        _ => id,
+                    };
+                    let col = match id { "logos" => "#ff8c00", "node" => "#f7df1e", _ => "#94a3b8" };
+                    engine_size_bars.push((lbl, col, s.as_built, s.stripped, id == "logos"));
+                }
+            }
+        }
+        wasm_bundle_bytes = es.wasm_bundle_bytes.unwrap_or(0.0);
+    }
+    engine_size_bars.sort_by(|a, b| a.2.partial_cmp(&b.2).unwrap_or(std::cmp::Ordering::Equal));
+    let engine_size_max = engine_size_bars.iter().map(|e| e.2).fold(0.0_f64, f64::max).max(1.0);
+    let wasm_bundle_str = if wasm_bundle_bytes > 0.0 { format_bytes(wasm_bundle_bytes) } else { String::new() };
 
     // Source code languages to show (not LOGOS — that's always visible)
     let source_langs = ["c", "cpp", "rust", "zig", "go", "java", "js", "python", "ruby", "nim"];
@@ -1499,8 +2400,15 @@ pub fn Benchmarks() -> Element {
                     }
                     div { class: "bench-summary-card",
                         div { class: "bench-summary-eyebrow", "Interpreted LOGOS vs V8" }
-                        div { class: "bench-summary-value purple", "{startup_vs_v8:.1}x" }
-                        div { class: "bench-summary-label", "faster cold start than V8" }
+                        div { class: "bench-summary-value purple", "{interp_speed:.2}x" }
+                        div { class: "bench-summary-label", "the speed of V8 (geomean)" }
+                    }
+                    if aot_speed > 0.0 {
+                        div { class: "bench-summary-card",
+                            div { class: "bench-summary-eyebrow", "AOT-native vs V8" }
+                            div { class: "bench-summary-value", style: "color:#00d4ff;", "{aot_speed:.2}x" }
+                            div { class: "bench-summary-label", "the speed of V8, warm (geomean)" }
+                        }
                     }
                 }
 
@@ -1524,6 +2432,17 @@ pub fn Benchmarks() -> Element {
                                 stats_open.set(false);
                                 compile_detail_open.set(false);
                                 source_open.set([false; 10]);
+                                // Reset optimizations to all-on so the new benchmark
+                                // shows its cached Rust instantly (no compile on switch).
+                                opt_toggles.set(vec![true; logicaffeine_compile::optimization::REGISTRY.len()]);
+                                live_rust.set(None);
+                                compiling.set(false);
+                                base_fired.set(Vec::new());
+                                fired_now.set(Vec::new());
+                                preempted_now.set(Vec::new());
+                                base_preempted.set(Vec::new());
+                                base_dependencies.set(Vec::new());
+                                expanded.set(vec![true; logicaffeine_compile::optimization::REGISTRY.len()]);
                             },
                             "{b.name}"
                             if collapse_note(&b.id).is_some() {
@@ -1652,6 +2571,33 @@ pub fn Benchmarks() -> Element {
                     }
                     {scaling_chart(bench, &data.languages)}
 
+                    {complexity_panel(bench, &data.languages)}
+
+                    // Peak memory — same style as the runtime bars (lights up after a MEASURE_MEM run)
+                    if bench.memory.is_some() {
+                        div {
+                            class: "bench-section-desc",
+                            style: "margin: 24px 0 6px; color: rgba(229,231,235,0.72); font-weight: 600;",
+                            "Memory \u{2014} peak resident set size"
+                        }
+                        {memory_bar_chart(bench, &data.languages)}
+                    }
+
+                    // Binary size — compiled-artifact footprint (lights up after a size run)
+                    if bench.binary_sizes.is_some() {
+                        div {
+                            class: "bench-section-desc",
+                            style: "margin: 24px 0 6px; color: rgba(229,231,235,0.72); font-weight: 600;",
+                            "Binary size \u{2014} compiled-artifact footprint"
+                        }
+                        {binary_size_bar_chart(bench, &data.languages)}
+                        div { class: "bench-note", style: "margin-top:12px;",
+                            "The size of the program you actually ship. C and C++ stay tiny because the runtime lives in the system libc; Rust and Go statically link their runtimes; LOGOS compiles to a compact self-contained binary in between. "
+                            "Java\u{2019}s figure is its bytecode alone \u{2014} it still needs the JVM to run \u{2014} and JavaScript has no compiled artifact at all (its footprint is the V8 engine, in the Interpreter section). "
+                            "As-built is the real shipped file; stripped removes debug symbols for a code-only comparison."
+                        }
+                    }
+
                     // Collapsible: Detailed Statistics
                     button {
                         class: "bench-collapsible-btn",
@@ -1723,9 +2669,9 @@ pub fn Benchmarks() -> Element {
 
                 // =============== INTERPRETER vs V8 ===============
                 div { class: "bench-section", id: "interpreter",
-                    div { class: "bench-section-title", "Interpreted LOGOS vs JavaScript" }
+                    div { class: "bench-section-title", "LOGOS vs JavaScript / V8" }
                     div { class: "bench-section-desc",
-                        "The LOGOS interpreter (bytecode VM + copy-and-patch JIT) against {interp_node_ver} / V8."
+                        "The LOGOS engine ladder \u{2014} bytecode VM, copy-and-patch JIT, and the warm AOT-native tier \u{2014} against {interp_node_ver} / V8."
                     }
 
                     div { class: "bench-summary", style: "margin-bottom: 20px;",
@@ -1740,6 +2686,12 @@ pub fn Benchmarks() -> Element {
                         div { class: "bench-summary-card",
                             div { class: "bench-summary-value purple", "{interp_speed:.2}x" }
                             div { class: "bench-summary-label", "the speed of V8 on compute (geomean)" }
+                        }
+                        if aot_speed > 0.0 {
+                            div { class: "bench-summary-card",
+                                div { class: "bench-summary-value", style: "color:#00d4ff;", "{aot_speed:.2}x" }
+                                div { class: "bench-summary-label", "the speed of V8, AOT-native warm (geomean)" }
+                            }
                         }
                     }
 
@@ -1781,6 +2733,42 @@ pub fn Benchmarks() -> Element {
                         }
                     }
 
+                    // Engine size — what you ship to run a program (benchmark-independent, like cold start)
+                    if !engine_size_bars.is_empty() {
+                        div { class: "bench-chart-hint", style: "font-weight:600;color:rgba(229,231,235,0.72);margin-top:22px;",
+                            "Engine size \u{2014} the runtime you ship to execute a program (shorter ships less; stripped, code-only size in parentheses)"
+                        }
+                        div { class: "bench-chart",
+                            for (label, color, bytes, stripped, is_logos) in engine_size_bars.iter() {
+                                {
+                                    let pct = (*bytes / engine_size_max * 100.0).min(100.0);
+                                    let s = footprint_label(*bytes, *stripped);
+                                    let show_inside = pct > 32.0;
+                                    let bar_class = if *is_logos { "bench-bar-fill logos-highlight" } else { "bench-bar-fill" };
+                                    rsx! {
+                                        div { class: "bench-bar-row",
+                                            div { class: "bench-bar-label", "{label}" }
+                                            div { class: "bench-bar-track",
+                                                div { class: "{bar_class}", style: "width: {pct:.1}%; background: {color};",
+                                                    if show_inside { span { class: "bench-bar-time", "{s}" } }
+                                                }
+                                            }
+                                            if !show_inside { span { class: "bench-bar-time-outside", "{s}" } }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        div { class: "bench-note", style: "margin-top:14px;",
+                            if !wasm_bundle_str.is_empty() {
+                                "In the browser the whole LOGOS engine ships as a "
+                                strong { "{wasm_bundle_str}" }
+                                " WebAssembly bundle \u{2014} the same VM+JIT, no native install. "
+                            }
+                            "Node\u{2019}s binary bundles V8, libuv, and ICU; largo bundles the transpiler, bytecode VM, and copy-and-patch JIT \u{2014} each is the whole engine you ship to run a program. As-built is the real file; stripped removes debug symbols."
+                        }
+                    }
+
                     div { class: "bench-chart-hint", style: "font-weight:600;color:rgba(229,231,235,0.72);margin-top:22px;",
                         "{bench.name} (engine: {interp_engine})"
                     }
@@ -1788,7 +2776,7 @@ pub fn Benchmarks() -> Element {
                     if bench.id == "ackermann" {
                         div { class: "bench-callout",
                             span { class: "bench-callout-icon", "\u{26a1}" }
-                            span { "Interpreted recursion is capped at the shared MAX_CALL_DEPTH (1000 frames), and ackermann(3,7)=1021 exceeds it \u{2014} so the interpreter runs it at a reduced m. Deep recursion only completes in compiled mode, where the optimizer collapses it." }
+                            span { "Interpreted recursion is capped at the shared MAX_CALL_DEPTH (2,500 frames); ackermann\u{2019}s deep self-recursion blows past it, so the interpreter runs it at a reduced m. Deep recursion only completes in compiled mode, where the optimizer collapses it." }
                         }
                     }
 
@@ -1834,17 +2822,149 @@ pub fn Benchmarks() -> Element {
                 // =============== SOURCE CODE ===============
                 div { class: "bench-section", id: "source",
                     div { class: "bench-section-title", "Source Code" }
-                    div { class: "bench-section-desc", "The LOGOS source and the Rust it compiles to." }
+                    div { class: "bench-section-desc",
+                        "The LOGOS source and the Rust it compiles to. Switch an optimization off and watch its \u{201c}## No <X>\u{201d} decorator appear on the LOGOS source — and the generated Rust recompile live in your browser. With every optimization on you see the cached release build; disabling them all yields plain, boring Rust."
+                    }
 
-                    // Always visible: LOGOS + Generated Rust side-by-side
+                    // Master switch: all optimizations on (cached release Rust) ↔ all
+                    // off (plain, un-optimized Rust). Both are instant.
+                    div { class: "bench-opt-master",
+                        label {
+                            class: if all_opts_on { "bench-opt-toggle on" } else { "bench-opt-toggle off" },
+                            input {
+                                r#type: "checkbox",
+                                checked: all_opts_on,
+                                onchange: move |_| {
+                                    let n = logicaffeine_compile::optimization::REGISTRY.len();
+                                    let v = if opt_toggles().iter().all(|&b| b) { vec![false; n] } else { vec![true; n] };
+                                    opt_toggles.set(v);
+                                    live_rust.set(None);
+                                },
+                            }
+                            span { "All Optimizations" }
+                        }
+                        span { class: "bench-opt-hint",
+                            if base_fired().is_empty() {
+                                "analyzing which optimizations this program uses\u{2026}"
+                            } else {
+                                "{base_fired().len()} of {logicaffeine_compile::optimization::REGISTRY.len()} optimizations fire for this program"
+                            }
+                        }
+                    }
+
+                    // The optimization graph for this program, as a collapsible tree:
+                    // every opt that fires, the `requires`-parents they depend on
+                    // (an "enabler" that does not itself fire, dashed), and the opts
+                    // that were SKIPPED because a higher-precedence one claimed them
+                    // (a greyed "preempted" node — it fires if its winner is turned
+                    // off). Nested by `requires` depth; turning a parent off cascades
+                    // its children off, turning a child on pulls its parents on (the
+                    // registry's own rule, via the compiler's `normalize`). Cyan =
+                    // firing right now.
+                    div { class: "bench-opt-toggles",
+                        for (node, visible) in opt_tree.iter().zip(tree_visible.iter().copied()) {
+                            if visible {
+                                {
+                                    use logicaffeine_compile::optimization::OptRole;
+                                    let opt = node.opt;
+                                    let ri = opt as usize;
+                                    let m = &logicaffeine_compile::optimization::REGISTRY[ri];
+                                    let firing = fired_now().contains(&m.keyword);
+                                    let needs = node.requires.iter().map(|o| o.meta().keyword).collect::<Vec<_>>().join(", ");
+                                    let depends = node.depends_on.iter().map(|o| o.meta().keyword).collect::<Vec<_>>().join(", ");
+                                    let blocks = node.preempts.iter().map(|o| o.meta().keyword).collect::<Vec<_>>().join(", ");
+                                    let blocked_by = node.preempted_by.iter().map(|o| o.meta().keyword).collect::<Vec<_>>().join(", ");
+                                    let blocks_now = preempted_now().iter()
+                                        .filter(|(w, _)| *w == m.keyword)
+                                        .map(|(_, l)| *l)
+                                        .collect::<Vec<_>>()
+                                        .join(", ");
+                                    let cls = if !opt_tog[ri] { "bench-opt-toggle off" }
+                                              else if firing { "bench-opt-toggle on firing" }
+                                              else { match node.role {
+                                                  OptRole::Preempted => "bench-opt-toggle on preempted",
+                                                  OptRole::Enabler => "bench-opt-toggle on enabling",
+                                                  OptRole::Fired => "bench-opt-toggle on",
+                                              } };
+                                    let row_style = format!("padding-left: {}px;", node.depth * 22);
+                                    let has_children = node.has_children;
+                                    let is_expanded = expanded().get(ri).copied().unwrap_or(true);
+                                    let chevron_cls = if is_expanded { "bench-tree-chevron open" } else { "bench-tree-chevron" };
+                                    rsx! {
+                                        div { class: "bench-tree-row", style: "{row_style}",
+                                            if has_children {
+                                                span {
+                                                    class: "{chevron_cls}",
+                                                    onclick: move |_| {
+                                                        let mut e = expanded();
+                                                        if ri < e.len() { e[ri] = !e[ri]; }
+                                                        expanded.set(e);
+                                                    },
+                                                    "\u{25b6}"
+                                                }
+                                            } else {
+                                                span { class: "bench-tree-spacer" }
+                                            }
+                                            label { class: "{cls}", title: "{m.group}",
+                                                input { r#type: "checkbox", checked: opt_tog[ri],
+                                                    onchange: move |_| {
+                                                        let toggles = opt_toggles();
+                                                        let turning_on = !toggles.get(ri).copied().unwrap_or(false);
+                                                        let mut cfg = config_from_toggles(&toggles);
+                                                        if turning_on {
+                                                            cfg.enable_with_requires(opt);
+                                                        } else {
+                                                            cfg.set(opt, false);
+                                                        }
+                                                        cfg.normalize();
+                                                        opt_toggles.set(toggles_from_config(&cfg));
+                                                        live_rust.set(None);
+                                                    },
+                                                }
+                                                span { "{m.label}" }
+                                                if node.role == OptRole::Enabler {
+                                                    span { class: "bench-opt-rel enables", "enabler" }
+                                                }
+                                                if node.role == OptRole::Preempted && !blocked_by.is_empty() {
+                                                    span { class: "bench-opt-rel beaten", "blocked by {blocked_by} \u{00b7} fires if off" }
+                                                }
+                                                if !needs.is_empty() {
+                                                    span { class: "bench-opt-rel needs", "needs {needs}" }
+                                                }
+                                                if !depends.is_empty() {
+                                                    span { class: "bench-opt-rel depends", "depends on {depends}" }
+                                                }
+                                                if !blocks.is_empty() {
+                                                    span { class: "bench-opt-rel beats", "blocks {blocks}" }
+                                                }
+                                                if !blocks_now.is_empty() {
+                                                    span { class: "bench-opt-rel beats-now", "blocks {blocks_now} now" }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    // LOGOS (with the toggles applied) + Generated Rust side-by-side.
+                    // All-on shows the cached release Rust instantly; a toggle off
+                    // shows a spinner while the browser recompiles.
                     div { class: "bench-source",
                         div { class: "bench-source-panel",
                             div { class: "bench-source-header logos", "LOGOS" }
-                            div { class: "bench-source-code", "{bench.logos_source}" }
+                            div { class: "bench-source-code", "{opt_decorated}" }
                         }
                         div { class: "bench-source-panel",
                             div { class: "bench-source-header rust", "Generated Rust" }
-                            div { class: "bench-source-code", "{bench.generated_rust}" }
+                            if rust_loading {
+                                div { class: "bench-source-code",
+                                    span { class: "bench-compiling", "Compiling\u{2026}" }
+                                }
+                            } else {
+                                div { class: "bench-source-code", "{rust_text}" }
+                            }
                         }
                     }
 

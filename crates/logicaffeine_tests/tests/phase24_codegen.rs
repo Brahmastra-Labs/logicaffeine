@@ -325,7 +325,7 @@ fn codegen_program_wraps_in_main() {
     let policies = PolicyRegistry::new();
     let stmts: &[Stmt] = &[];
     let type_env = logicaffeine_compile::analysis::types::TypeEnv::infer_program(stmts, &interner, &registry);
-    let result = codegen_program(stmts, &registry, &policies, &interner, &type_env);
+    let result = codegen_program(stmts, &registry, &policies, &interner, &type_env, &logicaffeine_compile::optimization::OptimizationConfig::all_on());
     assert!(result.contains("fn main()"), "Expected 'fn main()' but got: {}", result);
     assert!(result.contains("{"), "Expected '{{' but got: {}", result);
     assert!(result.contains("}"), "Expected '}}' but got: {}", result);
@@ -374,7 +374,7 @@ fn test_collect_async_functions_with_sleep() {
         native_path: None,
         is_exported: false,
         export_target: None,
-        opt_flags: HashSet::new(),
+        opt_flags: Default::default(),
     };
 
     let stmts = vec![func_def];
@@ -407,7 +407,7 @@ fn test_collect_async_functions_with_launch_task() {
         native_path: None,
         is_exported: false,
         export_target: None,
-        opt_flags: HashSet::new(),
+        opt_flags: Default::default(),
     };
 
     let stmts = vec![func_def];
@@ -438,7 +438,7 @@ fn test_collect_async_functions_transitive() {
         native_path: None,
         is_exported: false,
         export_target: None,
-        opt_flags: HashSet::new(),
+        opt_flags: Default::default(),
     };
 
     // Create wrapper function that calls helper (should be transitively async)
@@ -458,7 +458,7 @@ fn test_collect_async_functions_transitive() {
         native_path: None,
         is_exported: false,
         export_target: None,
-        opt_flags: HashSet::new(),
+        opt_flags: Default::default(),
     };
 
     let stmts = vec![helper_def, wrapper_def];

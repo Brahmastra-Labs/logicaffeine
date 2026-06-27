@@ -5,9 +5,9 @@
   "prompt": "Believe that you are frivolous",
   "options": [
     "$ u : Fu $",
-    "$ u : F\\\\underline{u} $",
-    "$ \\\\underline{u} : Fu $",
-    "$ \\\\underline{u} : F\\\\underline{u} $"
+    "$ u : F\\underline{u} $",
+    "$ \\underline{u} : Fu $",
+    "$ \\underline{u} : F\\underline{u} $"
   ],
   "correct": 0,
   "hint": "Who is the one holding the belief? Where do we mark the believer in the formula? The part before the colon (:) tells us WHO believes.",

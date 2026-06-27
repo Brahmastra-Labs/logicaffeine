@@ -69,9 +69,14 @@ fn jit_factorial_loop_with_back_edge() {
         assert_eq!(jit, *want, "factorial({n})");
         assert_eq!(jf, rf, "factorial({n}) frame");
     }
-    // 20! is the largest fitting i64; 21! wraps — wrapping is the spec.
-    let (jit, reference, _, _) = run_both(&ops, &[21]);
-    assert_eq!(jit, reference);
+    // 20! is the largest factorial that fits i64; 21! overflows. Integer math is
+    // now EXACT, so instead of wrapping the native chain SIDE-EXITS (deopt) — the
+    // exact tier then recomputes and promotes to BigInt. Assert the deopt directly
+    // (the pure-JIT `run_both` cannot represent the promoted result).
+    let chain = compile_straightline(&ops).expect("compile");
+    let mut frame = vec![0i64; 64];
+    frame[0] = 21;
+    assert!(chain.run_with_frame(&mut frame).is_deopt(), "21! overflows i64 → native deopt");
 }
 
 #[test]
@@ -190,12 +195,26 @@ fn run_loop_fuzz(seeds: std::ops::Range<u64>) {
 
         let chain = compile_straightline(&ops).expect("compile");
         let mut jit_frame = vec![0i64; 64];
-        let jit = chain.run_with_frame(&mut jit_frame).expect_return();
+        let outcome = chain.run_with_frame(&mut jit_frame);
 
         let mut ref_frame = vec![0i64; 64];
-        let reference =
-            reference_eval(&ops, &mut ref_frame, 10_000_000).expect("reference fuel");
+        let reference = reference_eval(&ops, &mut ref_frame, 10_000_000);
 
+        // Integer math is EXACT: a program that overflows i64 makes the native chain
+        // SIDE-EXIT (deopt) and the exact reference return None — they must AGREE that
+        // this program leaves the i64 fast path (the exact tier would promote). Skip
+        // the value/frame comparison for those (the partial states need not match).
+        if outcome.is_deopt() || reference.is_none() {
+            assert!(
+                outcome.is_deopt() && reference.is_none(),
+                "seed {seed}: overflow disagreement (jit deopt={}, ref none={})",
+                outcome.is_deopt(),
+                reference.is_none()
+            );
+            continue;
+        }
+        let jit = outcome.expect_return();
+        let reference = reference.unwrap();
         assert_eq!(jit, reference, "seed {seed}: result diverged");
         assert_eq!(jit_frame, ref_frame, "seed {seed}: frame diverged");
     }

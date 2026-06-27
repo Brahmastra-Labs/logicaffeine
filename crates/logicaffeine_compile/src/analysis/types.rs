@@ -43,6 +43,9 @@ pub enum LogosType {
     Time,
     Span,
     Nat,
+    /// Exact rational (`logicaffeine_base::Rational`). A `Rational`-typed binding keeps
+    /// division exact (`7 / 2 → 7/2`) where a bare `Int` floors. Lowers to `LogosRational`.
+    Rational,
     UserDefined(Symbol),
     /// First-class function type: fn(P1, P2, ...) -> R
     Function(Vec<LogosType>, Box<LogosType>),
@@ -130,6 +133,9 @@ impl LogosType {
     pub fn numeric_promotion(a: &LogosType, b: &LogosType) -> LogosType {
         if a.is_float() || b.is_float() {
             LogosType::Float
+        } else if matches!(a, LogosType::Rational) || matches!(b, LogosType::Rational) {
+            // A Rational operand carries through `+ − ×`: the exact type wins over Int.
+            LogosType::Rational
         } else if a.is_numeric() && b.is_numeric() {
             LogosType::Int
         } else {
@@ -152,6 +158,7 @@ impl LogosType {
             LogosType::String => "String".into(),
             LogosType::Unit => "()".into(),
             LogosType::Nat => "u64".into(),
+            LogosType::Rational => "LogosRational".into(),
             LogosType::Duration => "std::time::Duration".into(),
             LogosType::Date => "LogosDate".into(),
             LogosType::Moment => "LogosMoment".into(),
@@ -242,6 +249,7 @@ impl LogosType {
         match name {
             "Int" => LogosType::Int,
             "Nat" => LogosType::Nat,
+            "Rational" => LogosType::Rational,
             "Real" | "Float" => LogosType::Float,
             "Bool" | "Boolean" => LogosType::Bool,
             "Text" | "String" => LogosType::String,
@@ -270,6 +278,7 @@ impl LogosType {
             "bool" => LogosType::Bool,
             "char" => LogosType::Char,
             "u8" => LogosType::Byte,
+            "LogosRational" => LogosType::Rational,
             "String" => LogosType::String,
             "()" => LogosType::Unit,
             "std::time::Duration" => LogosType::Duration,
@@ -406,6 +415,10 @@ impl TypeEnv {
                             LogosType::numeric_promotion(&lt, &rt)
                         }
                     }
+
+                    // Exact division always yields a Rational (`7 / 2 → 7/2`); the
+                    // resolve pass only emits it in a Rational-typed context.
+                    BinaryOpKind::ExactDivide => LogosType::Rational,
 
                     // Other arithmetic: numeric promotion
                     BinaryOpKind::Subtract

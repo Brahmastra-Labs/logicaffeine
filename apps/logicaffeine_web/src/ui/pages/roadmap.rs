@@ -1,24 +1,8 @@
 //! Development roadmap page.
 //!
-//! Displays the LOGOS project roadmap with milestone progress and interactive
-//! code examples. Features include:
-//!
-//! - Timeline visualization with done/in-progress/planned states
-//! - Interactive code examples for each milestone
-//! - Toggle between simple FOL and Unicode output formats
-//! - Feature tags showing completion status
-//!
-//! # Milestones
-//!
-//! 1. Core Transpiler (Complete)
-//! 2. Web Platform (Complete)
-//! 3. Imperative Language (Complete)
-//! 4. Type System (Complete)
-//! 5. Concurrency & Actors (Complete)
-//! 6. Distributed Systems (Complete)
-//! 7. Security & Policies (Complete)
-//! 8. Proof Assistant (Complete)
-//! 9. Universal Compilation (In Progress)
+//! Renders the LOGOS project timeline from [`roadmap_data::get_milestones`].
+//! Each milestone carries a [`Status`], feature tags, and interactive
+//! English → FOL examples (toggle between Simple FOL and Unicode output).
 //!
 //! # Route
 //!
@@ -28,109 +12,10 @@ use dioxus::prelude::*;
 use crate::ui::components::main_nav::{MainNav, ActivePage};
 use crate::ui::components::footer::Footer;
 use crate::ui::components::icon::{Icon, IconVariant, IconSize};
+use crate::ui::pages::roadmap_data::{get_milestones, Milestone, Status};
 use crate::ui::seo::{JsonLdMultiple, PageHead, organization_schema, roadmap_schema, breadcrumb_schema, BreadcrumbItem, pages as seo_pages};
 
-// (label, english, simple_fol, unicode)
-const MILESTONE_EXAMPLES: &[&[(&str, &str, &str, &str)]] = &[
-    // Phase 1: Core Transpiler
-    &[
-        ("Universal", "Every user who has a key enters the room.",
-            "For all x: User(x) and HasKey(x) implies Enter(x, Room)",
-            "∀x((User(x) ∧ HasKey(x)) → Enter(x, Room))"),
-        ("Conditional", "If a user enters the room, the alarm triggers.",
-            "Enter(User, Room) implies Trigger(Alarm)",
-            "(Enter(User, Room) → Trigger(Alarm))"),
-        ("Negation", "No user who lacks a key can enter.",
-            "For all x: User(x) and LacksKey(x) implies not Enter(x)",
-            "∀x((User(x) ∧ LacksKey(x)) → ¬Enter(x))"),
-    ],
-    // Phase 2: Web Platform
-    &[
-        ("Interactive", "Check that the answer equals expected.",
-            "Assert: answer equals expected",
-            "Assert(Eq(answer, expected))"),
-        ("Feedback", "Show the hint to the learner.",
-            "Display hint to learner",
-            "Display(hint, learner)"),
-    ],
-    // Phase 3: Imperative Language
-    &[
-        ("Function", "## To greet (name: Text) -> Text:\n    Return \"Hello, \" combined with name.",
-            "fn greet(name: &str) -> String { ... }",
-            "fn greet(name: &str) -> String {\n    format!(\"Hello, {}\", name)\n}"),
-        ("Struct", "A Point has:\n    an x which is Int\n    a y which is Int",
-            "struct Point { x: i64, y: i64 }",
-            "struct Point {\n    x: i64,\n    y: i64,\n}"),
-        ("I/O", "Read input from the console.\nShow \"Hello!\" to the console.",
-            "read_line(); println!(\"Hello!\");",
-            "io::stdin().read_line(&mut buf)?;\nprintln!(\"Hello!\");"),
-    ],
-    // Phase 4: Type System
-    &[
-        ("Refinement", "Let age be an Int where it > 0.",
-            "let age: PosInt = 25; // runtime check",
-            "let age = 25;\ndebug_assert!(age > 0);"),
-        ("Generic", "A Box has: a contents which is Generic.",
-            "struct Box<T> { contents: T }",
-            "struct Box<T> {\n    contents: T,\n}"),
-        ("Enum", "A Color is one of: Red, Green, Blue.",
-            "enum Color { Red, Green, Blue }",
-            "enum Color {\n    Red,\n    Green,\n    Blue,\n}"),
-    ],
-    // Phase 5: Concurrency
-    &[
-        ("Channel", "Let pipe be a new Pipe of Int.\nSend 42 into pipe.",
-            "let (tx, rx) = channel(); tx.send(42);",
-            "let (tx, rx) = channel::<i64>();\ntx.send(42).await;"),
-        ("Agent", "Spawn a Worker called 'w1'.\nSend Ping to 'w1'.",
-            "spawn(Worker, \"w1\"); send(Ping, \"w1\");",
-            "let w1 = tokio::spawn(worker());\ntx.send(Ping).await;"),
-        ("Parallel", "Attempt all of the following:\n    Process A.\n    Process B.",
-            "join!(process_a(), process_b())",
-            "tokio::join!(\n    process_a(),\n    process_b()\n);"),
-    ],
-    // Phase 6: Distributed Systems
-    &[
-        ("CRDT", "Let counter be a new Shared GCounter.\nIncrease counter by 10.",
-            "let counter = GCounter::new();\ncounter.increment(10);",
-            "let counter = GCounter::new();\ncounter.increment_by(self_id, 10);"),
-        ("Persist", "Mount data at \"state.json\".",
-            "Persistent::mount(\"state.json\")",
-            "let data = Persistent::<T>::mount(\"state.json\").await?;"),
-        ("Sync", "Sync counter on 'metrics'.",
-            "gossip.sync(counter, \"metrics\")",
-            "gossip.subscribe(\"metrics\");\ngossip.publish(counter);"),
-    ],
-    // Phase 7: Security
-    &[
-        ("Policy", "## Policy\nA User can publish the Document if user's role equals \"editor\".",
-            "fn can_publish(user, doc) -> bool",
-            "impl User {\n    fn can_publish(&self, _: &Document) -> bool {\n        self.role == \"editor\"\n    }\n}"),
-        ("Check", "Check that user can publish the doc.",
-            "check!(user.can_publish(doc))",
-            "if !user.can_publish(&doc) {\n    panic!(\"unauthorized\");\n}"),
-    ],
-    // Phase 8: Proof Assistant
-    &[
-        ("Trust", "Trust that n > 0 because \"positive input\".",
-            "// @requires n > 0",
-            "debug_assert!(n > 0, \"positive input\");"),
-        ("Termination", "While n > 0 (decreasing n):\n    Set n to n minus 1.",
-            "while n > 0 { n -= 1; } // terminates",
-            "// Proven: metric 'n' decreases each iteration\nwhile n > 0 { n -= 1; }"),
-    ],
-    // Phase 9: Universal Compilation
-    &[
-        ("WASM", "Compile for the web.",
-            "largo build --target wasm",
-            "// Coming soon: direct LOGOS → WASM"),
-        ("IDE", "Open the Live Codex.",
-            "largo codex",
-            "// Coming soon: real-time proof visualization"),
-    ],
-];
-
-const ROADMAP_STYLE: &str = r#"
+pub(crate) const ROADMAP_STYLE: &str = r#"
 .roadmap-container {
     min-height: 100vh;
     background: linear-gradient(135deg, #070a12 0%, #0b1022 50%, #070a12 100%);
@@ -500,6 +385,13 @@ const ROADMAP_STYLE: &str = r#"
     line-height: 1.5;
 }
 
+.milestone-english.source {
+    font-family: 'SF Mono', 'Fira Code', 'Consolas', monospace;
+    font-style: normal;
+    font-size: 12px;
+    color: #cbd5e1;
+}
+
 .milestone-arrow {
     color: #667eea;
     margin: 8px 0;
@@ -545,44 +437,107 @@ const ROADMAP_STYLE: &str = r#"
 "#;
 
 #[component]
-fn MilestoneExamples(index: usize) -> Element {
+fn MilestoneExamples(examples: &'static [crate::ui::pages::roadmap_data::Example]) -> Element {
+    use crate::ui::pages::roadmap_data::Output;
     let mut active = use_signal(|| 0usize);
     let mut use_unicode = use_signal(|| false);
-    let examples = MILESTONE_EXAMPLES[index];
+
+    let ex = examples[active()];
 
     rsx! {
         div { class: "milestone-examples",
             div { class: "milestone-tabs",
-                for (i, (label, _, _, _)) in examples.iter().enumerate() {
+                for (i, e) in examples.iter().enumerate() {
                     button {
                         key: "{i}",
                         class: if active() == i { "milestone-tab active" } else { "milestone-tab" },
                         onclick: move |_| active.set(i),
-                        "{label}"
+                        "{e.label}"
                     }
                 }
             }
             div { class: "milestone-code",
-                div { class: "milestone-english", "\"{examples[active()].1}\"" }
+                {match ex.output {
+                    Output::Fol { .. } => rsx! {
+                        div { class: "milestone-english", "\"{ex.english}\"" }
+                    },
+                    _ => rsx! {
+                        div { class: "milestone-english source", "{ex.english}" }
+                    },
+                }}
                 div { class: "milestone-arrow", "↓" }
-                div { class: "format-toggle",
-                    button {
-                        class: if !use_unicode() { "format-btn active" } else { "format-btn" },
-                        onclick: move |_| use_unicode.set(false),
-                        "Simple"
-                    }
-                    button {
-                        class: if use_unicode() { "format-btn active" } else { "format-btn" },
-                        onclick: move |_| use_unicode.set(true),
-                        "Unicode"
+                {match ex.output {
+                    Output::Fol { simple, unicode } => rsx! {
+                        div { class: "format-toggle",
+                            button {
+                                class: if !use_unicode() { "format-btn active" } else { "format-btn" },
+                                onclick: move |_| use_unicode.set(false),
+                                "Simple"
+                            }
+                            button {
+                                class: if use_unicode() { "format-btn active" } else { "format-btn" },
+                                onclick: move |_| use_unicode.set(true),
+                                "Unicode"
+                            }
+                        }
+                        div { class: "milestone-output",
+                            if use_unicode() { "{unicode}" } else { "{simple}" }
+                        }
+                    },
+                    Output::Rust(code) => rsx! {
+                        div { class: "format-toggle",
+                            span { class: "format-btn active", "Rust" }
+                        }
+                        div { class: "milestone-output", "{code}" }
+                    },
+                    Output::Sva(code) => rsx! {
+                        div { class: "format-toggle",
+                            span { class: "format-btn active", "SVA" }
+                        }
+                        div { class: "milestone-output", "{code}" }
+                    },
+                }}
+            }
+        }
+    }
+}
+
+fn milestone_dot_icon(status: Status) -> IconVariant {
+    match status {
+        Status::Complete => IconVariant::Check,
+        Status::InProgress => IconVariant::Clock,
+        Status::Planned => IconVariant::Sparkles,
+    }
+}
+
+#[component]
+pub(crate) fn MilestoneItem(milestone: &'static Milestone) -> Element {
+    let status = milestone.status;
+    let dot_class = format!("milestone-dot {}", status.css_class());
+    let badge_class = format!("milestone-badge {}", status.css_class());
+    let tag_class = match status {
+        Status::Complete => "feature-tag done",
+        _ => "feature-tag",
+    };
+
+    rsx! {
+        div { class: "milestone",
+            div { class: "{dot_class}",
+                Icon { variant: milestone_dot_icon(status), size: IconSize::Small, color: "#fff" }
+            }
+            div { class: "milestone-content",
+                div { class: "milestone-header",
+                    span { class: "milestone-title", "{milestone.title}" }
+                    span { class: "{badge_class}", "{status.label()}" }
+                }
+                p { class: "milestone-desc", "{milestone.description}" }
+                div { class: "milestone-features",
+                    for (i, feature) in milestone.features.iter().enumerate() {
+                        span { key: "{i}", class: "{tag_class}", "{feature}" }
                     }
                 }
-                div { class: "milestone-output",
-                    if use_unicode() {
-                        "{examples[active()].3}"
-                    } else {
-                        "{examples[active()].2}"
-                    }
+                if !milestone.examples.is_empty() {
+                    MilestoneExamples { examples: milestone.examples }
                 }
             }
         }
@@ -615,223 +570,13 @@ pub fn Roadmap() -> Element {
 
             section { class: "roadmap-hero",
                 h1 { "LOGOS Roadmap" }
-                p { "From English sentences to distributed systems. A complete programming language with formal verification." }
+                span { class: "version", "v0.9.17" }
+                p { "From English sentences to a verified compilation stack: first-order logic, a native execution tier, hardware model checking, and a kernel-certified proof core." }
             }
 
             div { class: "timeline",
-                // Phase 1: Core Transpiler - DONE
-                div { class: "milestone",
-                    div { class: "milestone-dot done",
-                        Icon { variant: IconVariant::Check, size: IconSize::Small, color: "#fff" }
-                    }
-                    div { class: "milestone-content",
-                        div { class: "milestone-header",
-                            span { class: "milestone-title", "Core Transpiler" }
-                            span { class: "milestone-badge done", "Complete" }
-                        }
-                        p { class: "milestone-desc",
-                            "The foundation: parse English, produce First-Order Logic. 53+ linguistic phenomena from garden paths to discourse."
-                        }
-                        div { class: "milestone-features",
-                            span { class: "feature-tag done", "Lexer" }
-                            span { class: "feature-tag done", "Parser" }
-                            span { class: "feature-tag done", "AST" }
-                            span { class: "feature-tag done", "Transpiler" }
-                            span { class: "feature-tag done", "Quantifiers" }
-                            span { class: "feature-tag done", "Modals" }
-                            span { class: "feature-tag done", "Aspect/Tense" }
-                        }
-                        MilestoneExamples { index: 0 }
-                    }
-                }
-
-                // Phase 2: Web Platform - DONE
-                div { class: "milestone",
-                    div { class: "milestone-dot done",
-                        Icon { variant: IconVariant::Check, size: IconSize::Small, color: "#fff" }
-                    }
-                    div { class: "milestone-content",
-                        div { class: "milestone-header",
-                            span { class: "milestone-title", "Web Platform" }
-                            span { class: "milestone-badge done", "Complete" }
-                        }
-                        p { class: "milestone-desc",
-                            "Learn logic interactively. Structured curriculum, free-form studio, and gamification to keep you engaged."
-                        }
-                        div { class: "milestone-features",
-                            span { class: "feature-tag done", "Dioxus WASM" }
-                            span { class: "feature-tag done", "Learn Mode" }
-                            span { class: "feature-tag done", "Studio" }
-                            span { class: "feature-tag done", "Achievements" }
-                            span { class: "feature-tag done", "Streaks" }
-                        }
-                        MilestoneExamples { index: 1 }
-                    }
-                }
-
-                // Phase 3: Imperative Language - DONE
-                div { class: "milestone",
-                    div { class: "milestone-dot done",
-                        Icon { variant: IconVariant::Check, size: IconSize::Small, color: "#fff" }
-                    }
-                    div { class: "milestone-content",
-                        div { class: "milestone-header",
-                            span { class: "milestone-title", "Imperative Language" }
-                            span { class: "milestone-badge done", "Complete" }
-                        }
-                        p { class: "milestone-desc",
-                            "A complete programming language. Functions, structs, enums, pattern matching, standard library, and I/O."
-                        }
-                        div { class: "milestone-features",
-                            span { class: "feature-tag done", "Functions" }
-                            span { class: "feature-tag done", "Structs" }
-                            span { class: "feature-tag done", "Enums" }
-                            span { class: "feature-tag done", "Pattern Matching" }
-                            span { class: "feature-tag done", "Stdlib" }
-                            span { class: "feature-tag done", "I/O" }
-                        }
-                        MilestoneExamples { index: 2 }
-                    }
-                }
-
-                // Phase 4: Type System - DONE
-                div { class: "milestone",
-                    div { class: "milestone-dot done",
-                        Icon { variant: IconVariant::Check, size: IconSize::Small, color: "#fff" }
-                    }
-                    div { class: "milestone-content",
-                        div { class: "milestone-header",
-                            span { class: "milestone-title", "Type System" }
-                            span { class: "milestone-badge done", "Complete" }
-                        }
-                        p { class: "milestone-desc",
-                            "Refinement types, generics, and type inference. Catch bugs at compile time with English type syntax."
-                        }
-                        div { class: "milestone-features",
-                            span { class: "feature-tag done", "Refinement Types" }
-                            span { class: "feature-tag done", "Generics" }
-                            span { class: "feature-tag done", "Type Inference" }
-                            span { class: "feature-tag done", "Sum Types" }
-                            span { class: "feature-tag done", "Constraints" }
-                        }
-                        MilestoneExamples { index: 3 }
-                    }
-                }
-
-                // Phase 5: Concurrency - DONE
-                div { class: "milestone",
-                    div { class: "milestone-dot done",
-                        Icon { variant: IconVariant::Check, size: IconSize::Small, color: "#fff" }
-                    }
-                    div { class: "milestone-content",
-                        div { class: "milestone-header",
-                            span { class: "milestone-title", "Concurrency & Actors" }
-                            span { class: "milestone-badge done", "Complete" }
-                        }
-                        p { class: "milestone-desc",
-                            "Go-like concurrency with channels, agents, and structured parallelism. Select with timeout, async/await."
-                        }
-                        div { class: "milestone-features",
-                            span { class: "feature-tag done", "Channels" }
-                            span { class: "feature-tag done", "Agents" }
-                            span { class: "feature-tag done", "Tasks" }
-                            span { class: "feature-tag done", "Parallel" }
-                            span { class: "feature-tag done", "Select" }
-                        }
-                        MilestoneExamples { index: 4 }
-                    }
-                }
-
-                // Phase 6: Distributed Systems - DONE
-                div { class: "milestone",
-                    div { class: "milestone-dot done",
-                        Icon { variant: IconVariant::Check, size: IconSize::Small, color: "#fff" }
-                    }
-                    div { class: "milestone-content",
-                        div { class: "milestone-header",
-                            span { class: "milestone-title", "Distributed Systems" }
-                            span { class: "milestone-badge done", "Complete" }
-                        }
-                        p { class: "milestone-desc",
-                            "CRDTs, P2P networking, and persistent storage. Build local-first apps with automatic conflict resolution."
-                        }
-                        div { class: "milestone-features",
-                            span { class: "feature-tag done", "CRDTs" }
-                            span { class: "feature-tag done", "P2P" }
-                            span { class: "feature-tag done", "Persistence" }
-                            span { class: "feature-tag done", "GossipSub" }
-                            span { class: "feature-tag done", "Distributed<T>" }
-                        }
-                        MilestoneExamples { index: 5 }
-                    }
-                }
-
-                // Phase 7: Security & Policies - DONE
-                div { class: "milestone",
-                    div { class: "milestone-dot done",
-                        Icon { variant: IconVariant::Check, size: IconSize::Small, color: "#fff" }
-                    }
-                    div { class: "milestone-content",
-                        div { class: "milestone-header",
-                            span { class: "milestone-title", "Security & Policies" }
-                            span { class: "milestone-badge done", "Complete" }
-                        }
-                        p { class: "milestone-desc",
-                            "Capability-based security with policy blocks. Define who can do what in plain English."
-                        }
-                        div { class: "milestone-features",
-                            span { class: "feature-tag done", "Policy Blocks" }
-                            span { class: "feature-tag done", "Capabilities" }
-                            span { class: "feature-tag done", "Check Guards" }
-                            span { class: "feature-tag done", "Predicates" }
-                        }
-                        MilestoneExamples { index: 6 }
-                    }
-                }
-
-                // Phase 8: Proof Assistant - DONE
-                div { class: "milestone",
-                    div { class: "milestone-dot done",
-                        Icon { variant: IconVariant::Check, size: IconSize::Small, color: "#fff" }
-                    }
-                    div { class: "milestone-content",
-                        div { class: "milestone-header",
-                            span { class: "milestone-title", "Proof Assistant" }
-                            span { class: "milestone-badge done", "Complete" }
-                        }
-                        p { class: "milestone-desc",
-                            "Curry-Howard in English. Trust statements, termination proofs, and optional Z3 verification."
-                        }
-                        div { class: "milestone-features",
-                            span { class: "feature-tag done", "Trust Statements" }
-                            span { class: "feature-tag done", "Termination Proofs" }
-                            span { class: "feature-tag done", "Z3 Integration" }
-                            span { class: "feature-tag done", "Auto Tactic" }
-                            span { class: "feature-tag done", "Induction" }
-                        }
-                        MilestoneExamples { index: 7 }
-                    }
-                }
-
-                // Phase 9: Universal Compilation - IN PROGRESS
-                div { class: "milestone",
-                    div { class: "milestone-dot progress",
-                        Icon { variant: IconVariant::Clock, size: IconSize::Small, color: "#fff" }
-                    }
-                    div { class: "milestone-content",
-                        div { class: "milestone-header",
-                            span { class: "milestone-title", "Universal Compilation" }
-                            span { class: "milestone-badge progress", "In Progress" }
-                        }
-                        p { class: "milestone-desc",
-                            "Compile to WASM for the web. The Live Codex IDE for real-time proof visualization."
-                        }
-                        div { class: "milestone-features",
-                            span { class: "feature-tag", "WASM Target" }
-                            span { class: "feature-tag", "Live Codex IDE" }
-                        }
-                        MilestoneExamples { index: 8 }
-                    }
+                for (i, milestone) in get_milestones().iter().enumerate() {
+                    MilestoneItem { key: "{i}", milestone }
                 }
             }
 

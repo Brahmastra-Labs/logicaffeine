@@ -86,22 +86,26 @@ fn pinned_chains_match_reference_on_random_programs() {
         for (i, rf) in ref_frame.iter_mut().enumerate() {
             *rf = (i as i64 + 1) * 1_000_003 - 7;
         }
-        let expected = reference_eval(&ops, &mut ref_frame.clone(), 10_000)
-            .expect("straightline program terminates");
+        // Integer math is EXACT: `reference_eval` returns None on i64 overflow, which
+        // the native chain matches with a side-exit (deopt). `Some` ⟺ Return.
+        let expected = reference_eval(&ops, &mut ref_frame.clone(), 10_000);
         // Pin rotations: none, the first four, a shifted four.
         let pin_sets: [&[u16]; 3] = [&[], &[0, 1, 2, 3], &[2, 3, 4, 5]];
         for pins in pin_sets {
             let chain = compile_straightline_pinned(&ops, pins)
                 .expect("pinned chain must compile");
             let mut frame = ref_frame.clone();
-            match chain.run_with_frame(&mut frame) {
-                ChainOutcome::Return(v) => {
-                    assert_eq!(
-                        v, expected,
-                        "seed {seed}, pins {pins:?}: pinned chain diverged"
-                    );
-                }
-                ChainOutcome::Deopt(_) => panic!("seed {seed}: unexpected deopt"),
+            match (chain.run_with_frame(&mut frame), expected) {
+                (ChainOutcome::Return(v), Some(e)) => assert_eq!(
+                    v, e,
+                    "seed {seed}, pins {pins:?}: pinned chain diverged"
+                ),
+                // Overflow: the native chain side-exits and the exact reference is
+                // None — they AGREE that the program leaves the i64 fast path.
+                (ChainOutcome::Deopt(_), None) => {}
+                (out, exp) => panic!(
+                    "seed {seed}, pins {pins:?}: overflow disagreement out={out:?} ref={exp:?}"
+                ),
             }
         }
     }
@@ -1140,19 +1144,28 @@ mod contiguous_backend {
                     *f = (i as i64 + 1).wrapping_mul(2_654_435_761) ^ 0x55;
                 }
                 let mut ref_frame = frame.clone();
-                let expected = reference_eval(&ops, &mut ref_frame, 1_000_000)
-                    .expect("terminates");
+                // EXACT integer math: `reference_eval` returns None on i64 overflow,
+                // which the native chain matches with a side-exit (deopt).
+                let expected = reference_eval(&ops, &mut ref_frame, 1_000_000);
 
                 let (rout, rframe) = run_regalloc(&ops, &frame);
-                assert_eq!(
-                    rout,
-                    ChainOutcome::Return(expected),
-                    "slots={slots} seed={seed}: regalloc return diverged"
-                );
-                assert_eq!(
-                    rframe, ref_frame,
-                    "slots={slots} seed={seed}: regalloc frame diverged"
-                );
+                match expected {
+                    Some(e) => {
+                        assert_eq!(
+                            rout,
+                            ChainOutcome::Return(e),
+                            "slots={slots} seed={seed}: regalloc return diverged"
+                        );
+                        assert_eq!(
+                            rframe, ref_frame,
+                            "slots={slots} seed={seed}: regalloc frame diverged"
+                        );
+                    }
+                    None => assert!(
+                        rout.is_deopt(),
+                        "slots={slots} seed={seed}: overflow must deopt, got {rout:?}"
+                    ),
+                }
             }
         }
     }
@@ -1210,7 +1223,7 @@ mod contiguous_backend {
         // while i <= n: acc += arr[i]; i += 1
         let ops = vec![
             MicroOp::Branch { cmp: Cmp::LtEq, lhs: 0, rhs: 2, target: 5 }, // i<=n
-            MicroOp::ArrLoad { dst: 3, idx: 0, ptr_slot: 4, len_slot: 5, byte: false, checked: true },
+            MicroOp::ArrLoad { dst: 3, idx: 0, ptr_slot: 4, len_slot: 5, byte: false, narrow32: false, checked: true },
             MicroOp::Add { dst: 1, lhs: 1, rhs: 3 }, // acc += arr[i]
             MicroOp::Add { dst: 0, lhs: 0, rhs: 6 }, // i += 1
             MicroOp::Jump { target: 0 },
@@ -1236,7 +1249,7 @@ mod contiguous_backend {
         let ops = vec![
             MicroOp::Branch { cmp: Cmp::LtEq, lhs: 0, rhs: 1, target: 5 },
             MicroOp::Mul { dst: 2, lhs: 0, rhs: 0 }, // val = i*i
-            MicroOp::ArrStore { src: 2, idx: 0, ptr_slot: 3, len_slot: 4, byte: false, checked: true },
+            MicroOp::ArrStore { src: 2, idx: 0, ptr_slot: 3, len_slot: 4, byte: false, narrow32: false, checked: true },
             MicroOp::Add { dst: 0, lhs: 0, rhs: 5 },
             MicroOp::Jump { target: 0 },
             MicroOp::LoadConst { dst: 2, value: 0 },
@@ -1278,8 +1291,8 @@ mod contiguous_backend {
             MicroOp::Sub { dst: 4, lhs: 1, rhs: 6 },                        // 7 c-1
             MicroOp::Mul { dst: 4, lhs: 4, rhs: 2 },                        // 8 (c-1)*n
             MicroOp::Add { dst: 4, lhs: 4, rhs: 0 },                        // 9 +r
-            MicroOp::ArrLoad { dst: 5, idx: 3, ptr_slot: 7, len_slot: 8, byte: false, checked: true }, // 10
-            MicroOp::ArrStore { src: 5, idx: 4, ptr_slot: 9, len_slot: 10, byte: false, checked: true }, // 11
+            MicroOp::ArrLoad { dst: 5, idx: 3, ptr_slot: 7, len_slot: 8, byte: false, narrow32: false, checked: true }, // 10
+            MicroOp::ArrStore { src: 5, idx: 4, ptr_slot: 9, len_slot: 10, byte: false, narrow32: false, checked: true }, // 11
             MicroOp::Add { dst: 1, lhs: 1, rhs: 11 }, // c += 1               12
             MicroOp::Jump { target: 2 },              //                      13
             MicroOp::Add { dst: 0, lhs: 0, rhs: 11 }, // r += 1               14
@@ -1318,10 +1331,10 @@ mod contiguous_backend {
         // while lo < hi: t=a[lo]; a[lo]=a[hi]; a[hi]=t; lo+=1; hi-=1
         let ops = vec![
             MicroOp::Branch { cmp: Cmp::Lt, lhs: 0, rhs: 1, target: 9 }, // 0
-            MicroOp::ArrLoad { dst: 2, idx: 0, ptr_slot: 4, len_slot: 5, byte: false, checked: true }, // 1 t=a[lo]
-            MicroOp::ArrLoad { dst: 3, idx: 1, ptr_slot: 4, len_slot: 5, byte: false, checked: true }, // 2 u=a[hi]
-            MicroOp::ArrStore { src: 3, idx: 0, ptr_slot: 4, len_slot: 5, byte: false, checked: true }, // 3 a[lo]=u
-            MicroOp::ArrStore { src: 2, idx: 1, ptr_slot: 4, len_slot: 5, byte: false, checked: true }, // 4 a[hi]=t
+            MicroOp::ArrLoad { dst: 2, idx: 0, ptr_slot: 4, len_slot: 5, byte: false, narrow32: false, checked: true }, // 1 t=a[lo]
+            MicroOp::ArrLoad { dst: 3, idx: 1, ptr_slot: 4, len_slot: 5, byte: false, narrow32: false, checked: true }, // 2 u=a[hi]
+            MicroOp::ArrStore { src: 3, idx: 0, ptr_slot: 4, len_slot: 5, byte: false, narrow32: false, checked: true }, // 3 a[lo]=u
+            MicroOp::ArrStore { src: 2, idx: 1, ptr_slot: 4, len_slot: 5, byte: false, narrow32: false, checked: true }, // 4 a[hi]=t
             MicroOp::Add { dst: 0, lhs: 0, rhs: 6 }, // 5 lo += 1
             MicroOp::Sub { dst: 1, lhs: 1, rhs: 6 }, // 6 hi -= 1
             MicroOp::Jump { target: 0 },             // 7
@@ -1349,7 +1362,7 @@ mod contiguous_backend {
     fn array_oob_load_side_exit_matches() {
         // arr has len 4; index 5 is OOB → must side-exit before writing dst.
         let ops = vec![
-            MicroOp::ArrLoad { dst: 1, idx: 0, ptr_slot: 2, len_slot: 3, byte: false, checked: true },
+            MicroOp::ArrLoad { dst: 1, idx: 0, ptr_slot: 2, len_slot: 3, byte: false, narrow32: false, checked: true },
             MicroOp::Return { src: 1 },
         ];
         let mut buf = vec![10i64, 20, 30, 40];
@@ -1385,7 +1398,7 @@ mod contiguous_backend {
     fn array_oob_store_side_exit_no_effect() {
         // store into index 0 (1-based → im1 = -1, OOB) must not write.
         let ops = vec![
-            MicroOp::ArrStore { src: 1, idx: 0, ptr_slot: 2, len_slot: 3, byte: false, checked: true },
+            MicroOp::ArrStore { src: 1, idx: 0, ptr_slot: 2, len_slot: 3, byte: false, narrow32: false, checked: true },
             MicroOp::Return { src: 1 },
         ];
         let mut buf = vec![1i64, 2, 3, 4];
@@ -1408,8 +1421,8 @@ mod contiguous_backend {
         // a[i] (unchecked) copied to b[i] (unchecked) across a known-safe range.
         let ops = vec![
             MicroOp::Branch { cmp: Cmp::LtEq, lhs: 0, rhs: 1, target: 5 },
-            MicroOp::ArrLoad { dst: 2, idx: 0, ptr_slot: 3, len_slot: 4, byte: false, checked: false },
-            MicroOp::ArrStore { src: 2, idx: 0, ptr_slot: 5, len_slot: 6, byte: false, checked: false },
+            MicroOp::ArrLoad { dst: 2, idx: 0, ptr_slot: 3, len_slot: 4, byte: false, narrow32: false, checked: false },
+            MicroOp::ArrStore { src: 2, idx: 0, ptr_slot: 5, len_slot: 6, byte: false, narrow32: false, checked: false },
             MicroOp::Add { dst: 0, lhs: 0, rhs: 7 },
             MicroOp::Jump { target: 0 },
             MicroOp::LoadConst { dst: 2, value: 0 },
@@ -1484,8 +1497,8 @@ mod contiguous_backend {
     fn byte_array_load_store_now_regallocs() {
         // a load AND a store over a Seq of Bool buffer in one region.
         let ops = vec![
-            MicroOp::ArrLoad { dst: 1, idx: 0, ptr_slot: 2, len_slot: 3, byte: true, checked: true },
-            MicroOp::ArrStore { src: 1, idx: 0, ptr_slot: 2, len_slot: 3, byte: true, checked: true },
+            MicroOp::ArrLoad { dst: 1, idx: 0, ptr_slot: 2, len_slot: 3, byte: true, narrow32: false, checked: true },
+            MicroOp::ArrStore { src: 1, idx: 0, ptr_slot: 2, len_slot: 3, byte: true, narrow32: false, checked: true },
             MicroOp::Return { src: 1 },
         ];
         assert!(
@@ -1503,7 +1516,7 @@ mod contiguous_backend {
         // while i <= n: v = flags[i]; if v == 0 { count += 1 }; i += 1
         let ops = vec![
             MicroOp::Branch { cmp: Cmp::LtEq, lhs: 0, rhs: 2, target: 8 }, // 0
-            MicroOp::ArrLoad { dst: 3, idx: 0, ptr_slot: 4, len_slot: 5, byte: true, checked: true }, // 1
+            MicroOp::ArrLoad { dst: 3, idx: 0, ptr_slot: 4, len_slot: 5, byte: true, narrow32: false, checked: true }, // 1
             MicroOp::Eq { dst: 8, lhs: 3, rhs: 7 }, // 2 isclear = (v == 0)
             MicroOp::JumpIfFalse { cond: 8, target: 5 }, // 3
             MicroOp::Add { dst: 1, lhs: 1, rhs: 6 }, // 4 count += 1
@@ -1536,7 +1549,7 @@ mod contiguous_backend {
         // while j <= limit: flags[j] = true; j += step
         let ops = vec![
             MicroOp::Branch { cmp: Cmp::LtEq, lhs: 0, rhs: 1, target: 4 }, // 0
-            MicroOp::ArrStore { src: 3, idx: 0, ptr_slot: 4, len_slot: 5, byte: true, checked: true }, // 1
+            MicroOp::ArrStore { src: 3, idx: 0, ptr_slot: 4, len_slot: 5, byte: true, narrow32: false, checked: true }, // 1
             MicroOp::Add { dst: 0, lhs: 0, rhs: 2 }, // 2 j += step
             MicroOp::Jump { target: 0 },             // 3
             MicroOp::Return { src: 0 },              // 4
@@ -1570,7 +1583,7 @@ mod contiguous_backend {
     fn byte_array_store_normalizes_to_zero_one() {
         // frame: 0=idx(=1) 1=val 2=ptr 3=len ; store val into cell 1.
         let ops = vec![
-            MicroOp::ArrStore { src: 1, idx: 0, ptr_slot: 2, len_slot: 3, byte: true, checked: true },
+            MicroOp::ArrStore { src: 1, idx: 0, ptr_slot: 2, len_slot: 3, byte: true, narrow32: false, checked: true },
             MicroOp::Return { src: 1 },
         ];
         for (val, want) in [
@@ -1598,7 +1611,7 @@ mod contiguous_backend {
     fn byte_array_load_zero_extends() {
         // frame: 0=idx 1=dst 2=ptr 3=len ; dst = flags[idx] (byte).
         let ops = vec![
-            MicroOp::ArrLoad { dst: 1, idx: 0, ptr_slot: 2, len_slot: 3, byte: true, checked: true },
+            MicroOp::ArrLoad { dst: 1, idx: 0, ptr_slot: 2, len_slot: 3, byte: true, narrow32: false, checked: true },
             MicroOp::Return { src: 1 },
         ];
         // A buffer with 0xFF in it: a SIGN-extending load would give -1; a
@@ -1620,7 +1633,7 @@ mod contiguous_backend {
     fn byte_array_oob_side_exit_matches() {
         // OOB load: index 6 into a len-5 buffer.
         let load_ops = vec![
-            MicroOp::ArrLoad { dst: 1, idx: 0, ptr_slot: 2, len_slot: 3, byte: true, checked: true },
+            MicroOp::ArrLoad { dst: 1, idx: 0, ptr_slot: 2, len_slot: 3, byte: true, narrow32: false, checked: true },
             MicroOp::Return { src: 1 },
         ];
         let mut buf = vec![1u8, 0, 1, 0, 1];
@@ -1635,7 +1648,7 @@ mod contiguous_backend {
 
         // OOB store: index 0 (1-based → im1 = -1) must not write.
         let store_ops = vec![
-            MicroOp::ArrStore { src: 1, idx: 0, ptr_slot: 2, len_slot: 3, byte: true, checked: true },
+            MicroOp::ArrStore { src: 1, idx: 0, ptr_slot: 2, len_slot: 3, byte: true, narrow32: false, checked: true },
             MicroOp::Return { src: 1 },
         ];
         let before = buf.clone();
@@ -1659,9 +1672,9 @@ mod contiguous_backend {
         // while i <= n: t = arr[i]; ispos = (t > 0); flags[i] = ispos; i += 1
         let ops = vec![
             MicroOp::Branch { cmp: Cmp::LtEq, lhs: 0, rhs: 1, target: 7 }, // 0
-            MicroOp::ArrLoad { dst: 2, idx: 0, ptr_slot: 6, len_slot: 7, byte: false, checked: true }, // 1
+            MicroOp::ArrLoad { dst: 2, idx: 0, ptr_slot: 6, len_slot: 7, byte: false, narrow32: false, checked: true }, // 1
             MicroOp::Gt { dst: 4, lhs: 2, rhs: 3 }, // 2 ispos = (t > 0)
-            MicroOp::ArrStore { src: 4, idx: 0, ptr_slot: 8, len_slot: 9, byte: true, checked: true }, // 3
+            MicroOp::ArrStore { src: 4, idx: 0, ptr_slot: 8, len_slot: 9, byte: true, narrow32: false, checked: true }, // 3
             MicroOp::Add { dst: 0, lhs: 0, rhs: 5 }, // 4 i += 1
             MicroOp::Jump { target: 0 },             // 5
             MicroOp::LoadConst { dst: 2, value: 0 }, // 6 filler
@@ -1721,8 +1734,8 @@ mod contiguous_backend {
         let ops = vec![
             MicroOp::Branch { cmp: Cmp::LtEq, lhs: 0, rhs: 1, target: 7 }, // 0
             MicroOp::Add { dst: 3, lhs: 2, rhs: 0 }, // 1 gidx = v_start + e
-            MicroOp::ArrLoad { dst: 4, idx: 3, ptr_slot: 6, len_slot: 7, byte: false, checked: true }, // 2 val = adj[gidx]
-            MicroOp::ArrStore { src: 4, idx: 0, ptr_slot: 8, len_slot: 9, byte: false, checked: true }, // 3 out[e] = val
+            MicroOp::ArrLoad { dst: 4, idx: 3, ptr_slot: 6, len_slot: 7, byte: false, narrow32: false, checked: true }, // 2 val = adj[gidx]
+            MicroOp::ArrStore { src: 4, idx: 0, ptr_slot: 8, len_slot: 9, byte: false, narrow32: false, checked: true }, // 3 out[e] = val
             MicroOp::Add { dst: 0, lhs: 0, rhs: 5 }, // 4 e += 1
             MicroOp::Jump { target: 0 },             // 5
             MicroOp::LoadConst { dst: 4, value: 0 }, // 6 filler
@@ -2211,7 +2224,7 @@ mod contiguous_backend {
         // while i <= n: elem = arr[i]; acc = acc + elem; i += 1
         let ops = vec![
             MicroOp::Branch { cmp: Cmp::LtEq, lhs: 0, rhs: 1, target: 5 },
-            MicroOp::ArrLoad { dst: 3, idx: 0, ptr_slot: 5, len_slot: 6, byte: false, checked: true },
+            MicroOp::ArrLoad { dst: 3, idx: 0, ptr_slot: 5, len_slot: 6, byte: false, narrow32: false, checked: true },
             MicroOp::AddF { dst: 4, lhs: 4, rhs: 3 },
             MicroOp::Add { dst: 0, lhs: 0, rhs: 2 },
             MicroOp::Jump { target: 0 },
@@ -2239,7 +2252,7 @@ mod contiguous_backend {
             MicroOp::Branch { cmp: Cmp::LtEq, lhs: 0, rhs: 1, target: 6 },
             MicroOp::IntToFloat { dst: 3, src: 0 },
             MicroOp::MulF { dst: 5, lhs: 3, rhs: 4 }, // i_f * 0.25
-            MicroOp::ArrStore { src: 5, idx: 0, ptr_slot: 6, len_slot: 7, byte: false, checked: true },
+            MicroOp::ArrStore { src: 5, idx: 0, ptr_slot: 6, len_slot: 7, byte: false, narrow32: false, checked: true },
             MicroOp::Add { dst: 0, lhs: 0, rhs: 2 },
             MicroOp::Jump { target: 0 },
             MicroOp::Return { src: 0 },
@@ -2406,6 +2419,7 @@ mod contiguous_backend {
                 len_slot: 6,
                 helper_addr: push_i64_addr(),
                 byte: false,
+                narrow32: false,
             }, // 3
             MicroOp::Add { dst: 0, lhs: 0, rhs: 7 }, // 4 i += 1
             MicroOp::Jump { target: 0 },             // 5
@@ -2448,9 +2462,9 @@ mod contiguous_backend {
             MicroOp::ListClear { vec_slot: 8, ptr_slot: 9, len_slot: 10, helper_addr: clear_i64_addr() }, // 1 clear curr(q)
             MicroOp::LoadConst { dst: 2, value: 1 }, // 2  c = 1
             MicroOp::Branch { cmp: Cmp::LtEq, lhs: 2, rhs: 3, target: 11 }, // 3 while c<=cols
-            MicroOp::ArrLoad { dst: 11, idx: 2, ptr_slot: 5, len_slot: 6, byte: false, checked: true }, // 4 elem=prev[c]
+            MicroOp::ArrLoad { dst: 11, idx: 2, ptr_slot: 5, len_slot: 6, byte: false, narrow32: false, checked: true }, // 4 elem=prev[c]
             MicroOp::Add { dst: 11, lhs: 11, rhs: 0 }, // 5 elem += r
-            MicroOp::ArrPush { src: 11, vec_slot: 8, ptr_slot: 9, len_slot: 10, helper_addr: push_i64_addr(), byte: false }, // 6 push elem to q
+            MicroOp::ArrPush { src: 11, vec_slot: 8, ptr_slot: 9, len_slot: 10, helper_addr: push_i64_addr(), byte: false, narrow32: false }, // 6 push elem to q
             MicroOp::Add { dst: 2, lhs: 2, rhs: 12 }, // 7 c += 1
             MicroOp::Jump { target: 3 },              // 8
             MicroOp::LoadConst { dst: 7, value: 0 },  // 9 filler
@@ -2458,8 +2472,8 @@ mod contiguous_backend {
             MicroOp::ListClear { vec_slot: 4, ptr_slot: 5, len_slot: 6, helper_addr: clear_i64_addr() }, // 11 clear prev(p)
             MicroOp::LoadConst { dst: 2, value: 1 }, // 12 c = 1
             MicroOp::Branch { cmp: Cmp::LtEq, lhs: 2, rhs: 3, target: 20 }, // 13 while c<=cols
-            MicroOp::ArrLoad { dst: 11, idx: 2, ptr_slot: 9, len_slot: 10, byte: false, checked: true }, // 14 elem=q[c]
-            MicroOp::ArrPush { src: 11, vec_slot: 4, ptr_slot: 5, len_slot: 6, helper_addr: push_i64_addr(), byte: false }, // 15 push to prev
+            MicroOp::ArrLoad { dst: 11, idx: 2, ptr_slot: 9, len_slot: 10, byte: false, narrow32: false, checked: true }, // 14 elem=q[c]
+            MicroOp::ArrPush { src: 11, vec_slot: 4, ptr_slot: 5, len_slot: 6, helper_addr: push_i64_addr(), byte: false, narrow32: false }, // 15 push to prev
             MicroOp::Add { dst: 2, lhs: 2, rhs: 12 }, // 16 c += 1
             MicroOp::Jump { target: 13 },             // 17
             MicroOp::LoadConst { dst: 7, value: 0 },  // 18 filler
@@ -2510,12 +2524,12 @@ mod contiguous_backend {
         // frame: 0=i 1=n 2=q_vec 3=q_ptr 4=q_len 5=head 6=acc 7=elem 8=one
         let ops = vec![
             MicroOp::Branch { cmp: Cmp::LtEq, lhs: 0, rhs: 1, target: 5 }, // 0 while i<=n
-            MicroOp::ArrPush { src: 0, vec_slot: 2, ptr_slot: 3, len_slot: 4, helper_addr: push_i64_addr(), byte: false }, // 1
+            MicroOp::ArrPush { src: 0, vec_slot: 2, ptr_slot: 3, len_slot: 4, helper_addr: push_i64_addr(), byte: false, narrow32: false }, // 1
             MicroOp::Add { dst: 0, lhs: 0, rhs: 8 }, // 2 i += 1
             MicroOp::Jump { target: 0 },             // 3
             MicroOp::LoadConst { dst: 7, value: 0 }, // 4 filler
             MicroOp::Branch { cmp: Cmp::LtEq, lhs: 5, rhs: 4, target: 11 }, // 5 while head<=len
-            MicroOp::ArrLoad { dst: 7, idx: 5, ptr_slot: 3, len_slot: 4, byte: false, checked: true }, // 6 elem=queue[head]
+            MicroOp::ArrLoad { dst: 7, idx: 5, ptr_slot: 3, len_slot: 4, byte: false, narrow32: false, checked: true }, // 6 elem=queue[head]
             MicroOp::Add { dst: 6, lhs: 6, rhs: 7 }, // 7 acc += elem
             MicroOp::Add { dst: 5, lhs: 5, rhs: 8 }, // 8 head += 1
             MicroOp::Jump { target: 5 },             // 9
@@ -2560,6 +2574,7 @@ mod contiguous_backend {
                 len_slot: 7,
                 helper_addr: logicaffeine_jit::logos_rt_push_f64 as usize as i64,
                 byte: false,
+                narrow32: false,
             }, // 3
             MicroOp::Add { dst: 0, lhs: 0, rhs: 8 }, // 4 i += 1
             MicroOp::Jump { target: 0 },             // 5
@@ -2919,9 +2934,17 @@ mod contiguous_backend {
     // ----------------------------------------------------------------
 
     /// The compute-heavy kernel: ~10 dependent arithmetic ops per iteration
-    /// (a polynomial accumulation `s = ((s*A + i*B - C) ^ MASK) * A`) over many
+    /// (a polynomial accumulation `s = ((s*A + i*B - C) & MASK) * A`) over many
     /// iterations. This is the shape the per-piece tier pays the most for (10
     /// pieces/iter, each with ABI/operand overhead at every boundary).
+    ///
+    /// The accumulator is bit-masked each iteration (`& MASK`, MASK = 0xFFFF) and the
+    /// multipliers are kept small, so every intermediate stays well inside i64. That is
+    /// deliberate: integer add/sub/mul are now EXACT (they side-exit on signed overflow so
+    /// the VM can promote to BigInt — `needs_deopt` in regalloc.rs / `*3` stencils), and a
+    /// kernel that overflowed would deopt mid-loop instead of running to completion, which
+    /// would defeat a *codegen-speed* measurement. Bounding it keeps both tiers returning a
+    /// value (and bit-identical), measuring pure i64 codegen — exactly this benchmark's job.
     fn poly_kernel() -> (Vec<MicroOp>, Vec<i64>) {
         // slots: 0=i 1=N 2=s 3=A 4=B 5=C 6=MASK 7=t 8=u 9=one
         let ops = vec![
@@ -2930,7 +2953,7 @@ mod contiguous_backend {
             MicroOp::Mul { dst: 8, lhs: 0, rhs: 4 },                       // u = i*B
             MicroOp::Add { dst: 7, lhs: 7, rhs: 8 },                       // t += u
             MicroOp::Sub { dst: 2, lhs: 7, rhs: 5 },                       // s = t - C
-            MicroOp::BitXor { dst: 2, lhs: 2, rhs: 6 },                    // s ^= MASK
+            MicroOp::BitAnd { dst: 2, lhs: 2, rhs: 6 },                    // s &= MASK (bound s)
             MicroOp::Mul { dst: 2, lhs: 2, rhs: 3 },                       // s *= A
             MicroOp::LoadConst { dst: 9, value: 1 },
             MicroOp::Add { dst: 0, lhs: 0, rhs: 9 }, // i += 1
@@ -2941,10 +2964,10 @@ mod contiguous_backend {
             0i64,
             60_000_000, // N
             1,          // s
-            6364136223846793005u64 as i64, // A
-            1442695040888963407u64 as i64, // B
+            1_000_003,  // A — small multiplier: with s masked to 16 bits, s*A stays < 2^57
+            1_000_033,  // B — small multiplier: i*B over i<N=6e7 stays < 2^57
             12345,      // C
-            0x5DEECE66D,// MASK
+            0xFFFF,     // MASK — bound s to 16 bits each iteration (no i64 overflow)
             0,
             0,
             0,
@@ -3128,6 +3151,7 @@ mod contiguous_backend {
                 ptr_slot: in_ptr[k],
                 len_slot: in_len[k],
                 byte: false,
+                narrow32: false,
                 checked: true,
             });
         }
@@ -3137,11 +3161,11 @@ mod contiguous_backend {
         }
         ops.push(MicroOp::Add { dst: 9, lhs: 9, rhs: 2 }); // acc += s
         // x[i]=s ; y[i]=s+1 ; z[i]=s+2 (three stores at index i).
-        ops.push(MicroOp::ArrStore { src: 2, idx: 0, ptr_slot: 25, len_slot: 26, byte: false, checked: true });
+        ops.push(MicroOp::ArrStore { src: 2, idx: 0, ptr_slot: 25, len_slot: 26, byte: false, narrow32: false, checked: true });
         ops.push(MicroOp::Add { dst: 3, lhs: 2, rhs: one }); // s+1
-        ops.push(MicroOp::ArrStore { src: 3, idx: 0, ptr_slot: 27, len_slot: 28, byte: false, checked: true });
+        ops.push(MicroOp::ArrStore { src: 3, idx: 0, ptr_slot: 27, len_slot: 28, byte: false, narrow32: false, checked: true });
         ops.push(MicroOp::Add { dst: 4, lhs: 3, rhs: one }); // s+2
-        ops.push(MicroOp::ArrStore { src: 4, idx: 0, ptr_slot: 29, len_slot: 30, byte: false, checked: true });
+        ops.push(MicroOp::ArrStore { src: 4, idx: 0, ptr_slot: 29, len_slot: 30, byte: false, narrow32: false, checked: true });
         ops.push(MicroOp::Add { dst: 0, lhs: 0, rhs: one }); // i += 1
         let jump_back = ops.len();
         ops.push(MicroOp::Jump { target: 0 });
@@ -3221,9 +3245,9 @@ mod contiguous_backend {
         // body: ti=a[i]; tj=a[j]; ti2=a[i]; acc += ti+tj+ti2; i+=1; j-=1
         let ops = vec![
             MicroOp::Branch { cmp: Cmp::Lt, lhs: 0, rhs: 1, target: 12 }, // 0  while i < j
-            MicroOp::ArrLoad { dst: 3, idx: 0, ptr_slot: 7, len_slot: 8, byte: false, checked: true }, // 1 a[i]
-            MicroOp::ArrLoad { dst: 4, idx: 1, ptr_slot: 7, len_slot: 8, byte: false, checked: true }, // 2 a[j]
-            MicroOp::ArrLoad { dst: 5, idx: 0, ptr_slot: 7, len_slot: 8, byte: false, checked: true }, // 3 a[i] again
+            MicroOp::ArrLoad { dst: 3, idx: 0, ptr_slot: 7, len_slot: 8, byte: false, narrow32: false, checked: true }, // 1 a[i]
+            MicroOp::ArrLoad { dst: 4, idx: 1, ptr_slot: 7, len_slot: 8, byte: false, narrow32: false, checked: true }, // 2 a[j]
+            MicroOp::ArrLoad { dst: 5, idx: 0, ptr_slot: 7, len_slot: 8, byte: false, narrow32: false, checked: true }, // 3 a[i] again
             MicroOp::Add { dst: 3, lhs: 3, rhs: 4 },  // 4 ti+tj
             MicroOp::Add { dst: 3, lhs: 3, rhs: 5 },  // 5 +ti2
             MicroOp::Add { dst: 6, lhs: 6, rhs: 3 },  // 6 acc += ...
@@ -3267,10 +3291,10 @@ mod contiguous_backend {
         // ops: t=a[i]; a[i]=t (no-op write); i=a[i] (overwrite index!);
         //      t2=a[i]; return t2
         let ops = vec![
-            MicroOp::ArrLoad { dst: 1, idx: 0, ptr_slot: 3, len_slot: 4, byte: false, checked: true }, // 0 t=a[i]
-            MicroOp::ArrStore { src: 1, idx: 0, ptr_slot: 3, len_slot: 4, byte: false, checked: true }, // 1 a[i]=t
-            MicroOp::ArrLoad { dst: 0, idx: 0, ptr_slot: 3, len_slot: 4, byte: false, checked: true }, // 2 i=a[i]  (writes idx slot 0)
-            MicroOp::ArrLoad { dst: 2, idx: 0, ptr_slot: 3, len_slot: 4, byte: false, checked: true }, // 3 t2=a[i] (NEW i)
+            MicroOp::ArrLoad { dst: 1, idx: 0, ptr_slot: 3, len_slot: 4, byte: false, narrow32: false, checked: true }, // 0 t=a[i]
+            MicroOp::ArrStore { src: 1, idx: 0, ptr_slot: 3, len_slot: 4, byte: false, narrow32: false, checked: true }, // 1 a[i]=t
+            MicroOp::ArrLoad { dst: 0, idx: 0, ptr_slot: 3, len_slot: 4, byte: false, narrow32: false, checked: true }, // 2 i=a[i]  (writes idx slot 0)
+            MicroOp::ArrLoad { dst: 2, idx: 0, ptr_slot: 3, len_slot: 4, byte: false, narrow32: false, checked: true }, // 3 t2=a[i] (NEW i)
             MicroOp::Return { src: 2 },                                                                  // 4
         ];
         // a = [3, 1, 4, 1, 5, 9, 2, 6]; start i=2 (1-based). a[2]=1, so i becomes
@@ -3303,10 +3327,10 @@ mod contiguous_backend {
             MicroOp::Sub { dst: 3, lhs: 0, rhs: 13 },                       // 3 r-1
             MicroOp::Mul { dst: 3, lhs: 3, rhs: 2 },                        // 4 (r-1)*n
             MicroOp::Add { dst: 3, lhs: 3, rhs: 1 },                        // 5 +col -> lin
-            MicroOp::ArrLoad { dst: 4, idx: 3, ptr_slot: 7, len_slot: 8, byte: false, checked: true }, // 6 va=a[lin]
-            MicroOp::ArrLoad { dst: 5, idx: 3, ptr_slot: 9, len_slot: 10, byte: false, checked: true }, // 7 vb=b[lin]
+            MicroOp::ArrLoad { dst: 4, idx: 3, ptr_slot: 7, len_slot: 8, byte: false, narrow32: false, checked: true }, // 6 va=a[lin]
+            MicroOp::ArrLoad { dst: 5, idx: 3, ptr_slot: 9, len_slot: 10, byte: false, narrow32: false, checked: true }, // 7 vb=b[lin]
             MicroOp::Add { dst: 6, lhs: 4, rhs: 5 },                        // 8 t = va+vb
-            MicroOp::ArrStore { src: 6, idx: 3, ptr_slot: 11, len_slot: 12, byte: false, checked: true }, // 9 c[lin]=t
+            MicroOp::ArrStore { src: 6, idx: 3, ptr_slot: 11, len_slot: 12, byte: false, narrow32: false, checked: true }, // 9 c[lin]=t
             MicroOp::Add { dst: 1, lhs: 1, rhs: 13 },                       // 10 col+=1
             MicroOp::Jump { target: 2 },                                    // 11
             MicroOp::LoadConst { dst: 6, value: 0 },                        // 12 filler
@@ -3369,8 +3393,8 @@ mod contiguous_backend {
         // t=a[i] (len 8, valid); b[i]=t (len 4, OOB at i=5) -> must deopt before
         // writing b, and a is untouched after the load (read-only).
         let ops = vec![
-            MicroOp::ArrLoad { dst: 2, idx: 0, ptr_slot: 3, len_slot: 4, byte: false, checked: true }, // a[i]
-            MicroOp::ArrStore { src: 2, idx: 0, ptr_slot: 5, len_slot: 6, byte: false, checked: true }, // b[i] OOB
+            MicroOp::ArrLoad { dst: 2, idx: 0, ptr_slot: 3, len_slot: 4, byte: false, narrow32: false, checked: true }, // a[i]
+            MicroOp::ArrStore { src: 2, idx: 0, ptr_slot: 5, len_slot: 6, byte: false, narrow32: false, checked: true }, // b[i] OOB
             MicroOp::Return { src: 2 },
         ];
         let mut a = vec![10i64, 20, 30, 40, 50, 60, 70, 80];
@@ -3404,8 +3428,8 @@ mod contiguous_backend {
         // frame: 0=i 1=n 2=v1 3=v2 4=acc 5=p1 6=l1 7=p2 8=l2 9=one
         let ops = vec![
             MicroOp::Branch { cmp: Cmp::LtEq, lhs: 0, rhs: 1, target: 7 }, // 0
-            MicroOp::ArrLoad { dst: 2, idx: 0, ptr_slot: 5, len_slot: 6, byte: true, checked: true }, // 1
-            MicroOp::ArrLoad { dst: 3, idx: 0, ptr_slot: 7, len_slot: 8, byte: true, checked: true }, // 2
+            MicroOp::ArrLoad { dst: 2, idx: 0, ptr_slot: 5, len_slot: 6, byte: true, narrow32: false, checked: true }, // 1
+            MicroOp::ArrLoad { dst: 3, idx: 0, ptr_slot: 7, len_slot: 8, byte: true, narrow32: false, checked: true }, // 2
             MicroOp::Add { dst: 4, lhs: 4, rhs: 2 }, // 3
             MicroOp::Add { dst: 4, lhs: 4, rhs: 3 }, // 4
             MicroOp::Add { dst: 0, lhs: 0, rhs: 9 }, // 5
@@ -3520,11 +3544,11 @@ mod contiguous_backend {
         //   i += 1
         let ops = vec![
             MicroOp::Branch { cmp: Cmp::LtEq, lhs: 0, rhs: 1, target: 8 }, // 0
-            MicroOp::ArrLoad { dst: 5, idx: 0, ptr_slot: 3, len_slot: 4, byte: false, checked: true }, // 1 a = src[i]
+            MicroOp::ArrLoad { dst: 5, idx: 0, ptr_slot: 3, len_slot: 4, byte: false, narrow32: false, checked: true }, // 1 a = src[i]
             MicroOp::Add { dst: 12, lhs: 0, rhs: 11 }, // 2 idx2 = i+1
-            MicroOp::ArrLoad { dst: 6, idx: 12, ptr_slot: 3, len_slot: 4, byte: false, checked: true }, // 3 b = src[i+1]
+            MicroOp::ArrLoad { dst: 6, idx: 12, ptr_slot: 3, len_slot: 4, byte: false, narrow32: false, checked: true }, // 3 b = src[i+1]
             MicroOp::Add { dst: 7, lhs: 5, rhs: 6 }, // 4 val = a+b
-            MicroOp::ArrPush { src: 7, vec_slot: 8, ptr_slot: 9, len_slot: 10, helper_addr: push_i64_addr(), byte: false }, // 5 push val to out
+            MicroOp::ArrPush { src: 7, vec_slot: 8, ptr_slot: 9, len_slot: 10, helper_addr: push_i64_addr(), byte: false, narrow32: false }, // 5 push val to out
             MicroOp::Add { dst: 0, lhs: 0, rhs: 11 }, // 6 i += 1
             MicroOp::Jump { target: 0 },              // 7
             MicroOp::Return { src: 10 },              // 8 return len(out)
@@ -3590,15 +3614,15 @@ mod contiguous_backend {
             MicroOp::LoadConst { dst: 2, value: 1 }, // 2 w = 1
             MicroOp::Branch { cmp: Cmp::LtEq, lhs: 2, rhs: 3, target: 12 }, // 3 INNER head -> exit 12
             MicroOp::Add { dst: 13, lhs: 2, rhs: 12 }, // 4 widx = w+1
-            MicroOp::ArrLoad { dst: 7, idx: 13, ptr_slot: 5, len_slot: 6, byte: false, checked: true }, // 5 best=prev[w+1]
-            MicroOp::ArrLoad { dst: 11, idx: 2, ptr_slot: 5, len_slot: 6, byte: false, checked: true }, // 6 take=prev[w]
+            MicroOp::ArrLoad { dst: 7, idx: 13, ptr_slot: 5, len_slot: 6, byte: false, narrow32: false, checked: true }, // 5 best=prev[w+1]
+            MicroOp::ArrLoad { dst: 11, idx: 2, ptr_slot: 5, len_slot: 6, byte: false, narrow32: false, checked: true }, // 6 take=prev[w]
             MicroOp::Add { dst: 11, lhs: 11, rhs: 0 }, // 7 take += r
             MicroOp::Add { dst: 7, lhs: 7, rhs: 11 }, // 8 best += take (deterministic combine)
-            MicroOp::ArrPush { src: 7, vec_slot: 8, ptr_slot: 9, len_slot: 10, helper_addr: push_i64_addr(), byte: false }, // 9 push best to curr
+            MicroOp::ArrPush { src: 7, vec_slot: 8, ptr_slot: 9, len_slot: 10, helper_addr: push_i64_addr(), byte: false, narrow32: false }, // 9 push best to curr
             MicroOp::Add { dst: 2, lhs: 2, rhs: 12 }, // 10 w += 1
             MicroOp::Jump { target: 3 }, // 11 inner back-edge
             MicroOp::ListClear { vec_slot: 4, ptr_slot: 5, len_slot: 6, helper_addr: clear_i64_addr() }, // 12 clear prev
-            MicroOp::ArrPush { src: 0, vec_slot: 4, ptr_slot: 5, len_slot: 6, helper_addr: push_i64_addr(), byte: false }, // 13 push r to prev
+            MicroOp::ArrPush { src: 0, vec_slot: 4, ptr_slot: 5, len_slot: 6, helper_addr: push_i64_addr(), byte: false, narrow32: false }, // 13 push r to prev
             MicroOp::Add { dst: 0, lhs: 0, rhs: 12 }, // 14 r += 1
             MicroOp::Jump { target: 0 }, // 15 outer back-edge
             MicroOp::Return { src: 6 }, // 16 return len(prev)
@@ -3661,8 +3685,8 @@ mod contiguous_backend {
         //   i += 1
         let ops = vec![
             MicroOp::Branch { cmp: Cmp::LtEq, lhs: 0, rhs: 1, target: 7 }, // 0
-            MicroOp::ArrPush { src: 0, vec_slot: 2, ptr_slot: 3, len_slot: 4, helper_addr: push_i64_addr(), byte: false }, // 1 push i (realloc)
-            MicroOp::ArrLoad { dst: 6, idx: 8, ptr_slot: 3, len_slot: 4, byte: false, checked: true }, // 2 elem = a[1]
+            MicroOp::ArrPush { src: 0, vec_slot: 2, ptr_slot: 3, len_slot: 4, helper_addr: push_i64_addr(), byte: false, narrow32: false }, // 1 push i (realloc)
+            MicroOp::ArrLoad { dst: 6, idx: 8, ptr_slot: 3, len_slot: 4, byte: false, narrow32: false, checked: true }, // 2 elem = a[1]
             MicroOp::Add { dst: 7, lhs: 7, rhs: 6 }, // 3 acc += elem
             MicroOp::Add { dst: 0, lhs: 0, rhs: 8 }, // 4 i += 1
             MicroOp::Jump { target: 0 },             // 5
@@ -4008,7 +4032,7 @@ mod precise_list_recursion {
                 len_slot,
                 helper_addr: list_triple_addr(),
             }, // 1: refresh pin triple from the param handle
-            MicroOp::ArrStore { src: 2, idx: 1, ptr_slot, len_slot, byte: false, checked: true }, // 2: arr[idx-1] = value
+            MicroOp::ArrStore { src: 2, idx: 1, ptr_slot, len_slot, byte: false, narrow32: false, checked: true }, // 2: arr[idx-1] = value
             MicroOp::Move { dst: 3, src: vec_slot },             // 3: return the vec handle
             MicroOp::Return { src: 3 },                          // 4
         ];
@@ -4064,7 +4088,7 @@ mod precise_list_recursion {
                 len_slot,
                 helper_addr: list_triple_addr(),
             },
-            MicroOp::ArrStore { src: 2, idx: 1, ptr_slot, len_slot, byte: false, checked: true },
+            MicroOp::ArrStore { src: 2, idx: 1, ptr_slot, len_slot, byte: false, narrow32: false, checked: true },
             MicroOp::Move { dst: 3, src: vec_slot },
             MicroOp::Return { src: 3 },
         ];
@@ -4141,7 +4165,7 @@ mod precise_list_recursion {
                 len_slot,
                 helper_addr: list_triple_addr(),
             }, // 3
-            MicroOp::ArrStore { src: 6, idx: 5, ptr_slot, len_slot, byte: false, checked: true }, // 4: OOB
+            MicroOp::ArrStore { src: 6, idx: 5, ptr_slot, len_slot, byte: false, narrow32: false, checked: true }, // 4: OOB
             // recursive case: arg0 = arr, arg1 = k-1, call self.
             MicroOp::LoadConst { dst: 3, value: 1 },     // 5: one
             MicroOp::Sub { dst: window + 1, lhs: 1, rhs: 3 }, // 6: arg1 = k-1

@@ -14,5 +14,5 @@
   ],
   "correct": 0,
   "hint": "Can you think of something that fits this definition but ISN'T actually a bird?",
-  "explanation": "This violates 1 (consider ostriches) and 2 (consider bats)."
+  "explanation": "Bats fly but aren't birds, so 'animal that can fly' is TOO BROAD — and it is simultaneously too narrow, since ostriches and penguins are birds that can't fly. The flight test simply doesn't track birdhood."
 }

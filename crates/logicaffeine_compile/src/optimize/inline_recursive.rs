@@ -870,9 +870,6 @@ fn inline_recursive_dispatch<'a>(
     interner: &mut Interner,
     run_path: bool,
 ) -> Vec<Stmt<'a>> {
-    if std::env::var_os("LOGOS_RECURSE_INLINE").is_some_and(|v| v == "0") {
-        return stmts;
-    }
     let default_depth = if run_path { DEFAULT_RUN_DEPTH } else { DEFAULT_DEPTH };
     let depth: usize = std::env::var("LOGOS_RECURSE_DEPTH")
         .ok()
@@ -915,7 +912,7 @@ fn inline_recursive_with<'a>(
             ..
         } = s
         {
-            if !generics.is_empty() || opt_flags.contains(&crate::ast::stmt::OptFlag::NoOptimize) {
+            if !generics.is_empty() || !opt_flags.is_on(crate::optimization::Opt::Unfold) {
                 continue;
             }
             let param_syms: Vec<Symbol> = params.iter().map(|(p, _)| *p).collect();

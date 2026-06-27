@@ -229,11 +229,14 @@ fn eval_expr_to_value(
 
 fn eval_binop(op: BinaryOpKind, lv: &Value, rv: &Value) -> Option<Value> {
     match (op, lv, rv) {
-        (BinaryOpKind::Add, Value::Int(a), Value::Int(b)) => Some(Value::Int(a.wrapping_add(*b))),
-        (BinaryOpKind::Subtract, Value::Int(a), Value::Int(b)) => Some(Value::Int(a.wrapping_sub(*b))),
-        (BinaryOpKind::Multiply, Value::Int(a), Value::Int(b)) => Some(Value::Int(a.wrapping_mul(*b))),
-        (BinaryOpKind::Divide, Value::Int(a), Value::Int(b)) if *b != 0 => Some(Value::Int(a / b)),
-        (BinaryOpKind::Modulo, Value::Int(a), Value::Int(b)) if *b != 0 => Some(Value::Int(a % b)),
+        // Constant-fold integer arithmetic ONLY when the result fits i64; on overflow
+        // return None so the now-exact runtime computes the promoted (BigInt) value.
+        // The folder must never bake a WRAPPED constant the runtime would not produce.
+        (BinaryOpKind::Add, Value::Int(a), Value::Int(b)) => a.checked_add(*b).map(Value::Int),
+        (BinaryOpKind::Subtract, Value::Int(a), Value::Int(b)) => a.checked_sub(*b).map(Value::Int),
+        (BinaryOpKind::Multiply, Value::Int(a), Value::Int(b)) => a.checked_mul(*b).map(Value::Int),
+        (BinaryOpKind::Divide, Value::Int(a), Value::Int(b)) if *b != 0 => a.checked_div(*b).map(Value::Int),
+        (BinaryOpKind::Modulo, Value::Int(a), Value::Int(b)) if *b != 0 => a.checked_rem(*b).map(Value::Int),
         (BinaryOpKind::Shl, Value::Int(a), Value::Int(b)) if *b >= 0 && *b < 64 => {
             Some(Value::Int(a.wrapping_shl(*b as u32)))
         }
@@ -715,9 +718,9 @@ fn drive_stmt<'a>(
             }
             Some(Stmt::SetField { object, field, value: dv })
         }
-        Stmt::RuntimeAssert { condition } => {
+        Stmt::RuntimeAssert { condition, hard } => {
             let driven = drive_expr(condition, env, expr_arena, depth);
-            Some(Stmt::RuntimeAssert { condition: driven })
+            Some(Stmt::RuntimeAssert { condition: driven , hard })
         }
         Stmt::FunctionDef { name, params, generics, body, return_type, is_native, native_path, is_exported, export_target, opt_flags } => {
             // Drive inside function body with fresh store

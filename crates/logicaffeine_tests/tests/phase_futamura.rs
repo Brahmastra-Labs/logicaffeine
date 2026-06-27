@@ -58,11 +58,13 @@ const CORE_TYPES: &str = r#"
     A CBreak.
     A CAdd with elem CExpr and target Text.
     A CRemove with elem CExpr and target Text.
+    A CForceDynamic with name Text.
     A CSetField with target Text and field Text and val CExpr.
     A CStructDef with name Text and fieldNames Seq of Text.
     A CInspect with target CExpr and arms Seq of CMatchArm.
     A CEnumDef with name Text and variants Seq of Text.
     A CRuntimeAssert with cond CExpr and msg CExpr.
+    A CHardAssert with cond CExpr and msg CExpr.
     A CGive with expr CExpr and target Text.
     A CEscStmt with code Text.
     A CSleep with duration CExpr.
@@ -10140,11 +10142,30 @@ fn arity_raising_recursive_specialization() {
     // The specialized function should be power_s0 or similar
     let has_specialized = rust.contains("power_s0") || rust.contains("power_s1") || rust.contains("power_s2");
     assert!(has_specialized, "power(2, n) should be specialized for base=2:\n{}", rust);
-    // The specialized version hardcodes base=2, either as:
-    // - "2 *" / "2i64 *" (direct multiply), or
-    // - "<< 1" (strength reduction: 2*x → x<<1)
-    let has_base_2 = rust.contains("2 *") || rust.contains("2i64 *") || rust.contains("<< 1");
-    assert!(has_base_2, "Specialized power should hardcode base=2 (as multiply or shift):\n{}", rust);
+    // The specialized function bakes base=2: it DROPS the `base` parameter (taking
+    // only `exp`) and uses the literal 2 as the per-step multiplier in its TCE
+    // accumulator loop. (The old assertion accepted `<< 1` from the now-removed
+    // UNSOUND `x*2 → x<<1`; under exact arithmetic the sound lowering is a plain
+    // `* 2`, which rustc/LLVM strength-reduces to a shift itself — no perf lost,
+    // and no `y + y` double-evaluation of the recursive call.)
+    let spec_fn = rust
+        .split("fn power_s0")
+        .nth(1)
+        .unwrap_or("")
+        .split("\nfn ")
+        .next()
+        .unwrap_or("");
+    assert!(
+        !spec_fn.contains("base"),
+        "specialized power must drop the `base` parameter (base specialized away):\n{}",
+        rust
+    );
+    let has_base_2 = spec_fn.contains("= 2")
+        || spec_fn.contains("* 2")
+        || spec_fn.contains("2 *")
+        || spec_fn.contains("2i64")
+        || spec_fn.contains("<< 1");
+    assert!(has_base_2, "Specialized power must hardcode base=2 as the multiplier:\n{}", rust);
 }
 
 // ============================================================
@@ -12868,4 +12889,276 @@ fn p1_not_over_conjunction_keeps_negation_scope() {
         "negation scope shrunk to the first conjunct only. Residual:\n{}",
         residual
     );
+}
+
+// ════════════════════════════════════════════════════════════════════════
+// CRDT lockstep: force the LOGOS-written PE (pe_source / pe_mini / pe_bti /
+// decompile) to stay current with the real interpreter's CRDT support.
+//
+// These are "the PE must not fall behind" locks. If the real engine grows a
+// CRDT capability and the Logos PE forgets it (drops the CForceDynamic gate,
+// mis-folds a Shared struct it then mutates, or drops a CRDT statement during
+// residualization), one of these goes RED.
+// ════════════════════════════════════════════════════════════════════════
+
+/// A Tally counter through a Shared struct field. Output: `70`.
+const CRDT_COUNTER_PROG: &str = "## Definition\nA Game is Shared and has:\n    a score, which is a Tally.\n\n## Main\nLet mutable g be a new Game.\nIncrease g's score by 100.\nDecrease g's score by 30.\nShow g's score.";
+
+/// An OR-Set (SharedSet) through a Shared struct field. Output: `found\n1`.
+const CRDT_SET_PROG: &str = "## Definition\nA Party is Shared and has:\n    a guests, which is a SharedSet of Text.\n\n## Main\nLet mutable p be a new Party.\nAdd \"Alice\" to p's guests.\nIf p's guests contains \"Alice\":\n    Show \"found\".\nOtherwise:\n    Show \"missing\".\nShow length of p's guests.";
+
+/// Re-attach a program's `## Definition` blocks to a PE residual (the residual is
+/// only the PE'd Main block; `new <Shared struct>` needs the type def to resolve).
+/// Mirrors `compile::prepend_type_definitions`, which the production full-PE path
+/// already applies — replicated here so the mini/bti harnesses test the SAME shape.
+fn crdt_prepend_defs(program: &str, residual: &str) -> String {
+    let mut defs = String::new();
+    let mut keep = false;
+    for line in program.lines() {
+        if let Some(header) = line.strip_prefix("## ") {
+            keep = header != "Main" && !header.starts_with("To ");
+        }
+        if keep {
+            defs.push_str(line);
+            defs.push('\n');
+        }
+    }
+    let runnable = if residual.contains("## To ") || residual.contains("## Main") {
+        residual.to_string()
+    } else {
+        format!("## Main\n{}", residual)
+    };
+    format!("{}\n{}", defs, runnable)
+}
+
+/// PE a (possibly CRDT) program through one Logos PE dialect (`peBlockM`/`peBlockB`),
+/// decompile the residual, re-attach its type defs, and run it on the REAL
+/// interpreter — exactly the production P1 shape, but driven by the chosen dialect.
+fn run_crdt_via_dialect(program: &str, pe_source: &str, types: &str, pe_block_fn: &str) -> String {
+    let encoded = logicaffeine_compile::compile::encode_program_source(program).unwrap();
+    let decompile = logicaffeine_compile::compile::decompile_source_text();
+    let driver = format!(
+        "    Let state be makePeState(a new Map of Text to CVal, encodedFuncMap, 200).\n    Let residual be {}(encodedMain, state).\n    Let source be decompileBlock(residual, 0).\n    Show source.\n",
+        pe_block_fn
+    );
+    let combined = format!("{}\n{}\n{}\n## Main\n{}\n{}", types, pe_source, decompile, encoded, driver);
+    let pe_result = common::run_logos(&combined);
+    assert!(pe_result.success, "{} PE step failed on CRDT program: {}", pe_block_fn, pe_result.stderr);
+    let residual_source = pe_result.stdout.trim();
+    let runnable = crdt_prepend_defs(program, residual_source);
+    // Run the residual on the tree-walker — the same semantic oracle the PE
+    // differential corpus uses (`run_p1` → `interpret_program`). The Logos PE's
+    // contract is a behaviorally-faithful residual; that is what this locks.
+    match logicaffeine_compile::compile::interpret_program(&runnable) {
+        Ok(out) => out.trim().to_string(),
+        Err(e) => panic!(
+            "{} CRDT residual failed to run.\nResidual:\n{}\nError: {:?}",
+            pe_block_fn, runnable, e
+        ),
+    }
+}
+
+fn run_crdt_via_pe_mini(program: &str) -> String {
+    let pe_mini = logicaffeine_compile::compile::pe_mini_source_text();
+    run_crdt_via_dialect(program, pe_mini, CORE_TYPES, "peBlockM")
+}
+
+fn run_crdt_via_pe_bti(program: &str) -> String {
+    let pe_bti = logicaffeine_compile::compile::pe_bti_source_text();
+    let types = core_types_bti();
+    run_crdt_via_dialect(program, pe_bti, &types, "peBlockB")
+}
+
+// ── Structural lock: every dialect handles the CForceDynamic gate ───────────
+
+#[test]
+fn crdt_force_dynamic_handler_in_all_pe_dialects() {
+    let dialects = [
+        ("pe_source", logicaffeine_compile::compile::pe_source_text()),
+        ("pe_mini", logicaffeine_compile::compile::pe_mini_source_text()),
+        ("pe_bti", logicaffeine_compile::compile::pe_bti_source_text()),
+        ("decompile", logicaffeine_compile::compile::decompile_source_text()),
+    ];
+    for (name, src) in dialects {
+        assert!(
+            src.contains("When CForceDynamic"),
+            "{} dropped its `When CForceDynamic` handler — a Shared struct it then \
+             mutates would be statically folded (CRDT identity lost). The Logos PE \
+             must stay current with the real interpreter's CRDT support.",
+            name
+        );
+    }
+}
+
+// ── Behavioral lock: real CRDT semantics through mini-PE and bti-PE ──────────
+
+#[test]
+fn crdt_mini_pe_counter_end_to_end() {
+    assert_eq!(run_crdt_via_pe_mini(CRDT_COUNTER_PROG), "70",
+        "pe_mini must residualize a Shared-struct Tally counter to a correct program");
+}
+
+#[test]
+fn crdt_mini_pe_set_end_to_end() {
+    assert_eq!(run_crdt_via_pe_mini(CRDT_SET_PROG), "found\n1",
+        "pe_mini must residualize a Shared-struct OR-Set to a correct program");
+}
+
+#[test]
+fn crdt_bti_pe_counter_end_to_end() {
+    assert_eq!(run_crdt_via_pe_bti(CRDT_COUNTER_PROG), "70",
+        "pe_bti must residualize a Shared-struct Tally counter to a correct program");
+}
+
+#[test]
+fn crdt_bti_pe_set_end_to_end() {
+    assert_eq!(run_crdt_via_pe_bti(CRDT_SET_PROG), "found\n1",
+        "pe_bti must residualize a Shared-struct OR-Set to a correct program");
+}
+
+// ── Lockstep: tree-walker ground truth == full PE == mini PE == bti PE ───────
+// The genuine Logos-PE P1 (`projection1_source_real_fast`, the path the
+// differential corpus locks — it injects CForceDynamic and re-attaches type
+// defs). NOT the Rust-native `projection1_source` (`run_via_p1`), which folds a
+// Shared struct it then mutates and is CRDT-broken by construction.
+
+fn run_crdt_via_full_pe(program: &str) -> String {
+    let residual = logicaffeine_compile::compile::projection1_source_real_fast("", "", program)
+        .expect("genuine full-PE P1 must residualize the CRDT program");
+    logicaffeine_compile::compile::interpret_program(&residual)
+        .expect("genuine full-PE CRDT residual must run on the tree-walker")
+        .trim()
+        .to_string()
+}
+
+#[test]
+fn crdt_all_pe_dialects_agree() {
+    for prog in [CRDT_COUNTER_PROG, CRDT_SET_PROG] {
+        let truth = logicaffeine_compile::compile::interpret_program(prog)
+            .expect("tree-walker ground truth must run")
+            .trim()
+            .to_string();
+        assert_eq!(run_crdt_via_full_pe(prog), truth,
+            "genuine full PE diverged from tree-walker for:\n{}", prog);
+        assert_eq!(run_crdt_via_pe_mini(prog), truth,
+            "pe_mini diverged from tree-walker for:\n{}", prog);
+        assert_eq!(run_crdt_via_pe_bti(prog), truth,
+            "pe_bti diverged from tree-walker for:\n{}", prog);
+    }
+}
+
+// ── Statement-preservation lock: bti must preserve CRDT statements ───────────
+// (mini already has pe_mini_preserves_{increase_decrease,merge,append_to_seq};
+//  bti had none — this closes that gap so bti can't silently drop a CRDT stmt.)
+
+fn pe_bti_direct_residual_count(setup_stmts: &str) -> usize {
+    let pe_bti = logicaffeine_compile::compile::pe_bti_source_text();
+    let types = core_types_bti();
+    let source = format!(
+        "{}\n{}\n## Main\n\
+         {}\n\
+         Let state be makePeState(a new Map of Text to CVal, a new Map of Text to CFunc, 200).\n\
+         Let residual be peBlockB(testStmts, state).\n\
+         Show length of residual.\n",
+        types, pe_bti, setup_stmts
+    );
+    let result = common::run_logos(&source);
+    assert!(result.success, "pe_bti direct test failed: {}", result.stderr);
+    result.stdout.trim().parse::<usize>().unwrap_or(0)
+}
+
+#[test]
+fn pe_bti_preserves_increase_decrease() {
+    let count = pe_bti_direct_residual_count(
+        "    Let testStmts be a new Seq of CStmt.\n\
+         Push (a new CIncrease with target \"x\" and amount (a new CInt with value 5)) to testStmts.\n\
+         Push (a new CDecrease with target \"x\" and amount (a new CInt with value 3)) to testStmts.\n"
+    );
+    assert_eq!(count, 2, "pe_bti must preserve CIncrease+CDecrease (got {} stmts)", count);
+}
+
+#[test]
+fn pe_bti_preserves_merge_stmt() {
+    let count = pe_bti_direct_residual_count(
+        "    Let testStmts be a new Seq of CStmt.\n\
+         Push (a new CMerge with target \"x\" and other (a new CVar with name \"y\")) to testStmts.\n"
+    );
+    assert_eq!(count, 1, "pe_bti must preserve CMerge (got {} stmts in residual)", count);
+}
+
+#[test]
+fn pe_bti_preserves_append_to_seq() {
+    let count = pe_bti_direct_residual_count(
+        "    Let testStmts be a new Seq of CStmt.\n\
+         Push (a new CAppendToSeq with target \"items\" and value (a new CInt with value 42)) to testStmts.\n"
+    );
+    assert_eq!(count, 1, "pe_bti must preserve CAppendToSeq (got {} stmts in residual)", count);
+}
+
+// ── P2 (compiler) and P3 (cogen) must preserve + correctly run CRDT stmts ────
+// P2/P3 execute through coreExecBlock — the self-interpreter's CRDT model, which
+// applies increment/decrement/merge to variables (see core_crdt_pncounter /
+// core_crdt_merge). Surface `Increase x's f` requires a Shared struct the
+// self-interpreter doesn't model, so we drive the genuine compiler / cogen with
+// hand-built encoded CStmts (the same shape Sprint-18 feeds coreExecBlock
+// directly), and assert the compiler / cogen don't drop or mis-compile them.
+
+/// Build a `prog : Seq of CStmt` that increments, decrements, then merges and
+/// shows — a primitive PN-counter + merge over plain variables. Result: `70`.
+const CRDT_CSTMTS_COUNTER_MERGE: &str = "\
+Let prog be a new Seq of CStmt.\n\
+Push (a new CIncrease with target \"counter\" and amount (a new CInt with value 100)) to prog.\n\
+Push (a new CDecrease with target \"counter\" and amount (a new CInt with value 30)) to prog.\n\
+Push (a new CMerge with target \"counter\" and other (a new CVar with name \"zero\")) to prog.\n\
+Push (a new CShow with expr (a new CVar with name \"counter\")) to prog.\n";
+
+fn run_cstmts_via_compiler(build_prog: &str, compiler_src: &str, compile_fn: &str, expected: &str) {
+    let source = format!(
+        "{}\n{}\n## Main\n{}\
+         Let compileState be makePeState(a new Map of Text to CVal, a new Map of Text to CFunc, 200).\n\
+         Let compiled be {}(prog, compileState).\n\
+         Let runEnv be a new Map of Text to CVal.\n\
+         Set item \"counter\" of runEnv to a new VInt with value 0.\n\
+         Set item \"zero\" of runEnv to a new VInt with value 0.\n\
+         Let funcs be a new Map of Text to CFunc.\n\
+         Let result be coreExecBlock(compiled, runEnv, funcs).\n",
+        compiler_src, INTERPRETER, build_prog, compile_fn
+    );
+    common::assert_exact_output(&source, expected);
+}
+
+#[test]
+fn crdt_p2_compiler_preserves_and_runs_crdt() {
+    run_cstmts_via_compiler(CRDT_CSTMTS_COUNTER_MERGE, &get_p2_compiler(), "compileBlock", "70");
+}
+
+#[test]
+fn crdt_p3_cogen_preserves_and_runs_crdt() {
+    run_cstmts_via_compiler(CRDT_CSTMTS_COUNTER_MERGE, &get_p3_cogen(), "cogenBlock", "70");
+}
+
+// ── Rust-native P1 (projection1_source, optimizer-shortcut) must ALSO be ─────
+// CRDT-faithful — same contract as the genuine Logos PE: a Shared struct it then
+// mutates is preserved, not folded/dropped. The decompiler used to drop CRDT
+// statements via a catch-all and rendered field reads as `f of x` (unparsable).
+
+fn run_rust_native_p1(program: &str) -> String {
+    let residual = logicaffeine_compile::compile::projection1_source("", "", program)
+        .expect("Rust-native P1 must residualize the CRDT program");
+    match logicaffeine_compile::compile::interpret_program(&residual) {
+        Ok(out) => out.trim().to_string(),
+        Err(e) => panic!("Rust-native P1 residual did not run.\nResidual:\n{}\nError: {:?}", residual, e),
+    }
+}
+
+#[test]
+fn crdt_rust_native_p1_counter() {
+    assert_eq!(run_rust_native_p1(CRDT_COUNTER_PROG), "70",
+        "projection1_source dropped/folded the Tally counter mutations");
+}
+
+#[test]
+fn crdt_rust_native_p1_set() {
+    assert_eq!(run_rust_native_p1(CRDT_SET_PROG), "found\n1",
+        "projection1_source dropped/folded the OR-Set mutations");
 }

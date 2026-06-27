@@ -42,10 +42,15 @@ jobs:
             ${{ runner.os }}-cargo-
 
       - name: Install Dioxus CLI
-        run: cargo install dioxus-cli@0.7.3 --locked || true
+        run: cargo install dioxus-cli@0.7.9 --locked || true
 
       - name: Build Dioxus App
         run: cd apps/logicaffeine_web && dx build --release
+
+      # Fail the deploy if the bundle outgrows the budget — locks in libp2p staying out of
+      # the default build (and any future bloat). Budget: largest *.wasm ≤ 14.7 MB.
+      - name: WASM size gate
+        run: ./scripts/wasm-size-gate.sh
 
       - name: Install Wrangler
         run: npm install -g wrangler

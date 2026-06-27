@@ -33,11 +33,13 @@
 
 pub mod arena;
 pub mod intern;
+pub mod numeric;
 pub mod span;
 pub mod error;
 pub mod union_find;
 
 pub use arena::Arena;
 pub use intern::{Interner, Symbol, SymbolEq};
+pub use numeric::{BigInt, Rational};
 pub use span::Span;
 pub use error::{SpannedError, Result};

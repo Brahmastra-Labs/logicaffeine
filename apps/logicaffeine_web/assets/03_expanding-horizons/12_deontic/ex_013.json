@@ -4,12 +4,12 @@
   "difficulty": 1,
   "prompt": "Sing and despair",
   "options": [
-    "$ (S\\\\underline{u}\\\\cdot Du ) $",
-    "$ (Su\\\\cdot D\\\\underline{u} ) $",
-    "$ (S\\\\underline{u}\\\\cdot D\\\\underline{u}  ) $",
-    "$ (Su\\\\cdot Du) $"
+    "$ (S\\underline{u}\\cdot Du ) $",
+    "$ (Su\\cdot D\\underline{u} ) $",
+    "$ (S\\underline{u}\\cdot D\\underline{u}  ) $",
+    "$ (Su\\cdot Du) $"
   ],
   "correct": 2,
   "hint": "Identify WHO is being commanded or permitted (the agent, marked with underline) and WHAT action they must/may do.",
-  "explanation": "In deontic logic: Deontic operators express moral or legal requirements."
+  "explanation": "A conjoined command: 'sing AND despair'. Both actions are ordered of you (the underlined agent), joined by '·': (S͟u · D͟u)."
 }

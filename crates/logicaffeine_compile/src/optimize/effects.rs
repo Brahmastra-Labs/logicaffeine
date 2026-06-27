@@ -27,6 +27,13 @@ pub struct EffectSet {
     pub security_check: bool,
     pub diverges: bool,
     pub unknown: bool,
+    /// Nondeterministic choice — `Select`, `Try*` (depends on instantaneous buffer
+    /// state), and cooperative `StopTask`. The outcome is not a function of the inputs,
+    /// so a function carrying one must never be specialized on a static argument.
+    pub nondet: bool,
+    /// Spawns or communicates across a concurrency boundary — `LaunchTask`, `CreatePipe`,
+    /// `Spawn`, and the networking statements. Opaque to the partial evaluator.
+    pub concurrent: bool,
 }
 
 impl EffectSet {
@@ -64,6 +71,18 @@ impl EffectSet {
         s
     }
 
+    pub fn nondet() -> Self {
+        let mut s = Self::default();
+        s.nondet = true;
+        s
+    }
+
+    pub fn concurrent() -> Self {
+        let mut s = Self::default();
+        s.concurrent = true;
+        s
+    }
+
     pub fn is_pure(&self) -> bool {
         self.reads.is_empty()
             && self.writes.is_empty()
@@ -72,6 +91,8 @@ impl EffectSet {
             && !self.security_check
             && !self.diverges
             && !self.unknown
+            && !self.nondet
+            && !self.concurrent
     }
 
     /// Join two EffectSets (union of all effects).
@@ -83,6 +104,8 @@ impl EffectSet {
         self.security_check |= other.security_check;
         self.diverges |= other.diverges;
         self.unknown |= other.unknown;
+        self.nondet |= other.nondet;
+        self.concurrent |= other.concurrent;
     }
 }
 
@@ -233,6 +256,28 @@ impl EffectEnv {
     pub fn function_has_io(&self, fn_name: &str) -> bool {
         if let Some(sym) = self.resolve_name(fn_name) {
             self.functions.get(&sym).map(|e| e.io).unwrap_or(false)
+        } else {
+            false
+        }
+    }
+
+    /// Whether the partial evaluator may specialize a call to `fn_name` on a static
+    /// argument. Reads, writes, allocation, and divergence are ordinary PE targets and
+    /// stay safe. IO already blocks specialization (the historical gate). Nondeterminism
+    /// and concurrency are the new exclusions: a concurrency / networking statement carries
+    /// expression arguments (a timeout, spawn args, a branch body) that reference the
+    /// static parameter, and the specializer's substitution does not enter those
+    /// statements — folding across one would drop the parameter and leave a dangling
+    /// reference. A `Check` (security_check) is deliberately *not* excluded: it is preserved
+    /// verbatim and never references a foldable parameter, so specializing across it is
+    /// sound (see `pe_effect_env_check_is_not_io`). Escape blocks (`unknown`) are handled by
+    /// the caller's separate `body_has_escape` guard.
+    pub fn function_is_specialization_safe(&self, fn_name: &str) -> bool {
+        if let Some(sym) = self.resolve_name(fn_name) {
+            match self.functions.get(&sym) {
+                Some(e) => !e.io && !e.nondet && !e.concurrent,
+                None => false,
+            }
         } else {
             false
         }
@@ -495,7 +540,7 @@ fn analyze_stmt_effects_core(
             effects.security_check = true;
             effects
         }
-        Stmt::RuntimeAssert { condition } => analyze_expr_effects_core(condition, known_fns),
+        Stmt::RuntimeAssert { condition, .. } => analyze_expr_effects_core(condition, known_fns),
         Stmt::FunctionDef { .. } | Stmt::StructDef { .. } => EffectSet::pure(),
         Stmt::Inspect { target, arms, .. } => {
             let mut effects = analyze_expr_effects_core(target, known_fns);
@@ -506,14 +551,18 @@ fn analyze_stmt_effects_core(
             effects
         }
         Stmt::Zone { body, .. } => analyze_block_effects_with(body, known_fns),
-        Stmt::Concurrent { tasks } | Stmt::Parallel { tasks } => analyze_block_effects_with(tasks, known_fns),
+        Stmt::Concurrent { tasks } | Stmt::Parallel { tasks } => {
+            let mut effects = analyze_block_effects_with(tasks, known_fns);
+            effects.concurrent = true;
+            effects
+        }
         Stmt::WriteFile { content, path } => {
             let mut effects = analyze_expr_effects_core(content, known_fns);
             effects.join(&analyze_expr_effects_core(path, known_fns));
             effects.io = true;
             effects
         }
-        Stmt::SendMessage { message, destination } => {
+        Stmt::SendMessage { message, destination, .. } => {
             let mut effects = analyze_expr_effects_core(message, known_fns);
             effects.join(&analyze_expr_effects_core(destination, known_fns));
             effects.io = true;
@@ -545,12 +594,19 @@ fn analyze_stmt_effects_core(
             effects.join(&analyze_expr_effects_core(pipe, known_fns));
             effects.io = true;
             effects.diverges = true;
+            effects.concurrent = true;
             effects
         }
-        Stmt::TrySendPipe { value, pipe, .. } => {
+        Stmt::TrySendPipe { value, pipe, result } => {
             let mut effects = analyze_expr_effects_core(value, known_fns);
             effects.join(&analyze_expr_effects_core(pipe, known_fns));
             effects.io = true;
+            effects.concurrent = true;
+            // Success depends on instantaneous buffer state — nondeterministic.
+            effects.nondet = true;
+            if let Some(result_sym) = result {
+                effects.writes.insert(*result_sym);
+            }
             effects
         }
         Stmt::ReceivePipe { pipe, var, .. } => {
@@ -558,12 +614,131 @@ fn analyze_stmt_effects_core(
             effects.writes.insert(*var);
             effects.io = true;
             effects.diverges = true;
+            effects.concurrent = true;
             effects
         }
         Stmt::ReadFrom { var, .. } => {
             let mut effects = EffectSet::default();
             effects.writes.insert(*var);
             effects.io = true;
+            effects
+        }
+        // ----- Go-like concurrency: opaque effectful boundaries -----
+        Stmt::Select { branches } => {
+            // A Select is a nondeterministic choice over its ready branches. Its outcome
+            // is not a function of the inputs, and each branch body is part of the effect.
+            let mut effects = EffectSet::nondet();
+            for branch in branches {
+                match branch {
+                    crate::ast::stmt::SelectBranch::Receive { var, pipe, body } => {
+                        effects.join(&analyze_expr_effects_core(pipe, known_fns));
+                        effects.writes.insert(*var);
+                        effects.join(&analyze_block_effects_with(body, known_fns));
+                    }
+                    crate::ast::stmt::SelectBranch::Timeout { milliseconds, body } => {
+                        effects.join(&analyze_expr_effects_core(milliseconds, known_fns));
+                        effects.join(&analyze_block_effects_with(body, known_fns));
+                    }
+                }
+            }
+            effects.concurrent = true;
+            effects
+        }
+        Stmt::LaunchTask { args, .. } => {
+            let mut effects = EffectSet::concurrent();
+            for arg in args {
+                effects.join(&analyze_expr_effects_core(arg, known_fns));
+            }
+            effects
+        }
+        Stmt::LaunchTaskWithHandle { handle, args, .. } => {
+            let mut effects = EffectSet::concurrent();
+            effects.writes.insert(*handle);
+            for arg in args {
+                effects.join(&analyze_expr_effects_core(arg, known_fns));
+            }
+            effects
+        }
+        Stmt::CreatePipe { var, .. } => {
+            let mut effects = EffectSet::concurrent();
+            effects.allocates = true;
+            effects.writes.insert(*var);
+            effects
+        }
+        Stmt::TryReceivePipe { var, pipe } => {
+            // Non-blocking receive: returns value-or-Nothing depending on instantaneous
+            // buffer state — nondeterministic, and it binds `var`.
+            let mut effects = analyze_expr_effects_core(pipe, known_fns);
+            effects.writes.insert(*var);
+            effects.io = true;
+            effects.nondet = true;
+            effects.concurrent = true;
+            effects
+        }
+        Stmt::StopTask { handle } => {
+            // Cooperative cancellation — scheduling-dependent.
+            let mut effects = analyze_expr_effects_core(handle, known_fns);
+            effects.nondet = true;
+            effects.concurrent = true;
+            effects
+        }
+        Stmt::Spawn { name, .. } => {
+            let mut effects = EffectSet::concurrent();
+            effects.writes.insert(*name);
+            effects
+        }
+        // ----- Networking over the relay: I/O boundaries -----
+        Stmt::AwaitMessage { source, into, view: _ } => {
+            let mut effects = analyze_expr_effects_core(source, known_fns);
+            effects.writes.insert(*into);
+            effects.io = true;
+            effects.concurrent = true;
+            effects
+        }
+        Stmt::Listen { address } | Stmt::ConnectTo { address } => {
+            let mut effects = analyze_expr_effects_core(address, known_fns);
+            effects.io = true;
+            effects.concurrent = true;
+            effects
+        }
+        Stmt::LetPeerAgent { var, address } => {
+            let mut effects = analyze_expr_effects_core(address, known_fns);
+            effects.writes.insert(*var);
+            effects.io = true;
+            effects.concurrent = true;
+            effects
+        }
+        Stmt::Sync { var, topic } => {
+            // Subscribe + auto-publish-on-mutation + auto-merge-on-receive: reads and
+            // writes the synced CRDT and talks to the relay.
+            let mut effects = analyze_expr_effects_core(topic, known_fns);
+            effects.reads.insert(*var);
+            effects.writes.insert(*var);
+            effects.io = true;
+            effects.concurrent = true;
+            effects
+        }
+        Stmt::Mount { var, path } => {
+            let mut effects = analyze_expr_effects_core(path, known_fns);
+            effects.writes.insert(*var);
+            effects.io = true;
+            effects
+        }
+        // ----- CRDT structural mutations not covered above -----
+        Stmt::AppendToSequence { sequence, value } => {
+            let mut effects = analyze_expr_effects_core(sequence, known_fns);
+            effects.join(&analyze_expr_effects_core(value, known_fns));
+            if let Expr::Identifier(sym) = sequence {
+                effects.writes.insert(*sym);
+            }
+            effects
+        }
+        Stmt::ResolveConflict { object, value, .. } => {
+            let mut effects = analyze_expr_effects_core(object, known_fns);
+            effects.join(&analyze_expr_effects_core(value, known_fns));
+            if let Expr::Identifier(sym) = object {
+                effects.writes.insert(*sym);
+            }
             effects
         }
         _ => EffectSet::default(),
@@ -705,5 +880,91 @@ fn classify_native_function(sym: Symbol, interner: &Interner) -> EffectSet {
         }
         // Default: IO (conservative for unknown natives)
         _ => EffectSet::io(),
+    }
+}
+
+#[cfg(test)]
+mod concurrency_effect_tests {
+    //! A concurrency / networking construct is an effectful, often nondeterministic
+    //! boundary. The partial evaluator's specialization gate (`partial_eval.rs`) keys
+    //! off these effects; if any of them are misclassified as Pure, a function holding
+    //! one can be specialized and a static parameter flowing into it dropped, leaving a
+    //! dangling free variable. These tests pin the classification at the source.
+
+    use super::EffectEnv;
+
+    #[test]
+    fn effects_select_is_not_pure() {
+        // A `Select` is a nondeterministic choice — never Pure. The classifier must also
+        // see *into* the branch bodies (the `Show` here is an effect of the function).
+        let src = "\
+## To sel (ch: Int):
+    Await the first of:
+        Receive x from ch:
+            Show x.
+        After 1 seconds:
+            Show 0.
+
+## Main
+    Let ch be a Pipe of Int.
+    Launch a task to sel with ch.
+";
+        let env = EffectEnv::analyze_source(src).expect("parse");
+        assert!(
+            !env.function_is_pure("sel"),
+            "a function whose body is a Select must not be classified Pure"
+        );
+    }
+
+    #[test]
+    fn effects_launch_task_not_pure() {
+        let src = "\
+## To helper (ch: Int):
+    Receive y from ch.
+    Show y.
+
+## To launcher (ch: Int):
+    Launch a task to helper with ch.
+
+## Main
+    Let ch be a Pipe of Int.
+    Launch a task to launcher with ch.
+";
+        let env = EffectEnv::analyze_source(src).expect("parse");
+        assert!(
+            !env.function_is_pure("launcher"),
+            "a function that launches a task is concurrent, not Pure"
+        );
+    }
+
+    #[test]
+    fn effects_try_receive_nondet() {
+        let src = "\
+## To tryer (ch: Int):
+    Try to receive v from ch.
+
+## Main
+    Let ch be a Pipe of Int.
+    Launch a task to tryer with ch.
+";
+        let env = EffectEnv::analyze_source(src).expect("parse");
+        assert!(
+            !env.function_is_pure("tryer"),
+            "a non-blocking receive depends on instantaneous buffer state — not Pure"
+        );
+    }
+
+    #[test]
+    fn effects_mount_writes_var() {
+        let src = "\
+## Main
+    Mount counter at \"data/counter.journal\".
+    Show counter.
+";
+        let env = EffectEnv::analyze_source(src).expect("parse");
+        assert!(
+            env.has_write_to("counter"),
+            "Mount binds its variable — the write must be recorded"
+        );
     }
 }

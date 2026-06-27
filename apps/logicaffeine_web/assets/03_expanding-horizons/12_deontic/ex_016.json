@@ -4,12 +4,12 @@
   "difficulty": 1,
   "prompt": "Would that someone sing",
   "options": [
-    "$ O(\\\\exists x)S\\\\underline{x} $",
-    "$ (\\\\exists x)Sx $",
-    "$ (\\\\exists x)S\\\\underline{x} $",
-    "$ (\\\\exists x)Sx $"
+    "$ O(\\exists x)S\\underline{x} $",
+    "$ (\\exists x)Sx $",
+    "$ (\\exists x)S\\underline{x} $",
+    "$ O(\\exists x)Sx $"
   ],
   "correct": 2,
   "hint": "Identify WHO is being commanded or permitted (the agent, marked with underline) and WHAT action they must/may do.",
-  "explanation": "In deontic logic: Deontic operators express moral or legal requirements."
+  "explanation": "An optative for an indefinite agent. 'Someone' is the existential (∃x): (∃x)S͟x — would that some person sing."
 }

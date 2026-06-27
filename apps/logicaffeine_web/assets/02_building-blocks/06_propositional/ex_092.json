@@ -1,13 +1,13 @@
 {
-  "id": "C_6.30",
+  "id": "C_6.92",
   "type": "multiple_choice",
   "difficulty": 1,
   "prompt": "You're cruel if you're terrified",
   "options": [
-    "$ (T \\\\supset C) $",
-    "$ (C \\\\equiv T) $",
-    "$ C \\\\supset T $",
-    "$ (C \\\\supset T) $"
+    "$ (T \\supset C) $",
+    "$ (C \\equiv T) $",
+    "$ C \\supset T $",
+    "$ (C \\supset T) $"
   ],
   "correct": 0,
   "hint": "Identify the main connective first. What's the primary structure of this sentence?",

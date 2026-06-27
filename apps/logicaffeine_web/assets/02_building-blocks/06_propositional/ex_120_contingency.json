@@ -1,0 +1,15 @@
+{
+  "id": "C_6.120",
+  "type": "multiple_choice",
+  "difficulty": 2,
+  "prompt": "A formula is a CONTINGENCY when:",
+  "options": [
+    "It is true in every row of its truth table",
+    "It is false in every row of its truth table",
+    "It is true in some rows and false in others",
+    "It contains no propositional variables"
+  ],
+  "correct": 2,
+  "hint": "Contingent = it depends. Its truth varies with the values of its variables.",
+  "explanation": "A contingency is true in some rows and false in others — its truth value depends on the assignment (most ordinary statements are contingent). 'True in every row' is a tautology; 'false in every row' is a contradiction. Together, tautology / contradiction / contingency classify every formula."
+}

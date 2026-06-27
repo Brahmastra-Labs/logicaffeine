@@ -4,10 +4,10 @@
   "difficulty": 1,
   "prompt": "If C then S, and B",
   "options": [
-    "$ (C \\\\supset S) \\\\cdot B $",
-    "$ (C \\\\supset (S \\\\cdot B)) $",
-    "$ C \\\\supset S \\\\cdot B $",
-    "$ ((C \\\\supset S) \\\\cdot B) $"
+    "$ (C \\supset S) \\cdot B $",
+    "$ (C \\supset (S \\cdot B)) $",
+    "$ C \\supset S \\cdot B $",
+    "$ ((C \\supset S) \\cdot B) $"
   ],
   "correct": 3,
   "hint": "Identify the main connective first. What's the primary structure of this sentence?",

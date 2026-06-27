@@ -28,6 +28,10 @@ pub async fn seed_examples<V: Vfs>(vfs: &V) -> VfsResult<()> {
     vfs.create_dir_all("/examples/code/advanced").await?;
     vfs.create_dir_all("/examples/code/native").await?;
     vfs.create_dir_all("/examples/code/temporal").await?;
+    vfs.create_dir_all("/examples/hardware").await?;
+
+    // Hardware (SVA) examples — seeded for all installs (fresh and existing).
+    seed_hardware_examples(vfs).await?;
 
     // For existing installs, only seed new advanced examples (skip base examples)
     if !is_fresh_install {
@@ -124,6 +128,8 @@ pub async fn seed_examples<V: Vfs>(vfs: &V) -> VfsResult<()> {
     vfs.write("/examples/math/functions.logos", MATH_FUNCTIONS.as_bytes()).await?;
     vfs.write("/examples/math/list-ops.logos", MATH_LIST_OPS.as_bytes()).await?;
     vfs.write("/examples/math/pairs.logos", MATH_PAIRS.as_bytes()).await?;
+    vfs.write("/examples/math/logic-gates.logos", MATH_CIRCUIT.as_bytes()).await?;
+    vfs.write("/examples/math/proven-property.logos", MATH_PROPERTY.as_bytes()).await?;
     vfs.write("/examples/math/collatz.logos", MATH_COLLATZ.as_bytes()).await?;
     vfs.write("/examples/math/godel-literate.logos", MATH_GODEL_LITERATE.as_bytes()).await?;
     vfs.write("/examples/math/incompleteness-literate.logos", MATH_INCOMPLETENESS_LITERATE.as_bytes()).await?;
@@ -144,6 +150,88 @@ pub async fn seed_examples<V: Vfs>(vfs: &V) -> VfsResult<()> {
 
 /// Seed only the advanced code examples (for existing installations).
 /// Always overwrites to ensure latest syntax is used.
+/// Hardware-mode examples: `(filename, English spec)`. Each is a single English hardware
+/// specification that the Studio synthesizes to SystemVerilog Assertions and then certifies
+/// (in-browser, no Z3) against the spec. Pure spec sentences — the loader feeds the whole
+/// file to the synthesizer. The `hardware_examples` integration test verifies every one of
+/// these synthesizes, round-trips as certified-equivalent, and has a reachable trigger.
+pub const HARDWARE_EXAMPLES: &[(&str, &str)] = &[
+    ("handshake.hw", "Always, if request is high, then acknowledge is high."),
+    ("enable-ready.hw", "Always, if enable is high, then ready is high."),
+    ("start-done.hw", "Always, if start is high, then done is high."),
+    ("write-full.hw", "Always, if write is high, then full is high."),
+    // Signal-DESIGN spec ("conflicts with"): the Studio synthesizes a conflict-free phase plan
+    // with our own SAT solver and certifies it uses the fewest possible phases (no Z3).
+    (
+        "intersection-design.hw",
+        "Movements: ns-through, ew-through, ns-left, ew-left, pedestrian.\n\
+         ns-through conflicts with ew-through and ew-left.\n\
+         ew-through conflicts with ns-left.\n\
+         ns-left conflicts with ew-left.\n\
+         pedestrian conflicts with ns-through, ew-through, ns-left and ew-left.",
+    ),
+];
+
+/// RTL examples: `(filename, Verilog)`. Synthesizable Verilog the Studio parses into a
+/// transition system and bounded-model-checks / k-induction-proves in the browser (no Z3).
+/// Verified by the `hardware_examples` integration test. Opened in Hardware mode (they live
+/// under `/examples/hardware`); `load_hardware_spec` routes `module … endmodule` content to
+/// the RTL BMC path.
+pub const RTL_EXAMPLES: &[(&str, &str)] = &[
+    (
+        "arbiter.v",
+        "// 2-master round-robin arbiter. Grants are issued in mutually-exclusive branches.\n// PROVEN by k-induction (for every request/turn sequence): the two masters are\n// NEVER granted the bus at the same time.\nmodule arbiter(input clk, input r0, input r1);\n  reg g0;\n  reg g1;\n  reg turn;\n  initial begin g0 = 0; g1 = 0; turn = 0; end\n  always @(posedge clk) begin\n    if (r0 && (!r1 || turn == 0)) begin\n      g0 <= 1;\n      g1 <= 0;\n    end else if (r1) begin\n      g0 <= 0;\n      g1 <= 1;\n    end else begin\n      g0 <= 0;\n      g1 <= 0;\n    end\n    turn <= ~turn;\n  end\n  assert property (~(g0 & g1));\nendmodule\n",
+    ),
+    (
+        "bad-arbiter.v",
+        "// The classic arbiter BUG: each request is granted independently. If both masters\n// request in the same cycle, BOTH are granted. BMC finds the violation at step 1 and\n// the waveform shows r0=r1=1 -> g0=g1=1 (a real mutual-exclusion failure).\nmodule bad_arbiter(input clk, input r0, input r1);\n  reg g0;\n  reg g1;\n  initial begin g0 = 0; g1 = 0; end\n  always @(posedge clk) begin\n    if (r0) g0 <= 1; else g0 <= 0;\n    if (r1) g1 <= 1; else g1 <= 0;\n  end\n  assert property (~(g0 & g1));\nendmodule\n",
+    ),
+    (
+        "fifo.v",
+        "// FIFO occupancy counter, depth 8, over FREE push/pop inputs. Increment only when not\n// full, decrement only when not empty. PROVEN: the occupancy never overflows past 8 for\n// ANY push/pop sequence — even though `count` is a 4-bit register that could reach 15.\nmodule fifo(input clk, input push, input pop);\n  reg [3:0] count;\n  initial count = 0;\n  always @(posedge clk)\n    if (push && (count < 4'd8) && !(pop && (count > 4'd0)))\n      count <= count + 1;\n    else if (pop && (count > 4'd0) && !(push && (count < 4'd8)))\n      count <= count - 1;\n    else\n      count <= count;\n  assert property (count <= 4'd8);\nendmodule\n",
+    ),
+    (
+        "onehot.v",
+        "// 3-state one-hot ring FSM. The rotation a<=c, b<=a, c<=b permutes the state bits.\n// PROVEN invariant: EXACTLY one of a/b/c is ever high (at-least-one AND at-most-one).\nmodule onehot(input clk);\n  reg a;\n  reg b;\n  reg c;\n  initial begin a = 1; b = 0; c = 0; end\n  always @(posedge clk) begin\n    a <= c;\n    b <= a;\n    c <= b;\n  end\n  assert property ((a | b | c) & ~(a & b) & ~(a & c) & ~(b & c));\nendmodule\n",
+    ),
+    (
+        "reset-mirror.v",
+        "// Two registers with identical reset+toggle logic over a FREE reset input.\n// PROVEN by k-induction for EVERY reset sequence: a and b always stay equal.\nmodule mirror(input clk, input rst);\n  reg a;\n  reg b;\n  initial begin a = 0; b = 0; end\n  always @(posedge clk) begin\n    if (rst) a <= 0; else a <= ~a;\n    if (rst) b <= 0; else b <= ~b;\n  end\n  assert property (a == b);\nendmodule\n",
+    ),
+    (
+        "traffic-safe.v",
+        "// 🚦 A COMPLEX signalized intersection — the kind you verify for a formal-methods\n// final. NS/EW through movements, PROTECTED left turns (nsl/ewl), and a PEDESTRIAN phase,\n// sequenced by a 9-state controller with a per-phase timer. Lights: 0=red 1=green 2=yellow.\n// PROVEN by k-induction: no two conflicting movements are ever active together, and\n// pedestrians get WALK only when EVERY vehicle movement is red.\nmodule traffic(input clk);\n  reg [1:0] ns;\n  reg [1:0] ew;\n  reg [1:0] nsl;\n  reg [1:0] ewl;\n  reg ped;\n  reg [3:0] phase;\n  reg [2:0] timer;\n  initial begin ns=2'd0; ew=2'd0; nsl=2'd1; ewl=2'd0; ped=1'd0; phase=4'd0; timer=3'd1; end\n  always @(posedge clk)\n    if (timer == 3'd0) begin\n      timer <= 3'd1;\n      if (phase == 4'd0) begin phase<=4'd1; nsl<=2'd2; ns<=2'd0; ew<=2'd0; ewl<=2'd0; ped<=1'd0; end\n      else if (phase == 4'd1) begin phase<=4'd2; nsl<=2'd0; ns<=2'd1; ew<=2'd0; ewl<=2'd0; ped<=1'd0; end\n      else if (phase == 4'd2) begin phase<=4'd3; ns<=2'd2; nsl<=2'd0; ew<=2'd0; ewl<=2'd0; ped<=1'd0; end\n      else if (phase == 4'd3) begin phase<=4'd4; ewl<=2'd1; ns<=2'd0; ew<=2'd0; nsl<=2'd0; ped<=1'd0; end\n      else if (phase == 4'd4) begin phase<=4'd5; ewl<=2'd2; ns<=2'd0; ew<=2'd0; nsl<=2'd0; ped<=1'd0; end\n      else if (phase == 4'd5) begin phase<=4'd6; ewl<=2'd0; ew<=2'd1; ns<=2'd0; nsl<=2'd0; ped<=1'd0; end\n      else if (phase == 4'd6) begin phase<=4'd7; ew<=2'd2; ns<=2'd0; nsl<=2'd0; ewl<=2'd0; ped<=1'd0; end\n      else if (phase == 4'd7) begin phase<=4'd8; ped<=1'd1; ns<=2'd0; ew<=2'd0; nsl<=2'd0; ewl<=2'd0; end\n      else begin phase<=4'd0; nsl<=2'd1; ns<=2'd0; ew<=2'd0; ewl<=2'd0; ped<=1'd0; end\n    end else\n      timer <= timer - 1;\n  assert property (~((ns != 2'd0) & (ew != 2'd0)) & ~((ped == 1'd1) & ((ns != 2'd0) | (ew != 2'd0) | (nsl != 2'd0) | (ewl != 2'd0))));\nendmodule\n",
+    ),
+    (
+        "traffic-crash.v",
+        "// 🚦💥 The SAME intersection with ONE dangerous bug: the pedestrian phase raises WALK\n// but forgets to clear NS, so it sends pedestrians into live cross traffic. BMC finds the\n// exact cycle — watch the lights step through the REAL trace, then flash CONFLICT.\nmodule traffic(input clk);\n  reg [1:0] ns;\n  reg [1:0] ew;\n  reg [1:0] nsl;\n  reg [1:0] ewl;\n  reg ped;\n  reg [3:0] phase;\n  reg [2:0] timer;\n  initial begin ns=2'd0; ew=2'd0; nsl=2'd1; ewl=2'd0; ped=1'd0; phase=4'd0; timer=3'd1; end\n  always @(posedge clk)\n    if (timer == 3'd0) begin\n      timer <= 3'd1;\n      if (phase == 4'd0) begin phase<=4'd1; nsl<=2'd2; ns<=2'd0; ew<=2'd0; ewl<=2'd0; ped<=1'd0; end\n      else if (phase == 4'd1) begin phase<=4'd2; nsl<=2'd0; ns<=2'd1; ew<=2'd0; ewl<=2'd0; ped<=1'd0; end\n      else if (phase == 4'd2) begin phase<=4'd3; ns<=2'd2; nsl<=2'd0; ew<=2'd0; ewl<=2'd0; ped<=1'd0; end\n      else if (phase == 4'd3) begin phase<=4'd4; ewl<=2'd1; ns<=2'd0; ew<=2'd0; nsl<=2'd0; ped<=1'd0; end\n      else if (phase == 4'd4) begin phase<=4'd5; ewl<=2'd2; ns<=2'd0; ew<=2'd0; nsl<=2'd0; ped<=1'd0; end\n      else if (phase == 4'd5) begin phase<=4'd6; ewl<=2'd0; ew<=2'd1; ns<=2'd0; nsl<=2'd0; ped<=1'd0; end\n      else if (phase == 4'd6) begin phase<=4'd7; ew<=2'd2; ns<=2'd0; nsl<=2'd0; ewl<=2'd0; ped<=1'd0; end\n      else if (phase == 4'd7) begin phase<=4'd8; ped<=1'd1; ns<=2'd1; ew<=2'd0; nsl<=2'd0; ewl<=2'd0; end\n      else begin phase<=4'd0; nsl<=2'd1; ns<=2'd0; ew<=2'd0; ewl<=2'd0; ped<=1'd0; end\n    end else\n      timer <= timer - 1;\n  assert property (~((ns != 2'd0) & (ew != 2'd0)) & ~((ped == 1'd1) & ((ns != 2'd0) | (ew != 2'd0) | (nsl != 2'd0) | (ewl != 2'd0))));\nendmodule\n",
+    ),
+    (
+        "queue-jam.v",
+        "// \u{1F697}\u{1F6A6} TRAFFIC FLOW: an approach's queue is a counter. Served only every other cycle\n// while a car arrives each cycle (demand > capacity), so the queue climbs until it JAMS. BMC\n// finds the exact cycle it overflows \u{2014} watch q ramp up in the waveform.\nmodule flow(input clk);\n  reg [2:0] q;\n  reg phase;\n  initial begin q = 3'd0; phase = 1'd0; end\n  always @(posedge clk) begin\n    phase <= ~phase;\n    if (phase == 1'd1) q <= q + 3'd1;\n  end\n  assert property (q < 3'd7);\nendmodule\n",
+    ),
+    (
+        "queue-stable.v",
+        "// \u{1F697}\u{2705} TRAFFIC FLOW: the same queue, but service keeps up with demand, so a starting\n// backlog only ever DRAINS. PROVEN by k-induction to never jam \u{2014} for all time, not just a\n// bounded window.\nmodule flow(input clk);\n  reg [2:0] q;\n  initial begin q = 3'd5; end\n  always @(posedge clk)\n    if (q != 3'd0) q <= q - 3'd1;\n  assert property (q < 3'd7);\nendmodule\n",
+    ),
+];
+
+/// Seed the Hardware-mode example specs (English → SVA) and RTL examples (Verilog → BMC) into
+/// `/examples/hardware`.
+async fn seed_hardware_examples<V: Vfs>(vfs: &V) -> VfsResult<()> {
+    // Retire earlier toy RTL examples that have been replaced by the real-hardware set.
+    for obsolete in ["toggle.v", "mutex.v", "counter.v"] {
+        let _ = vfs.remove(&format!("/examples/hardware/{obsolete}")).await;
+    }
+    for (name, spec) in HARDWARE_EXAMPLES {
+        vfs.write(&format!("/examples/hardware/{name}"), spec.as_bytes()).await?;
+    }
+    for (name, src) in RTL_EXAMPLES {
+        vfs.write(&format!("/examples/hardware/{name}"), src.as_bytes()).await?;
+    }
+    Ok(())
+}
+
 async fn seed_advanced_code_examples<V: Vfs>(vfs: &V) -> VfsResult<()> {
     // Create new directories for existing installs
     vfs.create_dir_all("/examples/code/basics").await?;
@@ -213,6 +301,8 @@ async fn seed_advanced_code_examples<V: Vfs>(vfs: &V) -> VfsResult<()> {
     vfs.write("/examples/math/functions.logos", MATH_FUNCTIONS.as_bytes()).await?;
     vfs.write("/examples/math/list-ops.logos", MATH_LIST_OPS.as_bytes()).await?;
     vfs.write("/examples/math/pairs.logos", MATH_PAIRS.as_bytes()).await?;
+    vfs.write("/examples/math/logic-gates.logos", MATH_CIRCUIT.as_bytes()).await?;
+    vfs.write("/examples/math/proven-property.logos", MATH_PROPERTY.as_bytes()).await?;
     vfs.write("/examples/math/collatz.logos", MATH_COLLATZ.as_bytes()).await?;
     vfs.write("/examples/math/godel-literate.logos", MATH_GODEL_LITERATE.as_bytes()).await?;
     vfs.write("/examples/math/incompleteness-literate.logos", MATH_INCOMPLETENESS_LITERATE.as_bytes()).await?;
@@ -287,22 +377,49 @@ Prove: Socrates is mortal.
 Proof: Auto.
 "#;
 
-// A logic-GRID deduction (PuzzleBaron "Simon" puzzle), solved by the SAME
-// kernel-certified prover as Socrates — grounded to its finite domain and closed by
-// unit propagation (no Z3). The state domain is closed to four states with an
-// exactly-one-each bijection; Alpha takes Florida (so Beta cannot), and over the year
-// × state grid Beta is forced into Maine by elimination. Renders the full derivation.
+// The full PuzzleBaron "Simon" logic grid — four trips × four categories (year, state,
+// friend, activity) with all six clues (both of-pair clues included) — solved by the
+// SAME kernel-certified prover as Socrates: grounded to its finite domain and closed by
+// unit propagation (no Z3, runs in WASM). Every cell is forced by the exactly-one-each
+// bijections plus the clues; `Beta is in Florida` falls out via the Florida=hunting and
+// hunting/2004 of-pair clues. Renders the full certified derivation.
 const LOGIC_SIMON: &str = r#"## Theorem: Simon
-Given: Alpha is a trip.
-Given: Beta is a trip.
-Given: Alpha is not Beta.
-Given: Every trip is in 2003 or in 2004.
-Given: Every trip is in Florida or in Maine.
+Given: Alpha, Beta, Gamma, and Delta are four different trips.
+Given: 2001, 2002, 2003, and 2004 are four different years.
+Given: Connecticut, Florida, Kentucky, and Maine are four different states.
+Given: Bill, Lillie, Neal, and Yvonne are four different friends.
+Given: Cycling, hunting, kayaking, and skydiving are four different activities.
+Given: Every trip is in 2001 or in 2002 or in 2003 or in 2004.
+Given: Exactly one trip is in 2001.
+Given: Exactly one trip is in 2002.
 Given: Exactly one trip is in 2003.
+Given: Exactly one trip is in 2004.
+Given: Every trip is in Connecticut or in Florida or in Kentucky or in Maine.
+Given: Exactly one trip is in Connecticut.
 Given: Exactly one trip is in Florida.
-Given: Alpha is in 2003.
-Given: Alpha is in Florida.
-Prove: Beta is in Maine.
+Given: Exactly one trip is in Kentucky.
+Given: Exactly one trip is in Maine.
+Given: Every trip is with Bill or with Lillie or with Neal or with Yvonne.
+Given: Exactly one trip is with Bill.
+Given: Exactly one trip is with Lillie.
+Given: Exactly one trip is with Neal.
+Given: Exactly one trip is with Yvonne.
+Given: Every trip is cycling or hunting or kayaking or skydiving.
+Given: Exactly one trip is cycling.
+Given: Exactly one trip is hunting.
+Given: Exactly one trip is kayaking.
+Given: Exactly one trip is skydiving.
+Given: Alpha is in 2001.
+Given: Beta is in 2002.
+Given: Gamma is in 2003.
+Given: Delta is in 2004.
+Given: Of the hunting trip and the 2004 trip, one was with Neal and the other was in Connecticut.
+Given: The Florida trip was the hunting trip.
+Given: Neither the trip with Bill nor the Florida trip is the 2001 trip.
+Given: The trip with Yvonne is not in Kentucky.
+Given: Of the skydiving trip and the Maine trip, one was in 2003 and the other was with Bill.
+Given: The 2003 trip is not the cycling trip.
+Prove: Beta is in Florida.
 Proof: Auto.
 "#;
 
@@ -945,6 +1062,49 @@ Check nat_nat_pair.
 -- Evaluate
 Eval nat_bool_pair.
 Eval nat_nat_pair.
+"#;
+
+const MATH_CIRCUIT: &str = r#"-- Logic Gates as a Circuit
+-- Encode the gates formally, then hit the crab Compile button to extract
+-- runnable Rust. The same code could run in WASM or drive a hardware circuit —
+-- this is "encode it, extract it, run it".
+
+Inductive MyBit := Lo : MyBit | Hi : MyBit.
+
+Definition not1 : MyBit -> MyBit := fun a : MyBit =>
+  match a return (fun _ : MyBit => MyBit) with | Lo => Hi | Hi => Lo.
+
+Definition and2 : MyBit -> MyBit -> MyBit := fun a : MyBit => fun b : MyBit =>
+  match a return (fun _ : MyBit => MyBit) with | Lo => Lo | Hi => b.
+
+Definition or2 : MyBit -> MyBit -> MyBit := fun a : MyBit => fun b : MyBit =>
+  match a return (fun _ : MyBit => MyBit) with | Lo => b | Hi => Hi.
+
+-- XOR built from the primitive gates
+Definition xor2 : MyBit -> MyBit -> MyBit := fun a : MyBit => fun b : MyBit =>
+  or2 (and2 a (not1 b)) (and2 (not1 a) b).
+
+-- Try it: XOR truth table
+Eval xor2 Lo Hi.
+Eval xor2 Hi Hi.
+"#;
+
+const MATH_PROPERTY: &str = r#"-- Proven theorems become RUNNABLE Rust property checks.
+-- Define a function, prove a theorem about it, then hit Compile: the proof turns
+-- into a `check_*` function over the extracted code that the demo main runs.
+
+Inductive Num := Z : Num | S : Num -> Num.
+
+Definition add : Num -> Num -> Num := fix rec => fun n : Num => fun m : Num =>
+  match n return (fun _ : Num => Num) with | Z => m | S k => S (rec k m).
+
+Definition one : Num := S Z.
+
+-- A proven theorem: adding Z on the left is the identity (true by computation,
+-- so `refl` proves it). Compile → `fn check_add_zero_l(n) -> bool { add(Z, n) == n }`.
+Definition add_zero_l : (forall n : Num, Eq Num (add Z n) n) := fun n : Num => refl Num n.
+
+Eval add one one.
 "#;
 
 const MATH_COLLATZ: &str = r###"-- ============================================
@@ -3254,3 +3414,232 @@ Eval (concludes d_trivial).
 -- These form a complete tactical language for
 -- programming proofs. God Mode achieved.
 "###;
+
+#[cfg(test)]
+mod example_health {
+    //! Every shipped Studio example must be well-formed in its mode:
+    //! - Code examples must generate Rust (no parse/codegen error).
+    //! - Math examples must extract without error (no extraction crash).
+    //!
+    //! Computational math examples are *additionally* rustc-compiled in
+    //! `logicaffeine_tests/tests/phase84_math_examples_e2e.rs`. This module is the
+    //! single-source guard (it references the same consts the VFS is seeded from),
+    //! so a broken example can never ship unnoticed.
+    use super::*;
+    use logicaffeine_compile::{
+        extract_logic_rust, extract_math_rust_from_source, generate_rust_code,
+    };
+
+    const CODE_EXAMPLES: &[(&str, &str)] = &[
+        ("hello-world", CODE_HELLO),
+        ("hello-world2", CODE_HELLO2),
+        ("fibonacci", CODE_FIBONACCI),
+        ("fizzbuzz", CODE_FIZZBUZZ),
+        ("fizzbuzz2", CODE_FIZZBUZZ2),
+        ("fizzbuzz3", CODE_FIZZBUZZ3),
+        ("collections", CODE_COLLECTIONS),
+        ("factorial", CODE_FACTORIAL),
+        ("prime-check", CODE_PRIME),
+        ("sum-list", CODE_SUM_LIST),
+        ("bubble-sort", CODE_BUBBLE_SORT),
+        ("struct-demo", CODE_STRUCT),
+        ("enums", CODE_ENUMS),
+        ("generics", CODE_GENERICS),
+        ("sets", CODE_SETS),
+        ("maps", CODE_MAPS),
+        ("higher-order", CODE_HIGHER_ORDER),
+        ("crdt-counters", CODE_CRDT_COUNTERS),
+        ("policies", CODE_POLICIES),
+        ("zones", CODE_ZONES),
+        ("tasks", CODE_TASKS),
+        ("channels", CODE_CHANNELS),
+        ("basics-variables", CODE_BASICS_VARIABLES),
+        ("basics-operators", CODE_BASICS_OPERATORS),
+        ("basics-control-flow", CODE_BASICS_CONTROL_FLOW),
+        ("enums-patterns", CODE_ENUMS_PATTERNS),
+        ("ownership", CODE_OWNERSHIP),
+        ("concurrency-parallel", CODE_CONCURRENCY_PARALLEL),
+        ("crdt-tally", CODE_CRDT_TALLY),
+        ("crdt-merge", CODE_CRDT_MERGE),
+        ("network-server", CODE_NETWORK_SERVER),
+        ("network-client", CODE_NETWORK_CLIENT),
+        ("error-handling", CODE_ERROR_HANDLING),
+        ("refinement", CODE_ADVANCED_REFINEMENT),
+        ("assertions", CODE_ADVANCED_ASSERTIONS),
+        ("temporal", CODE_TEMPORAL),
+    ];
+
+    const MATH_EXAMPLES: &[(&str, &str)] = &[
+        ("natural-numbers", MATH_NAT),
+        ("boolean-logic", MATH_BOOL),
+        ("godel-sentence", MATH_GODEL),
+        ("incompleteness", MATH_INCOMPLETENESS),
+        ("prop-logic", MATH_PROP_LOGIC),
+        ("functions", MATH_FUNCTIONS),
+        ("list-ops", MATH_LIST_OPS),
+        ("pairs", MATH_PAIRS),
+        ("logic-gates", MATH_CIRCUIT),
+        ("proven-property", MATH_PROPERTY),
+        ("collatz", MATH_COLLATZ),
+        ("godel-literate", MATH_GODEL_LITERATE),
+        ("incompleteness-literate", MATH_INCOMPLETENESS_LITERATE),
+        ("ring-tactic", MATH_RING),
+        ("lia-tactic", MATH_LIA),
+        ("cc-tactic", MATH_CC),
+        ("simp-tactic", MATH_SIMP),
+        ("omega-tactic", MATH_OMEGA),
+        ("auto-tactic", MATH_AUTO),
+        ("induction-tactic", MATH_INDUCTION),
+        ("hints", MATH_HINTS),
+        ("inversion-tactic", MATH_INVERSION),
+        ("operator-tactics", MATH_OPERATOR),
+        ("tacticals", MATH_TACTICALS),
+    ];
+
+    #[test]
+    fn all_code_examples_generate_rust() {
+        let mut failures = Vec::new();
+        for (name, src) in CODE_EXAMPLES {
+            match generate_rust_code(src) {
+                Ok(rust) if !rust.trim().is_empty() => {}
+                Ok(_) => failures.push(format!("  {name}: generated empty Rust")),
+                Err(e) => failures.push(format!("  {name}: {e:?}")),
+            }
+        }
+        assert!(
+            failures.is_empty(),
+            "{} code example(s) did not generate Rust:\n{}",
+            failures.len(),
+            failures.join("\n")
+        );
+    }
+
+    #[test]
+    fn all_math_examples_extract_without_error() {
+        let mut failures = Vec::new();
+        for (name, src) in MATH_EXAMPLES {
+            let rust = extract_math_rust_from_source(src);
+            if rust.contains("extraction error") {
+                failures.push(format!("  {name}: {rust}"));
+            }
+        }
+        assert!(
+            failures.is_empty(),
+            "{} math example(s) errored during extraction:\n{}",
+            failures.len(),
+            failures.join("\n")
+        );
+    }
+
+    const LOGIC_EXAMPLES: &[(&str, &str)] = &[
+        ("simple-sentences", LOGIC_SIMPLE),
+        ("quantifiers", LOGIC_QUANTIFIERS),
+        ("tense-aspect", LOGIC_TENSE),
+        ("prover-demo", LOGIC_PROVER),
+        ("simon", LOGIC_SIMON),
+        ("syllogism", LOGIC_SYLLOGISM),
+        ("trivial-proof", LOGIC_TRIVIAL),
+        ("disjunctive-syllogism", LOGIC_DISJUNCTIVE),
+        ("modus-tollens", LOGIC_MODUS_TOLLENS),
+        ("leibniz-identity", LOGIC_LEIBNIZ),
+        ("barber-paradox", LOGIC_BARBER),
+    ];
+
+    /// AUDIT (host-only, print report): generate the Rust for every Logic + Math
+    /// example and actually `rustc`-compile it, categorizing program vs note vs
+    /// degraded (`unsupported`) stub. Answers "is anything not compiling to Rust?"
+    #[cfg(not(target_arch = "wasm32"))]
+    #[test]
+    fn audit_logic_math_rust_compiles() {
+        use std::process::Command;
+
+        fn rustc_check(name: &str, code: &str) -> Result<(), String> {
+            let safe = name.replace('/', "_");
+            let src = std::env::temp_dir().join(format!("logos_audit_{safe}.rs"));
+            let out = std::env::temp_dir().join(format!("logos_audit_{safe}.rmeta"));
+            std::fs::write(&src, code).map_err(|e| e.to_string())?;
+            let o = Command::new("rustc")
+                .args(["--edition", "2021", "--crate-type", "lib", "--emit=metadata", "-A", "warnings"])
+                .arg("-o")
+                .arg(&out)
+                .arg(&src)
+                .output()
+                .map_err(|e| e.to_string())?;
+            if o.status.success() {
+                Ok(())
+            } else {
+                Err(String::from_utf8_lossy(&o.stderr)
+                    .lines()
+                    .find(|l| l.contains("error"))
+                    .unwrap_or("(unknown)")
+                    .to_string())
+            }
+        }
+
+        fn report(kind: &str, items: &[(&str, String)], failures: &mut Vec<String>) {
+            println!("\n=== {kind} examples → Rust ===");
+            for (name, code) in items {
+                // A note is a comment-only output (the honest "not data" result).
+                let is_program = code.contains("fn ") || code.contains("enum ");
+                if !is_program {
+                    println!("  {name:30} NOTE (not a program — by design)");
+                    continue;
+                }
+                match rustc_check(name, code) {
+                    Ok(()) => println!("  {name:30} compiles ✓"),
+                    Err(e) => {
+                        println!("  {name:30} DOES NOT COMPILE ✗ — {e}");
+                        failures.push(format!("{kind}/{name}: {e}"));
+                    }
+                }
+            }
+        }
+
+        let logic: Vec<(&str, String)> = LOGIC_EXAMPLES
+            .iter()
+            .map(|(n, s)| (*n, extract_logic_rust(s).unwrap_or_else(|e| format!("// err: {e}"))))
+            .collect();
+        let math: Vec<(&str, String)> = MATH_EXAMPLES
+            .iter()
+            .map(|(n, s)| (*n, extract_math_rust_from_source(s)))
+            .collect();
+        let mut failures = Vec::new();
+        report("LOGIC", &logic, &mut failures);
+        report("MATH", &math, &mut failures);
+        // Every shipped example must compile to valid Rust OR be an honest note —
+        // never broken Rust the user would hit on Compile.
+        assert!(
+            failures.is_empty(),
+            "{} example(s) emit Rust that does not compile:\n{}",
+            failures.len(),
+            failures.join("\n")
+        );
+    }
+
+    /// Every Logic example must "compile to something" via the 🦀 Compile path
+    /// (`extract_logic_rust`): real Rust for constructive content, otherwise an
+    /// honest note — and never a crash, an `extraction error`, or a hang (the
+    /// grid guard keeps the Simon puzzle from running the solver).
+    #[test]
+    fn all_logic_examples_compile_to_something() {
+        let mut failures = Vec::new();
+        for (name, src) in LOGIC_EXAMPLES {
+            match extract_logic_rust(src) {
+                Ok(out) if out.trim().is_empty() => {
+                    failures.push(format!("  {name}: produced empty output"))
+                }
+                Ok(out) if out.contains("extraction error") => {
+                    failures.push(format!("  {name}: {out}"))
+                }
+                Ok(_) => {}
+                Err(e) => failures.push(format!("  {name}: Err({e})")),
+            }
+        }
+        assert!(
+            failures.is_empty(),
+            "{} logic example(s) did not compile to something:\n{}",
+            failures.len(),
+            failures.join("\n")
+        );
+    }
+}

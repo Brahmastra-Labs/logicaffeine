@@ -3,7 +3,7 @@
 **Our Mission: Compile the universes information. No, not collect, compile, like code.**
 
 [![CI](https://github.com/Brahmastra-Labs/logicaffeine/actions/workflows/test.yml/badge.svg)](https://github.com/Brahmastra-Labs/logicaffeine/actions/workflows/test.yml)
-[![Version](https://img.shields.io/badge/version-0.8.12-blue)]()
+[![Version](https://img.shields.io/badge/version-0.9.17-blue)]()
 [![Tests](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/Brahmastra-Labs/logicaffeine/badges/logicaffeine_test_count.json)](https://github.com/Brahmastra-Labs/logicaffeine/actions/workflows/test.yml)
 [![License](https://img.shields.io/badge/license-BSL%201.1-blue)](LICENSE.md)
 
@@ -3694,12 +3694,18 @@ Logicaffeine uses a tiered crate design:
 | 0 | `logicaffeine_base` | Arena allocation, tokens, spans |
 | 0 | `logicaffeine_kernel` | Pure type theory (Calculus of Constructions) |
 | 0 | `logicaffeine_data` | CRDTs, data structures (WASM-safe, no IO) |
+| 0 | `logicaffeine_forge` | Copy-and-patch JIT: executable-memory layer, baked stencils, EXODIA register-allocating x86-64 backend (native only) |
+| 0 | `logicaffeine_runtime` | Deterministic concurrency runtime for the interpreter and VM (scheduler, channels, seed/trace; never in AOT binaries) |
 | 1 | `logicaffeine_lexicon` | English vocabulary (compiled from lexicon.json) |
 | 1 | `logicaffeine_system` | Platform IO: networking, persistence, VFS |
 | 2 | `logicaffeine_language` | Parser, AST, FOL transpiler |
-| 2 | `logicaffeine_compile` | Rust codegen, interpreter |
-| 3 | `logicaffeine_proof` | Backward-chaining proof engine |
-| 3 | `logicaffeine_verify` | Z3 verification (optional, excluded from workspace) |
+| 2 | `logicaffeine_compile` | Rust codegen, bytecode VM, interpreter, optimizer |
+| 3 | `logicaffeine_proof` | Backward-chaining proof engine, CDCL/grid solver |
+| 3 | `logicaffeine_jit` | Native tier: wires the forge JIT into the bytecode VM (native only) |
+| 3 | `logicaffeine_synth` | EXODIA offline stencil proof tooling: Z3 specs + witness verification (dev/CI only) |
+| 3 | `logicaffeine_verify` | Z3 static verification (optional, requires Z3) |
+| 3 | `logicaffeine_tv` | SMT translation validation: emitted Rust ≡ LOGOS source (optional, requires Z3) |
+| 4 | `logicaffeine_lsp` | Language Server Protocol for `.logos` files |
 
 **Applications:**
 - `apps/logicaffeine_cli` - The `largo` command-line tool

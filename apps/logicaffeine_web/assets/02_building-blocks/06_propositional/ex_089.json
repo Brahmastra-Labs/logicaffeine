@@ -1,13 +1,13 @@
 {
-  "id": "C_6.27",
+  "id": "C_6.89",
   "type": "multiple_choice",
   "difficulty": 1,
   "prompt": "T is necessary for C",
   "options": [
-    "$ (T \\\\equiv C) $",
-    "$ (T \\\\supset C) $",
-    "$ T \\\\supset C $",
-    "$ (\\\\sim T \\\\supset \\\\, \\\\sim C) $"
+    "$ (T \\equiv C) $",
+    "$ (T \\supset C) $",
+    "$ T \\supset C $",
+    "$ (\\sim T \\supset \\, \\sim C) $"
   ],
   "correct": 3,
   "hint": "If A is 'necessary' for B, can B happen without A?",

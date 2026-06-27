@@ -4,10 +4,10 @@
   "difficulty": 1,
   "prompt": "You're either both wild and gentle or else cheerful",
   "options": [
-    "$ W \\\\cdot G \\\\vee C $",
-    "$ (W \\\\cdot (G \\\\vee C)) $",
-    "$ (W \\\\cdot G) \\\\vee C $",
-    "$ ((W \\\\cdot G) \\\\vee C) $"
+    "$ W \\cdot G \\vee C $",
+    "$ (W \\cdot (G \\vee C)) $",
+    "$ (W \\cdot G) \\vee C $",
+    "$ ((W \\cdot G) \\vee C) $"
   ],
   "correct": 3,
   "hint": "What exactly is 'both' connecting? Are both parts the full consequence, or just the second one?",

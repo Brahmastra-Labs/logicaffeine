@@ -558,7 +558,7 @@ pub(super) fn calls_async_function(stmt: &Stmt, async_fns: &HashSet<Symbol>) -> 
             value.as_ref().map_or(false, |v| calls_async_function_in_expr(v, async_fns))
         }
         // Check RuntimeAssert condition for async calls
-        Stmt::RuntimeAssert { condition } => calls_async_function_in_expr(condition, async_fns),
+        Stmt::RuntimeAssert { condition, .. } => calls_async_function_in_expr(condition, async_fns),
         // Check Show for async calls
         Stmt::Show { object, .. } => calls_async_function_in_expr(object, async_fns),
         // Check Push for async calls
@@ -1226,7 +1226,7 @@ fn symbol_appears_in_stmt(sym: Symbol, stmt: &Stmt) -> bool {
             symbol_appears_in_expr(sym, target)
                 || arms.iter().any(|arm| arm.body.iter().any(|s| symbol_appears_in_stmt(sym, s)))
         }
-        Stmt::RuntimeAssert { condition } => symbol_appears_in_expr(sym, condition),
+        Stmt::RuntimeAssert { condition, .. } => symbol_appears_in_expr(sym, condition),
         Stmt::FunctionDef { body, .. } => body.iter().any(|s| symbol_appears_in_stmt(sym, s)),
         Stmt::Concurrent { tasks } | Stmt::Parallel { tasks } => {
             tasks.iter().any(|s| symbol_appears_in_stmt(sym, s))
@@ -1361,7 +1361,7 @@ pub(super) fn vec_to_mut_slice_type(vec_type: &str) -> String {
 /// Conservative by construction: anything uncertain stays `LogosSeq`. An
 /// unsound de-Rc would make the generated Rust fail to compile (two owners /
 /// moved-from use), a loud failure the tests catch — never silent corruption.
-pub(super) fn collect_de_rc_seqs(
+pub(crate) fn collect_de_rc_seqs(
     stmts: &[Stmt],
     interner: &Interner,
     borrow_params: &HashMap<Symbol, HashSet<usize>>,
@@ -1370,7 +1370,7 @@ pub(super) fn collect_de_rc_seqs(
     returns_vec: bool,
 ) -> HashSet<Symbol> {
     // Kill switch (benchmark A/B): `LOGOS_DERC=0` keeps every Seq as `LogosSeq`.
-    if std::env::var("LOGOS_DERC").map(|v| v == "0").unwrap_or(false) {
+    if !crate::optimize::active_config().is_on(crate::optimization::Opt::Unbox) {
         return HashSet::new();
     }
     // Phase 3a/3b: a candidate passed at EITHER a readonly-borrow (`&[T]`) or a
@@ -1427,6 +1427,9 @@ pub(super) fn collect_de_rc_seqs(
             break;
         }
     }
+    if !candidates.is_empty() {
+        crate::optimize::mark_fired(crate::optimization::Opt::Unbox);
+    }
     candidates
 }
 
@@ -1446,7 +1449,7 @@ pub(super) fn collect_vec_return_fns(
     borrow_params: &HashMap<Symbol, HashSet<usize>>,
     mut_borrow_params: &HashMap<Symbol, HashSet<usize>>,
 ) -> HashSet<Symbol> {
-    if std::env::var("LOGOS_DERC").map(|v| v == "0").unwrap_or(false) {
+    if !crate::optimize::active_config().is_on(crate::optimization::Opt::Unbox) {
         return HashSet::new();
     }
     // Every non-native function declared to return a Seq/List/Vec, with its
@@ -1511,6 +1514,9 @@ pub(super) fn collect_vec_return_fns(
             break;
         }
         vec_fns.retain(|f| !remove.contains(f));
+    }
+    if !vec_fns.is_empty() {
+        crate::optimize::mark_fired(crate::optimization::Opt::Unbox);
     }
     vec_fns
 }
@@ -2447,7 +2453,7 @@ fn cf_analyze_add_tree(
 /// straight-line pushes and thereafter only indexed/length-queried, never
 /// resized, aliased, or escaped. Codegen emits it as a Rust `[T; N]` array —
 /// C's representation for nbody's bodies: stack-allocated, statically bounded.
-pub(super) struct ScalarizableSeq {
+pub(crate) struct ScalarizableSeq {
     pub elem_ty: String,
     pub len: usize,
 }
@@ -2483,17 +2489,18 @@ const MAX_SCALARIZE_LEN: usize = 64;
 /// Find scalarizable Seqs among the given block's locals (v1: the block
 /// passed is Main; function bodies are not scanned). Conservative: any
 /// appearance of a candidate outside an allowed position disqualifies it.
-pub(super) fn collect_scalarizable_seqs(
+pub(crate) fn collect_scalarizable_seqs(
     stmts: &[Stmt],
     interner: &Interner,
 ) -> HashMap<Symbol, ScalarizableSeq> {
     // Kill switch for A/B measurement (`LOGOS_SCALARIZE=0`).
-    if std::env::var("LOGOS_SCALARIZE").map(|v| v == "0").unwrap_or(false) {
+    if !crate::optimize::active_config().is_on(crate::optimization::Opt::Scalarize) {
         return HashMap::new();
     }
     let mut cand: HashMap<Symbol, ScalarCand> = HashMap::new();
     scalar_walk_block(stmts, true, &mut cand, interner);
-    cand.into_iter()
+    let result: HashMap<Symbol, ScalarizableSeq> = cand
+        .into_iter()
         .filter_map(|(sym, c)| {
             if c.disqualified || c.len == 0 || c.len > MAX_SCALARIZE_LEN {
                 None
@@ -2501,7 +2508,11 @@ pub(super) fn collect_scalarizable_seqs(
                 Some((sym, ScalarizableSeq { elem_ty: c.elem_ty, len: c.len }))
             }
         })
-        .collect()
+        .collect();
+    if !result.is_empty() {
+        crate::optimize::mark_fired(crate::optimization::Opt::Scalarize);
+    }
+    result
 }
 
 /// The set of Seq variables that qualify for fixed-size scalarization (`[T; N]`).
@@ -2556,7 +2567,7 @@ pub(super) fn collect_interleaved_groups(
     _interner: &Interner,
 ) -> Vec<InterleaveGroup> {
     // Kill switch for A/B measurement (`LOGOS_AOS=0`).
-    if std::env::var("LOGOS_AOS").map(|v| v == "0").unwrap_or(false) {
+    if !crate::optimize::active_config().is_on(crate::optimization::Opt::Interleave) {
         return Vec::new();
     }
     if scalarizable.len() < 2 {
@@ -2624,8 +2635,19 @@ pub(super) fn collect_interleaved_groups(
     let force = std::env::var("LOGOS_AOS_FORCE").map(|v| v == "1").unwrap_or(false);
     let members: std::collections::HashSet<Symbol> = group.iter().copied().collect();
     if !force && block_has_const_member_index(stmts, &members) {
+        // A const-index access means the kernel has been unrolled / will SROA into
+        // registers — Unroll/Scalarize claim it, preempting AoS interleaving.
+        crate::optimize::mark_preempted(
+            crate::optimization::Opt::Scalarize,
+            crate::optimization::Opt::Interleave,
+        );
+        crate::optimize::mark_preempted(
+            crate::optimization::Opt::Unroll,
+            crate::optimization::Opt::Interleave,
+        );
         return Vec::new();
     }
+    crate::optimize::mark_fired(crate::optimization::Opt::Interleave);
     vec![InterleaveGroup { members: group, len: rounds, elem_ty }]
 }
 
@@ -2662,7 +2684,7 @@ fn stmt_has_const_member_index(s: &Stmt, members: &std::collections::HashSet<Sym
         Stmt::Add { value, collection } | Stmt::Remove { value, collection } => {
             expr_has_const_member_index(value, members) || expr_has_const_member_index(collection, members)
         }
-        Stmt::RuntimeAssert { condition } => expr_has_const_member_index(condition, members),
+        Stmt::RuntimeAssert { condition, .. } => expr_has_const_member_index(condition, members),
         Stmt::Return { value } => matches!(value, Some(v) if expr_has_const_member_index(v, members)),
         Stmt::Call { args, .. } => args.iter().any(|a| expr_has_const_member_index(a, members)),
         Stmt::If { cond, then_block, else_block } => {
@@ -3004,7 +3026,7 @@ fn scalar_walk_block(
                     scalar_walk_block(&arm.body, false, cand, interner);
                 }
             }
-            Stmt::RuntimeAssert { condition } => scalar_note_value(condition, cand),
+            Stmt::RuntimeAssert { condition, .. } => scalar_note_value(condition, cand),
             Stmt::Call { args, .. } => {
                 for a in args {
                     if let Expr::Identifier(s) = a {

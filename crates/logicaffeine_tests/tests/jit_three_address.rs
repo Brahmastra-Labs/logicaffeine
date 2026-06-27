@@ -80,10 +80,13 @@ fn fused_chain_code_size_reflects_single_piece_per_op() {
     }
     ops.push(MicroOp::Return { src: 2 });
     let chain = compile_straightline(&ops).expect("compile");
+    // Each op lowers to exactly one stencil piece. Integer math is now EXACT, so
+    // the Adds are checked (overflow → deopt) and share a single deopt terminal
+    // across the whole chain — exactly one extra piece, not one per op.
     assert_eq!(
         chain.piece_count(),
-        ops.len(),
-        "every micro-op must lower to exactly one stencil piece"
+        ops.len() + 1,
+        "every micro-op lowers to one stencil piece (+ one shared deopt terminal)"
     );
     // And a checked op adds exactly the one shared deopt terminal.
     let ops2 = [

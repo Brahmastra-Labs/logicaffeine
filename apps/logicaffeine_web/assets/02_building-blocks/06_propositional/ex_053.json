@@ -4,10 +4,10 @@
   "difficulty": 1,
   "prompt": "You aren't both not fortunate and loveable",
   "options": [
-    "$ F \\\\cdot L $",
-    "$ (F \\\\cdot L) $",
-    "$ \\\\sim(\\\\sim F \\\\cdot L) $",
-    "$ \\\\sim\\\\sim F \\\\cdot L $"
+    "$ F \\cdot L $",
+    "$ (F \\cdot L) $",
+    "$ \\sim(\\sim F \\cdot L) $",
+    "$ \\sim\\sim F \\cdot L $"
   ],
   "correct": 2,
   "hint": "What exactly is 'both' connecting? Are both parts the full consequence, or just the second one?",

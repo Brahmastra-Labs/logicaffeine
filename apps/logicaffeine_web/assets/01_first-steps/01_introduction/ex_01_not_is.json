@@ -7,5 +7,5 @@
   "constraints": {
     "Verb": ["Intransitive"]
   },
-  "hint": "Negation wraps the entire predication: ¬Verb(subject)."
+  "hint": "An action verb becomes an event with the subject as its Agent: ∃e(Verb(e) ∧ Agent(e, subject)). Negation wraps the whole thing: ¬∃e(Verb(e) ∧ Agent(e, subject))."
 }

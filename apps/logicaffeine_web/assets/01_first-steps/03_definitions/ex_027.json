@@ -14,5 +14,5 @@
   ],
   "correct": 0,
   "hint": "Can you think of something that fits this definition but ISN'T actually a king?",
-  "explanation": "This violates 1 (consider presidents and dictators)."
+  "explanation": "Presidents, prime ministers, and dictators all rule countries without being kings. 'Ruler of a country' lets in non-kings, so the definition is TOO BROAD."
 }

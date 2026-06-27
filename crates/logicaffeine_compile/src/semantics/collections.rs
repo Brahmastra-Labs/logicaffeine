@@ -187,6 +187,7 @@ pub fn length_of(coll: &RuntimeValue) -> Result<RuntimeValue, String> {
         RuntimeValue::Set(items) => Ok(RuntimeValue::Int(items.borrow().len() as i64)),
         RuntimeValue::Text(s) => Ok(RuntimeValue::Int(s.len() as i64)),
         RuntimeValue::Map(map) => Ok(RuntimeValue::Int(map.borrow().len() as i64)),
+        RuntimeValue::Crdt(c) => Ok(RuntimeValue::Int(c.borrow().len() as i64)),
         _ => Err(format!("Cannot get length of {}", coll.type_name())),
     }
 }
@@ -213,6 +214,7 @@ pub fn contains(coll: &RuntimeValue, val: &RuntimeValue) -> Result<RuntimeValue,
                 Err(format!("Cannot check if Text contains {}", val.type_name()))
             }
         }
+        RuntimeValue::Crdt(c) => Ok(RuntimeValue::Bool(c.borrow().contains(val)?)),
         _ => Err(format!("Cannot check contains on {}", coll.type_name())),
     }
 }
@@ -345,6 +347,7 @@ pub fn set_add(coll: &RuntimeValue, value: RuntimeValue) -> Result<(), String> {
             }
             Ok(())
         }
+        RuntimeValue::Crdt(c) => c.borrow_mut().insert(&value),
         _ => Err("Can only add to a Set".to_string()),
     }
 }
@@ -360,6 +363,7 @@ pub fn remove_from(coll: &RuntimeValue, value: &RuntimeValue) -> Result<(), Stri
             map.borrow_mut().remove(value);
             Ok(())
         }
+        RuntimeValue::Crdt(c) => c.borrow_mut().remove(value),
         _ => Err("Can only remove from a Set or Map".to_string()),
     }
 }

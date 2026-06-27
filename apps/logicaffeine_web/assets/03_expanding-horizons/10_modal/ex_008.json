@@ -4,10 +4,10 @@
   "difficulty": 1,
   "prompt": "'You're mean' is consistent with 'You're bitter'",
   "options": [
-    "$ (M \\\\cdot B) $",
-    "$ (\\\\lozenge M \\\\cdot B) $",
-    "$ \\\\lozenge (M \\\\cdot B) $",
-    "$ (\\\\lozenge M \\\\cdot B) $"
+    "$ (M \\cdot B) $",
+    "$ (\\lozenge M \\cdot B) $",
+    "$ \\lozenge (M \\cdot B) $",
+    "$ (\\lozenge M \\cdot \\lozenge B) $"
   ],
   "correct": 2,
   "hint": "What does 'consistent' mean in logic? Is it saying both ARE true, or that both COULD BE true together?",

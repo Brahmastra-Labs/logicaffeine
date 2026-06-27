@@ -140,11 +140,13 @@ fn eval_expr(
 
 fn eval_binop(op: BinaryOpKind, lv: Value, rv: Value, interner: &mut Interner) -> Option<Value> {
     match (op, &lv, &rv) {
-        (BinaryOpKind::Add, Value::Int(a), Value::Int(b)) => Some(Value::Int(a.wrapping_add(*b))),
-        (BinaryOpKind::Subtract, Value::Int(a), Value::Int(b)) => Some(Value::Int(a.wrapping_sub(*b))),
-        (BinaryOpKind::Multiply, Value::Int(a), Value::Int(b)) => Some(Value::Int(a.wrapping_mul(*b))),
-        (BinaryOpKind::Divide, Value::Int(a), Value::Int(b)) if *b != 0 => Some(Value::Int(a / b)),
-        (BinaryOpKind::Modulo, Value::Int(a), Value::Int(b)) if *b != 0 => Some(Value::Int(a % b)),
+        // Fold ONLY when the result fits i64; on overflow return None so the exact
+        // (promoting) runtime computes the BigInt — never bake a wrapped constant.
+        (BinaryOpKind::Add, Value::Int(a), Value::Int(b)) => a.checked_add(*b).map(Value::Int),
+        (BinaryOpKind::Subtract, Value::Int(a), Value::Int(b)) => a.checked_sub(*b).map(Value::Int),
+        (BinaryOpKind::Multiply, Value::Int(a), Value::Int(b)) => a.checked_mul(*b).map(Value::Int),
+        (BinaryOpKind::Divide, Value::Int(a), Value::Int(b)) if *b != 0 => a.checked_div(*b).map(Value::Int),
+        (BinaryOpKind::Modulo, Value::Int(a), Value::Int(b)) if *b != 0 => a.checked_rem(*b).map(Value::Int),
         (BinaryOpKind::Eq, Value::Int(a), Value::Int(b)) => Some(Value::Bool(a == b)),
         (BinaryOpKind::NotEq, Value::Int(a), Value::Int(b)) => Some(Value::Bool(a != b)),
         (BinaryOpKind::Lt, Value::Int(a), Value::Int(b)) => Some(Value::Bool(a < b)),
@@ -422,8 +424,9 @@ fn ctfe_stmt<'a>(
             value: ctfe_expr(value, env, expr_arena, interner),
             collection,
         },
-        Stmt::RuntimeAssert { condition } => Stmt::RuntimeAssert {
+        Stmt::RuntimeAssert { condition, hard } => Stmt::RuntimeAssert {
             condition: ctfe_expr(condition, env, expr_arena, interner),
+            hard,
         },
         other => other,
     }

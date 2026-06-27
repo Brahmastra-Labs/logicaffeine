@@ -21,9 +21,15 @@ pub(super) fn codegen_policy_impls(policies: &PolicyRegistry, interner: &Interne
     }
 
     // Get all types that have any policies
-    let mut all_types: HashSet<Symbol> = HashSet::new();
-    all_types.extend(type_predicates.keys().copied());
-    all_types.extend(type_capabilities.keys().copied());
+    let mut all_types: Vec<Symbol> = {
+        let mut set: HashSet<Symbol> = HashSet::new();
+        set.extend(type_predicates.keys().copied());
+        set.extend(type_capabilities.keys().copied());
+        set.into_iter().collect()
+    };
+    // DETERMINISM: sort by name so policy impl blocks emit in a stable order
+    // across recompiles (keys() above walk HashMaps with random per-run order).
+    all_types.sort_by(|a, b| interner.resolve(*a).cmp(interner.resolve(*b)));
 
     // Generate impl block for each type
     for type_sym in all_types {
@@ -87,6 +93,12 @@ pub(super) fn codegen_policy_condition(condition: &PolicyCondition, interner: &I
             let object_name = interner.resolve(*object).to_lowercase();
             let field_name = interner.resolve(*field);
             format!("self == &{}.{}", object_name, field_name)
+        }
+        PolicyCondition::SubjectFieldEqualsObjectField { subject_field, object, object_field } => {
+            let subj_field_name = interner.resolve(*subject_field);
+            let object_name = interner.resolve(*object).to_lowercase();
+            let obj_field_name = interner.resolve(*object_field);
+            format!("self.{} == {}.{}", subj_field_name, object_name, obj_field_name)
         }
         PolicyCondition::Or(left, right) => {
             let left_code = codegen_policy_condition(left, interner);

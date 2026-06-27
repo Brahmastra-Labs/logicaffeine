@@ -23,8 +23,22 @@ use super::{MAX_EXPR_DEPTH, MAX_REGISTERS_PER_FRAME};
 /// `LOGOS_MAGIC_DIV=0` is the kill-switch — also the A/B handle for measuring
 /// the lever's effect on a quiet box. Read once.
 pub fn magic_div_enabled() -> bool {
-    static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
-    *ON.get_or_init(|| std::env::var("LOGOS_MAGIC_DIV").map_or(true, |v| v != "0"))
+    crate::optimize::active_config().is_on(crate::optimization::Opt::FastDiv)
+}
+
+/// Narrow a `new Seq of Int` whose elements provably fit `i32` into half-width
+/// (`Vec<i32>`) VM storage — the interpreter analogue of the AOT `Vec<i64>`→
+/// `Vec<i32>` narrowing, halving the array footprint and cache pressure. The JIT
+/// region path is i32-array aware (the hot region still tiers — 0 bails). PROMOTED
+/// 2026-06-21: default ON (kill-switch LOGOS_NARROW_VM=0) — graph_bfs -27.6% and
+/// array_fill -16.7% on the faithful interleaved A/B, all 33 benchmarks
+/// bit-identical, full suite 10341/10341 green, no regression.
+///
+/// Read fresh on each body-compile (not memoized) so a process can compile both
+/// regimes — the A/B differential harness and the in-process tests rely on this.
+/// The cost is one env lookup per function body, never per op.
+pub fn narrow_vm_enabled() -> bool {
+    crate::optimize::active_config().is_on(crate::optimization::Opt::NarrowVm)
 }
 
 /// Precompute the unsigned magic-reciprocal constants `(magic, more)` for a
@@ -166,6 +180,12 @@ pub struct Compiler<'i> {
     // tree-walker's execute_block undo-scope.
     scopes: Vec<HashMap<Symbol, Reg>>,
     next_reg: Reg,
+    /// DEBUG-ONLY: when set (the debugger's compile path), capture source variable
+    /// names so the debug drawer can show `x` rather than `R0`. Off in production.
+    debug_names: bool,
+    /// DEBUG-ONLY: (register, name-symbol) bound in the CURRENT frame; cleared per
+    /// frame in `begin_scope`, resolved into `CompiledProgram::reg_names` for Main.
+    dbg_names: Vec<(Reg, Symbol)>,
     /// Registers bound to a NAME (Let targets, params, loop variables,
     /// captures) in any frame compiled so far. Everything else is a
     /// statement-local scratch — dead at every statement boundary by the
@@ -224,6 +244,12 @@ pub struct Compiler<'i> {
     /// array is in some enclosing frame — the compiler's half of the
     /// elision ⟺ guard ⟺ VM-check invariant.
     hoist_enabled: Vec<std::collections::HashSet<Symbol>>,
+    /// `new Seq of Int` declarations in the body CURRENTLY being compiled whose
+    /// every element provably fits `i32` (the `codegen::narrow` proof). Their
+    /// empty-constructor lowers to [`Op::NewEmptyListI32`] (half-width storage),
+    /// observably identical to the i64 form. Populated per-body only when
+    /// `LOGOS_NARROW_VM=1`; empty otherwise (default OFF).
+    narrowable_seqs: std::collections::HashSet<Symbol>,
 }
 
 /// How a name resolves at a point in compilation.
@@ -275,8 +301,31 @@ impl<'i> Compiler<'i> {
         types: Option<&crate::analysis::TypeRegistry>,
         oracle: Option<crate::optimize::OracleFacts>,
     ) -> Result<CompiledProgram, String> {
+        Self::compile_inner(stmts, interner, types, oracle, false)
+    }
+
+    /// Like [`compile_with_types`] but also captures source variable names into
+    /// `CompiledProgram::reg_names` for the Studio debugger. Used only by the
+    /// debugger's compile path; production callers pay nothing for it.
+    pub fn compile_for_debug(
+        stmts: &[Stmt],
+        interner: &'i Interner,
+        types: Option<&crate::analysis::TypeRegistry>,
+    ) -> Result<CompiledProgram, String> {
+        Self::compile_inner(stmts, interner, types, None, true)
+    }
+
+    fn compile_inner(
+        stmts: &[Stmt],
+        interner: &'i Interner,
+        types: Option<&crate::analysis::TypeRegistry>,
+        oracle: Option<crate::optimize::OracleFacts>,
+        debug_names: bool,
+    ) -> Result<CompiledProgram, String> {
         let mut c = Compiler {
             interner,
+            debug_names,
+            dbg_names: Vec::new(),
             code: Vec::new(),
             constants: Vec::new(),
             const_map: HashMap::new(),
@@ -297,6 +346,7 @@ impl<'i> Compiler<'i> {
             promoted: HashMap::new(),
             closure_ctx: None,
             oracle,
+            narrowable_seqs: std::collections::HashSet::new(),
         };
 
         // Struct definitions from the type registry (mirrors the tree-walker's
@@ -370,16 +420,36 @@ impl<'i> Compiler<'i> {
         }
 
         // Pass 2a: compile Main (every non-FunctionDef top-level statement).
+        // Behind `LOGOS_NARROW_VM`: certify which top-level `new Seq of Int`
+        // declarations fit `i32` (the AOT narrowing proof), so their empty
+        // constructor lowers to the half-width `NewEmptyListI32`. The proof's
+        // `walk`/`escapes` ignore `FunctionDef` statements (none of the write
+        // forms it tracks), and the runtime widen-on-overflow is the ultimate
+        // safety net, so feeding the full statement list is sound.
+        if narrow_vm_enabled() {
+            c.narrowable_seqs = crate::codegen::narrow::narrowable_seqs_for_body(stmts, interner);
+            if !c.narrowable_seqs.is_empty() {
+                crate::optimize::mark_fired(crate::optimization::Opt::NarrowVm);
+            }
+        }
         c.begin_scope();
         for s in stmts {
             if !matches!(s, Stmt::FunctionDef { .. }) {
                 c.compile_stmt(s)?;
             }
         }
+        c.narrowable_seqs.clear();
         c.emit(Op::Halt);
         let main_regs = c.max_reg as usize;
         let mut named_regs = c.named.clone();
         named_regs.resize(main_regs, false);
+        // Snapshot Main's variable names NOW — the per-function `begin_scope` below
+        // clears `dbg_names`. Empty unless the debugger enabled name capture.
+        let reg_names: Vec<(u16, String)> = c
+            .dbg_names
+            .iter()
+            .map(|(r, sym)| (*r, c.interner.resolve(*sym).to_string()))
+            .collect();
 
         // Pass 2b: compile each function body, recording its entry point.
         for s in stmts {
@@ -444,6 +514,7 @@ impl<'i> Compiler<'i> {
             globals: global_names,
             named_regs,
             loop_locals: c.loop_locals,
+            reg_names,
         })
     }
 
@@ -452,6 +523,7 @@ impl<'i> Compiler<'i> {
         self.next_reg = 0;
         self.max_reg = 0;
         self.in_function = false;
+        self.dbg_names.clear();
     }
 
     /// Enter a child block scope (If/While/Repeat body).
@@ -579,6 +651,7 @@ impl<'i> Compiler<'i> {
         if !oracle.expr_proven_nonneg(left) {
             return None;
         }
+        crate::optimize::mark_fired(crate::optimization::Opt::FastDiv);
         Some(magic_u64_gen(d as u64))
     }
 
@@ -792,14 +865,29 @@ impl<'i> Compiler<'i> {
     /// already has it (re-Let overwrites), otherwise allocate a fresh one in
     /// the innermost scope (shadowing any outer binding).
     fn let_reg(&mut self, sym: Symbol) -> Result<Reg, String> {
-        if let Some(&r) = self.scopes.last().unwrap().get(&sym) {
+        let r = if let Some(&r) = self.scopes.last().unwrap().get(&sym) {
             self.mark_named(r);
-            Ok(r)
+            r
         } else {
             let r = self.alloc_reg()?;
             self.scopes.last_mut().unwrap().insert(sym, r);
             self.mark_named(r);
-            Ok(r)
+            r
+        };
+        self.record_dbg_name(sym, r);
+        Ok(r)
+    }
+
+    /// DEBUG-ONLY: remember that register `r` holds source variable `sym` in the
+    /// current frame (last name wins after block-scope register reuse). A no-op
+    /// unless the debugger's compile path enabled name capture.
+    fn record_dbg_name(&mut self, sym: Symbol, r: Reg) {
+        if !self.debug_names {
+            return;
+        }
+        match self.dbg_names.iter_mut().find(|(rr, _)| *rr == r) {
+            Some(slot) => slot.1 = sym,
+            None => self.dbg_names.push((r, sym)),
         }
     }
 
@@ -876,7 +964,16 @@ impl<'i> Compiler<'i> {
                         )
                     {
                         let dst = self.let_reg(*var)?;
-                        self.compile_expr_into(value, dst)?;
+                        // A narrowing-proven `new Seq of Int` allocates the
+                        // half-width (`Vec<i32>`) buffer directly into the var's
+                        // stable register (so the loop-carried reuse path fires).
+                        if self.narrowable_seqs.contains(var)
+                            && matches!(self.interner.resolve(*type_name), "Seq" | "List")
+                        {
+                            self.emit(Op::NewEmptyListI32 { dst });
+                        } else {
+                            self.compile_expr_into(value, dst)?;
+                        }
                         return Ok(());
                     }
                 }
@@ -1068,9 +1165,14 @@ impl<'i> Compiler<'i> {
             },
             Stmt::Add { value, collection } => {
                 if !matches!(collection, Expr::Identifier(_)) {
-                    let scratch = self.alloc_reg()?;
-                    self.compile_expr_into(value, scratch)?;
-                    return self.emit_fail("Add collection must be an identifier");
+                    // A field-access (or other) collection — `Add "Alice" to p's guests`.
+                    // Compile it to a register: a collection/CRDT field reads as a shallow
+                    // `Rc`, so the in-place `SetAdd` mutates the value stored in the struct.
+                    // Mirrors the tree-walker's generalized `Add` (value evaluated first).
+                    let val = self.compile_expr(value)?;
+                    let set = self.compile_expr(collection)?;
+                    self.emit(Op::SetAdd { set, value: val });
+                    return Ok(());
                 }
                 let (sym, nr) = self.resolve_collection(collection)?;
                 match self.collection_reg(sym, &nr)? {
@@ -1088,9 +1190,11 @@ impl<'i> Compiler<'i> {
             }
             Stmt::Remove { value, collection } => {
                 if !matches!(collection, Expr::Identifier(_)) {
-                    let scratch = self.alloc_reg()?;
-                    self.compile_expr_into(value, scratch)?;
-                    return self.emit_fail("Remove collection must be an identifier");
+                    // Field-access collection — mirrors the generalized `Add` above.
+                    let val = self.compile_expr(value)?;
+                    let coll = self.compile_expr(collection)?;
+                    self.emit(Op::RemoveFrom { collection: coll, value: val });
+                    return Ok(());
                 }
                 let (sym, nr) = self.resolve_collection(collection)?;
                 match self.collection_reg(sym, &nr)? {
@@ -1244,7 +1348,7 @@ impl<'i> Compiler<'i> {
                     None => self.emit_unbound(sym),
                 }
             }
-            Stmt::RuntimeAssert { condition } => {
+            Stmt::RuntimeAssert { condition, .. } => {
                 let c = self.compile_expr(condition)?;
                 let jok = self.code.len();
                 self.emit(Op::JumpIfTrue { cond: c, target: usize::MAX });
@@ -1276,7 +1380,8 @@ impl<'i> Compiler<'i> {
                 Ok(())
             }
             // Verification-only / declaration statements: no runtime effect.
-            Stmt::Assert { .. } | Stmt::Trust { .. } | Stmt::Require { .. } | Stmt::Theorem(_) => {
+            Stmt::Assert { .. } | Stmt::Trust { .. } | Stmt::Require { .. }
+            | Stmt::Theorem(_) | Stmt::Definition(_) => {
                 Ok(())
             }
             // Definitions were registered in pass 1.
@@ -1454,35 +1559,156 @@ impl<'i> Compiler<'i> {
                 });
                 Ok(())
             }
-            Stmt::AppendToSequence { .. } => self.emit_fail(
-                "Append to sequence is not supported in the interpreter. Use compiled Rust.",
-            ),
-            Stmt::ResolveConflict { .. } => self.emit_fail(
-                "Resolve conflict is not supported in the interpreter. Use compiled Rust.",
-            ),
+            Stmt::AppendToSequence { sequence, value } => {
+                // The RGA is always behind a shared `Rc` (whether a bare variable or a
+                // struct field), so appending in place propagates — no write-back needed.
+                // Value compiled first, matching the tree-walker's evaluation order.
+                let val = self.compile_expr(value)?;
+                let seq = self.compile_expr(sequence)?;
+                self.emit(Op::CrdtAppend { seq, value: val });
+                Ok(())
+            }
+            Stmt::ResolveConflict { object, field, value } => {
+                let val = self.compile_expr(value)?;
+                let fname = self.interner.resolve(*field).to_string();
+                let fidx = self.add_const(Constant::Text(fname))?;
+                // Mirrors `IncreaseCrdt`: a register field resolves in place via its shared
+                // `Rc`; a plain field is overwritten, so it needs the read/write-back path
+                // (structs have value semantics).
+                if let Expr::Identifier(obj_sym) = object {
+                    match self.resolve_name(*obj_sym) {
+                        NameRef::Local(obj) => {
+                            self.emit(Op::CrdtResolve { obj, field: fidx, value: val });
+                            Ok(())
+                        }
+                        NameRef::Unbound => self.emit_unbound(*obj_sym),
+                        _ => {
+                            let obj = self.alloc_reg()?;
+                            self.emit_read(*obj_sym, obj)?;
+                            self.emit(Op::CrdtResolve { obj, field: fidx, value: val });
+                            self.emit_write(*obj_sym, obj)
+                        }
+                    }
+                } else {
+                    let idx = self.add_const(Constant::Text(
+                        "Resolve target must be a struct field".to_string(),
+                    ))?;
+                    self.emit(Op::FailWith { msg: idx });
+                    Ok(())
+                }
+            }
+            // Relay networking is async-tier: it runs on the tree-walker's async executor
+            // (the `needs_async` routing diverts these before the VM ever sees them). The VM
+            // tier owns compute + channel concurrency and defers networking — these arms are
+            // the defensive diagnostic if a networking statement ever reaches VM compilation.
             Stmt::Listen { .. } => {
-                self.emit_fail("Listen is not supported in the interpreter. Use compiled Rust.")
+                self.emit_fail("Listen requires the async execution path")
             }
             Stmt::ConnectTo { .. } => {
-                self.emit_fail("Connect is not supported in the interpreter. Use compiled Rust.")
+                self.emit_fail("Connect requires the async execution path")
             }
             Stmt::LetPeerAgent { .. } => {
-                self.emit_fail("PeerAgent is not supported in the interpreter. Use compiled Rust.")
+                self.emit_fail("PeerAgent messaging requires the async execution path")
             }
             Stmt::Sync { .. } => {
-                self.emit_fail("Sync is not supported in the interpreter. Use compiled Rust.")
+                self.emit_fail("Sync requires the async execution path")
             }
-            Stmt::LaunchTask { .. }
-            | Stmt::LaunchTaskWithHandle { .. }
-            | Stmt::CreatePipe { .. }
-            | Stmt::SendPipe { .. }
-            | Stmt::ReceivePipe { .. }
-            | Stmt::TrySendPipe { .. }
-            | Stmt::TryReceivePipe { .. }
-            | Stmt::StopTask { .. }
-            | Stmt::Select { .. } => self.emit_fail(
-                "Go-like concurrency (Launch, Pipe, Select) is only supported in compiled mode",
-            ),
+            // Go-like concurrency (T11d). The VM emits the scheduler opcodes; a
+            // concurrent program is then driven through `run_until_block` by a
+            // `VmTask`. (Concurrent programs currently route to the tree-walker
+            // before the VM, so these are exercised via the dedicated VM-scheduler
+            // entry; the default routing is unchanged.)
+            Stmt::CreatePipe { var, capacity, .. } => {
+                let dst = self.let_reg(*var)?;
+                let cap = capacity.map(|c| c as i32).unwrap_or(-1);
+                self.emit(Op::ChanNew { dst, cap });
+                Ok(())
+            }
+            Stmt::SendPipe { value, pipe } => {
+                let val = self.compile_expr(value)?;
+                let chan = self.compile_expr(pipe)?;
+                self.emit(Op::ChanSend { chan, val });
+                Ok(())
+            }
+            Stmt::ReceivePipe { var, pipe } => {
+                let chan = self.compile_expr(pipe)?;
+                let dst = self.let_reg(*var)?;
+                self.emit(Op::ChanRecv { dst, chan });
+                Ok(())
+            }
+            Stmt::TrySendPipe { value, pipe, result } => {
+                let val = self.compile_expr(value)?;
+                let chan = self.compile_expr(pipe)?;
+                let dst = match result {
+                    Some(sym) => self.let_reg(*sym)?,
+                    None => self.alloc_reg()?,
+                };
+                self.emit(Op::ChanTrySend { dst, chan, val });
+                Ok(())
+            }
+            Stmt::TryReceivePipe { var, pipe } => {
+                let chan = self.compile_expr(pipe)?;
+                let dst = self.let_reg(*var)?;
+                self.emit(Op::ChanTryRecv { dst, chan });
+                Ok(())
+            }
+            Stmt::LaunchTask { function, args } => self.compile_spawn(*function, args, None),
+            Stmt::LaunchTaskWithHandle { handle, function, args } => {
+                self.compile_spawn(*function, args, Some(*handle))
+            }
+            Stmt::StopTask { handle } => {
+                let h = self.compile_expr(handle)?;
+                self.emit(Op::TaskAbort { handle: h });
+                Ok(())
+            }
+            Stmt::Select { branches } => {
+                use crate::ast::stmt::SelectBranch;
+                // Register each arm. A recv arm allocates and binds its var
+                // register up front, so the winning branch body reads the value
+                // `deliver_select` writes there.
+                for branch in branches.iter() {
+                    match branch {
+                        SelectBranch::Receive { var, pipe, .. } => {
+                            let chan = self.compile_expr(pipe)?;
+                            let var_reg = self.let_reg(*var)?;
+                            self.emit(Op::SelectArmRecv { chan, var: var_reg });
+                        }
+                        SelectBranch::Timeout { milliseconds, .. } => {
+                            let ticks = self.compile_expr(milliseconds)?;
+                            self.emit(Op::SelectArmTimeout { ticks });
+                        }
+                    }
+                }
+                let dst_arm = self.alloc_reg()?;
+                self.emit(Op::SelectWait { dst_arm });
+                // Dispatch on the winning arm index: run that branch's body.
+                let mut end_jumps = Vec::new();
+                for (i, branch) in branches.iter().enumerate() {
+                    let lit = self.alloc_reg()?;
+                    let idx = self.add_const(Constant::Int(i as i64))?;
+                    self.emit(Op::LoadConst { dst: lit, idx });
+                    let cmp = self.alloc_reg()?;
+                    self.emit(Op::Eq { dst: cmp, lhs: dst_arm, rhs: lit });
+                    let jskip = self.emit_placeholder_jump_if_false(cmp);
+                    let body = match branch {
+                        SelectBranch::Receive { body, .. } | SelectBranch::Timeout { body, .. } => {
+                            *body
+                        }
+                    };
+                    let mark = self.enter_block();
+                    for st in body {
+                        self.compile_stmt(st)?;
+                    }
+                    self.exit_block(mark);
+                    let jend = self.emit_placeholder_jump();
+                    end_jumps.push(jend);
+                    self.patch_jump_target(jskip, self.current_pc())?;
+                }
+                for j in end_jumps {
+                    self.patch_jump_target(j, self.current_pc())?;
+                }
+                Ok(())
+            }
             Stmt::Escape { .. } => self.emit_fail(
                 "Escape blocks contain raw Rust code and cannot be interpreted. \
                      Use `largo build` or `largo run` to compile and run this program.",
@@ -1999,6 +2225,15 @@ impl<'i> Compiler<'i> {
                     "Seq" | "List" => self.emit(Op::NewEmptyList { dst: v }),
                     "Set" | "HashSet" => self.emit(Op::NewEmptySet { dst: v }),
                     "Map" | "HashMap" => self.emit(Op::NewEmptyMap { dst: v }),
+                    // A `Shared` struct's CRDT collection fields default to an empty live
+                    // CRDT, mirroring the tree-walker's `new`-struct init.
+                    "SharedSet" | "ORSet" | "SharedSet_AddWins" => {
+                        self.emit(Op::NewCrdt { dst: v, kind: 0 })
+                    }
+                    "SharedSet_RemoveWins" => self.emit(Op::NewCrdt { dst: v, kind: 3 }),
+                    "SharedSequence" | "RGA" | "SharedSequence_YATA" | "CollaborativeSequence" => {
+                        self.emit(Op::NewCrdt { dst: v, kind: 1 })
+                    }
                     _ => {
                         let i = self.add_const(Constant::Nothing)?;
                         self.emit(Op::LoadConst { dst: v, idx: i });
@@ -2065,6 +2300,40 @@ impl<'i> Compiler<'i> {
     /// tree-walker exactly: `show` → kernel builtins → user functions →
     /// runtime "Unknown function". Arity errors fire at RUNTIME, BEFORE the
     /// arguments are evaluated.
+    /// Compile `Launch a task to f with args` (and the handle-binding variant).
+    /// Mirrors [`Self::compile_call`]'s function resolution + contiguous arg
+    /// window, then emits `Spawn`/`SpawnHandle`.
+    fn compile_spawn(
+        &mut self,
+        function: Symbol,
+        args: &[&Expr],
+        handle: Option<Symbol>,
+    ) -> Result<(), String> {
+        let func = match self.fn_index.get(&function) {
+            Some(&f) => f,
+            None => {
+                return self.emit_fail(&format!(
+                    "Unknown task function: {}",
+                    self.interner.resolve(function)
+                ))
+            }
+        };
+        let arg_count =
+            u16::try_from(args.len()).map_err(|_| "vm: too many task arguments".to_string())?;
+        let args_start = self.reserve_regs(arg_count)?;
+        for (i, arg) in args.iter().enumerate() {
+            self.compile_expr_into(arg, args_start + i as Reg)?;
+        }
+        match handle {
+            Some(h) => {
+                let dst = self.let_reg(h)?;
+                self.emit(Op::SpawnHandle { dst, func, args_start, arg_count });
+            }
+            None => self.emit(Op::Spawn { func, args_start, arg_count }),
+        }
+        Ok(())
+    }
+
     fn compile_call(&mut self, function: Symbol, args: &[&Expr], dst: Reg) -> Result<(), String> {
         use crate::semantics::builtins::{builtin_from_name, check_arity, BuiltinId};
 
@@ -2515,7 +2784,7 @@ fn visit_stmt_exprs(s: &Stmt, f: &mut dyn FnMut(&Expr)) {
             walk_expr(value, f);
         }
         Stmt::Inspect { target, .. } => walk_expr(target, f),
-        Stmt::RuntimeAssert { condition } => walk_expr(condition, f),
+        Stmt::RuntimeAssert { condition, .. } => walk_expr(condition, f),
         Stmt::Sleep { milliseconds } => walk_expr(milliseconds, f),
         Stmt::IncreaseCrdt { amount, .. } | Stmt::DecreaseCrdt { amount, .. } => {
             walk_expr(amount, f)
@@ -2696,6 +2965,7 @@ fn binop_op(op: BinaryOpKind, dst: Reg, lhs: Reg, rhs: Reg) -> Result<Op, String
         Subtract => Op::Sub { dst, lhs, rhs },
         Multiply => Op::Mul { dst, lhs, rhs },
         Divide => Op::Div { dst, lhs, rhs },
+        ExactDivide => Op::ExactDiv { dst, lhs, rhs },
         Modulo => Op::Mod { dst, lhs, rhs },
         Lt => Op::Lt { dst, lhs, rhs },
         Gt => Op::Gt { dst, lhs, rhs },

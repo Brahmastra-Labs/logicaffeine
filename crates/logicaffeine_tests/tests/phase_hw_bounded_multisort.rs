@@ -27,7 +27,10 @@ fn bounded_bitvec_const() {
 fn bounded_bitvec_var() {
     let b = BoundedExpr::BitVecVar("data@0".into(), 8);
     let v = bounded_to_verify(&b);
-    assert_eq!(v, VerifyExpr::Var("data@0".into()));
+    // The width is encoded into the name (`_bv8`) so `infer_bv_width_from_name` can recover the
+    // bitvector sort for the Z3 encoder — without it, Z3 defaults to width 8 and crashes (null
+    // AST) on any other width.
+    assert_eq!(v, VerifyExpr::Var("data@0_bv8".into()));
 }
 
 #[test]

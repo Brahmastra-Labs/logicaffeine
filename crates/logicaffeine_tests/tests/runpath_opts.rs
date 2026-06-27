@@ -141,20 +141,18 @@ fn runpath_recursion_inline_nqueens_matches_oracle() {
 }
 
 /// Structural proof the inliner actually FIRES on the RUN path (a no-op also
-/// passes the differential): with bit 256 set, after `optimize_for_run` the
-/// residual `solve` carries nested inlined loops — strictly more `While`s than
-/// the one in the source. The pass is ON by default; this pins that it fires.
+/// passes the differential): after `optimize_for_run` the residual `solve`
+/// carries nested inlined loops — strictly more `While`s than the one in the
+/// source. The pass is ON by default; this pins that it fires.
 #[test]
 fn runpath_recursion_inline_actually_fires() {
     cap_depth_for_vm();
-    std::env::set_var("LOGOS_RUN_OPT_MASK", u32::MAX.to_string());
     let fired = with_optimized_program(NQUEENS, |parsed, interner| {
         let (stmts, _types, _policies) = parsed.expect("nqueens parses");
         let body = find_fn_body(stmts, "solve", interner)
             .expect("the recursive `solve` survives the run-path optimizer");
         count_whiles(body)
     });
-    std::env::remove_var("LOGOS_RUN_OPT_MASK");
     assert!(
         fired >= 2,
         "expected nested inlined loops from run-path unrolling, found {fired} \
@@ -162,22 +160,22 @@ fn runpath_recursion_inline_actually_fires() {
     );
 }
 
-/// The new mask bit (256) must DISABLE the run-path inliner when cleared, and
-/// the result must stay exact either way.
+/// The `Unfold` toggle (`## No Unfold` / `LOGOS_OPT_OFF=unfold`) must DISABLE
+/// the run-path inliner, and the result must stay exact either way.
 #[test]
-fn runpath_recursion_inline_mask_bit_toggles() {
+fn runpath_recursion_inline_toggle_disables() {
     cap_depth_for_vm();
-    // All bits except the recursion-inline bit (256): inliner OFF.
-    std::env::set_var("LOGOS_RUN_OPT_MASK", &(u32::MAX & !256u32).to_string());
+    // Disable recursion unrolling via the optimization config.
+    std::env::set_var("LOGOS_OPT_OFF", "unfold");
     let off = with_optimized_program(NQUEENS, |parsed, interner| {
         let (stmts, _types, _policies) = parsed.expect("nqueens parses");
         let body = find_fn_body(stmts, "solve", interner).expect("solve survives");
         count_whiles(body)
     });
-    assert_eq!(off, 1, "with bit 256 cleared, solve keeps its single source loop");
-    // Output is still exact with the pass masked off.
+    assert_eq!(off, 1, "with Unfold disabled, solve keeps its single source loop");
+    // Output is still exact with the pass disabled.
     assert_runpath_matches_raw(NQUEENS, &argv("5"), "10");
-    std::env::remove_var("LOGOS_RUN_OPT_MASK");
+    std::env::remove_var("LOGOS_OPT_OFF");
 }
 
 /// Return-position TREE recursion (fib) IS unrolled on the run path — the live

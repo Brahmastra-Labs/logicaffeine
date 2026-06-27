@@ -45,6 +45,7 @@ pub enum InferType {
     String,
     Unit,
     Nat,
+    Rational,
     Duration,
     Date,
     Moment,
@@ -358,6 +359,13 @@ impl UnificationTable {
             // Byte ↔ Int promotion (numeric literals infer as Int, adapt to Byte in context)
             (InferType::Byte, InferType::Int) | (InferType::Int, InferType::Byte) => Ok(()),
 
+            // Rational equality + integer embedding: an integer IS an exact rational, so a
+            // `Let x: Rational be 5` (or `… be 7 / 2`, whose `ExactDivide` infers numeric)
+            // unifies against the `Rational` annotation. Mirrors Nat/Byte embedding into Int.
+            (InferType::Rational, InferType::Rational) => Ok(()),
+            (InferType::Rational, InferType::Int | InferType::Nat)
+            | (InferType::Int | InferType::Nat, InferType::Rational) => Ok(()),
+
             // User-defined types unify if same name
             (InferType::UserDefined(a), InferType::UserDefined(b)) if a == b => Ok(()),
 
@@ -619,6 +627,7 @@ impl InferType {
         match name {
             "Int" => InferType::Int,
             "Nat" => InferType::Nat,
+            "Rational" => InferType::Rational,
             "Real" | "Float" => InferType::Float,
             "Bool" | "Boolean" => InferType::Bool,
             "Text" | "String" => InferType::String,
@@ -645,6 +654,7 @@ impl InferType {
             InferType::String => "Text".into(),
             InferType::Unit => "Unit".into(),
             InferType::Nat => "Nat".into(),
+            InferType::Rational => "Rational".into(),
             InferType::Duration => "Duration".into(),
             InferType::Date => "Date".into(),
             InferType::Moment => "Moment".into(),
@@ -685,6 +695,7 @@ impl InferType {
             InferType::String => LogosType::String,
             InferType::Unit => LogosType::Unit,
             InferType::Nat => LogosType::Nat,
+            InferType::Rational => LogosType::Rational,
             InferType::Duration => LogosType::Duration,
             InferType::Date => LogosType::Date,
             InferType::Moment => LogosType::Moment,
@@ -717,6 +728,9 @@ impl InferType {
 pub fn unify_numeric(a: &InferType, b: &InferType) -> Result<InferType, TypeError> {
     match (a, b) {
         (InferType::Float, _) | (_, InferType::Float) => Ok(InferType::Float),
+        // A Rational operand promotes the result to Rational (the exact type wins over Int).
+        (InferType::Rational, InferType::Rational | InferType::Int | InferType::Nat)
+        | (InferType::Int | InferType::Nat, InferType::Rational) => Ok(InferType::Rational),
         (InferType::Int, InferType::Int) => Ok(InferType::Int),
         (InferType::Nat, InferType::Int) | (InferType::Int, InferType::Nat) => Ok(InferType::Int),
         (InferType::Nat, InferType::Nat) => Ok(InferType::Nat),
@@ -740,6 +754,7 @@ pub fn infer_to_logos(ty: &InferType) -> LogosType {
         InferType::String => LogosType::String,
         InferType::Unit => LogosType::Unit,
         InferType::Nat => LogosType::Nat,
+        InferType::Rational => LogosType::Rational,
         InferType::Duration => LogosType::Duration,
         InferType::Date => LogosType::Date,
         InferType::Moment => LogosType::Moment,

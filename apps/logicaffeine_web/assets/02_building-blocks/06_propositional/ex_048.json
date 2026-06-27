@@ -4,10 +4,10 @@
   "difficulty": 1,
   "prompt": "Both not P and not B",
   "options": [
-    "$ \\\\sim P \\\\cdot \\\\sim B $",
-    "$ \\\\sim(P \\\\cdot \\\\sim B) $",
-    "$ (\\\\sim P \\\\cdot \\\\sim B) $",
-    "$ (\\\\sim P \\\\cdot B) $"
+    "$ \\sim P \\cdot \\sim B $",
+    "$ \\sim(P \\cdot \\sim B) $",
+    "$ (\\sim P \\cdot \\sim B) $",
+    "$ (\\sim P \\cdot B) $"
   ],
   "correct": 2,
   "hint": "What exactly is 'both' connecting? Are both parts the full consequence, or just the second one?",

@@ -4,10 +4,10 @@
   "difficulty": 1,
   "prompt": "You aren't both not creative and notorious",
   "options": [
-    "$ \\\\sim(\\\\sim C \\\\cdot N) $",
-    "$ (C \\\\cdot N) $",
-    "$ \\\\sim\\\\sim C \\\\cdot N $",
-    "$ C \\\\cdot N $"
+    "$ \\sim(\\sim C \\cdot N) $",
+    "$ (C \\cdot N) $",
+    "$ \\sim\\sim C \\cdot N $",
+    "$ C \\cdot N $"
   ],
   "correct": 0,
   "hint": "What exactly is 'both' connecting? Are both parts the full consequence, or just the second one?",

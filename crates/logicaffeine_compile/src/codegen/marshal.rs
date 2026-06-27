@@ -53,6 +53,68 @@ pub(super) fn map_type_to_c_abi(ty: &TypeExpr, interner: &Interner, is_return: b
     }
 }
 
+/// Whether `ty` is a scalar that crosses the AOT-native boundary BY VALUE — the sound,
+/// hazard-free subset (no `Rc`/pointer marshaling). `Seq`/`Map`/`Text` are deferred:
+/// they would cross `*mut LogosSeq<T>` etc., which needs the borrow-not-own protocol
+/// (HOTSWAP §Axis-3 B4). A function outside this subset gets no shim and falls through.
+pub(super) fn is_native_scalar(ty: &TypeExpr, interner: &Interner) -> bool {
+    match ty {
+        TypeExpr::Primitive(sym) | TypeExpr::Named(sym) => {
+            matches!(interner.resolve(*sym), "Int" | "Float" | "Bool")
+        }
+        TypeExpr::Refinement { base, .. } => is_native_scalar(base, interner),
+        _ => false,
+    }
+}
+
+/// Emit the AOT-native export shim (HOTSWAP §Axis-3): a thin `#[no_mangle] extern "C"`
+/// calling-convention wrapper over the inner Rust fn that crosses our ACTUAL values —
+/// scalars BY VALUE — with NO `CString`/handle marshaling (unlike
+/// [`codegen_c_export_with_marshaling`]). The interpreter marshals VM `Value`s to these
+/// scalar args, calls the loaded symbol, and re-boxes the scalar result.
+///
+/// Returns `None` unless every param AND the return are in the sound scalar subset
+/// ([`is_native_scalar`]): the caller then falls through to VM+JIT, so a function the
+/// shim cannot represent simply isn't AOT-native — no gap at the seam.
+pub fn codegen_native_tier_export(
+    name: Symbol,
+    params: &[(Symbol, &TypeExpr)],
+    return_type: Option<&TypeExpr>,
+    interner: &Interner,
+) -> Option<String> {
+    if !params.iter().all(|(_, t)| is_native_scalar(t, interner)) {
+        return None;
+    }
+    if let Some(rt) = return_type {
+        if !is_native_scalar(rt, interner) {
+            return None;
+        }
+    }
+    let names = RustNames::new(interner);
+    let inner = names.ident(name);
+    let export = format!("logos_native_{}", names.raw(name));
+    let params_sig = params
+        .iter()
+        .map(|(p, t)| format!("{}: {}", interner.resolve(*p), codegen_type_expr(t, interner)))
+        .collect::<Vec<_>>()
+        .join(", ");
+    let args = params
+        .iter()
+        .map(|(p, _)| interner.resolve(*p).to_string())
+        .collect::<Vec<_>>()
+        .join(", ");
+    let ret = return_type
+        .map(|t| codegen_type_expr(t, interner))
+        .unwrap_or_else(|| "()".to_string());
+    let ret_sig = if ret == "()" { String::new() } else { format!(" -> {ret}") };
+    let mut out = String::new();
+    let _ = writeln!(out, "#[no_mangle]");
+    let _ = writeln!(out, "pub extern \"C\" fn {export}({params_sig}){ret_sig} {{");
+    let _ = writeln!(out, "    {inner}({args})");
+    let _ = writeln!(out, "}}");
+    Some(out)
+}
+
 /// FFI: Generate a C-exported function with Universal ABI marshaling.
 ///
 /// Produces: 1) an inner function with normal Rust types, 2) a #[no_mangle] extern "C" wrapper.

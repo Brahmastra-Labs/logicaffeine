@@ -179,8 +179,9 @@ impl<'a> Cx<'a, '_> {
             Stmt::Return { value } => Stmt::Return {
                 value: value.map(|v| self.rewrite_expr(v, env)),
             },
-            Stmt::RuntimeAssert { condition } => Stmt::RuntimeAssert {
+            Stmt::RuntimeAssert { condition, hard } => Stmt::RuntimeAssert {
                 condition: self.rewrite_expr(condition, env),
+                hard,
             },
             Stmt::Push { value, collection } => Stmt::Push {
                 value: self.rewrite_expr(value, env),
@@ -505,7 +506,7 @@ fn stmt_uses_ok(s: &Stmt, var: Symbol, arity: usize, shadowed: &mut bool) -> boo
         }
         Stmt::Show { object, .. } => expr_uses_ok(object, var, arity),
         Stmt::Return { value } => value.map(|v| expr_uses_ok(v, var, arity)).unwrap_or(true),
-        Stmt::RuntimeAssert { condition } => expr_uses_ok(condition, var, arity),
+        Stmt::RuntimeAssert { condition, .. } => expr_uses_ok(condition, var, arity),
         Stmt::Push { value, collection } => {
             expr_uses_ok(value, var, arity) && expr_uses_ok(collection, var, arity)
         }
@@ -659,7 +660,7 @@ fn stmt_mentions(s: &Stmt, var: Symbol) -> bool {
         Stmt::Let { value, .. } | Stmt::Set { value, .. } => expr_mentions(value, var),
         Stmt::Show { object, .. } => expr_mentions(object, var),
         Stmt::Return { value } => value.map(|v| expr_mentions(v, var)).unwrap_or(false),
-        Stmt::RuntimeAssert { condition } => expr_mentions(condition, var),
+        Stmt::RuntimeAssert { condition, .. } => expr_mentions(condition, var),
         Stmt::Push { value, collection } => {
             expr_mentions(value, var) || expr_mentions(collection, var)
         }

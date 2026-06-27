@@ -4,12 +4,12 @@
   "difficulty": 1,
   "prompt": "Would that no one steal",
   "options": [
-    "$ (\\\\exists x)Sx $",
-    "$ O\\\\sim (\\\\exists x)S\\\\underline{x} $",
-    "$ \\\\sim (\\\\exists x)Sx $",
-    "$ \\\\sim (\\\\exists x)S\\\\underline{x} $"
+    "$ (\\exists x)Sx $",
+    "$ O\\sim (\\exists x)S\\underline{x} $",
+    "$ \\sim (\\exists x)Sx $",
+    "$ \\sim (\\exists x)S\\underline{x} $"
   ],
   "correct": 3,
   "hint": "Identify WHO is being commanded or permitted (the agent, marked with underline) and WHAT action they must/may do.",
-  "explanation": "In deontic logic: Deontic operators express moral or legal requirements."
+  "explanation": "'Would that no one steal' denies any stealer: ∼(∃x)S͟x — there is no x who steals."
 }

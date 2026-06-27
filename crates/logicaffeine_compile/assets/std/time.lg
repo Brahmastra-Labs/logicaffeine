@@ -2,6 +2,6 @@
 
 Standard library for time operations.
 
-## To native now -> Nat
+## To native now () -> Nat
 
 ## To native sleep (ms: Nat)

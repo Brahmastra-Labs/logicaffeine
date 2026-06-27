@@ -4,12 +4,12 @@
   "difficulty": 1,
   "prompt": "It's necessary that H is false",
   "options": [
-    "$ (\\\\square \\\\sim H) $",
-    "$ \\\\square \\\\sim H $",
-    "$ \\\\sim \\\\square (H) $",
-    "$ \\\\sim \\\\square H $"
+    "$ (\\square \\sim H) $",
+    "$ \\square \\sim H $",
+    "$ \\sim \\square (H) $",
+    "$ \\sim \\square H $"
   ],
   "correct": 1,
   "hint": "Think about what world(s) this statement is claiming something about. Is it all worlds, some worlds, or the actual world?",
-  "explanation": "In modal logic: The scope of modal operators affects meaning significantly."
+  "explanation": "Necessity scopes over a negation: □∼H — in every possible world, H is false. Equivalent to saying H is impossible (∼◇H)."
 }

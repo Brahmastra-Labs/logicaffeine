@@ -168,6 +168,10 @@ impl<'a> Converter<'a> {
                 }
                 (id, true)
             }
+            // ExactDivide (exact Rational division) has no integer e-node model and must
+            // NEVER be floor-folded by the e-graph — treat the whole division as an opaque
+            // leaf so the optimizer leaves it verbatim for the runtime.
+            Expr::BinaryOp { op: BinaryOpKind::ExactDivide, .. } => self.opaque(expr),
             Expr::BinaryOp { op, left, right } => {
                 let (l, ls) = self.to_node(left, facts);
                 let (r, rs) = self.to_node(right, facts);
@@ -176,6 +180,7 @@ impl<'a> Converter<'a> {
                     BinaryOpKind::Subtract => CompilerENode::Sub(l, r),
                     BinaryOpKind::Multiply => CompilerENode::Mul(l, r),
                     BinaryOpKind::Divide => CompilerENode::Div(l, r),
+                    BinaryOpKind::ExactDivide => unreachable!("ExactDivide handled by the opaque arm above"),
                     BinaryOpKind::Modulo => CompilerENode::Mod(l, r),
                     BinaryOpKind::Eq => CompilerENode::Eq(l, r),
                     BinaryOpKind::NotEq => CompilerENode::Ne(l, r),
@@ -568,7 +573,7 @@ fn flush_run<'a>(
                 // Show stringifies arbitrary values through an opaque-free
                 // read — no kills.
             }
-            Stmt::RuntimeAssert { condition } => {
+            Stmt::RuntimeAssert { condition, .. } => {
                 plan.push(convert_site(&mut cv, &mut sites, condition));
             }
             Stmt::Return { value } => {
@@ -646,8 +651,8 @@ fn flush_run<'a>(
             Stmt::Show { object: _, recipient } => {
                 Stmt::Show { object: extract(&mut cv, plan[0]), recipient }
             }
-            Stmt::RuntimeAssert { condition: _ } => {
-                Stmt::RuntimeAssert { condition: extract(&mut cv, plan[0]) }
+            Stmt::RuntimeAssert { condition: _ , hard } => {
+                Stmt::RuntimeAssert { condition: extract(&mut cv, plan[0]) , hard }
             }
             Stmt::Return { value } => Stmt::Return {
                 value: value.map(|_| extract(&mut cv, plan[0])),
@@ -815,7 +820,7 @@ fn walk_stmt<'a>(
         },
         Stmt::Show { object, recipient } => Stmt::Show { object: se(object), recipient },
         Stmt::Return { value } => Stmt::Return { value: value.map(se) },
-        Stmt::RuntimeAssert { condition } => Stmt::RuntimeAssert { condition: se(condition) },
+        Stmt::RuntimeAssert { condition, hard } => Stmt::RuntimeAssert { condition: se(condition) , hard },
         Stmt::Push { value, collection } => Stmt::Push { value: se(value), collection },
         Stmt::SetField { object, field, value } => {
             Stmt::SetField { object, field, value: se(value) }
@@ -865,8 +870,8 @@ fn walk_stmt<'a>(
         Stmt::WriteFile { content, path } => {
             Stmt::WriteFile { content: se(content), path: se(path) }
         }
-        Stmt::SendMessage { message, destination } => {
-            Stmt::SendMessage { message: se(message), destination: se(destination) }
+        Stmt::SendMessage { message, destination, compression, cached, unchecked, layout, shared, computed } => {
+            Stmt::SendMessage { message: se(message), destination: se(destination), compression, cached, unchecked, layout, shared, computed }
         }
         Stmt::IncreaseCrdt { object, field, amount } => {
             Stmt::IncreaseCrdt { object: se(object), field, amount: se(amount) }

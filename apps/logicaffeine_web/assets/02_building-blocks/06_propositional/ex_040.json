@@ -4,10 +4,10 @@
   "difficulty": 1,
   "prompt": "You're tall, and mediocre or colorful",
   "options": [
-    "$ (T \\\\cdot M) \\\\vee C $",
-    "$ (T \\\\cdot (M \\\\vee C)) $",
-    "$ ((T \\\\cdot M) \\\\vee C) $",
-    "$ T \\\\cdot M \\\\vee C $"
+    "$ (T \\cdot M) \\vee C $",
+    "$ (T \\cdot (M \\vee C)) $",
+    "$ ((T \\cdot M) \\vee C) $",
+    "$ T \\cdot M \\vee C $"
   ],
   "correct": 1,
   "hint": "Identify the main connective first. What's the primary structure of this sentence?",

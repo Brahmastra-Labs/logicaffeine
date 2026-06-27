@@ -4,10 +4,10 @@
   "difficulty": 1,
   "prompt": "You're short, and creative or dishonest",
   "options": [
-    "$ (S \\\\cdot C) \\\\vee D $",
-    "$ (S \\\\cdot (C \\\\vee D)) $",
-    "$ S \\\\cdot C \\\\vee D $",
-    "$ ((S \\\\cdot C) \\\\vee D) $"
+    "$ (S \\cdot C) \\vee D $",
+    "$ (S \\cdot (C \\vee D)) $",
+    "$ S \\cdot C \\vee D $",
+    "$ ((S \\cdot C) \\vee D) $"
   ],
   "correct": 1,
   "hint": "Identify the main connective first. What's the primary structure of this sentence?",

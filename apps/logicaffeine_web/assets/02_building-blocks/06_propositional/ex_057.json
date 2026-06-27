@@ -4,10 +4,10 @@
   "difficulty": 1,
   "prompt": "It is false that if you aren't bright then you're careful",
   "options": [
-    "$ B \\\\supset C $",
-    "$ \\\\sim(\\\\sim B \\\\supset C) $",
-    "$ (B \\\\supset C) $",
-    "$ \\\\sim\\\\sim B \\\\supset C $"
+    "$ B \\supset C $",
+    "$ \\sim(\\sim B \\supset C) $",
+    "$ (B \\supset C) $",
+    "$ \\sim\\sim B \\supset C $"
   ],
   "correct": 1,
   "hint": "Identify the main connective first. What's the primary structure of this sentence?",

@@ -4,10 +4,10 @@
   "difficulty": 1,
   "prompt": "If you're clean then you're powerful, or you're lively",
   "options": [
-    "$ ((C \\\\supset P) \\\\vee L) $",
-    "$ C \\\\supset P \\\\vee L $",
-    "$ (C \\\\supset P) \\\\vee L $",
-    "$ (C \\\\supset (P \\\\vee L)) $"
+    "$ ((C \\supset P) \\vee L) $",
+    "$ C \\supset P \\vee L $",
+    "$ (C \\supset P) \\vee L $",
+    "$ (C \\supset (P \\vee L)) $"
   ],
   "correct": 0,
   "hint": "Identify the main connective first. What's the primary structure of this sentence?",

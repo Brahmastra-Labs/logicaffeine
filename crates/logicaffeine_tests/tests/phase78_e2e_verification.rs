@@ -144,3 +144,58 @@ Proof: Auto.
     let result = verify_theorem(input);
     assert!(result.is_err(), "Should fail - missing premise!");
 }
+
+// =============================================================================
+// RUNG 0a — USER-DEFINED PREDICATES (`## Define`)
+// =============================================================================
+
+/// A `## Define` block mints a new predicate that a later `## Theorem` can use
+/// and the prover can prove — end-to-end: English `gizmo(x) :↔ shiny(x) ∧ round(x)`,
+/// then `Pat is a gizmo` proved from `Pat is shiny` and `Pat is round` via `Auto`.
+#[test]
+fn define_block_lets_theorem_use_a_new_predicate() {
+    let input = r#"
+## Define
+x is a gizmo if and only if x is shiny and x is round.
+
+## Theorem: Pat_Is_A_Gizmo
+Given: Pat is shiny.
+Given: Pat is round.
+Prove: Pat is a gizmo.
+Proof: Auto.
+"#;
+
+    let result = verify_theorem(input);
+    assert!(
+        result.is_ok(),
+        "a theorem using a user-defined predicate should verify: {:?}",
+        result.err()
+    );
+
+    // The returned proof object re-checks in its context (defeq to `gizmo Pat`).
+    let (proof_term, ctx) = result.unwrap();
+    assert!(
+        infer_type(&ctx, &proof_term).is_ok(),
+        "the certified proof term must type-check"
+    );
+}
+
+/// A definition is NOT a free pass: without the second premise, the unfolded
+/// goal still has an unmet conjunct, so it must fail.
+#[test]
+fn define_block_does_not_make_unfounded_goals_pass() {
+    let input = r#"
+## Define
+x is a gizmo if and only if x is shiny and x is round.
+
+## Theorem: Pat_Is_A_Gizmo_Unfounded
+Given: Pat is shiny.
+Prove: Pat is a gizmo.
+Proof: Auto.
+"#;
+
+    assert!(
+        verify_theorem(input).is_err(),
+        "gizmo(Pat) must not verify from shiny(Pat) alone"
+    );
+}

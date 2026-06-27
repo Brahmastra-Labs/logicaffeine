@@ -502,6 +502,9 @@ pub enum StudioMode {
     Code,
     /// Visual formula builder with LaTeX preview
     Math,
+    /// English hardware specs to SystemVerilog Assertions with in-browser,
+    /// kernel-certified proving (no Z3 in the bundle).
+    Hardware,
 }
 
 impl StudioMode {
@@ -511,6 +514,7 @@ impl StudioMode {
             StudioMode::Logic => "logic",
             StudioMode::Code => "logos",
             StudioMode::Math => "math",
+            StudioMode::Hardware => "hw",
         }
     }
 
@@ -520,6 +524,7 @@ impl StudioMode {
             StudioMode::Logic => "Logic",
             StudioMode::Code => "Code",
             StudioMode::Math => "Math",
+            StudioMode::Hardware => "Hardware",
         }
     }
 
@@ -529,6 +534,7 @@ impl StudioMode {
             "logic" => Some(StudioMode::Logic),
             "logos" => Some(StudioMode::Code),
             "math" => Some(StudioMode::Math),
+            "hw" => Some(StudioMode::Hardware),
             _ => None,
         }
     }
@@ -705,5 +711,19 @@ mod tests {
         assert!(LicensePlan::Premium.is_paid());
         assert!(LicensePlan::Lifetime.is_paid());
         assert!(LicensePlan::Enterprise.is_paid());
+    }
+
+    #[test]
+    fn test_studio_mode_hardware() {
+        // Hardware is a first-class Studio mode alongside Logic/Code/Math.
+        assert_eq!(StudioMode::Hardware.extension(), "hw");
+        assert_eq!(StudioMode::Hardware.display_name(), "Hardware");
+        assert_eq!(StudioMode::from_extension("hw"), Some(StudioMode::Hardware));
+        assert_eq!(StudioMode::from_extension("HW"), Some(StudioMode::Hardware));
+        // The existing modes keep resolving unchanged.
+        assert_eq!(StudioMode::from_extension("logic"), Some(StudioMode::Logic));
+        assert_eq!(StudioMode::from_extension("logos"), Some(StudioMode::Code));
+        assert_eq!(StudioMode::from_extension("math"), Some(StudioMode::Math));
+        assert_eq!(StudioMode::from_extension("txt"), None);
     }
 }

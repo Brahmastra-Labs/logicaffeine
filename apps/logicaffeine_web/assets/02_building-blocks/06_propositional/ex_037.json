@@ -4,10 +4,10 @@
   "difficulty": 1,
   "prompt": "Not if not B then C",
   "options": [
-    "$ \\\\sim\\\\sim B \\\\supset C $",
-    "$ B \\\\supset C $",
-    "$ \\\\sim(\\\\sim B \\\\supset C) $",
-    "$ (B \\\\supset C) $"
+    "$ \\sim\\sim B \\supset C $",
+    "$ B \\supset C $",
+    "$ \\sim(\\sim B \\supset C) $",
+    "$ (B \\supset C) $"
   ],
   "correct": 2,
   "hint": "Identify the main connective first. What's the primary structure of this sentence?",

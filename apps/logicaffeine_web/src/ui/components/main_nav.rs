@@ -25,6 +25,7 @@ pub enum ActivePage {
     Learn,
     Studio,
     Roadmap,
+    RoadmapNew,
     Pricing,
     Registry,
     Profile,
@@ -44,6 +45,7 @@ impl ActivePage {
             Route::Studio {} => ActivePage::Studio,
             Route::Workspace { .. } => ActivePage::Studio,
             Route::Roadmap {} => ActivePage::Roadmap,
+            Route::RoadmapNew {} => ActivePage::RoadmapNew,
             Route::Pricing {} => ActivePage::Pricing,
             Route::Success {} => ActivePage::Pricing,
             Route::Registry {} => ActivePage::Registry,
@@ -546,6 +548,11 @@ pub fn MainNav(
                             "Roadmap"
                         }
                         Link {
+                            to: Route::RoadmapNew {},
+                            class: if active == ActivePage::RoadmapNew { "main-nav-link active" } else { "main-nav-link" },
+                            "New Roadmap"
+                        }
+                        Link {
                             to: Route::Pricing {},
                             class: if active == ActivePage::Pricing { "main-nav-link active" } else { "main-nav-link" },
                             "Contact"
@@ -737,6 +744,15 @@ pub fn MainNav(
                         Icon { variant: IconVariant::Map, size: IconSize::Medium }
                     }
                     "Roadmap"
+                }
+                Link {
+                    to: Route::RoadmapNew {},
+                    class: if active == ActivePage::RoadmapNew { "mobile-nav-link active" } else { "mobile-nav-link" },
+                    onclick: move |_| drawer_open.set(false),
+                    span { class: "mobile-nav-link-icon",
+                        Icon { variant: IconVariant::Sparkles, size: IconSize::Medium }
+                    }
+                    "New Roadmap"
                 }
                 Link {
                     to: Route::Pricing {},

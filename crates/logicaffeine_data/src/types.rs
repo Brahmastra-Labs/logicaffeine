@@ -1551,6 +1551,138 @@ impl std::ops::Div for Value {
     }
 }
 
+/// Exact rational number for compiled LOGOS programs — the AOT counterpart of the
+/// interpreter's `RuntimeValue::Rational`.
+///
+/// Wraps the always-reduced [`logicaffeine_base::Rational`] (a `BigInt` numerator over a
+/// positive `BigInt` denominator) so a `Let x: Rational be 7 / 2` compiles to an exact
+/// `7/2` instead of flooring to `3`. The type-directed `resolve_divisions` pass only ever
+/// produces these in a `Rational`-typed context, so the integer floor default is untouched.
+/// `Display` reduces a whole value to a bare integer (`6 / 2 → "3"`), matching the interpreter.
+#[derive(Clone, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub struct LogosRational(pub logicaffeine_base::Rational);
+
+impl LogosRational {
+    /// A whole integer as an exact rational (`5 → 5/1`, shown `5`).
+    #[inline]
+    pub fn from_i64(n: i64) -> Self {
+        LogosRational(logicaffeine_base::Rational::from_i64(n))
+    }
+
+    /// The exact quotient `n / d`. Panics on a zero denominator, mirroring integer `/ 0`.
+    #[inline]
+    pub fn from_ratio(n: i64, d: i64) -> Self {
+        LogosRational(
+            logicaffeine_base::Rational::from_ratio_i64(n, d)
+                .expect("LOGOS runtime error: division by zero"),
+        )
+    }
+
+    #[inline]
+    pub fn add(&self, other: &LogosRational) -> LogosRational {
+        LogosRational(self.0.add(&other.0))
+    }
+
+    #[inline]
+    pub fn sub(&self, other: &LogosRational) -> LogosRational {
+        LogosRational(self.0.sub(&other.0))
+    }
+
+    #[inline]
+    pub fn mul(&self, other: &LogosRational) -> LogosRational {
+        LogosRational(self.0.mul(&other.0))
+    }
+
+    /// Exact division. Panics on a zero divisor, mirroring integer `/ 0`.
+    #[inline]
+    pub fn div_exact(&self, other: &LogosRational) -> LogosRational {
+        LogosRational(
+            self.0
+                .div(&other.0)
+                .expect("LOGOS runtime error: division by zero"),
+        )
+    }
+
+    /// The exact absolute value (a rational stays a rational: `|-7/2| = 7/2`).
+    #[inline]
+    pub fn abs(&self) -> LogosRational {
+        LogosRational(self.0.abs())
+    }
+
+    /// The greatest integer ≤ this rational (toward −∞), computed EXACTLY on the
+    /// BigInt numerator/denominator — never through a lossy `f64`.
+    #[inline]
+    pub fn floor(&self) -> i64 {
+        self.0.floor().to_i64().expect("LOGOS runtime error: floor exceeds i64")
+    }
+
+    /// The least integer ≥ this rational (toward +∞), computed exactly.
+    #[inline]
+    pub fn ceil(&self) -> i64 {
+        self.0.ceil().to_i64().expect("LOGOS runtime error: ceiling exceeds i64")
+    }
+
+    /// The nearest integer, ties away from zero (matching `f64::round`), computed exactly.
+    #[inline]
+    pub fn round(&self) -> i64 {
+        self.0.round().to_i64().expect("LOGOS runtime error: round exceeds i64")
+    }
+}
+
+impl std::fmt::Display for LogosRational {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        std::fmt::Display::fmt(&self.0, f)
+    }
+}
+
+impl From<i64> for LogosRational {
+    #[inline]
+    fn from(n: i64) -> Self {
+        LogosRational::from_i64(n)
+    }
+}
+
+#[cfg(test)]
+mod logos_rational_tests {
+    use super::LogosRational;
+
+    #[test]
+    fn exact_fraction_displays_unreduced_pair() {
+        assert_eq!(LogosRational::from_ratio(7, 2).to_string(), "7/2");
+        assert_eq!(LogosRational::from_ratio(1, 3).to_string(), "1/3");
+    }
+
+    #[test]
+    fn whole_value_displays_as_a_bare_integer() {
+        assert_eq!(LogosRational::from_ratio(6, 2).to_string(), "3");
+        assert_eq!(LogosRational::from_i64(5).to_string(), "5");
+    }
+
+    #[test]
+    fn arithmetic_is_exact() {
+        // 1/3 + 1/6 = 1/2
+        let a = LogosRational::from_ratio(1, 3);
+        let b = LogosRational::from_ratio(1, 6);
+        assert_eq!(a.add(&b).to_string(), "1/2");
+        // 1/3 + 1/3 + 1/3 = 1 (where 0.1+0.2 ≠ 0.3 in f64)
+        let third = LogosRational::from_ratio(1, 3);
+        assert_eq!(third.add(&third).add(&third).to_string(), "1");
+        // (2/3) * (3/4) = 1/2 ; (7/2) / (7/2) = 1
+        assert_eq!(
+            LogosRational::from_ratio(2, 3).mul(&LogosRational::from_ratio(3, 4)).to_string(),
+            "1/2"
+        );
+        let r = LogosRational::from_ratio(7, 2);
+        assert_eq!(r.div_exact(&r).to_string(), "1");
+    }
+
+    #[test]
+    #[should_panic(expected = "division by zero")]
+    fn zero_denominator_panics_like_integer_division() {
+        let _ = LogosRational::from_ratio(1, 0);
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

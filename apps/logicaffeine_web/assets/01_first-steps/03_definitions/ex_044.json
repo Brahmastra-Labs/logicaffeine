@@ -14,5 +14,5 @@
   ],
   "correct": 1,
   "hint": "Can you think of a genuine kitten that this definition would wrongly EXCLUDE?",
-  "explanation": "This violates 2 (kittens can be male)."
+  "explanation": "Kittens can be male — a male kitten is still a kitten. Building 'female' into the definition excludes half of all kittens, making it TOO NARROW."
 }

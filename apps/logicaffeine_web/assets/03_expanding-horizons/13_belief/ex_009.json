@@ -1,13 +1,13 @@
 {
-  "id": "N_14.1",
+  "id": "N_14.11",
   "type": "multiple_choice",
   "difficulty": 1,
   "prompt": "You want Carol to harm you",
   "options": [
-    "$ \\\\underline{u}:Hcu $",
+    "$ \\underline{u}:Hcu $",
     "$ u:Hcu $",
-    "$ u:H\\\\underline{c} u $",
-    "$ \\\\underline{u}:H\\\\underline{c} u $"
+    "$ u:H\\underline{c} u $",
+    "$ \\underline{u}:H\\underline{c} u $"
   ],
   "correct": 2,
   "hint": "In belief/desire logic, who is the AGENT having the desire? What do they desire?",

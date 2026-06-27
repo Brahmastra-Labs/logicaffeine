@@ -5,9 +5,9 @@
   "prompt": "Tom ought to pray",
   "options": [
     "$ OPt $",
-    "$ OP\\\\underline{t} $",
-    "$ O\\\\underline{t} $",
-    "$ P\\\\underline{t} $"
+    "$ OP\\underline{t} $",
+    "$ O\\underline{t} $",
+    "$ P\\underline{t} $"
   ],
   "correct": 1,
   "hint": "Who is the AGENT being commanded? Look for the underline \u2014 it marks who must act.",

@@ -4,10 +4,10 @@
   "difficulty": 1,
   "prompt": "You aren't either smart or filthy",
   "options": [
-    "$ \\\\sim(S \\\\vee F) $",
-    "$ \\\\sim S \\\\vee F $",
-    "$ (\\\\sim S \\\\vee \\\\sim F) $",
-    "$ (\\\\sim S \\\\vee F) $"
+    "$ \\sim(S \\vee F) $",
+    "$ \\sim S \\vee F $",
+    "$ (\\sim S \\vee \\sim F) $",
+    "$ (\\sim S \\vee F) $"
   ],
   "correct": 0,
   "hint": "Identify the main connective first. What's the primary structure of this sentence?",

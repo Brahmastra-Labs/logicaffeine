@@ -6,8 +6,28 @@
 //! differential-tested against the tree-walker.
 
 pub mod compiler;
+// Off-thread native compilation (HOTSWAP §6). Native-only: it needs std::thread and
+// the forge backend, neither of which exists on wasm (which never installs a tier).
+#[cfg(not(target_arch = "wasm32"))]
+mod bg_compile;
+// AOT-native tier loader (HOTSWAP §Axis-3): dlopen a rustc-built cdylib. Native-only.
+#[cfg(not(target_arch = "wasm32"))]
+pub mod aot_tier;
+// Background AOT-native compilation (HOTSWAP §Axis-3 / P18): build+load off-thread.
+#[cfg(not(target_arch = "wasm32"))]
+pub mod bg_aot;
+// Relocatable per-function bytecode units (HOTSWAP §7) — the producer behind the
+// Axis-1 warm side-table and the OPFS tier cache. Pure data; available on all targets.
+pub mod fn_bytecode;
+// LOGOS_TIER_TRACE observability (HOTSWAP §P13): one stderr line per tier hot-swap.
+pub mod tier_trace;
+// Tier cache (HOTSWAP §P12): persist a compiled FnBytecode keyed by source+config+tier.
+pub mod tier_cache;
 #[cfg(test)]
 mod fuzz;
+/// Bytecode disassembler — readable text for the Studio debug drawer and any
+/// future `largo --disasm`. Pure, headless, no VM state.
+pub mod disasm;
 mod instruction;
 mod machine;
 /// WS-F representation overhaul: the narrow (8-byte) NaN-boxed register-file
@@ -21,9 +41,17 @@ mod nanbox;
 mod native_tier;
 mod value;
 
+/// WS6 (Phase 13): the browser WASM-JIT backend (emits a WebAssembly module per hot
+/// region). Default-off; builds for and runs on wasm32, unlike the native x86 forge JIT.
+#[cfg(feature = "wasm-jit")]
+pub mod wasm_jit;
+
 pub use compiler::Compiler;
+pub use disasm::{disassemble, format_constant, op_io, DisasmLine, OpIo};
 pub use instruction::{CompiledProgram, Constant, Op};
 pub use machine::Vm;
+pub(crate) use machine::{DebugFrameView, DebugView, DebugVmState, HeapObjView};
+pub(crate) use machine::{VmBlock, VmStep};
 pub use native_tier::{
     install_native_tier, installed_native_tier, ArrayPin, CalleeSig, FnTable, HoistGuard, NativeCtx,
     NativeFn,
@@ -139,6 +167,40 @@ pub fn run_to_outcome_with_args(
     }
 }
 
+/// [`run_to_outcome_with_args`] with BACKGROUND native compilation (HOTSWAP §6): hot
+/// functions compile on a worker thread while the interpreter keeps running bytecode,
+/// then their chains are drained + published. Requires a process-installed tier (the
+/// worker needs a `&'static` backend); with none installed it runs pure bytecode.
+/// Drains outstanding compiles before returning so the native tier engages
+/// deterministically for the differential gates.
+#[cfg(not(target_arch = "wasm32"))]
+pub fn run_to_outcome_bg(
+    stmts: &[Stmt],
+    interner: &Interner,
+    types: Option<&crate::analysis::TypeRegistry>,
+    policies: Option<&crate::analysis::PolicyRegistry>,
+    program_args: &[String],
+) -> (String, Option<String>) {
+    let oracle = crate::optimize::oracle_analyze_with(stmts, interner);
+    let program = match Compiler::compile_with_oracle(stmts, interner, types, Some(oracle)) {
+        Ok(p) => p,
+        Err(e) => return (String::new(), Some(e)),
+    };
+    let mut vm = Vm::new(&program).with_program_args(program_args.to_vec());
+    if let Some(t) = installed_native_tier() {
+        vm = vm.with_bg_native_tier(t);
+    }
+    if let Some(registry) = policies {
+        vm = vm.with_policy_ctx(registry, interner);
+    }
+    let result = match vm.run() {
+        Ok(()) => (vm.output().to_string(), None),
+        Err(e) => (vm.output().to_string(), Some(e)),
+    };
+    vm.drain_pending_compiles();
+    result
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -225,7 +287,7 @@ mod tests {
             native_path: None,
             is_exported: false,
             export_target: None,
-            opt_flags: std::collections::HashSet::new(),
+            opt_flags: Default::default(),
         }
     }
 
@@ -2461,7 +2523,7 @@ mod tests {
         let mut it = Interner::new();
         let show_s = it.intern("show");
         let ok_stmts = vec![
-            Stmt::RuntimeAssert { condition: boolean(&ea, true) },
+            Stmt::RuntimeAssert { condition: boolean(&ea, true) , hard: false },
             show(&ea, show_s, num(&ea, 1)),
         ];
         assert_eq!(compile_and_run(&ok_stmts, &it).unwrap().trim(), "1");
@@ -2469,7 +2531,7 @@ mod tests {
 
         let fail_stmts = vec![
             show(&ea, show_s, num(&ea, 1)),
-            Stmt::RuntimeAssert { condition: boolean(&ea, false) },
+            Stmt::RuntimeAssert { condition: boolean(&ea, false) , hard: false },
             show(&ea, show_s, num(&ea, 2)),
         ];
         assert_outcome_eq_treewalk(&fail_stmts, &it);

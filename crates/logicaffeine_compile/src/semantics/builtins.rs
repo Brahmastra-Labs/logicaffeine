@@ -7,9 +7,11 @@
 
 use std::rc::Rc;
 
+use serde::{Deserialize, Serialize};
+
 use crate::interpreter::RuntimeValue;
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum BuiltinId {
     Length,
     Format,
@@ -26,6 +28,7 @@ pub enum BuiltinId {
     Pow,
     Copy,
     CountOnes,
+    RunAccepted,
 }
 
 /// Resolve a function name to a builtin, if it is one.
@@ -46,6 +49,7 @@ pub fn builtin_from_name(name: &str) -> Option<BuiltinId> {
         "pow" => BuiltinId::Pow,
         "copy" => BuiltinId::Copy,
         "count_ones" => BuiltinId::CountOnes,
+        "run_accepted" => BuiltinId::RunAccepted,
         _ => return None,
     })
 }
@@ -56,6 +60,9 @@ pub fn check_arity(id: BuiltinId, n: usize) -> Result<(), String> {
     let expected: usize = match id {
         BuiltinId::Format => return Ok(()),
         BuiltinId::Min | BuiltinId::Max | BuiltinId::Pow => 2,
+        // run_accepted(fn, arg, lo, hi): the shipped computation + the argument + the
+        // inclusive bounds of the acceptance contract.
+        BuiltinId::RunAccepted => 4,
         _ => 1,
     };
     if n != expected {
@@ -75,6 +82,7 @@ pub fn check_arity(id: BuiltinId, n: usize) -> Result<(), String> {
             BuiltinId::Pow => "pow",
             BuiltinId::Copy => "copy",
             BuiltinId::CountOnes => "count_ones",
+            BuiltinId::RunAccepted => "run_accepted",
         };
         return Err(format!(
             "{}() takes exactly {} argument{}",
@@ -145,7 +153,15 @@ pub fn call_builtin(id: BuiltinId, args: Vec<RuntimeValue>) -> Result<RuntimeVal
         BuiltinId::Abs => {
             let val = args.remove(0);
             match val {
-                RuntimeValue::Int(n) => Ok(RuntimeValue::Int(n.wrapping_abs())),
+                // |i64::MIN| = 2^63 does not fit i64, so abs is EXACT via promotion
+                // (wrapping_abs would have returned i64::MIN — a sign bug).
+                RuntimeValue::Int(n) => Ok(match n.checked_abs() {
+                    Some(a) => RuntimeValue::Int(a),
+                    None => RuntimeValue::from_bigint(logicaffeine_base::BigInt::from_i64(n).abs()),
+                }),
+                RuntimeValue::BigInt(b) => Ok(RuntimeValue::from_bigint(b.abs())),
+                // |·| of a rational stays a rational (`|-7/2| = 7/2`), downsized if whole.
+                RuntimeValue::Rational(r) => Ok(RuntimeValue::from_rational(r.abs())),
                 RuntimeValue::Float(f) => Ok(RuntimeValue::Float(f.abs())),
                 _ => Err(format!("abs() requires a number, got {}", val.type_name())),
             }
@@ -155,6 +171,7 @@ pub fn call_builtin(id: BuiltinId, args: Vec<RuntimeValue>) -> Result<RuntimeVal
             match val {
                 RuntimeValue::Float(f) => Ok(RuntimeValue::Float(f.sqrt())),
                 RuntimeValue::Int(n) => Ok(RuntimeValue::Float((n as f64).sqrt())),
+                RuntimeValue::BigInt(b) => Ok(RuntimeValue::Float(b.to_f64().sqrt())),
                 _ => Err(format!("sqrt() requires a number, got {}", val.type_name())),
             }
         }
@@ -194,25 +211,30 @@ pub fn call_builtin(id: BuiltinId, args: Vec<RuntimeValue>) -> Result<RuntimeVal
         }
         BuiltinId::Floor => {
             let val = args.remove(0);
-            match val {
+            // An exact integer (Int/BigInt) is already whole; a Rational rounds toward
+            // −∞ to an exact integer — the explicit floor of `floor(7 / 2) → 3`.
+            match &val {
                 RuntimeValue::Float(f) => Ok(RuntimeValue::Int(f.floor() as i64)),
-                RuntimeValue::Int(n) => Ok(RuntimeValue::Int(n)),
+                RuntimeValue::Int(_) | RuntimeValue::BigInt(_) => Ok(val.clone()),
+                RuntimeValue::Rational(r) => Ok(RuntimeValue::from_bigint(r.floor())),
                 _ => Err(format!("floor() requires a number, got {}", val.type_name())),
             }
         }
         BuiltinId::Ceil => {
             let val = args.remove(0);
-            match val {
+            match &val {
                 RuntimeValue::Float(f) => Ok(RuntimeValue::Int(f.ceil() as i64)),
-                RuntimeValue::Int(n) => Ok(RuntimeValue::Int(n)),
+                RuntimeValue::Int(_) | RuntimeValue::BigInt(_) => Ok(val.clone()),
+                RuntimeValue::Rational(r) => Ok(RuntimeValue::from_bigint(r.ceil())),
                 _ => Err(format!("ceil() requires a number, got {}", val.type_name())),
             }
         }
         BuiltinId::Round => {
             let val = args.remove(0);
-            match val {
+            match &val {
                 RuntimeValue::Float(f) => Ok(RuntimeValue::Int(f.round() as i64)),
-                RuntimeValue::Int(n) => Ok(RuntimeValue::Int(n)),
+                RuntimeValue::Int(_) | RuntimeValue::BigInt(_) => Ok(val.clone()),
+                RuntimeValue::Rational(r) => Ok(RuntimeValue::from_bigint(r.round())),
                 _ => Err(format!("round() requires a number, got {}", val.type_name())),
             }
         }
@@ -220,11 +242,24 @@ pub fn call_builtin(id: BuiltinId, args: Vec<RuntimeValue>) -> Result<RuntimeVal
             let exp = args.remove(1);
             let base = args.remove(0);
             match (&base, &exp) {
+                // EXACT integer power: on i64 overflow, promote to BigInt rather than
+                // wrapping (e.g. 2^63 is the value, not i64::MIN). A negative exponent
+                // is a fractional power, so it falls to f64 as before.
                 (RuntimeValue::Int(b), RuntimeValue::Int(e)) => {
                     if *e >= 0 {
-                        Ok(RuntimeValue::Int(b.wrapping_pow(*e as u32)))
+                        Ok(match b.checked_pow(*e as u32) {
+                            Some(p) => RuntimeValue::Int(p),
+                            None => RuntimeValue::from_bigint(logicaffeine_base::BigInt::from_i64(*b).pow(*e as u32)),
+                        })
                     } else {
                         Ok(RuntimeValue::Float((*b as f64).powi(*e as i32)))
+                    }
+                }
+                (RuntimeValue::BigInt(b), RuntimeValue::Int(e)) => {
+                    if *e >= 0 {
+                        Ok(RuntimeValue::from_bigint(b.pow(*e as u32)))
+                    } else {
+                        Ok(RuntimeValue::Float(b.to_f64().powi(*e as i32)))
                     }
                 }
                 (RuntimeValue::Float(b), RuntimeValue::Int(e)) => {
@@ -255,12 +290,67 @@ pub fn call_builtin(id: BuiltinId, args: Vec<RuntimeValue>) -> Result<RuntimeVal
                 )),
             }
         }
+        BuiltinId::RunAccepted => {
+            // run_accepted(fn, arg, lo, hi): the receiver's typed, bounded acceptance
+            // contract for a SHIPPED computation — validate the function's shape and the
+            // argument's range, then evaluate in the sandbox. Out-of-range is REFUSED, never
+            // clamped; an ordinary (non-shipped) closure is refused at the signature check.
+            let int_arg = |v: &RuntimeValue, what: &str| -> Result<i64, String> {
+                match v {
+                    RuntimeValue::Int(n) => Ok(*n),
+                    other => Err(format!("run_accepted: {what} must be an Int, got {}", other.type_name())),
+                }
+            };
+            let arg = int_arg(&args[1], "the argument")?;
+            let lo = int_arg(&args[2], "the lower bound")?;
+            let hi = int_arg(&args[3], "the upper bound")?;
+            let contract = crate::semantics::acceptance::AcceptanceContract::new(lo, hi);
+            contract.apply(&args[0], arg).map(RuntimeValue::Int)
+        }
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn run_accepted_validates_then_runs_a_shipped_computation() {
+        use crate::concurrency::marshal::GenExpr;
+        use crate::interpreter::ClosureValue;
+        use std::collections::HashMap;
+        use std::rc::Rc;
+        // A shipped `3·x + 1` computation (what a peer ships via `Send computed`).
+        let mk = || {
+            let gen = GenExpr::Add(
+                Box::new(GenExpr::Mul(Box::new(GenExpr::Index), Box::new(GenExpr::Const(3)))),
+                Box::new(GenExpr::Const(1)),
+            );
+            RuntimeValue::Function(Box::new(ClosureValue {
+                body_index: usize::MAX,
+                captured_env: HashMap::default(),
+                param_names: vec![logicaffeine_base::Symbol::from_index(0)],
+                generated: Some(Rc::new(gen)),
+            }))
+        };
+        // In-bounds (5 ∈ [0,1000]) → 3·5 + 1 = 16, run in the sandbox.
+        match call_builtin(
+            BuiltinId::RunAccepted,
+            vec![mk(), RuntimeValue::Int(5), RuntimeValue::Int(0), RuntimeValue::Int(1000)],
+        ) {
+            Ok(RuntimeValue::Int(n)) => assert_eq!(n, 16),
+            other => panic!("in-bounds run_accepted should return Int(16), got {other:?}"),
+        }
+        // Out-of-bounds (5000 ∉ [0,1000]) → refused, not clamped.
+        assert!(
+            call_builtin(
+                BuiltinId::RunAccepted,
+                vec![mk(), RuntimeValue::Int(5000), RuntimeValue::Int(0), RuntimeValue::Int(1000)],
+            )
+            .is_err(),
+            "an out-of-range argument must be refused at the contract"
+        );
+    }
 
     #[test]
     fn arity_messages_match_treewalker() {
@@ -316,21 +406,30 @@ mod tests {
     }
 
     #[test]
-    fn abs_and_pow_wrap_like_the_int_spec() {
-        // abs(i64::MIN) has no positive representation: it wraps to itself.
-        assert!(matches!(
-            call_builtin(BuiltinId::Abs, vec![RuntimeValue::Int(i64::MIN)]).unwrap(),
-            RuntimeValue::Int(i64::MIN)
-        ));
-        // 2^63 overflows i64: wrapping_pow yields i64::MIN.
-        assert!(matches!(
-            call_builtin(BuiltinId::Pow, vec![RuntimeValue::Int(2), RuntimeValue::Int(63)]).unwrap(),
-            RuntimeValue::Int(i64::MIN)
-        ));
-        // In-range pow is unchanged.
+    fn abs_and_pow_are_exact_promoting_past_i64() {
+        // Arrange / Act / Assert: |i64::MIN| = 2^63 has no i64 representation, so abs
+        // promotes to the EXACT BigInt rather than wrapping back to i64::MIN.
+        let abs_min = call_builtin(BuiltinId::Abs, vec![RuntimeValue::Int(i64::MIN)]).unwrap();
+        assert_eq!(abs_min.to_display_string(), "9223372036854775808");
+        assert_eq!(abs_min.type_name(), "Int", "a BigInt is still an integer type");
+
+        // 2^63 overflows i64 → exact BigInt (not the wrapped i64::MIN).
+        let two_pow_63 = call_builtin(BuiltinId::Pow, vec![RuntimeValue::Int(2), RuntimeValue::Int(63)]).unwrap();
+        assert_eq!(two_pow_63.to_display_string(), "9223372036854775808");
+
+        // A far-larger power stays exact (2^100 = 31 digits).
+        let two_pow_100 = call_builtin(BuiltinId::Pow, vec![RuntimeValue::Int(2), RuntimeValue::Int(100)]).unwrap();
+        assert_eq!(two_pow_100.to_display_string(), "1267650600228229401496703205376");
+
+        // In-range results stay narrow `Int` (downsizing is automatic).
         assert!(matches!(
             call_builtin(BuiltinId::Pow, vec![RuntimeValue::Int(3), RuntimeValue::Int(4)]).unwrap(),
             RuntimeValue::Int(81)
+        ));
+        // abs of an ordinary negative is unchanged.
+        assert!(matches!(
+            call_builtin(BuiltinId::Abs, vec![RuntimeValue::Int(-5)]).unwrap(),
+            RuntimeValue::Int(5)
         ));
     }
 

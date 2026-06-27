@@ -160,7 +160,7 @@ pub fn detect_dense_i64_maps(
     interner: &Interner,
 ) -> HashMap<Symbol, DenseMapInfo> {
     let mut out = HashMap::new();
-    if std::env::var("LOGOS_DENSE_MAP").map(|v| v == "0").unwrap_or(false) {
+    if !crate::optimize::active_config().is_on(crate::optimization::Opt::DenseMap) {
         return out;
     }
     for &m in &classes.maps {
@@ -199,6 +199,7 @@ pub fn detect_dense_i64_maps(
                 DenseKind::Map
             };
             out.insert(m, DenseMapInfo { lo: 0, kind });
+            crate::optimize::mark_fired(crate::optimization::Opt::DenseMap);
         }
     }
     out
@@ -222,7 +223,7 @@ pub fn detect_i32_maps(
     // On by default — a sound, lossless general optimization (proven i32-range
     // keys/values; the `as i32` cast cannot lose data and values round-trip back
     // to i64 on read). `LOGOS_NARROW_MAP=0` forces it off for A/B measurement.
-    if std::env::var("LOGOS_NARROW_MAP").map(|v| v == "0").unwrap_or(false) {
+    if !crate::optimize::active_config().is_on(crate::optimization::Opt::NarrowMap) {
         return (maps, sets);
     }
     let fits_i32 = |addr: usize| match oracle.expr_int_range_addr(addr) {
@@ -231,7 +232,12 @@ pub fn detect_i32_maps(
     };
     for &m in &classes.maps {
         if dense.contains_key(&m) {
-            continue; // dense is strictly better — it wins
+            // Dense is strictly better — it wins, and NarrowMap is its fallback.
+            crate::optimize::mark_preempted(
+                crate::optimization::Opt::DenseMap,
+                crate::optimization::Opt::NarrowMap,
+            );
+            continue;
         }
         let keys = match classes.key_sites.get(&m) {
             Some(s) if !s.is_empty() => s,
@@ -249,6 +255,9 @@ pub fn detect_i32_maps(
                 maps.insert(m);
             }
         }
+    }
+    if !maps.is_empty() || !sets.is_empty() {
+        crate::optimize::mark_fired(crate::optimization::Opt::NarrowMap);
     }
     (maps, sets)
 }
@@ -423,7 +432,7 @@ impl<'c> Disq<'c> {
             // Static proof obligations — erased in the runtime build, so they do
             // not alias or escape the map's representation.
             Stmt::Assert { .. } | Stmt::Trust { .. } => {}
-            Stmt::RuntimeAssert { condition } => self.expr(condition),
+            Stmt::RuntimeAssert { condition, .. } => self.expr(condition),
 
             Stmt::Give { object, recipient } => {
                 self.expr(object);

@@ -4,10 +4,10 @@
   "difficulty": 1,
   "prompt": "If you're bright, then you're polite or demented",
   "options": [
-    "$ (B \\\\supset P) \\\\vee D $",
-    "$ B \\\\supset P \\\\vee D $",
-    "$ ((B \\\\supset P) \\\\vee D) $",
-    "$ (B \\\\supset (P \\\\vee D)) $"
+    "$ (B \\supset P) \\vee D $",
+    "$ B \\supset P \\vee D $",
+    "$ ((B \\supset P) \\vee D) $",
+    "$ (B \\supset (P \\vee D)) $"
   ],
   "correct": 3,
   "hint": "Is the 'or' part of what follows from the 'if', or a separate alternative?",

@@ -185,6 +185,32 @@ pub unsafe extern "C" fn logos_rt_push_i64(
     *frame.add(len_slot as usize) = (*vec).len() as i64;
 }
 
+/// Push helper for pinned half-width Int lists (`ListRepr::IntsI32` =
+/// `Vec<i32>`): the value TRUNCATES to its low 4 bytes. The narrowing proof
+/// guarantees every pushed value fits `i32`, so the truncation is lossless;
+/// `debug_assert` catches a proof violation in test builds. The refreshed
+/// `ptr_slot` is the `Vec<i32>` element buffer (4-byte stride — the stencil and
+/// regalloc loads `movsxd` from it).
+///
+/// # Safety
+/// See [`logos_rt_push_i64`]; `vec_slot` must be a live `*mut Vec<i32>`.
+pub unsafe extern "C" fn logos_rt_push_i32(
+    frame: *mut i64,
+    vec_slot: i64,
+    ptr_slot: i64,
+    len_slot: i64,
+    value: i64,
+) {
+    let vec = *frame.add(vec_slot as usize) as *mut Vec<i32>;
+    debug_assert!(
+        i32::try_from(value).is_ok(),
+        "LOGOS_NARROW_VM: pushed value {value} out of i32 range on a narrowed buffer"
+    );
+    (*vec).push(value as i32);
+    *frame.add(ptr_slot as usize) = (*vec).as_mut_ptr() as i64;
+    *frame.add(len_slot as usize) = (*vec).len() as i64;
+}
+
 /// See [`logos_rt_push_i64`] — f64 value travels as bits.
 ///
 /// # Safety
@@ -235,6 +261,22 @@ pub unsafe extern "C" fn logos_rt_clear_i64(
     len_slot: i64,
 ) {
     let vec = *frame.add(vec_slot as usize) as *mut Vec<i64>;
+    (*vec).clear();
+    *frame.add(ptr_slot as usize) = (*vec).as_mut_ptr() as i64;
+    *frame.add(len_slot as usize) = 0;
+}
+
+/// See [`logos_rt_clear_i64`] — half-width `Vec<i32>` buffer.
+///
+/// # Safety
+/// See [`logos_rt_clear_i64`]; `vec_slot` must be a live `*mut Vec<i32>`.
+pub unsafe extern "C" fn logos_rt_clear_i32(
+    frame: *mut i64,
+    vec_slot: i64,
+    ptr_slot: i64,
+    len_slot: i64,
+) {
+    let vec = *frame.add(vec_slot as usize) as *mut Vec<i32>;
     (*vec).clear();
     *frame.add(ptr_slot as usize) = (*vec).as_mut_ptr() as i64;
     *frame.add(len_slot as usize) = 0;
@@ -505,6 +547,11 @@ enum Kind {
     /// A pinned unboxed Int list (the register itself never rides a slot —
     /// its buffer pointer/length live in dedicated pin slots).
     IntList,
+    /// A pinned half-width (`Vec<i32>`) Int list (`ListRepr::IntsI32`): the
+    /// element access width is 4 bytes (sign-extending loads, truncating
+    /// stores). Behaves exactly like [`Kind::IntList`] for register/pin gating;
+    /// only the array op width differs.
+    IntListI32,
     /// A pinned unboxed Float list.
     FloatList,
     /// A pinned unboxed Bool list.
@@ -598,6 +645,7 @@ fn observed_kind(o: ObservedKind) -> Kind {
         ObservedKind::Bool => Kind::Bool,
         ObservedKind::Float => Kind::Float,
         ObservedKind::IntList => Kind::IntList,
+        ObservedKind::IntListI32 => Kind::IntListI32,
         ObservedKind::FloatList => Kind::FloatList,
         ObservedKind::BoolList => Kind::BoolList,
         ObservedKind::Map => Kind::IntMap,
@@ -737,7 +785,7 @@ fn kind_flow(
             Op::Index { dst, collection, .. }
             | Op::IndexUnchecked { dst, collection, .. } => {
                 out[dst as usize] = match out[collection as usize] {
-                    Kind::IntList => Kind::Int,
+                    Kind::IntList | Kind::IntListI32 => Kind::Int,
                     Kind::FloatList => Kind::Float,
                     Kind::BoolList => Kind::Bool,
                     // Map int fast lane: a non-Int value is a helper miss
@@ -892,6 +940,7 @@ fn kind_flow(
                         | Kind::Bool
                         | Kind::Float
                         | Kind::IntList
+                        | Kind::IntListI32
                         | Kind::FloatList
                         | Kind::BoolList
                         // A 1-char ASCII byte (`text + ch`'s `ch`) rides a plain
@@ -910,7 +959,7 @@ fn kind_flow(
             | Op::IndexUnchecked { collection, index, .. } => {
                 if !matches!(
                     k[collection as usize],
-                    Kind::IntList | Kind::FloatList | Kind::BoolList | Kind::IntMap | Kind::TextBytes
+                    Kind::IntList | Kind::IntListI32 | Kind::FloatList | Kind::BoolList | Kind::IntMap | Kind::TextBytes
                 ) || !int_at(index)
                 {
                     return None;
@@ -919,7 +968,7 @@ fn kind_flow(
             Op::SetIndex { collection, index, value }
             | Op::SetIndexUnchecked { collection, index, value } => {
                 let elem_ok = match k[collection as usize] {
-                    Kind::IntList => k[value as usize] == Kind::Int,
+                    Kind::IntList | Kind::IntListI32 => k[value as usize] == Kind::Int,
                     Kind::FloatList => k[value as usize] == Kind::Float,
                     Kind::BoolList => k[value as usize] == Kind::Bool,
                     Kind::IntMap => k[value as usize] == Kind::Int,
@@ -937,7 +986,7 @@ fn kind_flow(
             Op::Length { collection, .. } => {
                 if !matches!(
                     k[collection as usize],
-                    Kind::IntList | Kind::FloatList | Kind::BoolList | Kind::TextBytes
+                    Kind::IntList | Kind::IntListI32 | Kind::FloatList | Kind::BoolList | Kind::TextBytes
                 ) {
                     return None;
                 }
@@ -971,7 +1020,7 @@ fn kind_flow(
             }
             Op::ListPush { list, value } => {
                 let elem_ok = match k[list as usize] {
-                    Kind::IntList => k[value as usize] == Kind::Int,
+                    Kind::IntList | Kind::IntListI32 => k[value as usize] == Kind::Int,
                     Kind::FloatList => k[value as usize] == Kind::Float,
                     Kind::BoolList => k[value as usize] == Kind::Bool,
                     _ => false,
@@ -990,6 +1039,7 @@ fn kind_flow(
                         | Kind::Bool
                         | Kind::Float
                         | Kind::IntList
+                        | Kind::IntListI32
                         | Kind::FloatList
                         | Kind::BoolList
                 ) {
@@ -1250,6 +1300,21 @@ fn adapt_function(
         }
     }
 
+    // SOUNDNESS STOPGAP (BUG-002, NOT the root-cause fix): a function that both
+    // (a) RETURNS/recurses on a list it MUTATES in place AND (b) loads an array
+    // element that survives a conditional branch into an in-place `SetIndex`
+    // miscompiles in the native tier (segfault) — the quicksort `Let vj … set
+    // item i to vj` shape. Until the codegen is fixed, refuse to tier such a
+    // function (it runs on the correct VM). Scoped to recursion + in-place store
+    // so non-recursive swap loops (bubble_sort/fannkuch) still tier.
+    // `LOGOS_BUG002_BAIL=0` disables the stopgap (to reproduce the raw crash).
+    if std::env::var("LOGOS_BUG002_BAIL").as_deref() != Ok("0")
+        && ops.iter().any(|op| matches!(op, Op::Call { .. }))
+        && has_crossbranch_array_value_store_hazard(ops)
+    {
+        return None;
+    }
+
     // Flow-sensitive kinds: every parameter starts at its DECLARED kind
     // (the per-call boundary guard checks the matching discriminant before
     // entry, so the seed is sound, not speculative); everything else starts
@@ -1273,6 +1338,9 @@ fn adapt_function(
                     PinElem::Int => Kind::IntList,
                     PinElem::Float => Kind::FloatList,
                     PinElem::Bool => Kind::BoolList,
+                    // A half-width buffer is a VM-local storage decision, never a
+                    // declared list-param type — bail rather than speculate it.
+                    PinElem::IntI32 => return None,
                     // Declared kinds never produce a Map or Text list-param.
                     PinElem::Map | PinElem::TextBytes | PinElem::TextMut => return None,
                 }
@@ -1594,7 +1662,7 @@ fn adapt_function(
                 Kind::Int => RegBox::Int,
                 Kind::Bool => RegBox::Bool,
                 Kind::Float => RegBox::Float,
-                Kind::IntList | Kind::FloatList | Kind::BoolList => {
+                Kind::IntList | Kind::IntListI32 | Kind::FloatList | Kind::BoolList => {
                     let j = pin_of[r]?;
                     if let Some(pidx) =
                         list_params.iter().position(|(preg, _)| *preg as usize == r)
@@ -2404,6 +2472,7 @@ fn translate_op(
                 // are 1-byte too; Int/Float are 8-byte.
                 let text = p.elem == PinElem::TextBytes;
                 let byte = text || p.elem == PinElem::Bool;
+                let narrow32 = p.elem == PinElem::IntI32;
                 let checked =
                     text || !region || matches!(ops[i], Op::Index { .. });
                 micro.push(MicroOp::ArrLoad {
@@ -2412,6 +2481,7 @@ fn translate_op(
                     ptr_slot: p.ptr_slot,
                     len_slot: p.len_slot,
                     byte,
+                    narrow32,
                     checked,
                 });
             }
@@ -2435,12 +2505,14 @@ fn translate_op(
                 });
             } else {
                 let byte = p.elem == PinElem::Bool;
+                let narrow32 = p.elem == PinElem::IntI32;
                 micro.push(MicroOp::ArrStore {
                     src: value,
                     idx: index,
                     ptr_slot: p.ptr_slot,
                     len_slot: p.len_slot,
                     byte,
+                    narrow32,
                     checked,
                 });
             }
@@ -2465,6 +2537,7 @@ fn translate_op(
             let p = pins.get(&list)?;
             let helper_addr = match p.elem {
                 PinElem::Int => crate::logos_rt_push_i64 as usize as i64,
+                PinElem::IntI32 => crate::logos_rt_push_i32 as usize as i64,
                 PinElem::Float => crate::logos_rt_push_f64 as usize as i64,
                 PinElem::Bool => crate::logos_rt_push_bool as usize as i64,
                 // No push onto a map or a text accumulator.
@@ -2477,8 +2550,10 @@ fn translate_op(
                 len_slot: p.len_slot,
                 helper_addr,
                 // A `Seq of Bool` buffer is 1-byte; the inline fast-path store
-                // writes the boolean normalization. Int/Float are 8-byte raw.
+                // writes the boolean normalization. Int/Float are 8-byte raw;
+                // a narrowed `IntsI32` buffer is 4-byte (truncating push).
                 byte: p.elem == PinElem::Bool,
+                narrow32: p.elem == PinElem::IntI32,
             });
         }
         Op::NewEmptyList { dst } => {
@@ -2511,6 +2586,7 @@ fn translate_op(
                         kin[j].as_ref().map(|kk| kk[dst as usize]),
                         Some(
                             Kind::IntList
+                                | Kind::IntListI32
                                 | Kind::FloatList
                                 | Kind::BoolList
                                 | Kind::IntMap
@@ -2523,6 +2599,7 @@ fn translate_op(
             }
             let helper_addr = match p.elem {
                 PinElem::Int => crate::logos_rt_clear_i64 as usize as i64,
+                PinElem::IntI32 => crate::logos_rt_clear_i32 as usize as i64,
                 PinElem::Float => crate::logos_rt_clear_f64 as usize as i64,
                 PinElem::Bool => crate::logos_rt_clear_bool as usize as i64,
                 // No empty-list clear for a map or text pin.
@@ -2898,6 +2975,55 @@ fn match_memmem_nest(
 /// incoming-dead slots (loop scratches, comparison temporaries anywhere in
 /// the body) need no guard. Writes are re-boxed by inferred kind.
 #[allow(clippy::type_complexity)]
+/// BUG-002 detector: does an array-loaded value survive a conditional branch and
+/// reach an in-place `SetIndex`? A forward scan tracks, per register, whether it
+/// currently holds a value loaded from an array and whether a branch has occurred
+/// since that load (propagating through `Move`s). A `SetIndex`/`SetIndexUnchecked`
+/// whose stored value is such a branch-surviving array-loaded register is the
+/// miscompiling shape. Conservative (a branch marks ALL live array-loaded
+/// registers), but the safe in-branch-load shape never trips it because the load
+/// happens AFTER the guard branch.
+fn has_crossbranch_array_value_store_hazard(ops: &[Op]) -> bool {
+    use std::collections::HashMap;
+    // reg -> has a branch occurred since this reg was loaded from an array?
+    let mut loaded: HashMap<u16, bool> = HashMap::new();
+    for op in ops {
+        match op {
+            Op::Index { dst, .. } | Op::IndexUnchecked { dst, .. } => {
+                loaded.insert(*dst, false);
+            }
+            Op::Move { dst, src } => match loaded.get(src).copied() {
+                Some(b) => {
+                    loaded.insert(*dst, b);
+                }
+                None => {
+                    loaded.remove(dst);
+                }
+            },
+            Op::JumpIfFalse { .. } | Op::JumpIfTrue { .. } | Op::Jump { .. } => {
+                for v in loaded.values_mut() {
+                    *v = true;
+                }
+            }
+            Op::SetIndex { value, .. } | Op::SetIndexUnchecked { value, .. } => {
+                if loaded.get(value) == Some(&true) {
+                    return true;
+                }
+            }
+            other => {
+                // Any other op that DEFINES a register clears its array-loaded
+                // status (the value is no longer a raw array element).
+                if let Some((_, defs)) = region_use_def(other) {
+                    for d in defs {
+                        loaded.remove(&d);
+                    }
+                }
+            }
+        }
+    }
+    false
+}
+
 fn adapt_region(
     ops: &[Op],
     head_pc: usize,
@@ -3017,6 +3143,7 @@ fn adapt_region(
         if let Some(c) = coll {
             let elem = match observed.get(c as usize)? {
                 ObservedKind::IntList => PinElem::Int,
+                ObservedKind::IntListI32 => PinElem::IntI32,
                 ObservedKind::FloatList => PinElem::Float,
                 ObservedKind::BoolList => PinElem::Bool,
                 ObservedKind::Map => PinElem::Map,
@@ -3098,6 +3225,7 @@ fn adapt_region(
             }
             let elem = match observed.get(r as usize) {
                 Some(ObservedKind::IntList) => Some(PinElem::Int),
+                Some(ObservedKind::IntListI32) => Some(PinElem::IntI32),
                 Some(ObservedKind::FloatList) => Some(PinElem::Float),
                 Some(ObservedKind::BoolList) => Some(PinElem::Bool),
                 _ => None,
@@ -3332,6 +3460,7 @@ fn adapt_region(
     for &(reg, elem) in &pin_regs {
         entry[reg as usize] = match elem {
             PinElem::Int => Kind::IntList,
+            PinElem::IntI32 => Kind::IntListI32,
             PinElem::Float => Kind::FloatList,
             PinElem::Bool => Kind::BoolList,
             PinElem::Map => Kind::IntMap,
@@ -3352,6 +3481,8 @@ fn adapt_region(
                 PinElem::Int => Some(Kind::IntList),
                 PinElem::Float => Some(Kind::FloatList),
                 PinElem::Bool => Some(Kind::BoolList),
+                // A half-width buffer is never a declared list-param.
+                PinElem::IntI32 => None,
                 PinElem::Map | PinElem::TextBytes | PinElem::TextMut => None,
             }
         };
@@ -4620,7 +4751,7 @@ fn fuse_array_rmw(
             if is_target[k + 1] || is_target[k + 2] {
                 continue;
             }
-            let MicroOp::ArrLoad { dst: t, idx: i, ptr_slot: p, len_slot: l, byte: false, checked: c1 } =
+            let MicroOp::ArrLoad { dst: t, idx: i, ptr_slot: p, len_slot: l, byte: false, narrow32: false, checked: c1 } =
                 micro[k]
             else {
                 continue;
@@ -4649,7 +4780,7 @@ fn fuse_array_rmw(
                 MicroOp::MulF { dst, lhs, rhs } if rhs == t => (dst, RmwOp::MulF, lhs),
                 _ => continue,
             };
-            let MicroOp::ArrStore { src, idx: i2, ptr_slot: p2, len_slot: l2, byte: false, checked: c2 } =
+            let MicroOp::ArrStore { src, idx: i2, ptr_slot: p2, len_slot: l2, byte: false, narrow32: false, checked: c2 } =
                 micro[k + 2]
             else {
                 continue;
@@ -4796,12 +4927,12 @@ fn fuse_array_ld2(
             if ka == kb {
                 continue;
             }
-            let MicroOp::ArrLoad { dst: _, idx: ia, ptr_slot: pa, len_slot: lena, byte: false, checked: ca } =
+            let MicroOp::ArrLoad { dst: _, idx: ia, ptr_slot: pa, len_slot: lena, byte: false, narrow32: false, checked: ca } =
                 micro[ka]
             else {
                 continue;
             };
-            let MicroOp::ArrLoad { dst: _, idx: ib, ptr_slot: pb, len_slot: lenb, byte: false, checked: cb } =
+            let MicroOp::ArrLoad { dst: _, idx: ib, ptr_slot: pb, len_slot: lenb, byte: false, narrow32: false, checked: cb } =
                 micro[kb]
             else {
                 continue;
@@ -4990,7 +5121,7 @@ fn fuse_index_affine(
         // open spans after each removed op up to the load.
         let mut hit: Option<(Vec<usize>, usize, MicroOp)> = None;
         'anchor: for m in 0..n {
-            let MicroOp::ArrLoad { dst, idx, ptr_slot, len_slot, byte: false, checked } = micro[m]
+            let MicroOp::ArrLoad { dst, idx, ptr_slot, len_slot, byte: false, narrow32: false, checked } = micro[m]
             else {
                 continue;
             };
@@ -5267,7 +5398,7 @@ fn fuse_cond_swap(
         // enough to span a realistic index expression.
         const MAXGAP: usize = 5;
         'outer: for k in 0..n {
-            let MicroOp::ArrLoad { dst: a, idx: i1, ptr_slot: p, len_slot: l, byte: false, checked: c1 } =
+            let MicroOp::ArrLoad { dst: a, idx: i1, ptr_slot: p, len_slot: l, byte: false, narrow32: false, checked: c1 } =
                 micro[k]
             else {
                 continue;
@@ -5287,7 +5418,7 @@ fn fuse_cond_swap(
                 if !between_ok {
                     continue;
                 }
-                let MicroOp::ArrLoad { dst: b, idx: i2, ptr_slot: p2, len_slot: l2, byte: false, checked: c2 } =
+                let MicroOp::ArrLoad { dst: b, idx: i2, ptr_slot: p2, len_slot: l2, byte: false, narrow32: false, checked: c2 } =
                     micro[lb]
                 else {
                     continue;
@@ -5299,12 +5430,12 @@ fn fuse_cond_swap(
                 if !matches!(cmp, Cmp::Lt | Cmp::Gt | Cmp::LtEq | Cmp::GtEq) || lhs != a || rhs != b {
                     continue;
                 }
-                let MicroOp::ArrStore { src: s1, idx: si1, ptr_slot: sp1, len_slot: sl1, byte: false, checked: c3 } =
+                let MicroOp::ArrStore { src: s1, idx: si1, ptr_slot: sp1, len_slot: sl1, byte: false, narrow32: false, checked: c3 } =
                     micro[lb + 2]
                 else {
                     continue;
                 };
-                let MicroOp::ArrStore { src: s2, idx: si2, ptr_slot: sp2, len_slot: sl2, byte: false, checked: c4 } =
+                let MicroOp::ArrStore { src: s2, idx: si2, ptr_slot: sp2, len_slot: sl2, byte: false, narrow32: false, checked: c4 } =
                     micro[lb + 3]
                 else {
                     continue;
@@ -5410,12 +5541,12 @@ fn fuse_swap(
         };
         let mut hit: Option<(usize, MicroOp)> = None;
         for k in 0..n.saturating_sub(3) {
-            let MicroOp::ArrLoad { dst: a, idx: i1, ptr_slot: p, len_slot: l, byte: false, checked: c1 } =
+            let MicroOp::ArrLoad { dst: a, idx: i1, ptr_slot: p, len_slot: l, byte: false, narrow32: false, checked: c1 } =
                 micro[k]
             else {
                 continue;
             };
-            let MicroOp::ArrLoad { dst: b, idx: i2, ptr_slot: p2, len_slot: l2, byte: false, checked: c2 } =
+            let MicroOp::ArrLoad { dst: b, idx: i2, ptr_slot: p2, len_slot: l2, byte: false, narrow32: false, checked: c2 } =
                 micro[k + 1]
             else {
                 continue;
@@ -5423,12 +5554,12 @@ fn fuse_swap(
             if p2 != p || l2 != l || a == b {
                 continue;
             }
-            let MicroOp::ArrStore { src: s1, idx: si1, ptr_slot: sp1, len_slot: sl1, byte: false, checked: c3 } =
+            let MicroOp::ArrStore { src: s1, idx: si1, ptr_slot: sp1, len_slot: sl1, byte: false, narrow32: false, checked: c3 } =
                 micro[k + 2]
             else {
                 continue;
             };
-            let MicroOp::ArrStore { src: s2, idx: si2, ptr_slot: sp2, len_slot: sl2, byte: false, checked: c4 } =
+            let MicroOp::ArrStore { src: s2, idx: si2, ptr_slot: sp2, len_slot: sl2, byte: false, narrow32: false, checked: c4 } =
                 micro[k + 3]
             else {
                 continue;
@@ -6729,6 +6860,7 @@ mod select_pins_tests {
                 ptr_slot: 8,
                 len_slot: 9,
                 byte: false,
+                narrow32: false,
                 checked: false,
             },
             MicroOp::Jump { target: 0 },
@@ -6817,9 +6949,9 @@ mod fuse_rmw_tests {
     #[test]
     fn load_add_store_to_same_cell_fuses_to_rmw() {
         let mut micro = vec![
-            MicroOp::ArrLoad { dst: 3, idx: 5, ptr_slot: 6, len_slot: 7, byte: false, checked: true },
+            MicroOp::ArrLoad { dst: 3, idx: 5, ptr_slot: 6, len_slot: 7, byte: false, narrow32: false, checked: true },
             MicroOp::Add { dst: 4, lhs: 3, rhs: 2 },
-            MicroOp::ArrStore { src: 4, idx: 5, ptr_slot: 6, len_slot: 7, byte: false, checked: true },
+            MicroOp::ArrStore { src: 4, idx: 5, ptr_slot: 6, len_slot: 7, byte: false, narrow32: false, checked: true },
             MicroOp::Return { src: 0 },
         ];
         fuse_array_rmw(&mut micro, &named8(&[2, 5]), 8, &HashSet::new());
@@ -6839,9 +6971,9 @@ mod fuse_rmw_tests {
     #[test]
     fn sub_fuses_only_with_loaded_value_on_the_left() {
         let mut micro = vec![
-            MicroOp::ArrLoad { dst: 3, idx: 5, ptr_slot: 6, len_slot: 7, byte: false, checked: false },
+            MicroOp::ArrLoad { dst: 3, idx: 5, ptr_slot: 6, len_slot: 7, byte: false, narrow32: false, checked: false },
             MicroOp::Sub { dst: 4, lhs: 3, rhs: 2 },
-            MicroOp::ArrStore { src: 4, idx: 5, ptr_slot: 6, len_slot: 7, byte: false, checked: false },
+            MicroOp::ArrStore { src: 4, idx: 5, ptr_slot: 6, len_slot: 7, byte: false, narrow32: false, checked: false },
             MicroOp::Return { src: 0 },
         ];
         fuse_array_rmw(&mut micro, &named8(&[2, 5]), 8, &HashSet::new());
@@ -6852,9 +6984,9 @@ mod fuse_rmw_tests {
 
         // operand - buf[i] is NOT an RMW (the loaded value is on the right).
         let mut rev = vec![
-            MicroOp::ArrLoad { dst: 3, idx: 5, ptr_slot: 6, len_slot: 7, byte: false, checked: false },
+            MicroOp::ArrLoad { dst: 3, idx: 5, ptr_slot: 6, len_slot: 7, byte: false, narrow32: false, checked: false },
             MicroOp::Sub { dst: 4, lhs: 2, rhs: 3 },
-            MicroOp::ArrStore { src: 4, idx: 5, ptr_slot: 6, len_slot: 7, byte: false, checked: false },
+            MicroOp::ArrStore { src: 4, idx: 5, ptr_slot: 6, len_slot: 7, byte: false, narrow32: false, checked: false },
             MicroOp::Return { src: 0 },
         ];
         fuse_array_rmw(&mut rev, &named8(&[2, 5]), 8, &HashSet::new());
@@ -6869,9 +7001,9 @@ mod fuse_rmw_tests {
     #[test]
     fn mixed_checked_load_unchecked_store_fuses_checked() {
         let mut micro = vec![
-            MicroOp::ArrLoad { dst: 3, idx: 5, ptr_slot: 6, len_slot: 7, byte: false, checked: true },
+            MicroOp::ArrLoad { dst: 3, idx: 5, ptr_slot: 6, len_slot: 7, byte: false, narrow32: false, checked: true },
             MicroOp::BitOr { dst: 4, lhs: 3, rhs: 2 },
-            MicroOp::ArrStore { src: 4, idx: 5, ptr_slot: 6, len_slot: 7, byte: false, checked: false },
+            MicroOp::ArrStore { src: 4, idx: 5, ptr_slot: 6, len_slot: 7, byte: false, narrow32: false, checked: false },
             MicroOp::Return { src: 0 },
         ];
         fuse_array_rmw(&mut micro, &named8(&[2, 5]), 8, &HashSet::new());
@@ -6886,9 +7018,9 @@ mod fuse_rmw_tests {
     #[test]
     fn multi_use_loaded_value_blocks_fusion() {
         let mut micro = vec![
-            MicroOp::ArrLoad { dst: 3, idx: 5, ptr_slot: 6, len_slot: 7, byte: false, checked: true },
+            MicroOp::ArrLoad { dst: 3, idx: 5, ptr_slot: 6, len_slot: 7, byte: false, narrow32: false, checked: true },
             MicroOp::Add { dst: 4, lhs: 3, rhs: 2 },
-            MicroOp::ArrStore { src: 4, idx: 5, ptr_slot: 6, len_slot: 7, byte: false, checked: true },
+            MicroOp::ArrStore { src: 4, idx: 5, ptr_slot: 6, len_slot: 7, byte: false, narrow32: false, checked: true },
             MicroOp::Move { dst: 1, src: 3 }, // second use of the loaded value
             MicroOp::Return { src: 1 },
         ];
@@ -6902,18 +7034,18 @@ mod fuse_rmw_tests {
     fn different_array_or_index_blocks_fusion() {
         // different ptr_slot
         let mut a = vec![
-            MicroOp::ArrLoad { dst: 3, idx: 5, ptr_slot: 6, len_slot: 7, byte: false, checked: true },
+            MicroOp::ArrLoad { dst: 3, idx: 5, ptr_slot: 6, len_slot: 7, byte: false, narrow32: false, checked: true },
             MicroOp::Add { dst: 4, lhs: 3, rhs: 2 },
-            MicroOp::ArrStore { src: 4, idx: 5, ptr_slot: 1, len_slot: 7, byte: false, checked: true },
+            MicroOp::ArrStore { src: 4, idx: 5, ptr_slot: 1, len_slot: 7, byte: false, narrow32: false, checked: true },
             MicroOp::Return { src: 0 },
         ];
         fuse_array_rmw(&mut a, &named8(&[1, 2, 5]), 8, &HashSet::new());
         assert!(matches!(a[0], MicroOp::ArrLoad { .. }), "different array must block fusion");
         // different index
         let mut b = vec![
-            MicroOp::ArrLoad { dst: 3, idx: 5, ptr_slot: 6, len_slot: 7, byte: false, checked: true },
+            MicroOp::ArrLoad { dst: 3, idx: 5, ptr_slot: 6, len_slot: 7, byte: false, narrow32: false, checked: true },
             MicroOp::Add { dst: 4, lhs: 3, rhs: 2 },
-            MicroOp::ArrStore { src: 4, idx: 1, ptr_slot: 6, len_slot: 7, byte: false, checked: true },
+            MicroOp::ArrStore { src: 4, idx: 1, ptr_slot: 6, len_slot: 7, byte: false, narrow32: false, checked: true },
             MicroOp::Return { src: 0 },
         ];
         fuse_array_rmw(&mut b, &named8(&[1, 2, 5]), 8, &HashSet::new());
@@ -6925,9 +7057,9 @@ mod fuse_rmw_tests {
     #[test]
     fn jump_target_inside_idiom_blocks_fusion() {
         let mut micro = vec![
-            MicroOp::ArrLoad { dst: 3, idx: 5, ptr_slot: 6, len_slot: 7, byte: false, checked: true },
+            MicroOp::ArrLoad { dst: 3, idx: 5, ptr_slot: 6, len_slot: 7, byte: false, narrow32: false, checked: true },
             MicroOp::Add { dst: 4, lhs: 3, rhs: 2 },
-            MicroOp::ArrStore { src: 4, idx: 5, ptr_slot: 6, len_slot: 7, byte: false, checked: true },
+            MicroOp::ArrStore { src: 4, idx: 5, ptr_slot: 6, len_slot: 7, byte: false, narrow32: false, checked: true },
             MicroOp::JumpIfTrue { cond: 2, target: 2 }, // jumps onto the store
             MicroOp::Return { src: 0 },
         ];
@@ -6949,10 +7081,10 @@ mod fuse_rmw_tests {
         let mut micro = vec![
             MicroOp::LoadConst { dst: 2, value: 1 },
             MicroOp::Add { dst: 3, lhs: 1, rhs: 2 }, // idx_a = v + 1
-            MicroOp::ArrLoad { dst: 4, idx: 3, ptr_slot: 8, len_slot: 9, byte: false, checked: true },
+            MicroOp::ArrLoad { dst: 4, idx: 3, ptr_slot: 8, len_slot: 9, byte: false, narrow32: false, checked: true },
             MicroOp::Add { dst: 5, lhs: 4, rhs: 2 }, // t2 = arr[idx_a] + 1
             MicroOp::Add { dst: 6, lhs: 1, rhs: 2 }, // idx_b = v + 1  (recomputed)
-            MicroOp::ArrStore { src: 5, idx: 6, ptr_slot: 8, len_slot: 9, byte: false, checked: true },
+            MicroOp::ArrStore { src: 5, idx: 6, ptr_slot: 8, len_slot: 9, byte: false, narrow32: false, checked: true },
             MicroOp::Return { src: 1 },
         ];
         let named = named8_n(&[1], 10);
@@ -6990,9 +7122,9 @@ mod fuse_rmw_tests {
     #[test]
     fn float_load_addf_store_fuses_to_float_rmw() {
         let mut micro = vec![
-            MicroOp::ArrLoad { dst: 3, idx: 5, ptr_slot: 8, len_slot: 9, byte: false, checked: false },
+            MicroOp::ArrLoad { dst: 3, idx: 5, ptr_slot: 8, len_slot: 9, byte: false, narrow32: false, checked: false },
             MicroOp::AddF { dst: 4, lhs: 3, rhs: 2 }, // v[i] + product
-            MicroOp::ArrStore { src: 4, idx: 5, ptr_slot: 8, len_slot: 9, byte: false, checked: false },
+            MicroOp::ArrStore { src: 4, idx: 5, ptr_slot: 8, len_slot: 9, byte: false, narrow32: false, checked: false },
             MicroOp::Return { src: 0 },
         ];
         fuse_array_rmw(&mut micro, &named8(&[2, 5]), 10, &HashSet::new());
@@ -7003,9 +7135,9 @@ mod fuse_rmw_tests {
 
         // operand - v[i] must NOT fuse (loaded value on the right of SubF).
         let mut rev = vec![
-            MicroOp::ArrLoad { dst: 3, idx: 5, ptr_slot: 8, len_slot: 9, byte: false, checked: true },
+            MicroOp::ArrLoad { dst: 3, idx: 5, ptr_slot: 8, len_slot: 9, byte: false, narrow32: false, checked: true },
             MicroOp::SubF { dst: 4, lhs: 2, rhs: 3 },
-            MicroOp::ArrStore { src: 4, idx: 5, ptr_slot: 8, len_slot: 9, byte: false, checked: true },
+            MicroOp::ArrStore { src: 4, idx: 5, ptr_slot: 8, len_slot: 9, byte: false, narrow32: false, checked: true },
             MicroOp::Return { src: 0 },
         ];
         fuse_array_rmw(&mut rev, &named8(&[2, 5]), 10, &HashSet::new());
@@ -7122,9 +7254,9 @@ mod fuse_rmw_tests {
     #[test]
     fn fusion_remaps_later_jump_targets() {
         let mut micro = vec![
-            MicroOp::ArrLoad { dst: 3, idx: 5, ptr_slot: 6, len_slot: 7, byte: false, checked: true },
+            MicroOp::ArrLoad { dst: 3, idx: 5, ptr_slot: 6, len_slot: 7, byte: false, narrow32: false, checked: true },
             MicroOp::Add { dst: 4, lhs: 3, rhs: 2 },
-            MicroOp::ArrStore { src: 4, idx: 5, ptr_slot: 6, len_slot: 7, byte: false, checked: true },
+            MicroOp::ArrStore { src: 4, idx: 5, ptr_slot: 6, len_slot: 7, byte: false, narrow32: false, checked: true },
             MicroOp::JumpIfTrue { cond: 2, target: 5 }, // -> the Return
             MicroOp::Add { dst: 1, lhs: 1, rhs: 2 },
             MicroOp::Return { src: 1 },
@@ -7162,8 +7294,8 @@ mod fuse_ld2_tests {
     #[test]
     fn two_buffer_load_mul_fuses_to_arrld2() {
         let mut micro = vec![
-            MicroOp::ArrLoad { dst: 3, idx: 1, ptr_slot: 10, len_slot: 11, byte: false, checked: true },
-            MicroOp::ArrLoad { dst: 4, idx: 2, ptr_slot: 12, len_slot: 13, byte: false, checked: true },
+            MicroOp::ArrLoad { dst: 3, idx: 1, ptr_slot: 10, len_slot: 11, byte: false, narrow32: false, checked: true },
+            MicroOp::ArrLoad { dst: 4, idx: 2, ptr_slot: 12, len_slot: 13, byte: false, narrow32: false, checked: true },
             MicroOp::Mul { dst: 5, lhs: 3, rhs: 4 },
             MicroOp::Return { src: 5 },
         ];
@@ -7191,8 +7323,8 @@ mod fuse_ld2_tests {
                 MicroOp::Add { dst: 5, lhs: 3, rhs: 4 } // a[i] + b[j]
             };
             let mut micro = vec![
-                MicroOp::ArrLoad { dst: 3, idx: 1, ptr_slot: 10, len_slot: 11, byte: false, checked: false },
-                MicroOp::ArrLoad { dst: 4, idx: 2, ptr_slot: 12, len_slot: 13, byte: false, checked: false },
+                MicroOp::ArrLoad { dst: 3, idx: 1, ptr_slot: 10, len_slot: 11, byte: false, narrow32: false, checked: false },
+                MicroOp::ArrLoad { dst: 4, idx: 2, ptr_slot: 12, len_slot: 13, byte: false, narrow32: false, checked: false },
                 add,
                 MicroOp::Return { src: 5 },
             ];
@@ -7212,8 +7344,8 @@ mod fuse_ld2_tests {
     fn sub_fuses_in_binop_order() {
         // `X[1] - Y[2]`: left load = X (ptr 10), right load = Y (ptr 12).
         let mut fwd = vec![
-            MicroOp::ArrLoad { dst: 3, idx: 1, ptr_slot: 10, len_slot: 11, byte: false, checked: true },
-            MicroOp::ArrLoad { dst: 4, idx: 2, ptr_slot: 12, len_slot: 13, byte: false, checked: true },
+            MicroOp::ArrLoad { dst: 3, idx: 1, ptr_slot: 10, len_slot: 11, byte: false, narrow32: false, checked: true },
+            MicroOp::ArrLoad { dst: 4, idx: 2, ptr_slot: 12, len_slot: 13, byte: false, narrow32: false, checked: true },
             MicroOp::Sub { dst: 5, lhs: 3, rhs: 4 }, // X[1] - Y[2]
             MicroOp::Return { src: 5 },
         ];
@@ -7226,8 +7358,8 @@ mod fuse_ld2_tests {
         // `Y[2] - X[1]`: left load = Y (ptr 12), right load = X (ptr 10). The
         // fused op must SWAP which buffer is `a`/`b` so it still computes Y - X.
         let mut rev = vec![
-            MicroOp::ArrLoad { dst: 3, idx: 1, ptr_slot: 10, len_slot: 11, byte: false, checked: true },
-            MicroOp::ArrLoad { dst: 4, idx: 2, ptr_slot: 12, len_slot: 13, byte: false, checked: true },
+            MicroOp::ArrLoad { dst: 3, idx: 1, ptr_slot: 10, len_slot: 11, byte: false, narrow32: false, checked: true },
+            MicroOp::ArrLoad { dst: 4, idx: 2, ptr_slot: 12, len_slot: 13, byte: false, narrow32: false, checked: true },
             MicroOp::Sub { dst: 5, lhs: 4, rhs: 3 }, // Y[2] - X[1]
             MicroOp::Return { src: 5 },
         ];
@@ -7243,8 +7375,8 @@ mod fuse_ld2_tests {
     #[test]
     fn byte_buffer_blocks_fusion() {
         let mut micro = vec![
-            MicroOp::ArrLoad { dst: 3, idx: 1, ptr_slot: 10, len_slot: 11, byte: true, checked: true },
-            MicroOp::ArrLoad { dst: 4, idx: 2, ptr_slot: 12, len_slot: 13, byte: false, checked: true },
+            MicroOp::ArrLoad { dst: 3, idx: 1, ptr_slot: 10, len_slot: 11, byte: true, narrow32: false, checked: true },
+            MicroOp::ArrLoad { dst: 4, idx: 2, ptr_slot: 12, len_slot: 13, byte: false, narrow32: false, checked: true },
             MicroOp::Mul { dst: 5, lhs: 3, rhs: 4 },
             MicroOp::Return { src: 5 },
         ];
@@ -7257,8 +7389,8 @@ mod fuse_ld2_tests {
     #[test]
     fn multiuse_load_and_inner_jump_target_block_fusion() {
         let mut multi = vec![
-            MicroOp::ArrLoad { dst: 3, idx: 1, ptr_slot: 10, len_slot: 11, byte: false, checked: true },
-            MicroOp::ArrLoad { dst: 4, idx: 2, ptr_slot: 12, len_slot: 13, byte: false, checked: true },
+            MicroOp::ArrLoad { dst: 3, idx: 1, ptr_slot: 10, len_slot: 11, byte: false, narrow32: false, checked: true },
+            MicroOp::ArrLoad { dst: 4, idx: 2, ptr_slot: 12, len_slot: 13, byte: false, narrow32: false, checked: true },
             MicroOp::Mul { dst: 5, lhs: 3, rhs: 4 },
             MicroOp::Move { dst: 6, src: 3 }, // second use of a[i]
             MicroOp::Return { src: 5 },
@@ -7267,8 +7399,8 @@ mod fuse_ld2_tests {
         assert!(matches!(multi[0], MicroOp::ArrLoad { .. }), "multi-use load must block fusion");
 
         let mut jt = vec![
-            MicroOp::ArrLoad { dst: 3, idx: 1, ptr_slot: 10, len_slot: 11, byte: false, checked: true },
-            MicroOp::ArrLoad { dst: 4, idx: 2, ptr_slot: 12, len_slot: 13, byte: false, checked: true },
+            MicroOp::ArrLoad { dst: 3, idx: 1, ptr_slot: 10, len_slot: 11, byte: false, narrow32: false, checked: true },
+            MicroOp::ArrLoad { dst: 4, idx: 2, ptr_slot: 12, len_slot: 13, byte: false, narrow32: false, checked: true },
             MicroOp::Mul { dst: 5, lhs: 3, rhs: 4 },
             MicroOp::JumpIfTrue { cond: 0, target: 1 }, // lands on the 2nd load
             MicroOp::Return { src: 5 },
@@ -7305,7 +7437,7 @@ mod fuse_affine_tests {
         let mut micro = vec![
             MicroOp::LoadConst { dst: 8, value: 1 },
             MicroOp::Add { dst: 5, lhs: 4, rhs: 8 },
-            MicroOp::ArrLoad { dst: 6, idx: 5, ptr_slot: 10, len_slot: 11, byte: false, checked: true },
+            MicroOp::ArrLoad { dst: 6, idx: 5, ptr_slot: 10, len_slot: 11, byte: false, narrow32: false, checked: true },
             MicroOp::Return { src: 6 },
         ];
         fuse_index_affine(&mut micro, &named_n(&[4, 8, 6], 12), 12, &HashSet::new());
@@ -7331,7 +7463,7 @@ mod fuse_affine_tests {
             MicroOp::Sub { dst: 7, lhs: 4, rhs: 3 },
             MicroOp::LoadConst { dst: 8, value: 1 },
             MicroOp::Add { dst: 5, lhs: 7, rhs: 8 },
-            MicroOp::ArrLoad { dst: 6, idx: 5, ptr_slot: 10, len_slot: 11, byte: false, checked: false },
+            MicroOp::ArrLoad { dst: 6, idx: 5, ptr_slot: 10, len_slot: 11, byte: false, narrow32: false, checked: false },
             MicroOp::Return { src: 6 },
         ];
         fuse_index_affine(&mut micro, &named_n(&[4, 3, 8, 6], 12), 12, &HashSet::new());
@@ -7358,7 +7490,7 @@ mod fuse_affine_tests {
             MicroOp::Add { dst: 17, lhs: 18, rhs: 14 },      // i*n + j  (scratch)
             MicroOp::LoadConst { dst: 8, value: 1 },
             MicroOp::Add { dst: 16, lhs: 17, rhs: 8 },       // + 1      (scratch)
-            MicroOp::ArrLoad { dst: 23, idx: 16, ptr_slot: 40, len_slot: 41, byte: false, checked: true },
+            MicroOp::ArrLoad { dst: 23, idx: 16, ptr_slot: 40, len_slot: 41, byte: false, narrow32: false, checked: true },
             MicroOp::Move { dst: 99, src: 18 },              // second use of i*n
             MicroOp::Return { src: 23 },
         ];
@@ -7379,7 +7511,7 @@ mod fuse_affine_tests {
     fn bare_two_slot_add_folds_with_zero_offset() {
         let mut micro = vec![
             MicroOp::Add { dst: 5, lhs: 4, rhs: 3 },
-            MicroOp::ArrLoad { dst: 6, idx: 5, ptr_slot: 10, len_slot: 11, byte: false, checked: true },
+            MicroOp::ArrLoad { dst: 6, idx: 5, ptr_slot: 10, len_slot: 11, byte: false, narrow32: false, checked: true },
             MicroOp::Return { src: 6 },
         ];
         fuse_index_affine(&mut micro, &named_n(&[4, 3, 6], 12), 12, &HashSet::new());
@@ -7399,8 +7531,8 @@ mod fuse_affine_tests {
         let mut micro = vec![
             MicroOp::LoadConst { dst: 8, value: 1 },
             MicroOp::Add { dst: 5, lhs: 4, rhs: 8 },
-            MicroOp::ArrLoad { dst: 6, idx: 5, ptr_slot: 10, len_slot: 11, byte: false, checked: true },
-            MicroOp::ArrStore { src: 6, idx: 5, ptr_slot: 10, len_slot: 11, byte: false, checked: true },
+            MicroOp::ArrLoad { dst: 6, idx: 5, ptr_slot: 10, len_slot: 11, byte: false, narrow32: false, checked: true },
+            MicroOp::ArrStore { src: 6, idx: 5, ptr_slot: 10, len_slot: 11, byte: false, narrow32: false, checked: true },
             MicroOp::Return { src: 6 },
         ];
         fuse_index_affine(&mut micro, &named_n(&[4, 8, 6], 12), 12, &HashSet::new());
@@ -7416,7 +7548,7 @@ mod fuse_affine_tests {
         let mut micro = vec![
             MicroOp::LoadConst { dst: 8, value: 1 },
             MicroOp::Add { dst: 5, lhs: 4, rhs: 8 },
-            MicroOp::ArrLoad { dst: 6, idx: 5, ptr_slot: 10, len_slot: 11, byte: true, checked: true },
+            MicroOp::ArrLoad { dst: 6, idx: 5, ptr_slot: 10, len_slot: 11, byte: true, narrow32: false, checked: true },
             MicroOp::Return { src: 6 },
         ];
         fuse_index_affine(&mut micro, &named_n(&[4, 8, 6], 12), 12, &HashSet::new());
@@ -7429,7 +7561,7 @@ mod fuse_affine_tests {
     fn pinned_index_temp_blocks_fusion() {
         let mut micro = vec![
             MicroOp::Add { dst: 5, lhs: 4, rhs: 3 },
-            MicroOp::ArrLoad { dst: 6, idx: 5, ptr_slot: 10, len_slot: 11, byte: false, checked: true },
+            MicroOp::ArrLoad { dst: 6, idx: 5, ptr_slot: 10, len_slot: 11, byte: false, narrow32: false, checked: true },
             MicroOp::Return { src: 6 },
         ];
         let mut pins = HashSet::new();
@@ -7444,7 +7576,7 @@ mod fuse_affine_tests {
     fn jump_target_on_load_blocks_fusion() {
         let mut micro = vec![
             MicroOp::Add { dst: 5, lhs: 4, rhs: 3 },
-            MicroOp::ArrLoad { dst: 6, idx: 5, ptr_slot: 10, len_slot: 11, byte: false, checked: true },
+            MicroOp::ArrLoad { dst: 6, idx: 5, ptr_slot: 10, len_slot: 11, byte: false, narrow32: false, checked: true },
             MicroOp::JumpIfTrue { cond: 4, target: 1 }, // lands on the load
             MicroOp::Return { src: 6 },
         ];
@@ -7465,14 +7597,14 @@ mod fuse_affine_tests {
         // between the loads (slots 8 = kc2, 7 = 2*root, 6 = i2; all scratch).
         // a = slot 9, b = slot 10 (the two loaded values, dead after the swap).
         let mut micro = vec![
-            MicroOp::ArrLoad { dst: 9, idx: 5, ptr_slot: 20, len_slot: 21, byte: false, checked: true },
+            MicroOp::ArrLoad { dst: 9, idx: 5, ptr_slot: 20, len_slot: 21, byte: false, narrow32: false, checked: true },
             MicroOp::LoadConst { dst: 8, value: 2 },
             MicroOp::Mul { dst: 7, lhs: 4, rhs: 8 },     // 2*root
             MicroOp::Add { dst: 6, lhs: 7, rhs: 8 },     // 2*root + 2  (the i2 index)
-            MicroOp::ArrLoad { dst: 10, idx: 6, ptr_slot: 20, len_slot: 21, byte: false, checked: true },
+            MicroOp::ArrLoad { dst: 10, idx: 6, ptr_slot: 20, len_slot: 21, byte: false, narrow32: false, checked: true },
             MicroOp::Branch { cmp: Cmp::Lt, lhs: 9, rhs: 10, target: 8 },
-            MicroOp::ArrStore { src: 10, idx: 5, ptr_slot: 20, len_slot: 21, byte: false, checked: true },
-            MicroOp::ArrStore { src: 9, idx: 6, ptr_slot: 20, len_slot: 21, byte: false, checked: true },
+            MicroOp::ArrStore { src: 10, idx: 5, ptr_slot: 20, len_slot: 21, byte: false, narrow32: false, checked: true },
+            MicroOp::ArrStore { src: 9, idx: 6, ptr_slot: 20, len_slot: 21, byte: false, narrow32: false, checked: true },
             MicroOp::Return { src: 0 },
         ];
         // gap from load1 to load2 is 3 (LoadConst, Mul, Add) — raise the search
@@ -7497,5 +7629,45 @@ mod fuse_affine_tests {
         assert_eq!(AffOp::Add.eval(i64::MAX, 1, 0), i64::MAX.wrapping_add(1));
         assert_eq!(AffOp::Mul.eval(i64::MIN, -1, 0), i64::MIN.wrapping_mul(-1));
         assert_eq!(AffOp::Sub.eval(i64::MIN, 1, 0), i64::MIN.wrapping_sub(1));
+    }
+}
+
+#[cfg(test)]
+mod bug002_hazard_tests {
+    use super::*;
+    use logicaffeine_compile::vm::Op;
+
+    fn load(dst: u16, idx: u16) -> Op {
+        Op::IndexUnchecked { dst, collection: 7, index: idx }
+    }
+    fn store(idx: u16, value: u16) -> Op {
+        Op::SetIndex { collection: 7, index: idx, value }
+    }
+
+    #[test]
+    fn detects_crossbranch_array_value_store() {
+        // load a[j]->v ; branch ; store a[i] = v  (v survives the branch) -> HAZARD
+        let ops = vec![
+            load(13, 11),
+            Op::Move { dst: 14, src: 13 },
+            Op::JumpIfFalse { cond: 15, target: 0 },
+            Op::Index { dst: 16, collection: 7, index: 9 },
+            store(9, 14),
+            store(11, 16),
+        ];
+        assert!(has_crossbranch_array_value_store_hazard(&ops));
+    }
+
+    #[test]
+    fn safe_when_load_is_inside_branch() {
+        // branch ; load a[j]->v ; store a[i] = v  (no branch between load and store) -> SAFE
+        let ops = vec![
+            Op::JumpIfFalse { cond: 15, target: 0 },
+            Op::Index { dst: 16, collection: 7, index: 9 },
+            load(17, 11),
+            store(9, 17),
+            store(11, 16),
+        ];
+        assert!(!has_crossbranch_array_value_store_hazard(&ops));
     }
 }

@@ -136,6 +136,11 @@ pub struct Solver {
     /// VSIDS activities and the bump/decay.
     activity: Vec<f64>,
     var_inc: f64,
+    /// Phase saving: the last value each variable held before being unset by a backjump. A
+    /// decision reuses it, so the search sticks to assignments that previously propagated far —
+    /// the standard ~2-3× win on structured SAT. Purely a heuristic: it changes search ORDER,
+    /// never completeness, so verdicts are unaffected.
+    saved_phase: Vec<bool>,
     /// Learned clauses, logged for proof output.
     learned_log: Vec<LearnedClause>,
     /// Scratch `seen` markers for conflict analysis (indexed by var).
@@ -163,6 +168,7 @@ impl Solver {
             qhead: 0,
             activity: vec![0.0; num_vars],
             var_inc: 1.0,
+            saved_phase: vec![false; num_vars],
             learned_log: Vec::new(),
             seen: vec![false; num_vars],
             empty_clause: false,
@@ -409,10 +415,21 @@ impl Solver {
         let target = self.trail_lim[level as usize];
         while self.trail.len() > target {
             let l = self.trail.pop().unwrap();
+            // Remember the polarity this variable held, so the next decision on it reuses it.
+            self.saved_phase[l.var() as usize] = self.value[l.var() as usize] == Val::True;
             self.value[l.var() as usize] = Val::Unset;
         }
         self.qhead = target;
         self.trail_lim.truncate(level as usize);
+    }
+
+    /// The decision literal for `v`: its saved phase (false-first on the first ever decision).
+    fn decision_lit(&self, v: Var) -> Lit {
+        if self.saved_phase[v as usize] {
+            Lit::pos(v)
+        } else {
+            Lit::neg(v)
+        }
     }
 
     /// Pick an unassigned variable of highest VSIDS activity; `None` if all assigned.
@@ -507,8 +524,90 @@ impl Solver {
                 }
                 Some(v) => {
                     self.trail_lim.push(self.trail.len());
-                    // Phase: default false (MiniSat-style negative-first is a fine default).
-                    self.enqueue(Lit::neg(v), Reason::Decision);
+                    // Phase saving: reuse the variable's last polarity (false-first initially).
+                    self.enqueue(self.decision_lit(v), Reason::Decision);
+                }
+            }
+        }
+    }
+
+    /// Solve under temporary `assumptions` (literals forced true for THIS query only),
+    /// reusing every clause learned so far. The permanent clause database is untouched, so a
+    /// later call with different assumptions may well be satisfiable — successive queries on
+    /// the same solver (e.g. BMC at increasing depths) amortise learning. This is the
+    /// incremental-SAT (IPASIR) pattern. `Unsat` here means "unsatisfiable UNDER these
+    /// assumptions".
+    ///
+    /// Soundness of reuse: conflict analysis keeps decision-level literals (assumptions are
+    /// decisions) and drops level-0 facts, so each learned clause is a consequence of the
+    /// PERMANENT clauses alone — valid no matter which assumptions a future query makes.
+    ///
+    /// Restarts are disabled in this path: the assumptions occupy the bottom decision levels,
+    /// and skipping restarts keeps them pinned without a restart-floor dance. The small,
+    /// bounded queries this serves do not need restarts; correctness beats the heuristic.
+    /// (Does not touch `n_original`; do not mix with [`Solver::original_clauses`]/RUP on the
+    /// same solver.)
+    pub fn solve_under_assumptions(&mut self, assumptions: &[Lit]) -> SolveResult {
+        // Drop any prior search state, keeping level-0 facts and all learned clauses.
+        self.backtrack_to(0);
+        if self.empty_clause {
+            return SolveResult::Unsat;
+        }
+        // Level-0 propagation: if the permanent formula is already unsatisfiable, no
+        // assumption can rescue it — and it stays unsat for every future query, so latch the
+        // permanent-unsat flag (this also guarantees a clean state on the next call, which a
+        // no-op `backtrack_to(0)` over an empty `trail_lim` would otherwise inherit dirty).
+        if self.propagate().is_some() {
+            self.empty_clause = true;
+            return SolveResult::Unsat;
+        }
+        loop {
+            if let Some(ci) = self.propagate() {
+                if self.trail_lim.is_empty() {
+                    self.empty_clause = true; // conflict with no decisions ⇒ unconditionally unsat
+                    return SolveResult::Unsat;
+                }
+                let (learned, backjump) = self.analyze(ci);
+                self.backtrack_to(backjump);
+                let asserting = learned[0];
+                let unit = learned.len() == 1;
+                let new_ci = self.add_clause_raw(learned, true);
+                if !unit {
+                    self.enqueue(asserting, Reason::Clause(new_ci));
+                }
+                self.decay();
+                continue;
+            }
+            // Decide: place the first not-yet-satisfied assumption (so the search always
+            // explores under the full assumption set, even after a backjump unset some).
+            let mut decided = false;
+            for &a in assumptions {
+                match self.val_of(a) {
+                    // The assumption is forced false ⇒ no model under the assumptions.
+                    Val::False => return SolveResult::Unsat,
+                    Val::True => {}
+                    Val::Unset => {
+                        self.trail_lim.push(self.trail.len());
+                        self.enqueue(a, Reason::Decision);
+                        decided = true;
+                        break;
+                    }
+                }
+            }
+            if decided {
+                continue;
+            }
+            // All assumptions hold — branch on the remaining variables.
+            match self.pick_branch() {
+                None => {
+                    let model = (0..self.num_vars)
+                        .map(|v| self.value[v] == Val::True)
+                        .collect();
+                    return SolveResult::Sat(model);
+                }
+                Some(v) => {
+                    self.trail_lim.push(self.trail.len());
+                    self.enqueue(self.decision_lit(v), Reason::Decision);
                 }
             }
         }
@@ -660,6 +759,68 @@ mod tests {
                 }
                 SolveResult::Unsat => {
                     assert!(!expected, "solver said UNSAT but brute force found a model");
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn solve_under_assumptions_matches_brute_force() {
+        // Incremental SAT, validated against the oracle: for each random formula, fire MANY
+        // assumption queries at the SAME solver (so it accumulates learned clauses), and
+        // demand every verdict + model agree with brute force on `clauses ∧ assumptions`.
+        // Reusing the solver is the whole point — it proves learned-clause reuse across
+        // different assumption sets stays sound.
+        let mut state = 0x243f_6a88_85a3_08d3u64;
+        let mut next = || {
+            state ^= state << 13;
+            state ^= state >> 7;
+            state ^= state << 17;
+            state
+        };
+        for _trial in 0..300 {
+            let num_vars = 3 + (next() % 4) as usize; // 3..6
+            let num_clauses = 3 + (next() % 10) as usize;
+            let mut clauses = Vec::new();
+            for _ in 0..num_clauses {
+                let width = 2 + (next() % 2) as usize; // 2- or 3-literal
+                let mut c = Vec::new();
+                for _ in 0..width {
+                    let v = (next() % num_vars as u64) as Var;
+                    let positive = next() & 1 == 0;
+                    c.push(Lit::new(v, positive));
+                }
+                clauses.push(c);
+            }
+            let mut s = Solver::new(num_vars);
+            for c in &clauses {
+                s.add_clause(c.clone());
+            }
+            // Several assumption queries on this one (clause-accumulating) solver.
+            for _ in 0..8 {
+                let a_count = (next() % 3) as usize; // 0..2 assumptions (may contradict)
+                let mut asm = Vec::new();
+                for _ in 0..a_count {
+                    let v = (next() % num_vars as u64) as Var;
+                    let positive = next() & 1 == 0;
+                    asm.push(Lit::new(v, positive));
+                }
+                let mut full = clauses.clone();
+                for &a in &asm {
+                    full.push(vec![a]);
+                }
+                let expected = sat_brute(num_vars, &full);
+                match s.solve_under_assumptions(&asm) {
+                    SolveResult::Sat(m) => {
+                        assert!(expected, "under {asm:?}: solver SAT but brute force UNSAT");
+                        assert!(
+                            check_model(&full, &m),
+                            "under {asm:?}: model violates clauses or assumptions"
+                        );
+                    }
+                    SolveResult::Unsat => {
+                        assert!(!expected, "under {asm:?}: solver UNSAT but brute force SAT");
+                    }
                 }
             }
         }

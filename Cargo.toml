@@ -11,6 +11,7 @@ members = [
     "crates/logicaffeine_compile",
     "crates/logicaffeine_forge",
     "crates/logicaffeine_jit",
+    "crates/logicaffeine_runtime",
     "crates/logicaffeine_tests",
     "apps/logicaffeine_cli",
     "apps/logicaffeine_web",
@@ -18,6 +19,7 @@ members = [
     "crates/logicaffeine_verify",
     "crates/logicaffeine_tv",
     "crates/logicaffeine_synth",
+    "crates/logicaffeine_wirebench",
     "scripts/wiki_trace",
 ]
 
@@ -36,6 +38,7 @@ default-members = [
     "crates/logicaffeine_compile",
     "crates/logicaffeine_forge",
     "crates/logicaffeine_jit",
+    "crates/logicaffeine_runtime",
     "crates/logicaffeine_tests",
     "apps/logicaffeine_cli",
     "apps/logicaffeine_web",
@@ -82,9 +85,53 @@ split-debuginfo = "unpacked"
 debug = "line-tables-only"
 split-debuginfo = "unpacked"
 
+# Optimized test profile for the full-suite GATE only — selected by
+# scripts/run-all-tests-fast.sh via `--cargo-profile test-opt`. The heavy tests
+# are CPU-bound inside the compiler / VM / optimizer / partial-evaluator
+# libraries; building THOSE at opt-level 2 — while the 550+ integration-test
+# harness crates stay at opt-level 0 for fast linking — cuts the suite's
+# wall-clock by several×. It is gated to the runner so the tight per-crate inner
+# loop (`cargo nextest run -p X`) keeps using the default unoptimized `test`
+# profile and its fast compile. Debug info is `packed` (not `test`'s `unpacked`)
+# so this profile's separate target dir never spawns the per-CGU `.dwo` sea that
+# fills the ext4 directory htree.
+[profile.test-opt]
+inherits = "test"
+split-debuginfo = "packed"
+
+[profile.test-opt.package.logicaffeine-compile]
+opt-level = 2
+[profile.test-opt.package.logicaffeine-forge]
+opt-level = 2
+[profile.test-opt.package.logicaffeine-jit]
+opt-level = 2
+[profile.test-opt.package.logicaffeine-kernel]
+opt-level = 2
+[profile.test-opt.package.logicaffeine-language]
+opt-level = 2
+[profile.test-opt.package.logicaffeine-system]
+opt-level = 2
+[profile.test-opt.package.logicaffeine-proof]
+opt-level = 2
+[profile.test-opt.package.logicaffeine-runtime]
+opt-level = 2
+
 [profile.wasm-dev]
 inherits = "dev"
 opt-level = 1
+
+# Web release build (dx `--release`). Debug info OFF so the wasm carries no DWARF
+# sections — binaryen's wasm-opt aborts (SIGABRT) on the DWARF version rustc now
+# emits, which silently leaves the served binary un-optimized (12 MB). With no
+# DWARF, wasm-opt runs and the size levers below shrink the served binary further;
+# opt-level stays at release's 3 so the in-wasm LOGOS interpreter keeps its speed.
+[profile.wasm-release]
+inherits = "release"
+debug = false
+strip = true
+lto = true
+codegen-units = 1
+panic = "abort"
 
 [profile.server-dev]
 inherits = "dev"

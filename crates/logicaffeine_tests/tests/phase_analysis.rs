@@ -1,7 +1,6 @@
 use logicaffeine_base::{Arena, Interner, Symbol};
-use logicaffeine_language::ast::{BinaryOpKind, Expr, Literal, OptFlag, Stmt};
+use logicaffeine_language::ast::{BinaryOpKind, Expr, Literal, Stmt};
 use logicaffeine_language::ast::stmt::{ClosureBody, TypeExpr};
-use std::collections::HashSet;
 use logicaffeine_compile::analysis::callgraph::CallGraph;
 use logicaffeine_compile::analysis::liveness::LivenessResult;
 use logicaffeine_compile::analysis::readonly::ReadonlyParams;
@@ -27,7 +26,7 @@ fn funcdef<'a>(name: Symbol, params: Vec<(Symbol, &'a TypeExpr<'a>)>, body: &'a 
         native_path: None,
         is_exported: false,
         export_target: None,
-        opt_flags: HashSet::new(),
+        opt_flags: Default::default(),
     }
 }
 
@@ -42,7 +41,7 @@ fn native_funcdef<'a>(name: Symbol, params: Vec<(Symbol, &'a TypeExpr<'a>)>) -> 
         native_path: None,
         is_exported: false,
         export_target: None,
-        opt_flags: HashSet::new(),
+        opt_flags: Default::default(),
     }
 }
 

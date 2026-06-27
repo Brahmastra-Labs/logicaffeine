@@ -4,10 +4,10 @@
   "difficulty": 1,
   "prompt": "If you believe F, then you believe C",
   "options": [
-    "$ (u:F\\\\supset u:C) $",
-    "$ (\\\\underline{u}:F\\\\supset \\\\underline{u}:C) $",
-    "$ (u:F\\\\supset \\\\underline{u}:C) $",
-    "$ (\\\\underline{u}:F\\\\supset u:C) $"
+    "$ (u:F\\supset u:C) $",
+    "$ (\\underline{u}:F\\supset \\underline{u}:C) $",
+    "$ (u:F\\supset \\underline{u}:C) $",
+    "$ (\\underline{u}:F\\supset u:C) $"
   ],
   "correct": 0,
   "hint": "Is this about the RELATIONSHIP between two beliefs, or a single complex belief?",

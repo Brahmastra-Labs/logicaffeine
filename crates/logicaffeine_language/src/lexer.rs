@@ -2075,6 +2075,7 @@ impl<'a> Lexer<'a> {
                 "theorem" => BlockType::Theorem,
                 "main" => BlockType::Main,
                 "definition" => BlockType::Definition,
+                "define" => BlockType::Define,  // Vernacular-logic predicate definition (Rung 0a)
                 "proof" => BlockType::Proof,
                 "example" => BlockType::Example,
                 "logic" => BlockType::Logic,
@@ -2086,6 +2087,7 @@ impl<'a> Lexer<'a> {
                 "hardware" => BlockType::Hardware,  // Signal declarations
                 "property" => BlockType::Property,  // Temporal assertions
                 "no" => BlockType::No,  // Optimization annotation: ## No Memo, ## No TCO, etc.
+                "tier" => BlockType::Tier,  // Tiered-optimizer pin: ## Tier specialize eager, etc.
                 _ => BlockType::Note, // Default unknown block types to Note
             };
 
@@ -2493,6 +2495,11 @@ impl<'a> Lexer<'a> {
             "while" => return TokenType::While,
             "assert" => return TokenType::Assert,
             "trust" => return TokenType::Trust,
+            // Imperative-only: these are common English words ("the proof requires
+            // …", "this ensures …"), so keep them as plain words in declarative mode.
+            "require" if self.mode == LexerMode::Imperative => return TokenType::Require,
+            "requires" if self.mode == LexerMode::Imperative => return TokenType::Requires,
+            "ensures" if self.mode == LexerMode::Imperative => return TokenType::Ensures,
             "check" => return TokenType::Check,
             // Theorem keywords (Declarative mode - for theorem blocks)
             "given" if self.mode == LexerMode::Declarative => return TokenType::Given,
@@ -3117,6 +3124,46 @@ mod tests {
         let mut lexer = Lexer::new("ring", &mut interner);
         let tokens = lexer.tokenize();
         assert!(matches!(tokens[0].kind, TokenType::Noun(_)));
+    }
+
+    /// Rung 0a, Stride 0: `## Define` introduces a vernacular-logic predicate
+    /// definition. It must lex to its OWN block type — never collapse into the
+    /// pre-existing `## Definition` (which `DiscoveryPass` consumes for type
+    /// defs). This pins both: `## Define` → `Define`, `## Definition` unchanged.
+    #[test]
+    fn define_block_header_is_distinct_from_definition() {
+        let mut interner = Interner::new();
+        let mut lexer = Lexer::new("## Define\n", &mut interner);
+        let tokens = lexer.tokenize();
+        let header = tokens
+            .iter()
+            .find(|t| matches!(t.kind, TokenType::BlockHeader { .. }))
+            .expect("## Define should produce a block header token");
+        assert!(
+            matches!(
+                header.kind,
+                TokenType::BlockHeader { block_type: BlockType::Define }
+            ),
+            "## Define must tokenize to BlockType::Define, got {:?}",
+            header.kind
+        );
+
+        // Regression guard: the long-standing `## Definition` block stays itself.
+        let mut interner2 = Interner::new();
+        let mut lexer2 = Lexer::new("## Definition\n", &mut interner2);
+        let tokens2 = lexer2.tokenize();
+        let header2 = tokens2
+            .iter()
+            .find(|t| matches!(t.kind, TokenType::BlockHeader { .. }))
+            .expect("## Definition should produce a block header token");
+        assert!(
+            matches!(
+                header2.kind,
+                TokenType::BlockHeader { block_type: BlockType::Definition }
+            ),
+            "## Definition must still tokenize to BlockType::Definition, got {:?}",
+            header2.kind
+        );
     }
 
     #[test]

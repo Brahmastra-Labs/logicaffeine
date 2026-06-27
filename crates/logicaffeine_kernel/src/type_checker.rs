@@ -138,8 +138,10 @@ pub fn infer_type(ctx: &Context, term: &Term) -> KernelResult<Term> {
             motive,
             cases,
         } => {
-            // 1. Discriminant must have an inductive type
-            let disc_type = infer_type(ctx, discriminant)?;
+            // 1. Discriminant must have an inductive type. Normalize first, so a
+            // scrutinee whose type is a redex that reduces to an inductive (e.g. a
+            // motive application `(λb. …) true ⇝ False`) is still recognized.
+            let disc_type = normalize(ctx, &infer_type(ctx, discriminant)?);
             let inductive_name = extract_inductive_name(ctx, &disc_type)
                 .ok_or_else(|| KernelError::NotAnInductive(format!("{}", disc_type)))?;
 

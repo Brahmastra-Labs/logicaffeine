@@ -1,203 +1,98 @@
 # logicaffeine-kernel
 
-Pure Calculus of Constructions (CoC) type theory implementation. This is the logical kernel for Logicaffeine—a language-agnostic type checker and proof assistant core.
+A pure Calculus of Constructions type checker (CIC-flavoured: inductive types, fixpoints, pattern matching) plus a set of decision procedures — the small, trusted logical base everything else in the workspace must re-check against.
 
-## Overview
+Part of the [Logicaffeine](../../NEW_README.md) workspace. Tier 1 — depends only on logicaffeine_base. **Milner invariant**: the kernel has no path to the lexicon, so it never sees English words. Adding vocabulary never recompiles the type checker.
 
-The kernel implements the Calculus of Inductive Constructions, a unified type system where terms and types inhabit the same syntactic category. Everything is a `Term`:
+## Role in the workspace
 
-- Types are Terms: `Nat : Type 0`
-- Values are Terms: `zero : Nat`
-- Functions are Terms: `λx:Nat. x`
-- Proofs are Terms: `refl : a = a`
+The bottom of the proof stack. It is depended on by `logicaffeine_compile`, `logicaffeine_proof`, and the web/CLI apps; everything above it (parser, proof search, SMT oracles) is **untrusted** — it only proposes proof terms the kernel re-checks. See [proof and verification](../../new_docs/proof-and-verification.md) for how proposals flow down to this trusted core.
 
-### Milner Invariant
-
-This crate has **no path to the lexicon**. Adding words to the English vocabulary never triggers a recompile of the type checker. The kernel is purely logical and language-agnostic.
-
-```
-Natural Language → Lexer → Parser → Compile → Kernel
-                                                 ↑
-                                   (no lexicon dependency)
-```
-
-## Core Types
-
-### Term
-
-The unified representation for all expressions:
-
-```rust
-pub enum Term {
-    Sort(Universe),       // Type 0, Type 1, Prop
-    Var(String),          // Local variable
-    Global(String),       // Global definition
-    Pi { ... },           // Π(x:A). B (dependent function type)
-    Lambda { ... },       // λ(x:A). t (function)
-    App(Box<Term>, Box<Term>),  // f x (application)
-    Match { ... },        // Pattern matching
-    Fix { ... },          // Recursive fixpoint
-    Lit(Literal),         // i64, f64, String
-    Hole,                 // Implicit argument
-}
-```
-
-### Universe
-
-The type hierarchy: `Prop : Type 1 : Type 2 : ...`
-
-```rust
-pub enum Universe {
-    Prop,      // Propositions (proof-irrelevant)
-    Type(u32), // Types at level n
-}
-```
-
-Universe subtyping (cumulativity):
-- `Prop ≤ Type(i)` for all `i`
-- `Type(i) ≤ Type(j)` if `i ≤ j`
-
-### Context
-
-Typing context with three kinds of bindings:
-
-- **Inductives**: Type definitions (`Nat : Type 0`)
-- **Constructors**: Data constructors (`Zero : Nat`, `Succ : Nat → Nat`)
-- **Definitions**: Named terms with their types
+The core insight is that terms, types, and proofs share one syntactic category. Everything is a `Term`: types (`Nat : Type 0`), values (`zero : Nat`), functions (`λx:Nat. x`), and proofs (`refl : a = a`).
 
 ## Public API
-
-### Type Checking
 
 ```rust
 use logicaffeine_kernel::{Context, Term, infer_type, is_subtype, normalize};
 
 let ctx = Context::new();
-
-// Infer the type of a term
-let ty = infer_type(&ctx, &term)?;
-
-// Check subtyping with cumulativity
-let sub = is_subtype(&ctx, &term_a, &term_b)?;
-
-// Reduce to normal form
-let nf = normalize(&ctx, &term);
+let ty  = infer_type(&ctx, &term)?;        // bidirectional CIC inference
+let sub = is_subtype(&ctx, &a, &b);        // cumulative subtyping (bool)
+let nf  = normalize(&ctx, &term);          // beta/iota/delta/guarded-fix
 ```
 
-### Standard Library
+### Core types
+
+- **`Term`** — `Sort(Universe)`, `Var`, `Global`, `Pi`, `Lambda`, `App`, `Match { discriminant, motive, cases }`, `Fix { name, body }`, `Lit(Literal)`, `Hole`.
+- **`Universe`** — `Prop | Type(u32)`. Cumulative: `Prop ≤ Type(i)`, `Type(i) ≤ Type(j)` iff `i ≤ j`. `Π` is impredicative in `Prop`, so a universally-quantified FOL formula stays a `Prop`.
+- **`Literal`** — `Int(i64)`, `Float(f64)`, `Text(String)`, `Duration(i64 ns)`, `Date(i32 days)`, `Moment(i64 ns UTC)`. Opaque; computed via ALU, not recursion.
+- **`Context`** — typing context. Local bindings grow per binder (`extend` is an O(1) clone behind `Arc`); the global env (inductives, constructors + order, declarations/axioms, transparent definitions, auto-tactic hints) is `Arc`-shared.
+- **`KernelError` / `KernelResult`** — unbound variable, type mismatch, non-function/non-type, bad motive / wrong case count, positivity and termination violations, certification errors, un-inferable hole.
+
+### Type checking
+
+- `infer_type` — bidirectional CIC inference.
+- `is_subtype` — cumulative subtyping (returns `bool`).
+- `normalize` — fuel-limited (default 10000) beta/iota/delta + guarded-fix reduction; evaluates primitive ALU ops (add/sub/mul/div/mod, comparisons, ite) and the reflection builtins (`syn_size`, `syn_max_var`, `syn_lift`, `syn_subst`, `syn_beta`, `syn_step`, `syn_eval`, `syn_quote`, `syn_diag`).
+
+### Decision procedures
+
+Each is a `pub mod` with a Rust entry point on `Term` (distinct from the prelude-registered `try_*` tactic terms below):
+
+| Module | Proves | Entry point |
+|--------|--------|-------------|
+| `ring` | polynomial equalities | `reify` → `Polynomial::canonical_eq` |
+| `lia` | linear inequalities (Fourier–Motzkin over ℚ) | `fourier_motzkin_unsat` |
+| `omega` | exact integer arithmetic (discrete, GCD-normalized) | `omega_unsat` |
+| `cc` | congruence closure over uninterpreted functions | `check_goal` |
+| `simp` | rewriting / constant folding (fuel-limited) | `check_goal` |
+| `bitvector` | reflection-symmetry identities (N-Queens) | `reflection_symmetry_proven` |
+
+`bitvector` exhaustively machine-checks the bit-permutation identities for `n = 1..=PROOF_WIDTH` (16); edge-distance uniformity of the per-bit transport makes that a proof for all `n` (memoised via `reflection_certificate`).
+
+### Soundness gates
+
+- `positivity::check_positivity` — strict positivity of inductives; rejects negative occurrences that would encode Russell's paradox.
+- `termination::check_termination` — Coq-style syntactic guard for fixpoints (structural recursion); rejects `fix f. f`.
+
+### Standard library (`prelude`)
 
 ```rust
 use logicaffeine_kernel::prelude::StandardLibrary;
-
 let mut ctx = Context::new();
 StandardLibrary::register(&mut ctx);
-// Now ctx has: Entity, Nat, Bool, True, False, Not, Eq, And, Or, Ex, Int, Float, Text
 ```
 
-**Standard types:**
+Installs `Entity` (FOL domain), `Nat`, `Bool`, `TList`, `True`, `False`, `Not`, `Eq`, `And`, `Or`, `Ex`, the primitive `Int`/`Float`/`Text`, the commutative-ring axioms for the opaque `Int` (the entire trusted arithmetic base), the reflection embedding (`Syntax`, `Derivation`), hardware ops, and the kernel-level tactic terms `try_ring`/`try_lia`/`try_cc`/`try_omega`/`try_simp` plus `try_auto` (sequencing `simp → ring → cc → omega → lia`).
 
-| Type | Description |
-|------|-------------|
-| `Entity` | Domain of individuals for FOL |
-| `Nat` | Natural numbers (`Zero`, `Succ`) |
-| `Bool` | Booleans (`true`, `false`) |
-| `True` | Unit proposition with constructor `I` |
-| `False` | Empty proposition (no constructors) |
-| `Not` | Negation: `Not P = P → False` |
-| `Eq` | Propositional equality with `refl` |
-| `And` | Conjunction with `conj` |
-| `Or` | Disjunction with `left`, `right` |
-| `Ex` | Existential with `witness` |
-| `Int` | 64-bit signed integer (primitive) |
-| `Float` | 64-bit floating point (primitive) |
-| `Text` | UTF-8 string (primitive) |
+### Certificates (`serde` feature) — the De Bruijn criterion
 
-## Decision Procedures
+`certificate::{Certificate, recheck, PRELUDE_VERSION}`, gated on `serde`. A `Certificate` carries **only** `proof_term`, `claimed_type`, and `prelude_version` — never a context. `recheck` rebuilds the trusted axiom context itself via `StandardLibrary::register`, infers the term's type, and requires it to be a subtype of the claim, so a certificate cannot smuggle in a bogus axiom (e.g. a free proof of `False`). The trusted surface of a re-check is this crate plus a JSON parser — no proof search, no SMT. The standalone `recheck` example reads a JSON certificate from a path:
 
-The kernel includes automated proof tactics:
-
-| Module | Tactic | Proves |
-|--------|--------|--------|
-| `ring` | `try_ring` | Polynomial equalities: `x * (y + z) = x*y + x*z` |
-| `lia` | `try_lia` | Linear inequalities: `x > 2 ∧ y ≥ 1 ⊢ x + y > 2` |
-| `cc` | `try_cc` | Congruence closure: `x = y ⊢ f(x) = f(y)` |
-| `omega` | `try_omega` | Integer arithmetic with floor/ceil: `3x ≤ 10 ⊢ x ≤ 3` |
-| `simp` | `try_simp` | Rewriting simplification: constant folding, hypothesis substitution |
-
-The `try_auto` tactic tries all procedures in sequence: `simp → ring → cc → omega → lia`.
-
-## Reflection System
-
-Deep embedding for metaprogramming with `Syntax` (quoted terms) and `Derivation` (proof trees):
-
-```
-Syntax constructors:
-  SVar, SGlobal, SSort, SApp, SLam, SPi, SLit, SName
-
-Derivation constructors:
-  DAxiom, DModusPonens, DUnivIntro, DUnivElim, DRefl, DInduction,
-  DCompute, DCong, DElim, DInversion, DRewrite, DDestruct, DApply
+```bash
+cargo run -p logicaffeine-kernel --example recheck --features serde -- cert.json
 ```
 
-Operations: `syn_size`, `syn_max_var`, `syn_lift`, `syn_subst`, `syn_beta`, `syn_step`, `syn_eval`, `syn_quote`, `syn_diag`.
+### Interface
 
-## Architecture
+`interface` is a vernacular text front-end (`TermParser`, `parse_command`/`Command`, `literate_parser`, `Repl`) for driving the kernel by hand — `Definition`/`Check`/`Eval`/`Inductive` commands and an English-like literate syntax. It builds `Term`s for the trusted core; it is not part of the trusted surface.
 
-```
-┌─────────────────────────────────────────────────────────────┐
-│                        Interface                            │
-│  (term_parser, literate_parser, command)                    │
-└─────────────────────────────────────────────────────────────┘
-                             │
-                             ▼
-┌─────────────────────────────────────────────────────────────┐
-│                      Type Checker                           │
-│  infer_type, is_subtype, substitute                         │
-└─────────────────────────────────────────────────────────────┘
-                             │
-              ┌──────────────┴──────────────┐
-              ▼                             ▼
-┌─────────────────────────┐   ┌─────────────────────────────┐
-│      Reduction          │   │         Prelude             │
-│  normalize, reduce      │   │  standard library types     │
-└─────────────────────────┘   └─────────────────────────────┘
-                                            │
-              ┌─────────────┬───────────────┼───────────────┐
-              ▼             ▼               ▼               ▼
-┌───────────────┐ ┌───────────────┐ ┌───────────────┐ ┌───────────┐
-│     ring      │ │     lia       │ │      cc       │ │   omega   │
-│  polynomial   │ │    linear     │ │  congruence   │ │  integer  │
-│   equality    │ │  arithmetic   │ │   closure     │ │ arithmetic│
-└───────────────┘ └───────────────┘ └───────────────┘ └───────────┘
-```
+## Feature flags
 
-## Directory Structure
+| Feature | Default | Effect |
+|---------|---------|--------|
+| `serde` | off | derives `Serialize`/`Deserialize` on `Term`/`Literal`/`Universe` and compiles the `certificate` module + `recheck` example for proof-certificate (de)serialization |
 
-```
-src/
-├── lib.rs              # Crate root, public exports
-├── term.rs             # Term, Universe, Literal types
-├── context.rs          # Typing context with bindings
-├── type_checker.rs     # Type inference and subtyping
-├── reduction.rs        # Normalization and reduction
-├── error.rs            # KernelError, KernelResult
-├── ring.rs             # Ring decision procedure
-├── lia.rs              # Linear integer arithmetic (Fourier-Motzkin)
-├── cc.rs               # Congruence closure
-├── omega.rs            # Integer arithmetic with floor/ceil
-├── simp.rs             # Rewriting simplification
-├── prelude.rs          # Standard library definitions
-├── positivity.rs       # Strict positivity checking for inductives
-├── termination.rs      # Termination checking for Fix
-└── interface/          # REPL, parsing, literate syntax
-```
+The trusted core stays dependency-free unless certificates are being (de)serialized.
+
+## Dependencies
+
+- **Internal**: `logicaffeine-base` — the only dependency; supplies `UnionFind`, re-used by the `cc` congruence-closure e-graph. **No lexicon dependency** (Milner invariant).
+- **External**: `serde` (optional). `serde_json` is a dev-dependency only — it powers the `recheck` example and the certificate tests and never enters the published library's dependency graph.
 
 ## License
 
-Business Source License 1.1 (BUSL-1.1)
+Business Source License 1.1 — see [LICENSE.md](../../LICENSE.md).
 
-- **Free** for individuals and organizations with <25 employees
-- **Commercial license** required for organizations with 25+ employees offering Logic Services
-- **Converts to MIT** on December 24, 2029
-
-See [LICENSE](https://github.com/Brahmastra-Labs/logicaffeine/blob/main/LICENSE.md) for full terms.
+---
+[Docs index](../../new_docs/README.md) · [Root README](../../NEW_README.md) · [Changelog](../../CHANGELOG.md)

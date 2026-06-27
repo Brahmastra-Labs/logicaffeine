@@ -237,7 +237,7 @@ fn walk_stmt(s: &Stmt, q: Symbol, guards: &mut Vec<Guard>, in_loop: bool, refs: 
             ok_read_only(object, q) && ok_read_only(recipient, q)
         }
         Stmt::Call { args, .. } => args.iter().all(|a| ok_read_only(a, q)),
-        Stmt::RuntimeAssert { condition } => ok_read_only(condition, q),
+        Stmt::RuntimeAssert { condition, .. } => ok_read_only(condition, q),
         Stmt::Assert { .. } | Stmt::Trust { .. } | Stmt::Break => true,
         Stmt::Inspect { target, .. } => ok_read_only(target, q),
         // Pop / Remove / Add (set-add) on q, or anything unmodeled, disqualifies
@@ -618,7 +618,7 @@ pub(crate) fn for_each_stmt_expr(s: &Stmt, f: &mut impl FnMut(&Expr)) {
         }
         Stmt::If { cond, .. } | Stmt::While { cond, .. } => f(cond),
         Stmt::Call { args, .. } => args.iter().for_each(|a| f(a)),
-        Stmt::RuntimeAssert { condition } => f(condition),
+        Stmt::RuntimeAssert { condition, .. } => f(condition),
         _ => {}
     }
 }

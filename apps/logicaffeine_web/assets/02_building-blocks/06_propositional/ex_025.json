@@ -4,10 +4,10 @@
   "difficulty": 1,
   "prompt": "Either not C or N",
   "options": [
-    "$ \\\\sim C \\\\vee N $",
-    "$ \\\\sim(C \\\\vee N) $",
-    "$ (\\\\sim C \\\\vee \\\\sim N) $",
-    "$ (\\\\sim C \\\\vee N) $"
+    "$ \\sim C \\vee N $",
+    "$ \\sim(C \\vee N) $",
+    "$ (\\sim C \\vee \\sim N) $",
+    "$ (\\sim C \\vee N) $"
   ],
   "correct": 3,
   "hint": "Identify the main connective first. What's the primary structure of this sentence?",

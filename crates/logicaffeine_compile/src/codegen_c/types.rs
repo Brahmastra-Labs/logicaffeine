@@ -228,7 +228,7 @@ pub(super) fn infer_expr_type(expr: &Expr, ctx: &CContext) -> CType {
                 BinaryOpKind::Concat => CType::String,
                 BinaryOpKind::BitXor | BinaryOpKind::Shl | BinaryOpKind::Shr => CType::Int64,
                 BinaryOpKind::Add | BinaryOpKind::Subtract
-                | BinaryOpKind::Multiply | BinaryOpKind::Divide
+                | BinaryOpKind::Multiply | BinaryOpKind::Divide | BinaryOpKind::ExactDivide
                 | BinaryOpKind::Modulo => {
                     let lt = infer_expr_type(left, ctx);
                     let rt = infer_expr_type(right, ctx);

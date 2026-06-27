@@ -4,10 +4,10 @@
   "difficulty": 1,
   "prompt": "It isn't necessary that N is true",
   "options": [
-    "$ \\\\sim \\\\square (N) $",
-    "$ \\\\sim (\\\\square N) $",
-    "$ \\\\square \\\\sim N $",
-    "$ \\\\sim \\\\square N $"
+    "$ \\sim \\square (N) $",
+    "$ \\sim (\\square N) $",
+    "$ \\square \\sim N $",
+    "$ \\sim \\square N $"
   ],
   "correct": 3,
   "hint": "If something 'isn't necessary', does that mean it's false, or just that it doesn't HAVE to be true?",

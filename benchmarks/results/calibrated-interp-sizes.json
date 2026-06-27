@@ -1,6 +1,6 @@
 {
   "meta": {
-    "date": "2026-06-20T10:14:50Z",
+    "date": "2026-06-22T08:17:23Z",
     "cpu": "Intel(R) Core(TM) i9-14900K",
     "os": "Ubuntu 24.04.2 LTS x86_64",
     "calibrated_side": "interpreter (VM + copy-and-patch JIT)",
@@ -10,264 +10,263 @@
     "tol": 0.01,
     "budget_s": 1,
     "accel": 8,
-    "overshoot": 24,
-    "note": "restored from latest-interp.json reference sizes; ackermann pinned to depth-safe cap n=8"
+    "overshoot": 24
   },
   "benchmarks": {
     "fib": {
       "250": {
         "n": 38,
-        "interp_ms": 636.97885284000,
+        "interp_ms": 218.880,
         "target_ms": 250,
-        "status": "restored"
-      }
-    },
-    "nqueens": {
-      "250": {
-        "n": 14,
-        "interp_ms": 744.72093396000,
-        "target_ms": 250,
-        "status": "restored"
-      }
-    },
-    "bubble_sort": {
-      "250": {
-        "n": 18193,
-        "interp_ms": 1290.2594598000001000,
-        "target_ms": 250,
-        "status": "restored"
-      }
-    },
-    "mergesort": {
-      "250": {
-        "n": 961828,
-        "interp_ms": 595.89066892000,
-        "target_ms": 250,
-        "status": "restored"
-      }
-    },
-    "quicksort": {
-      "250": {
-        "n": 1799948,
-        "interp_ms": 863.3672769399998000,
-        "target_ms": 250,
-        "status": "restored"
-      }
-    },
-    "counting_sort": {
-      "250": {
-        "n": 7558380,
-        "interp_ms": 213.85683539999997000,
-        "target_ms": 250,
-        "status": "restored"
-      }
-    },
-    "heap_sort": {
-      "250": {
-        "n": 1603988,
-        "interp_ms": 1179.69804744000,
-        "target_ms": 250,
-        "status": "restored"
-      }
-    },
-    "nbody": {
-      "250": {
-        "n": 5613145,
-        "interp_ms": 2990.3559237200006000,
-        "target_ms": 250,
-        "status": "restored"
-      }
-    },
-    "mandelbrot": {
-      "250": {
-        "n": 2356,
-        "interp_ms": 1113.56471236000,
-        "target_ms": 250,
-        "status": "restored"
-      }
-    },
-    "spectral_norm": {
-      "250": {
-        "n": 2012,
-        "interp_ms": 1314.1043266599999000,
-        "target_ms": 250,
-        "status": "restored"
-      }
-    },
-    "pi_leibniz": {
-      "250": {
-        "n": 273270549,
-        "interp_ms": 739.5198313000001000,
-        "target_ms": 250,
-        "status": "restored"
-      }
-    },
-    "gcd": {
-      "250": {
-        "n": 4660,
-        "interp_ms": 503.79172246000,
-        "target_ms": 250,
-        "status": "restored"
-      }
-    },
-    "collatz": {
-      "250": {
-        "n": 362777,
-        "interp_ms": 276.86079367999994000,
-        "target_ms": 250,
-        "status": "restored"
-      }
-    },
-    "primes": {
-      "250": {
-        "n": 2341604,
-        "interp_ms": 605.0722131600003000,
-        "target_ms": 250,
-        "status": "restored"
-      }
-    },
-    "sieve": {
-      "250": {
-        "n": 45299987,
-        "interp_ms": 695.4226053800001000,
-        "target_ms": 250,
-        "status": "restored"
-      }
-    },
-    "matrix_mult": {
-      "250": {
-        "n": 510,
-        "interp_ms": 1625.25150462000,
-        "target_ms": 250,
-        "status": "restored"
-      }
-    },
-    "prefix_sum": {
-      "250": {
-        "n": 27180813,
-        "interp_ms": 587.2205455399999000,
-        "target_ms": 250,
-        "status": "restored"
-      }
-    },
-    "array_reverse": {
-      "250": {
-        "n": 33554432,
-        "interp_ms": 421.44096928000,
-        "target_ms": 250,
-        "status": "restored"
-      }
-    },
-    "array_fill": {
-      "250": {
-        "n": 26846991,
-        "interp_ms": 339.57618066000006000,
-        "target_ms": 250,
-        "status": "restored"
-      }
-    },
-    "collect": {
-      "250": {
-        "n": 2097152,
-        "interp_ms": 216.78777534000,
-        "target_ms": 250,
-        "status": "restored"
-      }
-    },
-    "two_sum": {
-      "250": {
-        "n": 5770178,
-        "interp_ms": 218.42213686000003000,
-        "target_ms": 250,
-        "status": "restored"
-      }
-    },
-    "histogram": {
-      "250": {
-        "n": 184400072,
-        "interp_ms": 2177.07313914000,
-        "target_ms": 250,
-        "status": "restored"
-      }
-    },
-    "knapsack": {
-      "250": {
-        "n": 6040,
-        "interp_ms": 1582.4448954800001000,
-        "target_ms": 250,
-        "status": "restored"
-      }
-    },
-    "coins": {
-      "250": {
-        "n": 14848272,
-        "interp_ms": 828.55486794000,
-        "target_ms": 250,
-        "status": "restored"
-      }
-    },
-    "fannkuch": {
-      "250": {
-        "n": 10,
-        "interp_ms": 5007.574159000001000,
-        "target_ms": 250,
-        "status": "restored"
-      }
-    },
-    "strings": {
-      "250": {
-        "n": 1960222,
-        "interp_ms": 931.3309292600002000,
-        "target_ms": 250,
-        "status": "restored"
-      }
-    },
-    "binary_trees": {
-      "250": {
-        "n": 19,
-        "interp_ms": 819.8372553000001000,
-        "target_ms": 250,
-        "status": "restored"
-      }
-    },
-    "loop_sum": {
-      "250": {
-        "n": 103922713,
-        "interp_ms": 208.89835376000004000,
-        "target_ms": 250,
-        "status": "restored"
-      }
-    },
-    "fib_iterative": {
-      "250": {
-        "n": 105682072,
-        "interp_ms": 466.62821260000004000,
-        "target_ms": 250,
-        "status": "restored"
-      }
-    },
-    "graph_bfs": {
-      "250": {
-        "n": 2633876,
-        "interp_ms": 1354.8348805600001000,
-        "target_ms": 250,
-        "status": "restored"
-      }
-    },
-    "string_search": {
-      "250": {
-        "n": 14856116,
-        "interp_ms": 5352.248835279999000,
-        "target_ms": 250,
-        "status": "restored"
+        "status": "under"
       }
     },
     "ackermann": {
       "250": {
         "n": 8,
-        "interp_ms": 0,
+        "interp_ms": 28.494,
         "target_ms": 250,
         "status": "capped"
+      }
+    },
+    "nqueens": {
+      "250": {
+        "n": 14,
+        "interp_ms": 199.829,
+        "target_ms": 250,
+        "status": "under"
+      }
+    },
+    "bubble_sort": {
+      "250": {
+        "n": 18145,
+        "interp_ms": 244.570,
+        "target_ms": 250,
+        "status": "under"
+      }
+    },
+    "mergesort": {
+      "250": {
+        "n": 962123,
+        "interp_ms": 240.376,
+        "target_ms": 250,
+        "status": "under"
+      }
+    },
+    "quicksort": {
+      "250": {
+        "n": 1792645,
+        "interp_ms": 242.903,
+        "target_ms": 250,
+        "status": "under"
+      }
+    },
+    "counting_sort": {
+      "250": {
+        "n": 8140373,
+        "interp_ms": 241.050,
+        "target_ms": 250,
+        "status": "under"
+      }
+    },
+    "heap_sort": {
+      "250": {
+        "n": 1590396,
+        "interp_ms": 249.559,
+        "target_ms": 250,
+        "status": "ok"
+      }
+    },
+    "nbody": {
+      "250": {
+        "n": 5678228,
+        "interp_ms": 248.638,
+        "target_ms": 250,
+        "status": "ok"
+      }
+    },
+    "mandelbrot": {
+      "250": {
+        "n": 2328,
+        "interp_ms": 243.830,
+        "target_ms": 250,
+        "status": "under"
+      }
+    },
+    "spectral_norm": {
+      "250": {
+        "n": 2022,
+        "interp_ms": 249.296,
+        "target_ms": 250,
+        "status": "ok"
+      }
+    },
+    "pi_leibniz": {
+      "250": {
+        "n": 271202075,
+        "interp_ms": 247.761,
+        "target_ms": 250,
+        "status": "ok"
+      }
+    },
+    "gcd": {
+      "250": {
+        "n": 4630,
+        "interp_ms": 240.846,
+        "target_ms": 250,
+        "status": "under"
+      }
+    },
+    "collatz": {
+      "250": {
+        "n": 369942,
+        "interp_ms": 249.439,
+        "target_ms": 250,
+        "status": "ok"
+      }
+    },
+    "primes": {
+      "250": {
+        "n": 2322515,
+        "interp_ms": 248.955,
+        "target_ms": 250,
+        "status": "ok"
+      }
+    },
+    "sieve": {
+      "250": {
+        "n": 44411231,
+        "interp_ms": 244.555,
+        "target_ms": 250,
+        "status": "under"
+      }
+    },
+    "matrix_mult": {
+      "250": {
+        "n": 511,
+        "interp_ms": 244.926,
+        "target_ms": 250,
+        "status": "under"
+      }
+    },
+    "prefix_sum": {
+      "250": {
+        "n": 26826907,
+        "interp_ms": 246.670,
+        "target_ms": 250,
+        "status": "under"
+      }
+    },
+    "array_reverse": {
+      "250": {
+        "n": 33554432,
+        "interp_ms": 195.606,
+        "target_ms": 250,
+        "status": "under"
+      }
+    },
+    "array_fill": {
+      "250": {
+        "n": 27076289,
+        "interp_ms": 249.734,
+        "target_ms": 250,
+        "status": "ok"
+      }
+    },
+    "collect": {
+      "250": {
+        "n": 2097152,
+        "interp_ms": 227.849,
+        "target_ms": 250,
+        "status": "under"
+      }
+    },
+    "two_sum": {
+      "250": {
+        "n": 5817623,
+        "interp_ms": 244.267,
+        "target_ms": 250,
+        "status": "under"
+      }
+    },
+    "histogram": {
+      "250": {
+        "n": 181343504,
+        "interp_ms": 245.539,
+        "target_ms": 250,
+        "status": "under"
+      }
+    },
+    "knapsack": {
+      "250": {
+        "n": 5985,
+        "interp_ms": 246.835,
+        "target_ms": 250,
+        "status": "under"
+      }
+    },
+    "coins": {
+      "250": {
+        "n": 13974310,
+        "interp_ms": 245.465,
+        "target_ms": 250,
+        "status": "under"
+      }
+    },
+    "fannkuch": {
+      "250": {
+        "n": 10,
+        "interp_ms": 211.280,
+        "target_ms": 250,
+        "status": "under"
+      }
+    },
+    "strings": {
+      "250": {
+        "n": 1956426,
+        "interp_ms": 248.980,
+        "target_ms": 250,
+        "status": "ok"
+      }
+    },
+    "binary_trees": {
+      "250": {
+        "n": 19,
+        "interp_ms": 229.332,
+        "target_ms": 250,
+        "status": "under"
+      }
+    },
+    "loop_sum": {
+      "250": {
+        "n": 105821541,
+        "interp_ms": 247.902,
+        "target_ms": 250,
+        "status": "ok"
+      }
+    },
+    "fib_iterative": {
+      "250": {
+        "n": 103622293,
+        "interp_ms": 245.570,
+        "target_ms": 250,
+        "status": "under"
+      }
+    },
+    "graph_bfs": {
+      "250": {
+        "n": 2574029,
+        "interp_ms": 247.902,
+        "target_ms": 250,
+        "status": "ok"
+      }
+    },
+    "string_search": {
+      "250": {
+        "n": 14856116,
+        "interp_ms": 211.531,
+        "target_ms": 250,
+        "status": "under"
       }
     }
   }

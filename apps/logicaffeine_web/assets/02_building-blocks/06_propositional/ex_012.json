@@ -4,10 +4,10 @@
   "difficulty": 1,
   "prompt": "Either both W and C or D",
   "options": [
-    "$ ((W \\\\cdot C) \\\\vee D) $",
-    "$ (W \\\\cdot (C \\\\vee D)) $",
-    "$ (W \\\\cdot C) \\\\vee D $",
-    "$ W \\\\cdot C \\\\cdot D $"
+    "$ ((W \\cdot C) \\vee D) $",
+    "$ (W \\cdot (C \\vee D)) $",
+    "$ (W \\cdot C) \\vee D $",
+    "$ W \\cdot C \\cdot D $"
   ],
   "correct": 0,
   "hint": "What exactly is 'both' connecting? Are both parts the full consequence, or just the second one?",

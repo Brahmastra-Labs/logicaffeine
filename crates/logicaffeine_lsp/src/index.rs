@@ -322,6 +322,9 @@ impl SymbolIndex {
                     | TokenType::Check
                     | TokenType::Assert
                     | TokenType::Trust
+                    | TokenType::Require
+                    | TokenType::Requires
+                    | TokenType::Ensures
                     | TokenType::Escape
                     | TokenType::Read
                     | TokenType::Write

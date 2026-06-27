@@ -4,10 +4,10 @@
   "difficulty": 1,
   "prompt": "If you're bright then you're cheerful, or you're powerful",
   "options": [
-    "$ (B \\\\supset (C \\\\vee P)) $",
-    "$ ((B \\\\supset C) \\\\vee P) $",
-    "$ B \\\\supset C \\\\vee P $",
-    "$ (B \\\\supset C) \\\\vee P $"
+    "$ (B \\supset (C \\vee P)) $",
+    "$ ((B \\supset C) \\vee P) $",
+    "$ B \\supset C \\vee P $",
+    "$ (B \\supset C) \\vee P $"
   ],
   "correct": 1,
   "hint": "Identify the main connective first. What's the primary structure of this sentence?",

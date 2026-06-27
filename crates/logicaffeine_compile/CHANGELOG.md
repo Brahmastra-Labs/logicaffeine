@@ -6,6 +6,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.9.17] - 2026-06-11
+
+### Added
+- Register bytecode VM (`vm/`): bytecode compiler, dispatch machine, shared semantics-kernel delegation, and `Int` fast paths bit-identical to the kernel by the wrapping-`i64` spec (pinned by an edge-grid differential).
+- Tier-up seam to `logicaffeine-jit`: hot functions compile per call with argument guards and kind-inference; hot Main loops region-tier (OSR-lite) with incoming-dead analysis and per-entry guards. The integer/float subset gates tier-up; anything else fails closed to bytecode.
+
+### Changed
+- Run-path optimizer: magic-reciprocal division/modulo, run-path recursion inlining, and loop-invariant pointer/length plus constant hoisting on the interpreted execution path.
+
+See the root CHANGELOG for the cross-crate history.
+
 ## [0.8.18] - 2026-02-15
 
 ### Fixed

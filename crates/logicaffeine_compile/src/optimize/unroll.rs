@@ -46,15 +46,40 @@ const TOTAL_EXPANSION_BUDGET: usize = 4096;
 /// (possibly) rewritten statements and whether anything was actually unrolled.
 /// When nothing unrolls, the ORIGINAL statements are returned untouched — the
 /// pass is a guaranteed no-op so it never perturbs unrelated programs.
+///
+/// AOT entry: top-level constant loops are left rolled (LLVM unrolls and SROAs
+/// them itself); only the loops nested in a runtime loop are unrolled.
 pub fn unroll_stmts<'a>(
     stmts: Vec<Stmt<'a>>,
     expr_arena: &'a Arena<Expr<'a>>,
     stmt_arena: &'a Arena<Stmt<'a>>,
     interner: &mut Interner,
 ) -> (Vec<Stmt<'a>>, bool) {
-    if std::env::var_os("LOGOS_UNROLL").is_some_and(|v| v == "0") {
-        return (stmts, false);
-    }
+    unroll_entry(stmts, false, expr_arena, stmt_arena, interner)
+}
+
+/// RUN-path entry: also unroll TOP-LEVEL constant loops over scalarizable
+/// arrays. The interpreter has no LLVM to unroll/SROA them, so leaving them
+/// rolled keeps their variable-index reads — which block the paired
+/// `scalarize` pass (any non-constant index disqualifies the whole array). On
+/// the run path every constant-bound loop over a scalarizable array should
+/// collapse so the array can become scalar locals.
+pub fn unroll_stmts_run<'a>(
+    stmts: Vec<Stmt<'a>>,
+    expr_arena: &'a Arena<Expr<'a>>,
+    stmt_arena: &'a Arena<Stmt<'a>>,
+    interner: &mut Interner,
+) -> (Vec<Stmt<'a>>, bool) {
+    unroll_entry(stmts, true, expr_arena, stmt_arena, interner)
+}
+
+fn unroll_entry<'a>(
+    stmts: Vec<Stmt<'a>>,
+    entry_in_loop: bool,
+    expr_arena: &'a Arena<Expr<'a>>,
+    stmt_arena: &'a Arena<Stmt<'a>>,
+    interner: &mut Interner,
+) -> (Vec<Stmt<'a>>, bool) {
     // The arrays worth unrolling for — fixed-size, scalarizable to `[T; N]`.
     // Any loop indexing something NOT in this set is left rolled so the de-Rc
     // buffer-reuse and borrow-hoist passes keep their loop shapes.
@@ -63,7 +88,14 @@ pub fn unroll_stmts<'a>(
         return (stmts, false);
     }
     let mut budget = TOTAL_EXPANSION_BUDGET;
-    let out = unroll_block(&stmts, false, &mut budget, &scalarizable, expr_arena, stmt_arena);
+    let out = unroll_block(
+        &stmts,
+        entry_in_loop,
+        &mut budget,
+        &scalarizable,
+        expr_arena,
+        stmt_arena,
+    );
     if budget == TOTAL_EXPANSION_BUDGET {
         // Budget untouched ⇒ no loop was unrolled ⇒ return the input verbatim.
         (stmts, false)
@@ -406,7 +438,7 @@ fn stmt_indexed_roots(s: &Stmt, out: &mut HashSet<Symbol>) {
             expr_indexed_roots(value, out);
             expr_indexed_roots(collection, out);
         }
-        Stmt::RuntimeAssert { condition } => expr_indexed_roots(condition, out),
+        Stmt::RuntimeAssert { condition, .. } => expr_indexed_roots(condition, out),
         Stmt::Return { value } => {
             if let Some(v) = value {
                 expr_indexed_roots(v, out);

@@ -4,10 +4,10 @@
   "difficulty": 1,
   "prompt": "If you're smart, then you're bashful and careful",
   "options": [
-    "$ (S \\\\supset (B \\\\cdot C)) $",
-    "$ ((S \\\\supset B) \\\\cdot C) $",
-    "$ (S \\\\supset B) \\\\cdot C $",
-    "$ S \\\\supset B \\\\cdot C $"
+    "$ (S \\supset (B \\cdot C)) $",
+    "$ ((S \\supset B) \\cdot C) $",
+    "$ (S \\supset B) \\cdot C $",
+    "$ S \\supset B \\cdot C $"
   ],
   "correct": 0,
   "hint": "What FOLLOWS from being smart? Is it just bashfulness, or is it the combination of bashfulness AND carefulness?",

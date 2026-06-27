@@ -499,6 +499,6 @@ fn fndef<'a>(
         native_path: None,
         is_exported: false,
         export_target: None,
-        opt_flags: std::collections::HashSet::new(),
+        opt_flags: Default::default(),
     }
 }

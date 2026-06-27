@@ -4,10 +4,10 @@
   "difficulty": 1,
   "prompt": "If you aren't tough then you're greedy",
   "options": [
-    "$ (\\\\sim T \\\\supset G) $",
-    "$ \\\\sim T \\\\supset G $",
-    "$ (\\\\sim T \\\\supset \\\\sim G) $",
-    "$ \\\\sim(T \\\\supset G) $"
+    "$ (\\sim T \\supset G) $",
+    "$ \\sim T \\supset G $",
+    "$ (\\sim T \\supset \\sim G) $",
+    "$ \\sim(T \\supset G) $"
   ],
   "correct": 0,
   "hint": "Identify the main connective first. What's the primary structure of this sentence?",

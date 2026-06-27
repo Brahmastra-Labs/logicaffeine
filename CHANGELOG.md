@@ -7,9 +7,27 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ## [0.9.17] - 2026-06-11
 
 ### Added
-- **`logicaffeine-forge`** — new crate: the copy-and-patch JIT's executable-memory layer and stencil runtime (native only). `JitPage` allocates page-aligned memory, copies machine code in, flips it to executable, and returns a callable function pointer; compiling a function at runtime is `memcpy(stencil bytes)` + patch relocations. Platform-correct W^X handling for macOS/aarch64 (`MAP_JIT` + per-thread write-protect toggling + `sys_icache_invalidate`), other Unix (`mmap` → `mprotect` + aarch64 I-cache flush), and Windows (`VirtualAlloc` → `VirtualProtect` → `FlushInstructionCache`). Build-time stencil extraction via a `build.rs` over `object`.
+- **EXODIA native execution tier** — a register bytecode VM (the live sync/WASM engine, corpus-certified against the tree-walking interpreter as a shadow oracle) with a copy-and-patch JIT on top. `Int` fast paths are bit-identical to the kernel by the wrapping-`i64` spec, pinned by an edge-grid differential. The tier-up seam compiles hot **functions** per call with argument guards and kind-inference (params `Int`, comparisons `Bool`), and region-tiers hot **Main loops** (OSR-lite) with incoming-dead analysis and per-entry guards; anything outside the integer/float subset fails closed to bytecode — the deopt contract.
+- **`logicaffeine-forge`** — new crate: the copy-and-patch JIT's executable-memory layer and stencil runtime (native only). `JitPage` allocates page-aligned memory, copies machine code in, flips it to executable, and returns a callable function pointer; compiling a function at runtime is `memcpy(stencil bytes)` + patch relocations. Includes the build-time-baked stencil runtime, the J1 micro-op compiler, and the **EXODIA contiguous register-allocating region/function x86-64 codegen tier** (`regalloc.rs`, `x64asm.rs`) that replaces per-stencil-piece dispatch. Platform-correct W^X for macOS/aarch64 (`MAP_JIT` + per-thread write-protect toggling + `sys_icache_invalidate`), other Unix (`mmap` → `mprotect` + aarch64 I-cache flush), and Windows (`VirtualAlloc` → `VirtualProtect` → `FlushInstructionCache`). Build-time stencil extraction via a `build.rs` over `object` with a relocation whitelist and tail-call/leaf-purity gates.
+- **`logicaffeine-jit`** — new crate: the LOGOS native tier. `ForgeTier` translates VM bytecode (`Op`) into the forge's `MicroOp` subset for both whole functions (`ChainFn`) and hot loop regions (`RegionChain`), compiles each to a native stencil chain or the register-allocating backend, and hands the unit back. `install()` makes the tier process-wide — every live VM constructor picks it up, and `largo` installs it at startup. Native-only (`#![cfg(not(target_arch = "wasm32"))]`); WASM builds it to nothing and the browser runs pure bytecode.
+- **`logicaffeine-synth`** — new crate: EXODIA Phase 2, the Forge's offline proof tooling. Z3 specifications for the integer micro-operations over 64-bit bitvectors, satisfiability and algebraic-property gates, and a three-way witness harness that runs Z3-chosen inputs through the real compiled stencil. Development/CI-time only; never on the production runtime path.
+- **`logicaffeine-runtime`** — new crate: the deterministic concurrency runtime for the interpreter and VM — task scheduler, FIFO channels, `Select`, a logical-clock timer wheel, and the seed/trace machinery. A run is a deterministic function of `(program, seed)` and replays bit-for-bit from `(program, trace)` through a single `Chooser::decide` choke point. Pure `std`, WASM-safe, tokio-free, and by charter never linked into AOT-compiled binaries (the compiled path uses `logicaffeine-system`).
 - **`logicaffeine-tv`** — new crate: SMT translation validation. Proves the emitted Rust is observationally equivalent to the LOGOS source per compile by symbolically executing both into the `logicaffeine-verify` domain and discharging the equivalence with Z3. `check_encoder_sound` cross-validates the LOGOS encoder against the tree-walking interpreter as the load-bearing trust anchor (rung 3–4 translation validation).
-- **Lockstep publishing for the new crates** — `logicaffeine-forge` joins the workspace at the lockstep version (from its initial `0.1.0`), and both new crates are wired into the crates.io publish pipeline and the version-bump tooling.
+- **Verified arithmetic and proof advances** — proof-producing arithmetic with certificates and worked examples (`logicaffeine-proof::arith`), modal translation and independent verification, a CDCL core plus an incremental grid solver with grounding and trust-tiers, and label/PP convergence.
+- **Strict whole-input parsing** — `compile()` now rejects parses that strand tokens (`TrailingTokens`) instead of silently dropping meaning; a dropped `until AWREADY` clause is a wrong assertion, not a style issue. The parser gains the coverage the strictness demands: noun-noun compound heads (`stop bit`, `grant signal`) with ambiguity-preserving gates, possessive heads over `Ambiguous` noun/verb words (`its value`), trailing temporal operators inside `If`-consequents (`until`/`release`/`weak-until`, `within N cycles`), postposed `when`-clauses and sentence-final temporal anchors, and quantified/cardinal objects under modals and under `never`. Lexer: letter-hyphen-letter compounds, attributive participial adjectives, `-ing` prepositions. A per-token lexical-ambiguity forest enumerates the strict-parse combinations.
+- **Hardware-spec parsing and synthesis (PR #36)** — bounded delay synthesis (`within N cycles` → SVA `##[0:N]` via a `BoundedEventually(u32)` operator preserved through Kripke lowering), signal extraction for counting quantifiers, copula temporal adverbs in consequent clauses, `while` as a duration subordinator, and `exactly N` tokenization. Probe corpus 87/102 → 101/102.
+
+### Changed
+- **Interpreter performance** — release-bench: tree-walker 70ms → VM 16.6ms (4.2×) → tiered 6.0ms (11.7×). The VM+JIT geomean moves from 3.34× to ≈1.0× versus Node/V8 on the interpreter benchmark suite, with 12 of 31 programs faster than V8; Main loops that never reached the JIT now run native.
+- **Run-path optimizer** — magic-reciprocal division/modulo, run-path recursion inlining, and loop-invariant pointer/length plus constant hoisting on the interpreted execution path.
+- **Workspace and CI** — workspace members gain `forge`, `jit`, `tv`; `default-members` excludes the Z3-backed crates (`verify`, `tv`) so a plain `cargo test` needs no Z3. `publish.yml` ships `logicaffeine-jit` after `compile`; `test.yml` enables `logicaffeine-tests/verification` explicitly; new `forge.yml` runs a 4-OS runtime matrix and a 7-target cross-check.
+- **Benchmark artifacts** — generated `.s`/`.ll` asm and LLVM-IR dumps (~620 MB) moved behind `.gitignore`; they are build outputs of `run-logos-vs-c.sh` and regenerable.
+- **Lockstep publishing** — `logicaffeine-forge` and `logicaffeine-jit` join the published lockstep version line and the version-bump tooling.
+
+### Fixed
+- **3sg stem recovery** — `strip_s` derived the stem from surface heuristics, making `planes` the 3sg of `plan` and sinking gerund subjects (`Flying planes can be dangerous.`). The inverse is now defined by the forward rule: a stem is accepted only if it is a known base verb whose `third_person_of` regenerates the surface form exactly.
+- **Word-class regressions from lexicon growth** — presupposition triggers read through `Ambiguous` tokens again (restoring Van der Sandt projection under negation) via one shared `consume_presup_trigger`; `strip_s` resolves sibilant `-es` and `-ies` stems through `is_base_verb`; a temporal-adverb reading is blocked immediately after a determiner (generic structs regain their first field); focus constructions accept copular predication (`Only dogs are red.` → `Only(D, Red(Dogs))`).
+- **Exercise generation** — challenge generation rejection-samples (`MAX_DRAWS=32`), so one unparseable word in a pool can no longer sink an exercise (456/456 generate); `debug.rs` and `equivalence.rs` doc examples are now compiling doctests.
 
 ## [0.9.16] - 2026-04-06
 
@@ -22,44 +40,32 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - **Cirq v2 implementation plan** — complete rewrite of the quantum backend plan: 17 sprints, 314 tests planned across 13 test files, mirroring the proven SVA backend architecture.
 
 ### Changed
-- **CI pipeline** — benchmark workflow no longer double-triggers deploy workflows. Benchmark result commits use `[skip ci]` to prevent cascading re-runs, reducing workflow executions from 12 to 7 per release.
+- **CI pipeline** — benchmark workflow no longer double-triggers deploy workflows. Benchmark result commits use `[skip ci]` to prevent cascading re-runs.
 
 ## [0.9.15] - 2026-04-04
 
 ### Added
 - **IEEE 1800-2017 SVA expansion** — 40+ new `SvaExpr` variants covering property connectives (`not`, `implies`, `iff`), LTL temporal operators (`always`, `s_always`, `eventually`, `s_eventually`, `until`), sequence composition (`and`, `or`), abort operators (`accept_on`, `reject_on`, `sync_accept_on`, `sync_reject_on`), assertion directives, local variables, endpoint methods, bitwise/reduction operators, part selects, concatenation, complex data types, and let/checker declarations.
 - **Vacuity analysis** — new `sva_vacuity.rs` module implementing IEEE 16.14.8 compliant vacuity checking with 33 rules for nonvacuous evaluation tracking, dead assertion detection, and coverage gap identification.
-- **Bounded verification IR enhancements** — `SequenceMatch` struct with length-tracking for proper composition semantics, `BoundedExpr::Apply` for system function encoding, local variable bindings, and queue timestep support for `const'()` freezing.
+- **Bounded verification IR** — `SequenceMatch` struct with length-tracking for proper composition semantics, `BoundedExpr::Apply` for system function encoding, local variable bindings, and queue timestep support for `const'()` freezing.
 - **System function support** — `$onehot0`, `$onehot`, `$countones`, `$isunknown`, `$sampled`, `$bits`, `$clog2`, `$countbits`, `$isunbounded` with proper bounded verification IR encoding.
 - **Benchmark specifications** — engineering specs for FVEval NL2SVA (300 cases), VERT (20,000 cases), and AssertionBench (101 designs) targeting 100% IEEE 1800-2017 SVA coverage.
-- **SVA coverage analysis** — comprehensive gap analysis documenting 60 remaining features across 21 planned sprints with IEEE section references.
-- **SVA test expansion** — new `phase_hw_sva_coverage.rs` (6,200+ lines) plus major expansions to IEEE 1800, roundtrip, surface, and translate test suites.
+- **SVA coverage analysis** — gap analysis documenting 60 remaining features across 21 planned sprints with IEEE section references.
+- **SVA test expansion** — new `phase_hw_sva_coverage.rs` (6,200+ lines) plus expansions to the IEEE 1800, roundtrip, surface, and translate test suites.
 
 ### Changed
-- **SVA translation pipeline** — unified delay convention (`None` = unbounded `$`, `Some(n)` = bounded), proper `throughout`/`within` desugaring with length-matching semantics, and enhanced sequence instance resolution with parameter substitution.
+- **SVA translation pipeline** — unified delay convention (`None` = unbounded `$`, `Some(n)` = bounded), proper `throughout`/`within` desugaring with length-matching semantics, and sequence instance resolution with parameter substitution.
 
 ## [0.9.14] - 2026-04-03
 
 ### Added
-- **IC3 model checking** — full IC3/PDR implementation with frame management, counterexample-guided generalization, and inductive invariant extraction.
-- **K-induction strengthening** — k-induction with auxiliary invariant strengthening for proving unbounded safety properties.
-- **Craig interpolation** — interpolant extraction from refutation proofs for automatic predicate discovery and abstraction refinement.
-- **Abstraction refinement** — CEGAR loop with predicate abstraction, spurious counterexample detection, and automatic predicate discovery from interpolants.
-- **Liveness verification** — liveness property checking with fairness constraints, ranking functions, and liveness-to-safety reduction.
-- **Multi-clock verification** — formal reasoning about multi-clock designs including synchronizer verification, metastability analysis, and clock domain interaction.
-- **Compositional verification** — assume-guarantee reasoning with contract decomposition, circular compositional proofs, and interface refinement checking.
-- **Synthesis oracle expansion** — Z3-guided reactive synthesis with expanded specification patterns and realizability checking.
-- **Certificate strengthening** — richer independently-checkable verification certificates with proof witness embedding.
-- **Security property expansion** — information flow analysis, non-interference checking, and security-aware hardware verification.
-- **Kernel prelude expansion** — additional hardware types and operations in the formal kernel for deeper kernel-level reasoning.
-- **Bitvector reduction expansion** — extended delta reduction for bitvector arithmetic and comparison operations.
-- **Z3 equivalence expansion** — 217 new lines of bitvector and semantic equivalence tests.
-- **Quantifier reasoning** — expanded quantifier instantiation and skolemization for hardware property verification.
-- **15+ expanded test suites** — IC3, k-induction, interpolation, abstraction, liveness, multiclock, compositional, synthesis, certificates, security, and Z3 equivalence.
+- **SVA synthesis codegen** — `codegen_sva/synthesize.rs` and `codegen_sva/z3_synth.rs`: Z3-guided synthesis of SVA properties with realizability checking.
+- **Z3 equivalence test expansion** — 217 new lines of bitvector and semantic equivalence tests in `phase_hw_z3_equiv.rs`.
 
 ### Changed
-- **Solver infrastructure** — enhanced Z3 encoding with bitvector operation support and improved counterexample extraction.
-- **Verification IR** — extended IR with new node types for multi-clock and compositional reasoning.
+- **Verification engine strengthening** — deeper passes across the model-checking stack introduced in 0.9.13 (≈5,500 lines): IC3/PDR generalization, k-induction with auxiliary-invariant strengthening, Craig interpolation, CEGAR predicate abstraction, liveness-to-safety reduction, multi-clock and compositional (assume-guarantee) reasoning, and certificate proof-witness embedding.
+- **Solver infrastructure** — Z3 encoding with bitvector operation support and improved counterexample extraction.
+- **Verification IR** — extended with node types for multi-clock and compositional reasoning.
 
 ## [0.9.13] - 2026-04-03
 
@@ -76,9 +82,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - **Test generation** — automatic test case generation from formal specifications.
 - **Incremental verification** — delta-based re-verification avoiding redundant work when specs change.
 - **Parameterized verification** — verification of parameterized designs across all instantiations.
-- **Compiler verification** — formally verified synthesis compiler correctness proofs.
+- **Synthesis-compiler checks** — correctness checks for the SVA synthesis compiler (`verified_compiler`).
 - **SMT-LIB2 dialect support** — direct SMT-LIB2 output for interoperability with external solvers.
-- **Verilog extraction** — synthesis of Verilog modules from kernel proof terms via Curry-Howard correspondence.
+- **Verilog extraction** — Verilog module extraction from kernel proof terms.
 - **RISC-V protocol templates** — pre-verified SVA property templates for RISC-V bus protocols.
 - **Liveness checking** — liveness property verification with fairness constraints and ranking functions.
 - **Abstraction refinement** — CEGAR-style abstraction with automatic predicate discovery.
@@ -86,13 +92,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - **Verification strategy selection** — automatic strategy selection based on property classification.
 - **Type inference for properties** — automatic type inference for verification expressions.
 - **Automata-based reasoning** — Buchi and omega-automata for temporal property verification.
-- **40+ new test suites** — comprehensive coverage for all new verification domains.
+- **27 new hardware-verification test files** — coverage across the new verification domains.
 
 ### Changed
 - **Pricing removed** — replaced public pricing tiers with contact-based commercial licensing. Free for individuals, teams under 25, and education.
 - **Verify crate publishing** — logicaffeine-verify now publishes to crates.io with fixed cascade.
-- **Equivalence checking** — expanded semantic equivalence with major analysis enhancements.
-- **Test documentation** — comprehensive README expansion covering 60+ test files.
+- **Equivalence checking** — expanded semantic equivalence with new analysis passes.
+- **Test documentation** — README expansion covering 60+ test files.
 
 ## [0.9.12] - 2026-04-02
 
@@ -109,13 +115,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - **Invariant discovery** — automatic candidate invariant generation from KG structure (mutex, handshake, pipeline patterns) with Z3 verification.
 - **Protocol templates** — pre-verified parameterizable SVA properties for standard protocols (AXI4, APB, handshake) with English specification mappings.
 - **Consistency checking** — multi-property consistency verification with minimal unsatisfiable subset extraction and vacuity/redundancy detection.
-- **Hardware verification test suites** — 18 new test files covering coverage, decomposition, CEGAR, RTL extraction, RTL KG, protocols, spec health, sufficiency, synthesis refinement, waveform, invariants, consistency, signal bridge, SVA IEEE1800, ontology, and advanced/e2e Z3 verification.
+- **Hardware verification test suites** — 19 new test files covering coverage, decomposition, CEGAR, RTL extraction, RTL KG, protocols, spec health, sufficiency, synthesis refinement, waveform, invariants, consistency, signal bridge, SVA IEEE1800, ontology, and advanced/e2e Z3 verification.
 
 ### Changed
 - **Hardware pipeline** — expanded end-to-end pipeline with coverage, sufficiency, decomposition, and CEGAR integration.
 - **SVA model** — extended with coverage and decomposition support types.
-- **FOL-to-verify translation** — richer mapping supporting the new analysis modules.
-- **SVA-to-verify pipeline** — enhanced translation with consistency and invariant checking hooks.
+- **FOL-to-verify translation** — mapping extended to support the new analysis modules.
+- **SVA-to-verify pipeline** — translation with consistency and invariant-checking hooks.
 - **Equivalence checking** — extended for consistency and cross-property analysis.
 - **Knowledge graph** — expanded entity and relation extraction for RTL-spec linking.
 - **Parser improvements** — expanded verb recognition and clause parsing for hardware specification sentences.
@@ -128,15 +134,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - **Bounded model checking** — `verify_temporal()` method for unrolling transition relations and checking temporal properties at each step with counterexample generation.
 - **Equivalence checking** — new `equivalence.rs` module in `logicaffeine_verify` for structural and semantic equivalence of verification expressions.
 - **SVA model expansion** — `Repetition`, `SAlways`, `Stable`, `Changed`, `DisableIff`, `Nexttime`, and `IfElse` expression variants in the SVA model, with full parsing and emission support.
-- **SVA surface tests** — new `phase_hw_sva_surface.rs` test suite (601 lines) for SVA parsing and rendering coverage.
-- **Z3 equivalence tests** — major expansion of `phase_hw_z3_equiv.rs` with 512 new lines of bitvector and equivalence verification tests.
-- **Knowledge graph expansion** — enhanced entity and relation extraction with 146 new lines in `knowledge_graph.rs`.
-- **Kripke model updates** — extended Kripke structure support for temporal reasoning (53 new lines).
+- **SVA surface tests** — new `phase_hw_sva_surface.rs` test suite (606 lines) for SVA parsing and rendering coverage.
+- **Z3 equivalence tests** — `phase_hw_z3_equiv.rs` expanded by 512 lines of bitvector and equivalence verification tests.
+- **Knowledge graph expansion** — entity and relation extraction with 122 new lines in `knowledge_graph.rs`.
+- **Kripke model updates** — extended Kripke structure support for temporal reasoning (48 new lines).
 
 ### Changed
 - **Parser improvements** — expanded quantifier handling, clause parsing, and verb recognition for hardware specification sentences.
-- **FOL-to-verify translation** — richer mapping from first-order logic to verification IR, supporting bitvector and array expressions.
-- **SVA-to-verify pipeline** — enhanced translation from SVA model to verification IR with support for new temporal operators.
+- **FOL-to-verify translation** — mapping from first-order logic to verification IR, supporting bitvector and array expressions.
+- **SVA-to-verify pipeline** — translation from SVA model to verification IR with support for new temporal operators.
 - **Verification solver** — extended Z3 encoding for bitvector operations, array select/store, and temporal unrolling.
 
 ## [0.9.10] - 2026-03-30
@@ -144,21 +150,21 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ### Added
 - **Hardware verification pipeline** — new `codegen_sva` module for generating SystemVerilog Assertions (SVA) from FOL specifications, with complete lexicon-to-assertion translation.
 - **Knowledge graph semantics** — `knowledge_graph.rs` module for extracting structured knowledge graphs from parsed specifications, enabling semantic analysis and equivalence checking.
-- **Hardware verification test suites** — 16 new test files (`phase_hw_*.rs`) covering SVA codegen, roundtrip, temporal logic, Z3 equivalence, Futamura projection application, and end-to-end pipeline testing.
+- **Hardware verification test suites** — 15 new test files (`phase_hw_*.rs`) covering SVA codegen, roundtrip, temporal logic, Z3 equivalence, Futamura projection application, and end-to-end pipeline testing.
 - **PE infrastructure improvements** — expanded Futamura projection test suite from 513 to 543 tests with additional coverage.
 
 ### Changed
-- **Proof engine enhancements** — updates to `oracle.rs` and `unify.rs` for improved reasoning.
-- **Language infrastructure** — lexicon expansion, parser improvements, and semantic analysis updates across the language crate.
-- **LSP hover improvements** — enhanced hover information in `hover.rs`.
+- **Proof engine** — updates to `oracle.rs` and `unify.rs` for improved reasoning.
+- **Language infrastructure** — lexicon expansion, parser changes, and semantic analysis updates across the language crate.
+- **LSP hover** — expanded hover information in `hover.rs`.
 
 ## [0.9.9] - 2026-03-29
 
 ### Added
 - **PE Map/CCopy support** — all three PE variants (pe_source, pe_bti, pe_mini) now handle `VMap` in `exprToVal`/`valToExpr` and `CCopy` expression evaluation, enabling Map types and copy semantics through partial evaluation.
-- **Expression embedding analysis** — new `exprEmbeds()` and `argsStrictlyEmbed()` predicates in pe_source and pe_bti for more sophisticated memoization decisions during specialization.
+- **Expression embedding analysis** — new `exprEmbeds()` and `argsStrictlyEmbed()` predicates in pe_source and pe_bti for finer-grained memoization decisions during specialization.
 - **Extended key generation** — pe_mini now generates unique memoization keys for 15 additional CExpr variants (CIndex, CLen, CMapGet, CNewSeq, CNewSet, CFieldAccess, CNew, CRange, CSlice, CCopy, CContains, CUnion, CIntersection, etc.).
-- **Decompilation infrastructure** — `discover_entry_points()`, `fix_decompiled_types()`, and `generate_block_wrapper()` helpers in compile.rs for automated PE code generation.
+- **Decompilation infrastructure** — `discover_entry_points()`, `fix_decompiled_types()`, and `generate_block_wrapper()` helpers in `logicaffeine-compile`'s `compile.rs` for automated PE code generation.
 - **P3 surface-level language coverage** — 20 new tests verifying all language features through the Third Futamura Projection (structs, maps, seqs, options, variants, control flow, recursion, copy semantics).
 
 ### Changed
@@ -171,8 +177,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ## [0.9.8] - 2026-03-19
 
 ### Fixed
-- **FFI serde for LogosSeq/LogosMap** — added `Serialize` and `Deserialize` impls for `LogosSeq<T>` and `LogosMap<K,V>`. The FFI codegen emits `serde_json` calls for JSON round-trip on these types, but the `Rc<RefCell<...>>` wrappers lacked serde impls since the reference semantics change in 0.9.4.
 - **FFI map keys/values type mismatch** — `logos_map_*_keys()` and `logos_map_*_values()` stored raw `Vec<T>` in the handle registry but downstream `logos_seq_*_len()`/`logos_seq_*_free()` cast them to `LogosSeq<T>` (now `Rc<RefCell<Vec<T>>>`). Fixed by wrapping in `LogosSeq::from_vec()` before registration.
+
+## [0.9.7] - 2026-03-19
+
+### Fixed
+- **FFI serde for LogosSeq/LogosMap** — `Serialize`/`Deserialize` impls for `LogosSeq<T>` and `LogosMap<K, V>`, delegating through the `Rc<RefCell<…>>` wrappers to the inner `Vec`/`FxHashMap`. The FFI codegen emits `serde_json` round-trips on these types, but the wrappers had lacked serde impls since the reference-semantics change in 0.9.4.
 
 ## [0.9.6] - 2026-03-19
 
@@ -192,12 +202,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ## [0.9.5] - 2026-03-17
 
 ### Fixed
-- **Peephole mutability** — `vec_fill`, `vec_with_capacity`, sibling collection, and buffer reuse patterns now emit `let mut` when the LOGOS source declares `mutable`.
-- **Conditional/unconditional swap** — LogosSeq swap codegen uses `__swap_tmp` inside `borrow_mut()` scope instead of `.swap()`, matching the codegen spec.
+- **LogosMap/LogosSeq escape-block APIs** — `LogosMap::values()`/`keys()` returning owned `Vec`, and `LogosSeq: From<Vec<T>>`, for escape-block interop.
 - **Showable blanket impl** — `&T: Showable` where `T: Showable`, fixing nested inspect arms with ref-bound pattern variables.
-- **LogosMap `.values()`/`.keys()`** — added methods returning owned `Vec` for escape block compatibility.
-- **LogosSeq `From<Vec<T>>`** — conversion from `Vec<T>` for escape block interop.
-- **Escape block updates** — binary search, map access, and list construction escape tests updated for `LogosSeq`/`LogosMap` APIs.
+- **Escape block updates** — binary search, map access, and list construction escape tests updated for the `LogosSeq`/`LogosMap` APIs.
 
 ## [0.9.4] - 2026-03-16
 
@@ -206,18 +213,22 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - **PE mini source** (`optimize/pe_mini_source.logos`, 785 LOC) — minimal clean-room partial evaluator for Futamura Projection 3.
 - **Decompile source** (`optimize/decompile_source.logos`, 645 LOC) — source-level decompiler for PE output.
 - **Reference semantics tests** (`e2e_ref_semantics.rs`, 191 lines) — end-to-end tests for Rc-based reference semantics.
-- **~5,000 new Futamura projection tests** — genuine self-application, Sprint I/J infrastructure, PE mini/BTI verification.
+- **~220 new partial-evaluation tests** — genuine self-application, Sprint I/J infrastructure, PE mini/BTI verification.
 
 ### Changed
-- **Self-interpreter** (`compile.rs`) — expanded by 974 lines with enhanced value handling, environment management, and PE integration.
+- **Self-interpreter** (`compile.rs`) — expanded by 974 lines covering value handling, environment management, and PE integration.
 - **PE source** (`pe_source.logos`) — expanded by 948 lines with specResults memoization, makeKey collision fixes, MSG wiring, BTA SCC support, and partially-static data handling.
 - **Partial evaluator** (`partial_eval.rs`) — 264 lines of improvements: staticEnv copy propagation, CInspect field binding, mixed-arg CCall inlining, extractReturn sentinel fix.
-- **Supercompiler** (`supercompile.rs`) — 81 lines of driving/generalization enhancements.
+- **Supercompiler** (`supercompile.rs`) — 81 lines of driving/generalization changes.
 - **BTA** (`bta.rs`) — 61 lines: SCC wiring, isStatic expansion for CNew/CRange/CCopy.
 - **Codegen peephole** (`peephole.rs`) — 152 lines of new optimization patterns.
 - **Codegen stmt/expr** — 239 lines of emission improvements across `stmt.rs` and `expr.rs`.
 - **Data types** (`types.rs`) — 260 lines: LogosSeq/LogosMap reference-semantic wrappers with interior mutability.
 - **Indexing** (`indexing.rs`) — 58 lines: new indexing operations for reference-semantic collections.
+
+### Fixed
+- **Peephole mutability** — `vec_fill`, `vec_with_capacity`, sibling collection, and buffer reuse patterns now emit `let mut` when the LOGOS source declares `mutable`.
+- **Conditional/unconditional swap** — LogosSeq swap codegen uses `__swap_tmp` inside `borrow_mut()` scope instead of `.swap()`, matching the codegen spec.
 
 ## [0.9.3] - 2026-03-06
 
@@ -229,26 +240,26 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - **Self-interpreter** — complete LOGOS interpreter written in LOGOS itself (`compile.rs`), supporting all core value types (int, float, text, bool, nothing, seq, map, set, error, crdt), arithmetic, comparisons, control flow, functions, recursion, and data structures.
 - **Binding-time analysis** (`optimize/bta.rs`, 758 LOC) — classifies expressions as static or dynamic for partial evaluation, with 33 tests (`phase_bta.rs`).
 - **Partial evaluator** (`optimize/partial_eval.rs`, 960 LOC) — online partial evaluation with environment-based specialization, function unfolding, and residual code generation, with 35 tests (`phase_partial_eval.rs`).
-- **Supercompiler** (`optimize/supercompile.rs`, 878 LOC) — driving, generalization, and homeomorphic embedding for aggressive program specialization, with 50 tests (`phase_supercompile.rs`).
+- **Supercompiler** (`optimize/supercompile.rs`, 878 LOC) — driving, generalization, and homeomorphic embedding for aggressive program specialization, with 59 tests (`phase_supercompile.rs`).
 - **PE source language** (`optimize/pe_source.logos`, 556 LOC) — the partial evaluator's own source in LOGOS, enabling self-application.
-- **Abstract interpretation** (`optimize/abstract_interp.rs`, 668 LOC) — forward abstract interpretation framework with interval and sign domains, with 13 tests (`phase_abstract_interp.rs`).
-- **Deforestation** (`optimize/deforest.rs`, 539 LOC) — eliminates intermediate data structures in compositions, with 9 tests (`phase_deforestation.rs`).
-- **Effect analysis** (`optimize/effects.rs`, 698 LOC) — tracks computational effects (pure, IO, mutation, divergence) for optimization safety, with 9 tests (`phase_effects.rs`).
+- **Abstract interpretation** (`optimize/abstract_interp.rs`, 668 LOC) — forward abstract interpretation framework with interval and sign domains, with 16 tests (`phase_abstract_interp.rs`).
+- **Deforestation** (`optimize/deforest.rs`, 539 LOC) — eliminates intermediate data structures in compositions, with 8 tests (`phase_deforestation.rs`).
+- **Effect analysis** (`optimize/effects.rs`, 698 LOC) — tracks computational effects (pure, IO, mutation, divergence) for optimization safety, with 19 tests (`phase_effects.rs`).
 - **Global value numbering** (`optimize/gvn.rs`, 483 LOC) — hash-consing based redundant computation elimination.
 - **Loop-invariant code motion** (`optimize/licm.rs`, 391 LOC) — hoists loop-invariant expressions out of loops.
 - **Compile-time function evaluation** (`optimize/ctfe.rs`, 443 LOC) — evaluates pure functions at compile time.
 - **Closed-form optimization** (`optimize/closed_form.rs`, 354 LOC) — replaces simple loops with closed-form expressions.
-- **Polyhedral optimization** tests (`phase_polyhedral.rs`) — 8 tests for polyhedral loop transformations.
-- **Auto-parallelization** tests (`phase_autoparallel.rs`) — 5 tests for automatic parallelization detection.
-- **Mountain climb** tests (`phase_mountain_climb.rs`) — 10 tests for optimization composition.
-- **~600 new tests** across 10 new test files and expanded existing test files.
+- **Polyhedral optimization** tests (`phase_polyhedral.rs`) — 6 tests for polyhedral loop transformations.
+- **Auto-parallelization** tests (`phase_autoparallel.rs`) — 6 tests for automatic parallelization detection.
+- **Mountain climb** tests (`phase_mountain_climb.rs`) — 27 tests for optimization composition.
+- **~550 new tests** across 10 new test files and expanded existing test files.
 
 ### Changed
-- **Optimizer pipeline** — extended with constant propagation, enhanced DCE, and new optimization passes. Pipeline: fold → propagate → dce with expanded pattern coverage.
+- **Optimizer pipeline** — extended with constant propagation, expanded DCE, and new optimization passes. Pipeline: fold → propagate → dce with expanded pattern coverage.
 - **Codegen peephole optimizations** — extended with new patterns including `(j+1)-1 → j` index simplification.
 - **DCE** — expanded from basic dead-code elimination to include unused variable removal and dead-store elimination (282 lines added).
 - **Constant folding** — extended with additional algebraic simplifications (90 lines added).
-- **Constant propagation** — enhanced with safety guards for index/slice contexts (49 lines added).
+- **Constant propagation** — added safety guards for index/slice contexts (49 lines added).
 
 ### Fixed
 - **Self-interpreter error casing** — `valToText` returned `"error: {msg}"` (lowercase) instead of `"Error: {msg}"` (capital E).
@@ -283,7 +294,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - **Triple-quote strings** — `"""multi-line"""` with automatic indentation stripping.
 - **Scientific notation** — `4.84e+00`, `2.5e-2` in numeric literals.
 - **io_uring VFS** (`logicaffeine_system`) — Linux kernel-async file I/O via dedicated worker thread.
-- **~392 new tests** across 8 new test files covering type checker, bitwise ops, break, codegen optimization, math builtins, string interpolation, and optimizer features.
+- **~392 new tests** across 7 new test files and expanded suites covering type checker, bitwise ops, break, codegen optimization, math builtins, string interpolation, and optimizer features.
 
 ### Changed
 - **Codegen architecture** — monolithic `codegen.rs` (8,300 lines) split into 13 modules (`context`, `detection`, `expr`, `stmt`, `peephole`, `program`, `ffi`, `marshal`, `policy`, `bindings`, `tce`, `types`). Public API preserved via re-exports.
@@ -314,12 +325,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ### Added
 - **C codegen backend** — `compile_to_c()` produces self-contained C files with embedded runtime (Seq, Map, Set, string helpers, IO). Compiles with `gcc -O2`. Supports integers, floats, booleans, strings, collections, control flow, functions.
 - **Constant propagation** optimizer pass — forward substitution of immutable constants, chained with fold and DCE. Safety: skips Index/Slice expressions to preserve swap/vec-fill pattern detection.
-- **334 new E2E tests** across 20 new test files:
+- **638 new E2E tests** across 21 new test files:
   - 16 Rust codegen mirror files (181 tests) — every interpreter-only feature now also tested through the Rust codegen pipeline
   - `e2e_codegen_gaps.rs` (64 tests) — floats, modulo, options, nothing, collection type combos, struct/enum patterns, control flow, functions, escape blocks, strings
   - `e2e_codegen_optimization.rs` (15 tests) — TCO, constant propagation, DCE, vec-fill, swap, fold, index simplification
   - `e2e_interpreter_gaps.rs` (60 tests) — interpreter counterparts for gap coverage
   - `e2e_interpreter_optimization.rs` (14 tests) — interpreter counterparts for optimization correctness
+  - `phase_codegen_c.rs` (214 tests) — C-backend codegen coverage
 
 ### Fixed
 - **For-range guard for complex expressions** — `While i is at most length of items` no longer produces `_` in generated Rust. Added `is_simple_expr()` guard.
@@ -362,7 +374,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ## [0.8.13] - 2026-02-14
 
 ### Added
-- Accumulator introduction: converts `f(n-1) + k` and `n * f(n-1)` into zero-overhead loops
+- **Accumulator introduction** — converts `f(n-1) + k` and `n * f(n-1)` into zero-overhead loops
 - Automatic memoization: pure multi-branch recursive functions get thread-local HashMap cache
 - Mutual tail call optimization: pairs like `isEven`/`isOdd` merged into single loop with tag dispatch
 - Purity analysis: fixed-point dataflow to identify side-effect-free functions
@@ -370,13 +382,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [0.8.12] - 2026-02-14
 
-### Changed
-- Optimizer updates
+### Added
+- **Closures and interpreter expansion** — closure support (`e2e_closures.rs` and parser changes) and a buildout of the tree-walking interpreter (`interpreter.rs`), alongside the initial bytecode VM design plan (`VM_PLAN.md`).
 
 ## [0.8.11] - 2026-02-14
 
 ### Added
-- Peephole optimizer: vec fill pattern (`vec![val; count]` instead of push loop)
+- **Peephole vec-fill pattern** — `vec![val; count]` instead of push loop
 - Peephole optimizer: swap pattern (`arr.swap()` instead of temp variable assignments)
 - Copy-type elision: skip `.clone()` on Vec/HashMap indexing for primitive types
 - HashMap equality optimization: `map.get()` instead of `map[key].clone()` for comparisons
@@ -389,52 +401,56 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ## [0.8.10] - 2026-02-14
 
 ### Changed
-- Direct collection indexing codegen for known Vec/HashMap types (avoids trait dispatch)
+- **Direct collection indexing** — codegen for known Vec/HashMap types avoids trait dispatch
 - `#[inline(always)]` on all Showable, LogosContains, LogosIndex trait impls
 - `get_unchecked` after validated bounds in Vec indexing (removes redundant bounds check)
 - LTO enabled in release profile for generated projects
 
 ## [0.8.9] - 2026-02-14
 
-### Changed
-- Frontend deploy now triggers after benchmarks commit fresh results
-- Deploy checkout always uses latest main HEAD
-
 ### Fixed
-- Benchmark CI checkout failure when latest.json is dirty
-- Benchmark CI `actions: write` permission for deploy trigger
+- **Benchmark CI `actions: write` permission** — granted the benchmark workflow `actions: write` so it can trigger the frontend deploy.
 
 ## [0.8.8] - 2026-02-14
 
-(skipped — missing actions:write permission)
+### Fixed
+- **Benchmark CI dirty-checkout** — `latest.json` is saved to `/tmp` before `git checkout main`, fixing the checkout failure when the working tree held uncommitted benchmark results.
 
 ## [0.8.7] - 2026-02-14
 
-(skipped — benchmark CI fix landed after tag)
+### Fixed
+- **Frontend deploy ordering** — the deploy triggers after benchmarks commit fresh results, and the deploy checkout always uses the latest `main` HEAD (`deploy-frontend.yml`).
+- **Benchmark size and stability** — dropped the two largest sizes per benchmark, fixed a JS ackermann stack overflow, and worked around a `jq` "argument list too long" via a temp file.
 
 ## [0.8.6] - 2026-02-13
 
-### Added
-- Benchmark suite with programs in 10 languages (C, C++, Rust, Go, Zig, Nim, Python, Ruby, JS, Java)
-- Benchmark CI workflow
-- Benchmarks web page with interactive results
-- Interpreter improvements and map key support
-- nextest configuration
+### Fixed
+- **FFI test CI fixes** — refreshed the FFI codegen snapshots, fixed the Zig benchmark builds, and fixed a Ruby stack overflow in the benchmark suite.
+
+## [0.8.5] - 2026-02-13
 
 ### Fixed
-- Removed `.cargo/config.toml` mold linker config (breaks CI)
+- **CI mold linker config** — removed the mold linker setting from `.cargo/config.toml`, which broke CI, and began tracking benchmark `latest.json` in-repo so the frontend bakes current results.
+
+## [0.8.4] - 2026-02-13
+
+### Added
+- **Multi-language benchmark suite** — benchmark programs in 10 languages (C, C++, Rust, Go, Zig, Nim, Python, Ruby, JS, Java) with `benchmarks/run.sh`, a benchmark CI workflow, and the interactive benchmarks web page.
+- **Interpreter map keys** — map key support in the tree-walking interpreter (`phase_interpreter_map_keys.rs`).
+- **Standard library and interpreter-benchmark coverage** — `phase38_stdlib.rs` and `phase_benchmark_interp.rs`, plus an expanded `e2e_feature_matrix.rs`.
+- **nextest configuration** — `cargo-nextest` runner config for the test suite.
 
 ## [0.8.3] - 2026-02-12
 
 ### Fixed
-- FFI C-linkage tests gated behind `ffi-link-tests` feature (CI compatibility)
+- **FFI C-linkage test gating** — gated behind the `ffi-link-tests` feature for CI compatibility
 - Platform-aware linker flags for C ABI tests (macOS + Linux)
 
 ## [0.8.2] - 2026-02-12
 
 ### Added
 
-- Optimizer infrastructure with constant folding and dead code elimination
+- **Optimizer infrastructure** — constant folding and dead code elimination
 - Interpreter mode (`largo run --interpret`) for sub-second development feedback
 - Map insertion syntax (`Set X at KEY to VALUE`)
 
@@ -451,15 +467,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [0.8.1] - 2026-02-12
 
-### Fixed
+### Changed
 
-- Added `@types/node` to VSCode extension devDependencies
+- **Version bump** — republished the workspace at 0.8.1; no functional change (the `@types/node` VSCode devDependency fix landed under the 0.8.0 tag).
 
 ## [0.8.0] - 2026-02-10
 
 ### Added
 
-- LSP server with full language intelligence (definitions, references, hover, completions, rename, semantic tokens, diagnostics)
+- **LSP server** — definitions, references, hover, completions, rename, semantic tokens, diagnostics
 - VSCode extension with bundled LSP binaries for 5 platforms
 - FFI/C export system for cross-language interop
 - CI/CD workflows for release, publish, and deployment
@@ -472,19 +488,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
-- Escape analysis for memory safety
-- Concurrency and async runtime
-- Syntactic sugar features
-- E2E test suite expansion (77 new tests)
-
-### Fixed
-
-- 10 compiler bugs across codegen, parser, and map handling
-- Async/concurrency correctness issues
+- **E2E test suite expansion** — temporal, escape-hatch, FFI, and concurrency test coverage.
 
 ### Changed
 
-- Web platform: studio IDE, mobile responsiveness, homepage redesign
+- **Concurrency and async hardening** — expanded and fixed the concurrency/async runtime; the escape-analysis and concurrency modules predate this release.
+- **Web platform** — studio IDE, mobile responsiveness, homepage redesign.
+
+### Fixed
+
+- 10 compiler bugs across codegen, parser, and map handling.
+- Async and concurrency correctness issues.
 
 ## [0.6.0] - 2026-01-17
 

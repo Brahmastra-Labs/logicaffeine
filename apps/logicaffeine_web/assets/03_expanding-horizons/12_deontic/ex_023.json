@@ -4,10 +4,10 @@
   "difficulty": 1,
   "prompt": "Would that everyone boast",
   "options": [
-    "$ O(x)B\\\\underline{x} $",
+    "$ O(x)B\\underline{x} $",
     "$ (x)Bx $",
-    "$ (\\\\underline{x} )Bx $",
-    "$ (x)B\\\\underline{x} $"
+    "$ (\\underline{x} )Bx $",
+    "$ (x)B\\underline{x} $"
   ],
   "correct": 3,
   "hint": "When everyone must do something, does each person become an agent?",

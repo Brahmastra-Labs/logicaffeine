@@ -21,7 +21,7 @@ use super::expr::{
     codegen_interpolated_string, codegen_literal, codegen_assertion,
     codegen_expr_with_async_and_strings, is_definitely_string_expr_with_vars,
     is_definitely_string_expr, is_definitely_numeric_expr,
-    collect_string_concat_operands,
+    collect_string_concat_operands, is_rational_expr,
 };
 use super::peephole::{
     try_emit_for_range_pattern, try_emit_vec_fill_pattern, try_emit_swap_pattern,
@@ -162,7 +162,7 @@ fn emit_oracle_index_hints<'a>(
 ) -> String {
     // Kill switch (A/B): `LOGOS_ORACLE_HINTS=0` suppresses the oracle bounds
     // hints entirely (the access keeps its runtime bounds check).
-    if std::env::var("LOGOS_ORACLE_HINTS").map(|v| v == "0").unwrap_or(false) {
+    if !crate::optimize::active_config().is_on(crate::optimization::Opt::OracleHints) {
         return String::new();
     }
     let oracle = match ctx.oracle() {
@@ -232,6 +232,9 @@ fn emit_oracle_index_hints<'a>(
         let cond = format!("({}) >= 0 && ({}) < ({}.len() as i64)", i0, i0, arr_name);
         writeln!(out, "{}debug_assert!({}, \"LOGOS oracle bounds hint violated: indexing `{}` out of range\");", indent_str, cond, arr_name).unwrap();
         writeln!(out, "{}unsafe {{ std::hint::assert_unchecked({}); }}", indent_str, cond).unwrap();
+    }
+    if !out.is_empty() {
+        crate::optimize::mark_fired(crate::optimization::Opt::OracleHints);
     }
     out
 }
@@ -421,6 +424,169 @@ pub(crate) fn emit_affine_offset_header(
             body_indent, e = e, arr = arr
         ).unwrap();
     }
+}
+
+/// Emit a `Select` as a raw `tokio::select!` — Mode A (free-running) and the
+/// no-arm-ready fallback of Mode B. Verbatim today's lowering.
+#[allow(clippy::too_many_arguments)]
+fn write_tokio_select<'a>(
+    output: &mut String,
+    branches: &[crate::ast::stmt::SelectBranch<'a>],
+    interner: &Interner,
+    indent: usize,
+    mutable_vars: &HashSet<Symbol>,
+    ctx: &mut RefinementContext<'a>,
+    lww_fields: &HashSet<(String, String)>,
+    mv_fields: &HashSet<(String, String)>,
+    synced_vars: &mut HashSet<Symbol>,
+    var_caps: &HashMap<Symbol, VariableCapabilities>,
+    async_functions: &HashSet<Symbol>,
+    pipe_vars: &HashSet<Symbol>,
+    boxed_fields: &HashSet<(String, String, String)>,
+    registry: &TypeRegistry,
+    type_env: &crate::analysis::types::TypeEnv,
+) {
+    use crate::ast::stmt::SelectBranch;
+    let indent_str = "    ".repeat(indent);
+    writeln!(output, "{}tokio::select! {{", indent_str).unwrap();
+    for branch in branches {
+        match branch {
+            SelectBranch::Receive { var, pipe, body } => {
+                let var_name = interner.resolve(*var);
+                let pipe_str = codegen_expr_with_async(pipe, interner, synced_vars, async_functions, ctx.get_variable_types());
+                let is_local_pipe = if let Expr::Identifier(sym) = pipe {
+                    pipe_vars.contains(sym)
+                } else {
+                    false
+                };
+                let suffix = if is_local_pipe { "_rx" } else { "" };
+                writeln!(output, "{}    {} = {}{}.recv() => {{", indent_str, var_name, pipe_str, suffix).unwrap();
+                writeln!(output, "{}        if let Some({}) = {} {{", indent_str, var_name, var_name).unwrap();
+                for stmt in *body {
+                    let stmt_code = codegen_stmt(stmt, interner, indent + 3, mutable_vars, ctx, lww_fields, mv_fields, synced_vars, var_caps, async_functions, pipe_vars, boxed_fields, registry, type_env);
+                    write!(output, "{}", stmt_code).unwrap();
+                }
+                writeln!(output, "{}        }}", indent_str).unwrap();
+                writeln!(output, "{}    }}", indent_str).unwrap();
+            }
+            SelectBranch::Timeout { milliseconds, body } => {
+                let dur = match milliseconds {
+                    Expr::Literal(Literal::Duration(_)) => codegen_expr_with_async(
+                        milliseconds, interner, synced_vars, async_functions,
+                        ctx.get_variable_types(),
+                    ),
+                    Expr::Literal(Literal::Span { months, days }) => {
+                        let secs = ((*months as i64) * 30 + (*days as i64)) * 86_400;
+                        format!("std::time::Duration::from_secs({}u64)", secs.max(0))
+                    }
+                    _ => {
+                        let n = codegen_expr_with_async(
+                            milliseconds, interner, synced_vars, async_functions,
+                            ctx.get_variable_types(),
+                        );
+                        format!("std::time::Duration::from_secs({} as u64)", n)
+                    }
+                };
+                writeln!(output, "{}    _ = tokio::time::sleep({}) => {{", indent_str, dur).unwrap();
+                for stmt in *body {
+                    let stmt_code = codegen_stmt(stmt, interner, indent + 2, mutable_vars, ctx, lww_fields, mv_fields, synced_vars, var_caps, async_functions, pipe_vars, boxed_fields, registry, type_env);
+                    write!(output, "{}", stmt_code).unwrap();
+                }
+                writeln!(output, "{}    }}", indent_str).unwrap();
+            }
+        }
+    }
+    writeln!(output, "{}}}", indent_str).unwrap();
+}
+
+/// Emit a `Select` as the **Mode-B seeded winner-pick**. Reads every receive
+/// arm's readiness (buffered `len()`, non-consuming); if any are ready, picks the
+/// winner among them with the shared seeded chooser (matching the interpreter's
+/// `below(n_ready)` over the same ready set in declaration order) and runs that
+/// arm; otherwise falls back to `tokio::select!` (so timeouts and not-yet-ready
+/// receives still block correctly).
+#[allow(clippy::too_many_arguments)]
+fn write_seeded_select<'a>(
+    output: &mut String,
+    branches: &[crate::ast::stmt::SelectBranch<'a>],
+    interner: &Interner,
+    indent: usize,
+    mutable_vars: &HashSet<Symbol>,
+    ctx: &mut RefinementContext<'a>,
+    lww_fields: &HashSet<(String, String)>,
+    mv_fields: &HashSet<(String, String)>,
+    synced_vars: &mut HashSet<Symbol>,
+    var_caps: &HashMap<Symbol, VariableCapabilities>,
+    async_functions: &HashSet<Symbol>,
+    pipe_vars: &HashSet<Symbol>,
+    boxed_fields: &HashSet<(String, String, String)>,
+    registry: &TypeRegistry,
+    type_env: &crate::analysis::types::TypeEnv,
+) {
+    use crate::ast::stmt::SelectBranch;
+    let indent_str = "    ".repeat(indent);
+    writeln!(output, "{}{{", indent_str).unwrap();
+    writeln!(output, "{}    let mut __logos_ready: Vec<usize> = Vec::new();", indent_str).unwrap();
+    let mut recv_idx = 0usize;
+    for branch in branches {
+        if let SelectBranch::Receive { pipe, .. } = branch {
+            let pipe_str = codegen_expr_with_async(pipe, interner, synced_vars, async_functions, ctx.get_variable_types());
+            let is_local_pipe = if let Expr::Identifier(sym) = pipe {
+                pipe_vars.contains(sym)
+            } else {
+                false
+            };
+            let suffix = if is_local_pipe { "_rx" } else { "" };
+            writeln!(
+                output,
+                "{}    if {}{}.len() > 0 {{ __logos_ready.push({}); }}",
+                indent_str, pipe_str, suffix, recv_idx
+            ).unwrap();
+            recv_idx += 1;
+        }
+    }
+    writeln!(output, "{}    if __logos_ready.is_empty() {{", indent_str).unwrap();
+    write_tokio_select(
+        output, branches, interner, indent + 2, mutable_vars, ctx, lww_fields, mv_fields,
+        synced_vars, var_caps, async_functions, pipe_vars, boxed_fields, registry, type_env,
+    );
+    writeln!(output, "{}    }} else {{", indent_str).unwrap();
+    writeln!(
+        output,
+        "{}        let __logos_pick = __logos_ready[logicaffeine_system::concurrency::seeded_pick(__logos_ready.len())];",
+        indent_str
+    ).unwrap();
+    writeln!(output, "{}        match __logos_pick {{", indent_str).unwrap();
+    let mut recv_idx = 0usize;
+    for branch in branches {
+        if let SelectBranch::Receive { var, pipe, body } = branch {
+            let var_name = interner.resolve(*var);
+            let pipe_str = codegen_expr_with_async(pipe, interner, synced_vars, async_functions, ctx.get_variable_types());
+            let is_local_pipe = if let Expr::Identifier(sym) = pipe {
+                pipe_vars.contains(sym)
+            } else {
+                false
+            };
+            let suffix = if is_local_pipe { "_rx" } else { "" };
+            writeln!(output, "{}            {} => {{", indent_str, recv_idx).unwrap();
+            writeln!(
+                output,
+                "{}                if let Some({}) = {}{}.recv().await {{",
+                indent_str, var_name, pipe_str, suffix
+            ).unwrap();
+            for stmt in *body {
+                let stmt_code = codegen_stmt(stmt, interner, indent + 5, mutable_vars, ctx, lww_fields, mv_fields, synced_vars, var_caps, async_functions, pipe_vars, boxed_fields, registry, type_env);
+                write!(output, "{}", stmt_code).unwrap();
+            }
+            writeln!(output, "{}                }}", indent_str).unwrap();
+            writeln!(output, "{}            }}", indent_str).unwrap();
+            recv_idx += 1;
+        }
+    }
+    writeln!(output, "{}            _ => unreachable!(),", indent_str).unwrap();
+    writeln!(output, "{}        }}", indent_str).unwrap();
+    writeln!(output, "{}    }}", indent_str).unwrap();
+    writeln!(output, "{}}}", indent_str).unwrap();
 }
 
 pub fn codegen_stmt<'a>(
@@ -825,6 +991,17 @@ pub fn codegen_stmt<'a>(
             // Phase 103: Get explicit type annotation or infer for multi-param generic enums
             let type_annotation = ty.map(|t| codegen_type_expr(t, interner))
                 .or_else(|| infer_variant_type_annotation(value, registry, interner));
+
+            // A `Rational`-typed binding whose RHS is a plain integer expression — a bare
+            // `Let x: Rational be 5`, or the whole-valued constant fold `6 / 2 → 3` — must
+            // coerce the i64 value to an exact `LogosRational` so the declared type matches.
+            // An RHS that already produces a Rational (an `ExactDivide` chain) is left as-is.
+            if type_annotation.as_deref() == Some("LogosRational") {
+                if !is_rational_expr(value, ctx.get_variable_types()) {
+                    value_str = format!("LogosRational::from_i64(({}) as i64)", value_str);
+                }
+                ctx.register_variable_type(*var, "LogosRational".to_string());
+            }
 
             match (is_mutable, type_annotation) {
                 (true, Some(t)) => writeln!(output, "{}let mut {}: {} = {};", indent_str, var_name, t, value_str).unwrap(),
@@ -1791,9 +1968,12 @@ pub fn codegen_stmt<'a>(
             writeln!(output, "{}debug_assert!({});", indent_str, condition).unwrap();
         }
 
-        Stmt::RuntimeAssert { condition } => {
+        Stmt::RuntimeAssert { condition, hard } => {
             let cond_str = codegen_expr_with_async_oracle(condition, interner, synced_vars, async_functions, ctx.get_variable_types(), ctx.oracle());
-            writeln!(output, "{}debug_assert!({});", indent_str, cond_str).unwrap();
+            // `Require` → `assert!` (enforced, survives release); `Assert` →
+            // `debug_assert!` (a development check, stripped in release).
+            let macro_name = if *hard { "assert!" } else { "debug_assert!" };
+            writeln!(output, "{}{}({});", indent_str, macro_name, cond_str).unwrap();
         }
 
         // Phase 50: Security Check - mandatory runtime guard (NEVER optimized out)
@@ -2084,82 +2264,23 @@ pub fn codegen_stmt<'a>(
         }
 
         Stmt::Select { branches } => {
-            use crate::ast::stmt::SelectBranch;
-
-            writeln!(output, "{}tokio::select! {{", indent_str).unwrap();
-            for branch in branches {
-                match branch {
-                    SelectBranch::Receive { var, pipe, body } => {
-                        let var_name = interner.resolve(*var);
-                        let pipe_str = codegen_expr_with_async(pipe, interner, synced_vars, async_functions, ctx.get_variable_types());
-                        // Check if pipe is a local declaration (has _rx suffix) or a parameter (no suffix)
-                        let is_local_pipe = if let Expr::Identifier(sym) = pipe {
-                            pipe_vars.contains(sym)
-                        } else {
-                            false
-                        };
-                        let suffix = if is_local_pipe { "_rx" } else { "" };
-                        writeln!(
-                            output,
-                            "{}    {} = {}{}.recv() => {{",
-                            indent_str, var_name, pipe_str, suffix
-                        ).unwrap();
-                        writeln!(
-                            output,
-                            "{}        if let Some({}) = {} {{",
-                            indent_str, var_name, var_name
-                        ).unwrap();
-                        for stmt in *body {
-                            let stmt_code = codegen_stmt(stmt, interner, indent + 3, mutable_vars, ctx, lww_fields, mv_fields, synced_vars, var_caps, async_functions, pipe_vars, boxed_fields, registry, type_env);
-                            write!(output, "{}", stmt_code).unwrap();
-                        }
-                        writeln!(output, "{}        }}", indent_str).unwrap();
-                        writeln!(output, "{}    }}", indent_str).unwrap();
-                    }
-                    SelectBranch::Timeout { milliseconds, body } => {
-                        // The timeout is a `std::time::Duration`. Lower each
-                        // surface shape to one directly — never `<expr> as
-                        // u64`, which fails to compile for the struct-valued
-                        // duration/span literals:
-                        //   • a duration literal already lowers to a
-                        //     `Duration` (emit it verbatim);
-                        //   • a calendar span approximates to whole seconds
-                        //     (clock-unit timeouts the imperative parser
-                        //     currently folds into a Span land here as 0 —
-                        //     the precise representation is a duration
-                        //     literal, handled by the arm above);
-                        //   • a bare integer is read as whole seconds.
-                        let dur = match milliseconds {
-                            Expr::Literal(Literal::Duration(_)) => codegen_expr_with_async(
-                                milliseconds, interner, synced_vars, async_functions,
-                                ctx.get_variable_types(),
-                            ),
-                            Expr::Literal(Literal::Span { months, days }) => {
-                                let secs = ((*months as i64) * 30 + (*days as i64)) * 86_400;
-                                format!("std::time::Duration::from_secs({}u64)", secs.max(0))
-                            }
-                            _ => {
-                                let n = codegen_expr_with_async(
-                                    milliseconds, interner, synced_vars, async_functions,
-                                    ctx.get_variable_types(),
-                                );
-                                format!("std::time::Duration::from_secs({} as u64)", n)
-                            }
-                        };
-                        writeln!(
-                            output,
-                            "{}    _ = tokio::time::sleep({}) => {{",
-                            indent_str, dur
-                        ).unwrap();
-                        for stmt in *body {
-                            let stmt_code = codegen_stmt(stmt, interner, indent + 2, mutable_vars, ctx, lww_fields, mv_fields, synced_vars, var_caps, async_functions, pipe_vars, boxed_fields, registry, type_env);
-                            write!(output, "{}", stmt_code).unwrap();
-                        }
-                        writeln!(output, "{}    }}", indent_str).unwrap();
-                    }
-                }
+            // Mode A (default): raw `tokio::select!`, byte-identical to today.
+            // Mode B (`--deterministic`): the seeded winner-pick sharing the
+            // interpreter's choice function. The gate is compile-global, so Mode-A
+            // emission never carries any seeded machinery.
+            if crate::codegen::seeded_select_enabled() {
+                write_seeded_select(
+                    &mut output, branches, interner, indent, mutable_vars, ctx, lww_fields,
+                    mv_fields, synced_vars, var_caps, async_functions, pipe_vars, boxed_fields,
+                    registry, type_env,
+                );
+            } else {
+                write_tokio_select(
+                    &mut output, branches, interner, indent, mutable_vars, ctx, lww_fields,
+                    mv_fields, synced_vars, var_caps, async_functions, pipe_vars, boxed_fields,
+                    registry, type_env,
+                );
             }
-            writeln!(output, "{}}}", indent_str).unwrap();
         }
 
         Stmt::Give { object, recipient } => {
@@ -2601,11 +2722,10 @@ pub fn codegen_stmt<'a>(
                     // unchecked store (no bounds branch) with a `debug_assert!` net.
                     // Soundness: the kernel-LIA proof + the function's entry
                     // precondition guard. `LOGOS_ORACLE_UNCHECKED=0` forces checked.
-                    let store_unchecked = !std::env::var("LOGOS_ORACLE_UNCHECKED")
-                        .map(|v| v == "0")
-                        .unwrap_or(false)
+                    let store_unchecked = crate::optimize::active_config().is_on(crate::optimization::Opt::Unchecked)
                         && ctx.oracle().map_or(false, |o| o.index_provably_in_bounds(collection, index));
                     if store_unchecked {
+                        crate::optimize::mark_fired(crate::optimization::Opt::Unchecked);
                         let i0 = if is_zero_based_counter {
                             codegen_expr_with_async(index, interner, synced_vars, async_functions, ctx.get_variable_types())
                         } else {
@@ -2649,13 +2769,18 @@ pub fn codegen_stmt<'a>(
             let zone_name = interner.resolve(*name);
 
             // Generate zone creation based on type
-            if let Some(path_sym) = source_file {
-                // Memory-mapped file zone
-                let path = interner.resolve(*path_sym);
+            if let Some(src) = source_file {
+                // Memory-mapped file zone — literal path is quoted; a variable path
+                // is passed by reference (`new_mapped` takes `AsRef<Path>`).
+                use crate::ast::stmt::ZoneSource;
+                let path_expr = match src {
+                    ZoneSource::Literal(p) => format!("\"{}\"", interner.resolve(*p)),
+                    ZoneSource::Variable(v) => format!("&{}", interner.resolve(*v)),
+                };
                 writeln!(
                     output,
-                    "{}let {} = logicaffeine_system::memory::Zone::new_mapped(\"{}\").expect(\"Failed to map file\");",
-                    indent_str, zone_name, path
+                    "{}let {} = logicaffeine_system::memory::Zone::new_mapped({}).expect(\"Failed to map file\");",
+                    indent_str, zone_name, path_expr
                 ).unwrap();
             } else {
                 // Heap arena zone
@@ -2962,7 +3087,7 @@ pub fn codegen_stmt<'a>(
         }
 
         // Phase 46: Send message to agent
-        Stmt::SendMessage { message, destination } => {
+        Stmt::SendMessage { message, destination, .. } => {
             let msg_str = codegen_expr_with_async(message, interner, synced_vars, async_functions, ctx.get_variable_types());
             let dest_str = codegen_expr_with_async(destination, interner, synced_vars, async_functions, ctx.get_variable_types());
             writeln!(
@@ -2972,8 +3097,9 @@ pub fn codegen_stmt<'a>(
             ).unwrap();
         }
 
-        // Phase 46: Await response from agent
-        Stmt::AwaitMessage { source, into } => {
+        // Phase 46: Await response from agent. (`view` is a tree-walker zero-copy receive hint;
+        // the compiled path decodes eagerly to the same values.)
+        Stmt::AwaitMessage { source, into, view: _ } => {
             let src_str = codegen_expr_with_async(source, interner, synced_vars, async_functions, ctx.get_variable_types());
             let var_name = interner.resolve(*into);
             writeln!(
@@ -3089,11 +3215,10 @@ pub fn codegen_stmt<'a>(
         // Dependencies are metadata; no Rust code emitted.
         Stmt::Require { .. } => {}
 
-        // Phase 63: Theorems are verified at compile-time, no runtime code generated
-        Stmt::Theorem(_) => {
-            // Theorems don't generate runtime code - they're processed separately
-            // by compile_theorem() at the meta-level
-        }
+        // Theorems and definitions are proof-layer declarations verified at
+        // compile-time; they generate no runtime code (handled separately by the
+        // theorem pipeline at the meta-level).
+        Stmt::Theorem(_) | Stmt::Definition(_) => {}
     }
 
     output

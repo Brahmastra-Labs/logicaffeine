@@ -64,19 +64,51 @@ fn differential_corpus() -> Vec<(&'static str, &'static str)> {
         ("alias_mutation", "## Main\nLet mutable d be 0.\nRepeat for i from 1 to 100:\n    Set d to d + 1.\nLet s be [1, 2, 3].\nLet a be s.\nSet item 1 of a to d.\nShow item 1 of s."),
         ("deeply_nested_arith", "## Main\nShow ((1 + 2) * (3 + 4)) - ((5 - 1) * 2)."),
         ("closure_capture", "## To apply (f: fn(Int) -> Int) and (x: Int) -> Int:\n    Return f(x).\n\n## Main\nLet c be 100.\nShow apply((n: Int) -> n + c, 5)."),
+        // --- rich CRDTs: the PE residual must drive OR-Set / RGA identically to the
+        //     reference engine (locks that the partial evaluator carries CRDT support too) ---
+        ("crdt_shared_set", "## Definition\nA Party is Shared and has:\n    a guests, which is a SharedSet of Text.\n\n## Main\nLet mutable p be a new Party.\nAdd \"Alice\" to p's guests.\nIf p's guests contains \"Alice\":\n    Show \"found\".\nOtherwise:\n    Show \"missing\".\nShow length of p's guests."),
+        ("crdt_shared_seq", "## Definition\nA Document is Shared and has:\n    a lines, which is a SharedSequence of Text.\n\n## Main\nLet mutable d be a new Document.\nAppend \"Line 1\" to d's lines.\nAppend \"Line 2\" to d's lines.\nShow length of d's lines."),
+        ("crdt_set_add_wins", "## Definition\nA Party is Shared and has:\n    a guests, which is a SharedSet of Text.\n\n## Main\nLet mutable a be a new Party.\nLet mutable b be a new Party.\nAdd \"X\" to a's guests.\nAdd \"X\" to b's guests.\nRemove \"X\" from a's guests.\nMerge b into a.\nIf a's guests contains \"X\":\n    Show \"present\".\nOtherwise:\n    Show \"absent\"."),
+        // counter CRDT through the PE — the struct-mutating `Increase`/`Decrease`/`Merge`
+        // must force the struct dynamic so the residual still drives the counter.
+        ("crdt_counter", "## Definition\nA Game is Shared and has:\n    a score, which is a Tally.\n\n## Main\nLet mutable g be a new Game.\nIncrease g's score by 100.\nDecrease g's score by 30.\nShow g's score."),
+        ("crdt_counter_merge", "## Definition\nA Counter is Shared and has:\n    a points, which is ConvergentCount.\n\n## Main\nLet mutable a be a new Counter.\nLet mutable b be a new Counter.\nIncrease a's points by 10.\nIncrease b's points by 5.\nMerge b into a.\nShow a's points."),
+        // OR-Set over Int elements (not just Text) + remove path.
+        ("crdt_set_int_remove", "## Definition\nA Bag is Shared and has:\n    a items, which is a SharedSet of Int.\n\n## Main\nLet mutable bag be a new Bag.\nAdd 3 to bag's items.\nAdd 9 to bag's items.\nRemove 3 from bag's items.\nIf bag's items contains 9:\n    Show \"has-9\".\nOtherwise:\n    Show \"no-9\".\nShow length of bag's items."),
     ]
 }
 
-/// The PE residual run through the tree-walker must observably agree with the production
-/// tree-walker on the source, for every program in the corpus.
-#[test]
-fn interp_vs_treewalk_corpus() {
+// ── Sharding ─────────────────────────────────────────────────────────────────
+// nextest parallelizes ACROSS tests, never WITHIN one, so each multi-minute
+// differential below is split into independent `#[test]` shards that fan across
+// otherwise-idle cores. Every shard processes a DISJOINT slice of the SAME single
+// source — the curated `differential_corpus()` or the `0..GEN_SEEDS` seed space,
+// selected by `index % SHARDS` — so the shards together cover EXACTLY what the
+// original single test did. The `*_partition_*` guards prove the tiling (nothing
+// dropped or double-counted). Sharding changes scheduling only, never coverage.
+
+/// Number of parallel shards the curated-corpus differentials are split across.
+const CORPUS_SHARDS: usize = 4;
+
+/// The indices into `differential_corpus()` owned by `shard` — every `i` with
+/// `i % CORPUS_SHARDS == shard`. Derived from the one shared corpus, so a shard
+/// can never invent or drop a program.
+fn corpus_shard(shard: usize) -> impl Iterator<Item = usize> {
+    (0..differential_corpus().len()).filter(move |i| i % CORPUS_SHARDS == shard)
+}
+
+/// One shard of the lenient leg: the PE residual's output stream must match the
+/// production tree-walker's, for each owned corpus program (value/error class
+/// compared leniently — `Nothing` ≡ `Error` at the engine boundary).
+fn run_corpus_output_shard(shard: usize) {
+    let corpus = differential_corpus();
+    let mut checked = 0usize;
     let mut failures = Vec::new();
-    for (name, program) in differential_corpus() {
+    for i in corpus_shard(shard) {
+        let (name, program) = corpus[i];
+        checked += 1;
         let tw = run_treewalk(program);
         let p1 = run_p1(program);
-        // Output stream must match exactly; value/error class compared leniently
-        // (Nothing ≡ Error at the engine boundary, per the harness contract).
         if tw.output != p1.output {
             failures.push(format!(
                 "[{}] output differs:\n  tree-walk: {:?}\n  P1:        {:?}",
@@ -84,36 +116,100 @@ fn interp_vs_treewalk_corpus() {
             ));
         }
     }
+    assert!(checked > 0, "corpus output shard {shard}/{CORPUS_SHARDS} checked no programs");
     assert!(
         failures.is_empty(),
-        "differential corpus divergences ({}):\n{}",
+        "differential corpus divergences (shard {shard}/{CORPUS_SHARDS}, {} of them):\n{}",
         failures.len(),
         failures.join("\n")
     );
 }
 
-/// Stronger leg: full value+output agreement under the harness's behavioral comparison.
-#[test]
-fn interp_vs_treewalk_corpus_strict_value() {
-    for (name, program) in differential_corpus() {
+/// One shard of the stronger leg: full value+output agreement under the harness's
+/// behavioral comparison, for each owned corpus program the oracle can evaluate.
+/// Now name-tagged on divergence (the old single test discarded the program name).
+fn run_corpus_strict_shard(shard: usize) {
+    let corpus = differential_corpus();
+    let mut owned = 0usize;
+    let mut failures = Vec::new();
+    for i in corpus_shard(shard) {
+        owned += 1;
+        let (name, program) = corpus[i];
         let tw = run_treewalk(program);
         let p1 = run_p1(program);
         // Skip programs the oracle itself errors on (corpus is meant to be well-formed).
         if tw.is_value() {
-            assert_same_behavior(&p1, &tw, CmpMode::Lenient);
-            let _ = name;
+            if let Some(diff) = behavior_diff(&p1, &tw, CmpMode::Lenient) {
+                failures.push(format!("[{name}] {diff}"));
+            }
         }
+    }
+    assert!(owned > 0, "corpus strict shard {shard}/{CORPUS_SHARDS} owns no programs");
+    assert!(
+        failures.is_empty(),
+        "strict differential divergences (shard {shard}/{CORPUS_SHARDS}, {} of them):\n{}",
+        failures.len(),
+        failures.join("\n")
+    );
+}
+
+macro_rules! corpus_shards {
+    ($($out:ident, $strict:ident => $idx:expr;)+) => {
+        $(
+            /// Lenient output-stream leg of one corpus shard — see `run_corpus_output_shard`.
+            #[test] fn $out() { run_corpus_output_shard($idx); }
+            /// Strict value+output leg of one corpus shard — see `run_corpus_strict_shard`.
+            #[test] fn $strict() { run_corpus_strict_shard($idx); }
+        )+
+    };
+}
+corpus_shards! {
+    interp_vs_treewalk_corpus_s0, interp_vs_treewalk_corpus_strict_s0 => 0;
+    interp_vs_treewalk_corpus_s1, interp_vs_treewalk_corpus_strict_s1 => 1;
+    interp_vs_treewalk_corpus_s2, interp_vs_treewalk_corpus_strict_s2 => 2;
+    interp_vs_treewalk_corpus_s3, interp_vs_treewalk_corpus_strict_s3 => 3;
+}
+
+/// Coverage guard: the `CORPUS_SHARDS` shards tile `differential_corpus()` exactly
+/// — every program owned by exactly one shard, every shard non-empty. Proves the
+/// shard fns together check the identical program set the original two corpus
+/// tests did (no program dropped or double-counted).
+#[test]
+fn corpus_partition_tiles_corpus() {
+    let len = differential_corpus().len();
+    let mut hits = vec![0u32; len];
+    for shard in 0..CORPUS_SHARDS {
+        for i in corpus_shard(shard) {
+            hits[i] += 1;
+        }
+    }
+    assert!(
+        hits.iter().all(|&h| h == 1),
+        "corpus not tiled exactly once by {CORPUS_SHARDS} shards: {hits:?}"
+    );
+    for shard in 0..CORPUS_SHARDS {
+        assert!(corpus_shard(shard).count() > 0, "corpus shard {shard} owns no programs");
     }
 }
 
-/// Generative differential: over many randomly-generated, well-typed total Int programs, the
-/// PE residual must agree with the tree-walker oracle. This is the "robust to the point of
-/// absurdity" fuzzer — it explores the arithmetic/binding/nesting space far beyond the curated
-/// corpus. Deterministic (seeded), so a failure is reproducible.
-#[test]
-fn generative_differential_arith() {
+/// The generative differential explores `GEN_SEEDS` seeds, split across `GEN_SHARDS`
+/// parallel `#[test]` shards by `seed % GEN_SHARDS`. Each seed in `0..GEN_SEEDS`
+/// lands in exactly one shard (`generative_partition_tiles_seed_space`), so the
+/// shards together explore the identical seed set the original single
+/// `generative_differential_arith` test did.
+const GEN_SEEDS: u64 = 200;
+const GEN_SHARDS: u64 = 10;
+
+/// One shard of the "robust to the point of absurdity" generative fuzzer — every
+/// seed in `0..GEN_SEEDS` with `seed % GEN_SHARDS == shard`. Over each randomly-
+/// generated well-typed total Int program, the PE residual (run through the
+/// tree-walker) must agree with the production tree-walker. Deterministic
+/// (seeded), so any failure is reproducible from its seed.
+fn run_generative_shard(shard: u64) {
+    let mut checked = 0u64;
     let mut failures = Vec::new();
-    for seed in 0u64..200 {
+    for seed in (0..GEN_SEEDS).filter(|s| s % GEN_SHARDS == shard) {
+        checked += 1;
         let program = gen_program(seed, Shape::RandomArith(seed));
         let tw = run_treewalk(&program);
         let p1 = run_p1(&program);
@@ -127,9 +223,52 @@ fn generative_differential_arith() {
             }
         }
     }
+    assert!(checked > 0, "generative shard {shard}/{GEN_SHARDS} explored no seeds");
     assert!(
         failures.is_empty(),
-        "generative differential divergences:\n{}",
+        "generative differential divergences (shard {shard}/{GEN_SHARDS}):\n{}",
         failures.join("\n---\n")
     );
+}
+
+macro_rules! generative_shards {
+    ($($name:ident => $idx:expr;)+) => {
+        $(
+            /// One generative-differential shard — see `run_generative_shard`.
+            #[test] fn $name() { run_generative_shard($idx); }
+        )+
+    };
+}
+generative_shards! {
+    generative_differential_arith_s0 => 0;
+    generative_differential_arith_s1 => 1;
+    generative_differential_arith_s2 => 2;
+    generative_differential_arith_s3 => 3;
+    generative_differential_arith_s4 => 4;
+    generative_differential_arith_s5 => 5;
+    generative_differential_arith_s6 => 6;
+    generative_differential_arith_s7 => 7;
+    generative_differential_arith_s8 => 8;
+    generative_differential_arith_s9 => 9;
+}
+
+/// Coverage guard: the `GEN_SHARDS` shards tile `0..GEN_SEEDS` exactly — every
+/// seed owned by exactly one shard, every shard non-empty. Proves the shard fns
+/// explore the identical seed set the original single test did.
+#[test]
+fn generative_partition_tiles_seed_space() {
+    let mut hits = vec![0u32; GEN_SEEDS as usize];
+    for shard in 0..GEN_SHARDS {
+        for seed in (0..GEN_SEEDS).filter(|s| s % GEN_SHARDS == shard) {
+            hits[seed as usize] += 1;
+        }
+    }
+    assert!(
+        hits.iter().all(|&h| h == 1),
+        "seed space 0..{GEN_SEEDS} not tiled exactly once by {GEN_SHARDS} shards"
+    );
+    for shard in 0..GEN_SHARDS {
+        let n = (0..GEN_SEEDS).filter(|s| s % GEN_SHARDS == shard).count();
+        assert!(n > 0, "generative shard {shard}/{GEN_SHARDS} would explore no seeds");
+    }
 }

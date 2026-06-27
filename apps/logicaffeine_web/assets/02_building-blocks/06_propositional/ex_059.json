@@ -4,10 +4,10 @@
   "difficulty": 1,
   "prompt": "You're both weak and either charming or prosperous",
   "options": [
-    "$ (W \\\\cdot (C \\\\vee P)) $",
-    "$ (W \\\\cdot C) \\\\vee P $",
-    "$ W \\\\cdot C \\\\vee P $",
-    "$ ((W \\\\cdot C) \\\\vee P) $"
+    "$ (W \\cdot (C \\vee P)) $",
+    "$ (W \\cdot C) \\vee P $",
+    "$ W \\cdot C \\vee P $",
+    "$ ((W \\cdot C) \\vee P) $"
   ],
   "correct": 0,
   "hint": "What exactly is 'both' connecting? Are both parts the full consequence, or just the second one?",

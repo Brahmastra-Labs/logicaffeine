@@ -4,10 +4,10 @@
   "difficulty": 1,
   "prompt": "If you're dull then you're logical, and you're persistent",
   "options": [
-    "$ (D \\\\supset L) \\\\cdot P $",
-    "$ (D \\\\supset (L \\\\cdot P)) $",
-    "$ ((D \\\\supset L) \\\\cdot P) $",
-    "$ D \\\\supset L \\\\cdot P $"
+    "$ (D \\supset L) \\cdot P $",
+    "$ (D \\supset (L \\cdot P)) $",
+    "$ ((D \\supset L) \\cdot P) $",
+    "$ D \\supset L \\cdot P $"
   ],
   "correct": 2,
   "hint": "Identify the main connective first. What's the primary structure of this sentence?",

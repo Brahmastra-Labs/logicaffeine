@@ -40,6 +40,28 @@ fn pre_divisor_nonzero<'c>(ctx: &'c Context, _a: &BV<'c>, b: &BV<'c>) -> Bool<'c
     b._eq(&BV::from_i64(ctx, 0, 64)).not()
 }
 
+/// Integer arithmetic is EXACT: an op whose true value escapes i64 side-exits
+/// (deopt → BigInt promotion) instead of wrapping. The precondition for the
+/// total binops is therefore "the exact result fits in signed 64-bit" — proved
+/// by comparing the 128-bit exact value against the sign-extension of the
+/// wrapped 64-bit result (equal iff no overflow). The witness harness then
+/// requires both machine code and reference to side-exit when this fails.
+fn no_overflow<'c>(exact128: &BV<'c>, narrow64: &BV<'c>) -> Bool<'c> {
+    exact128._eq(&narrow64.sign_ext(64))
+}
+
+fn pre_add_no_overflow<'c>(_ctx: &'c Context, a: &BV<'c>, b: &BV<'c>) -> Bool<'c> {
+    no_overflow(&a.sign_ext(64).bvadd(&b.sign_ext(64)), &a.bvadd(b))
+}
+
+fn pre_sub_no_overflow<'c>(_ctx: &'c Context, a: &BV<'c>, b: &BV<'c>) -> Bool<'c> {
+    no_overflow(&a.sign_ext(64).bvsub(&b.sign_ext(64)), &a.bvsub(b))
+}
+
+fn pre_mul_no_overflow<'c>(_ctx: &'c Context, a: &BV<'c>, b: &BV<'c>) -> Bool<'c> {
+    no_overflow(&a.sign_ext(64).bvmul(&b.sign_ext(64)), &a.bvmul(b))
+}
+
 /// The kernel's shift-amount rule: `wrapping_shl(b as u32)` masks the
 /// amount to the low six bits.
 fn shift_amount<'c>(ctx: &'c Context, b: &BV<'c>) -> BV<'c> {
@@ -54,23 +76,23 @@ pub fn all_specs() -> Vec<OpSpec> {
     vec![
         OpSpec {
             name: "add",
-            kind: SpecKind::Binop,
+            kind: SpecKind::Checked,
             build: || MicroOp::Add { dst: 2, lhs: 0, rhs: 1 },
-            pre: pre_true,
+            pre: pre_add_no_overflow,
             result: |_c, a, b| a.bvadd(b),
         },
         OpSpec {
             name: "sub",
-            kind: SpecKind::Binop,
+            kind: SpecKind::Checked,
             build: || MicroOp::Sub { dst: 2, lhs: 0, rhs: 1 },
-            pre: pre_true,
+            pre: pre_sub_no_overflow,
             result: |_c, a, b| a.bvsub(b),
         },
         OpSpec {
             name: "mul",
-            kind: SpecKind::Binop,
+            kind: SpecKind::Checked,
             build: || MicroOp::Mul { dst: 2, lhs: 0, rhs: 1 },
-            pre: pre_true,
+            pre: pre_mul_no_overflow,
             result: |_c, a, b| a.bvmul(b),
         },
         OpSpec {
@@ -150,22 +172,32 @@ pub fn all_specs() -> Vec<OpSpec> {
     ]
 }
 
+/// Prove a single spec inhabited: some (a, b, r) satisfies `pre ∧ (r = post)`,
+/// in its own fresh Z3 context. [`prove_all_satisfiable`] is exactly this over
+/// every spec in [`all_specs`]; exposing the per-spec gate lets the test layer
+/// shard the (multi-minute) satisfiability sweep across specs without re-deriving
+/// the encoding.
+pub fn prove_spec_satisfiable(spec: &OpSpec) -> Result<(), String> {
+    let cfg = z3::Config::new();
+    let ctx = Context::new(&cfg);
+    let solver = z3::Solver::new(&ctx);
+    let a = BV::new_const(&ctx, "a", 64);
+    let b = BV::new_const(&ctx, "b", 64);
+    let r = BV::new_const(&ctx, "r", 64);
+    solver.assert(&(spec.pre)(&ctx, &a, &b));
+    solver.assert(&r._eq(&(spec.result)(&ctx, &a, &b)));
+    if solver.check() != z3::SatResult::Sat {
+        return Err(format!("spec '{}' is uninhabited", spec.name));
+    }
+    Ok(())
+}
+
 /// Every spec is inhabited: some (a, b, r) satisfies pre ∧ post. Returns
 /// the number of specs checked.
 pub fn prove_all_satisfiable() -> Result<usize, String> {
     let specs = all_specs();
     for spec in &specs {
-        let cfg = z3::Config::new();
-        let ctx = Context::new(&cfg);
-        let solver = z3::Solver::new(&ctx);
-        let a = BV::new_const(&ctx, "a", 64);
-        let b = BV::new_const(&ctx, "b", 64);
-        let r = BV::new_const(&ctx, "r", 64);
-        solver.assert(&(spec.pre)(&ctx, &a, &b));
-        solver.assert(&r._eq(&(spec.result)(&ctx, &a, &b)));
-        if solver.check() != z3::SatResult::Sat {
-            return Err(format!("spec '{}' is uninhabited", spec.name));
-        }
+        prove_spec_satisfiable(spec)?;
     }
     Ok(specs.len())
 }

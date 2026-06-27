@@ -1,13 +1,13 @@
 {
-  "id": "C_6.3",
+  "id": "C_6.65",
   "type": "multiple_choice",
   "difficulty": 1,
   "prompt": "S is sufficient for G",
   "options": [
-    "$ (\\\\sim S \\\\supset \\\\, \\\\sim G) $",
-    "$ (S \\\\equiv G) $",
-    "$ (S \\\\supset G) $",
-    "$ S \\\\supset G $"
+    "$ (\\sim S \\supset \\, \\sim G) $",
+    "$ (S \\equiv G) $",
+    "$ (S \\supset G) $",
+    "$ S \\supset G $"
   ],
   "correct": 2,
   "hint": "If A is 'sufficient' for B, does that mean A guarantees B, or B guarantees A?",

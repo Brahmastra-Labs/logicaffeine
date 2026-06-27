@@ -4,10 +4,10 @@
   "difficulty": 1,
   "prompt": "C is consistent with B",
   "options": [
-    "$ (\\\\lozenge C \\\\cdot \\\\lozenge B) $",
-    "$ \\\\lozenge (C \\\\cdot B) $",
-    "$ (C \\\\cdot B) $",
-    "$ (\\\\lozenge C \\\\cdot B) $"
+    "$ (\\lozenge C \\cdot \\lozenge B) $",
+    "$ \\lozenge (C \\cdot B) $",
+    "$ (C \\cdot B) $",
+    "$ (\\lozenge C \\cdot B) $"
   ],
   "correct": 1,
   "hint": "When two things are 'consistent', does that mean they ARE both true, or they COULD be true together?",

@@ -24,6 +24,7 @@ use crate::{
     V_BINOP, V_BRANCH, V_CONST, V_FBINOP, V_FMOV, V_MOV, V_RET, V_SQRTF, V_DIVF, V_I2F, V_BRANCHF,
     V_ARRLD_RPTR, V_ARRLD_RPTR_C, V_ARRST_RPTR, V_ARRST_RPTR_C,
     ST_ADD3, ST_ADDF3, ST_AND3, ST_ARRLD, ST_ARRLD2_ADDF, ST_ARRLD2_MULF, ST_ARRLD2_SUBF, ST_ARRLDB, ST_ARRLDB_U, ST_ARRLD_U, ST_ARRST, ST_ARRSTB, ST_ARRSTB_U, ST_ARRST_U, ST_BREQ, ST_BREQF, ST_BRLEF, ST_BRLT, ST_CALL, ST_PUSH, ST_LIST_CLEAR,
+    ST_ARRLD_I32, ST_ARRLD_I32_U, ST_ARRST_I32, ST_ARRST_I32_U,
     ST_ARRLD2_ADD, ST_ARRLD2_ADD_U, ST_ARRLD2_SUB, ST_ARRLD2_SUB_U, ST_ARRLD2_MUL, ST_ARRLD2_MUL_U,
     ST_ARRLDAFF_NONE, ST_ARRLDAFF_NONE_U, ST_ARRLDAFF_ADD, ST_ARRLDAFF_ADD_U,
     ST_ARRLDAFF_SUB, ST_ARRLDAFF_SUB_U, ST_ARRLDAFF_MUL, ST_ARRLDAFF_MUL_U,
@@ -742,6 +743,10 @@ pub enum MicroOp {
         /// boolean normalization `(v != 0) as u8` (matching `logos_rt_push_bool`),
         /// not 8 raw bytes. `false` for Int/Float (8-byte raw bits).
         byte: bool,
+        /// 4-byte Int element (`ListRepr::IntsI32`): the inline fast-path store
+        /// TRUNCATES the value to its low 4 bytes (lossless under the narrowing
+        /// proof), matching `logos_rt_push_i32`. Mutually exclusive with `byte`.
+        narrow32: bool,
     },
     /// Pinned-array in-place clear through a runtime helper: truncate the buffer
     /// to empty (keep capacity) and refresh the pinned pointer/length slots
@@ -820,6 +825,10 @@ pub enum MicroOp {
         len_slot: Slot,
         /// 1-byte elements (Bool buffers) instead of 8-byte.
         byte: bool,
+        /// 4-byte SIGN-EXTENDED Int elements (`ListRepr::IntsI32`): the load is a
+        /// `movsxd` widening the stored `i32` to a full i64 (lossless). Mutually
+        /// exclusive with `byte`; both `false` ⇒ the default 8-byte element.
+        narrow32: bool,
         /// Bounds-checked (`true`) or elided (`false`, the Oracle proved
         /// the index in range — V8/LLVM bounds-check elimination). Unchecked
         /// loads have no out-of-bounds continuation.
@@ -920,6 +929,11 @@ pub enum MicroOp {
         len_slot: Slot,
         /// 1-byte elements (Bool buffers; stores normalize to 0/1).
         byte: bool,
+        /// 4-byte SIGN-EXTENDED Int elements (`ListRepr::IntsI32`, the VM's
+        /// `LOGOS_NARROW_VM` half-width buffers): a store TRUNCATES the value to
+        /// its low 4 bytes (lossless under the narrowing proof). Mutually
+        /// exclusive with `byte`; both `false` ⇒ the default 8-byte element.
+        narrow32: bool,
         /// Bounds-checked (`true`) or elided (`false`, the Oracle proved
         /// the index in range). Unchecked stores have no side-exit.
         checked: bool,
@@ -1234,6 +1248,32 @@ fn ld2_int_stencil(op: IOp, checked: bool) -> &'static crate::Stencil {
 /// The fused affine-index load stencil for an index op + bounds-check mode. The
 /// checked twins side-exit through cont 1 when the COMPUTED index is out of
 /// bounds; the unchecked `_u` twins have no length hole and no continuation.
+/// The pinned-array LOAD stencil for an element width: 1-byte (Bool, zero-ext),
+/// 4-byte (`IntsI32`, sign-ext), or the default 8-byte (Int/Float raw bits).
+/// `byte` and `narrow32` are mutually exclusive (the adapter never sets both).
+fn arrld_stencil(byte: bool, narrow32: bool, checked: bool) -> &'static crate::Stencil {
+    match (byte, narrow32, checked) {
+        (true, _, true) => &ST_ARRLDB,
+        (true, _, false) => &ST_ARRLDB_U,
+        (_, true, true) => &ST_ARRLD_I32,
+        (_, true, false) => &ST_ARRLD_I32_U,
+        (false, false, true) => &ST_ARRLD,
+        (false, false, false) => &ST_ARRLD_U,
+    }
+}
+
+/// The pinned-array STORE stencil for an element width (see [`arrld_stencil`]).
+fn arrst_stencil(byte: bool, narrow32: bool, checked: bool) -> &'static crate::Stencil {
+    match (byte, narrow32, checked) {
+        (true, _, true) => &ST_ARRSTB,
+        (true, _, false) => &ST_ARRSTB_U,
+        (_, true, true) => &ST_ARRST_I32,
+        (_, true, false) => &ST_ARRST_I32_U,
+        (false, false, true) => &ST_ARRST,
+        (false, false, false) => &ST_ARRST_U,
+    }
+}
+
 fn affine_stencil(op: AffOp, checked: bool) -> &'static crate::Stencil {
     match (op, checked) {
         (AffOp::None, true) => &ST_ARRLDAFF_NONE,
@@ -1559,10 +1599,10 @@ fn emit_mem_form(
         // The pinned mem-form path has already spilled the pinned operands
         // (idx/ptr/len/src) to the frame, so these read frame slots exactly
         // like the unpinned chain.
-        MicroOp::ArrLoad { dst, idx, ptr_slot, len_slot, byte, checked } => {
+        MicroOp::ArrLoad { dst, idx, ptr_slot, len_slot, byte, narrow32, checked } => {
             if checked {
                 buf.push_stencil(
-                    if byte { &ST_ARRLDB } else { &ST_ARRLD },
+                    arrld_stencil(byte, narrow32, true),
                     &[
                         HoleValue::Const(0, idx as i64),
                         HoleValue::Const(1, ptr_slot as i64),
@@ -1574,7 +1614,7 @@ fn emit_mem_form(
                 );
             } else {
                 buf.push_stencil(
-                    if byte { &ST_ARRLDB_U } else { &ST_ARRLD_U },
+                    arrld_stencil(byte, narrow32, false),
                     &[
                         HoleValue::Const(0, idx as i64),
                         HoleValue::Const(1, ptr_slot as i64),
@@ -1662,10 +1702,10 @@ fn emit_mem_form(
                 );
             }
         }
-        MicroOp::ArrStore { src, idx, ptr_slot, len_slot, byte, checked } => {
+        MicroOp::ArrStore { src, idx, ptr_slot, len_slot, byte, narrow32, checked } => {
             if checked {
                 buf.push_stencil(
-                    if byte { &ST_ARRSTB } else { &ST_ARRST },
+                    arrst_stencil(byte, narrow32, true),
                     &[
                         HoleValue::Const(0, idx as i64),
                         HoleValue::Const(1, ptr_slot as i64),
@@ -1677,7 +1717,7 @@ fn emit_mem_form(
                 );
             } else {
                 buf.push_stencil(
-                    if byte { &ST_ARRSTB_U } else { &ST_ARRST_U },
+                    arrst_stencil(byte, narrow32, false),
                     &[
                         HoleValue::Const(0, idx as i64),
                         HoleValue::Const(1, ptr_slot as i64),
@@ -1776,7 +1816,7 @@ fn emit_mem_form(
         }
         // Helper-call push; refreshes the pinned ptr/len after a possible
         // realloc (the mem-form path reloads them from the frame after).
-        MicroOp::ArrPush { src, vec_slot, ptr_slot, len_slot, helper_addr, byte: _ } => {
+        MicroOp::ArrPush { src, vec_slot, ptr_slot, len_slot, helper_addr, byte: _, narrow32: _ } => {
             buf.push_stencil(
                 &ST_PUSH,
                 &[
@@ -2074,7 +2114,12 @@ pub fn compile_straightline_pinned_float(
     let has_checked = ops.iter().any(|op| {
         matches!(
             op,
-            MicroOp::Div { .. }
+            // Integer add/sub/mul side-exit (`cont_1`) on signed overflow so the exact
+            // tier promotes to BigInt — they need the status cell + deopt terminal.
+            MicroOp::Add { .. }
+                | MicroOp::Sub { .. }
+                | MicroOp::Mul { .. }
+                | MicroOp::Div { .. }
                 | MicroOp::Mod { .. }
                 | MicroOp::DivF { .. }
                 | MicroOp::ArrLoad { .. }
@@ -2280,6 +2325,12 @@ pub fn compile_straightline_pinned_float(
                     holes.push(HoleValue::Const(2, dst as i64));
                 }
                 holes.push(HoleValue::Cont(0, buf.label(next_op)));
+                // add/sub/mul (fam 0/1/2) are the CHECKED families: their generated
+                // stencil takes cont_1 to the shared deopt terminal on signed overflow,
+                // so the exact tier recomputes and promotes to BigInt.
+                if fam <= 2 {
+                    holes.push(HoleValue::Cont(1, buf.label(deopt_piece)));
+                }
                 buf.push_stencil(V_BINOP[fam][d][l][r], &holes);
             }
             // FLOAT 3-address (add/sub/mul): same location encoding, float
@@ -2483,7 +2534,7 @@ pub fn compile_straightline_pinned_float(
                     buf.push_stencil(table[n], &holes);
                 };
                 let used_rptr = match *other {
-                    MicroOp::ArrLoad { dst, idx, ptr_slot, len_slot, byte: false, checked }
+                    MicroOp::ArrLoad { dst, idx, ptr_slot, len_slot, byte: false, narrow32: false, checked }
                         if loc(ptr_slot) != 0 =>
                     {
                         let n = loc(ptr_slot);
@@ -2491,7 +2542,7 @@ pub fn compile_straightline_pinned_float(
                         rptr(&mut buf, t, n, idx, dst, len_slot, checked);
                         true
                     }
-                    MicroOp::ArrStore { src, idx, ptr_slot, len_slot, byte: false, checked }
+                    MicroOp::ArrStore { src, idx, ptr_slot, len_slot, byte: false, narrow32: false, checked }
                         if loc(ptr_slot) != 0 =>
                     {
                         let n = loc(ptr_slot);
@@ -2580,7 +2631,12 @@ pub fn compile_straightline_coded(
     let has_checked = ops.iter().any(|op| {
         matches!(
             op,
-            MicroOp::Div { .. }
+            // Integer add/sub/mul side-exit (`cont_1`) on signed overflow so the exact
+            // tier promotes to BigInt — they need the status cell + deopt terminal.
+            MicroOp::Add { .. }
+                | MicroOp::Sub { .. }
+                | MicroOp::Mul { .. }
+                | MicroOp::Div { .. }
                 | MicroOp::Mod { .. }
                 | MicroOp::DivF { .. }
                 | MicroOp::ArrLoad { .. }
@@ -2612,7 +2668,14 @@ pub fn compile_straightline_coded(
         for (i, op) in ops.iter().enumerate() {
             let coded = matches!(
                 op,
-                MicroOp::Div { .. }
+                // add/sub/mul are CHECKED now (overflow → exact promotion): inside a
+                // region their side-exit must carry the op's PRECISE deopt code so the
+                // VM resumes with the right rollback, exactly like the other checked
+                // ops — so their codes need terminal pieces too.
+                MicroOp::Add { .. }
+                    | MicroOp::Sub { .. }
+                    | MicroOp::Mul { .. }
+                    | MicroOp::Div { .. }
                     | MicroOp::Mod { .. }
                     | MicroOp::DivF { .. }
                     | MicroOp::ArrLoad { .. }
@@ -2677,15 +2740,19 @@ pub fn compile_straightline_coded(
                     MicroOp::Neq { .. } => &ST_NE3,
                     _ => unreachable!(),
                 };
-                buf.push_stencil(
-                    stencil,
-                    &[
-                        HoleValue::Const(0, lhs as i64),
-                        HoleValue::Const(1, rhs as i64),
-                        HoleValue::Const(2, dst as i64),
-                        HoleValue::Cont(0, next),
-                    ],
-                );
+                let mut holes = vec![
+                    HoleValue::Const(0, lhs as i64),
+                    HoleValue::Const(1, rhs as i64),
+                    HoleValue::Const(2, dst as i64),
+                    HoleValue::Cont(0, next),
+                ];
+                // add/sub/mul are CHECKED: their stencil takes cont_1 to this op's
+                // deopt terminal on signed overflow so the exact tier promotes. The
+                // comparisons (lt/le/eq/ne) never overflow → cont_0 only.
+                if matches!(op, MicroOp::Add { .. } | MicroOp::Sub { .. } | MicroOp::Mul { .. }) {
+                    holes.push(HoleValue::Cont(1, buf.label(piece_for(code_at(i)))));
+                }
+                buf.push_stencil(stencil, &holes);
             }
             // a > b ⇔ b < a; a >= b ⇔ b <= a: swap operands, reuse lt3/le3
             // (IEEE-exact for the float twins too — NaN is false on both
@@ -2933,7 +3000,7 @@ pub fn compile_straightline_coded(
                     ],
                 );
             }
-            MicroOp::ArrPush { src, vec_slot, ptr_slot, len_slot, helper_addr, byte: _ } => {
+            MicroOp::ArrPush { src, vec_slot, ptr_slot, len_slot, helper_addr, byte: _, narrow32: _ } => {
                 buf.push_stencil(
                     &ST_PUSH,
                     &[
@@ -2958,10 +3025,10 @@ pub fn compile_straightline_coded(
                     ],
                 );
             }
-            MicroOp::ArrLoad { dst, idx, ptr_slot, len_slot, byte, checked } => {
+            MicroOp::ArrLoad { dst, idx, ptr_slot, len_slot, byte, narrow32, checked } => {
                 if checked {
                     buf.push_stencil(
-                        if byte { &ST_ARRLDB } else { &ST_ARRLD },
+                        arrld_stencil(byte, narrow32, true),
                         &[
                             HoleValue::Const(0, idx as i64),
                             HoleValue::Const(1, ptr_slot as i64),
@@ -2975,7 +3042,7 @@ pub fn compile_straightline_coded(
                     // Bounds-check eliminated (Oracle-proven): no length hole,
                     // no out-of-bounds continuation.
                     buf.push_stencil(
-                        if byte { &ST_ARRLDB_U } else { &ST_ARRLD_U },
+                        arrld_stencil(byte, narrow32, false),
                         &[
                             HoleValue::Const(0, idx as i64),
                             HoleValue::Const(1, ptr_slot as i64),
@@ -3014,10 +3081,10 @@ pub fn compile_straightline_coded(
                     );
                 }
             }
-            MicroOp::ArrStore { src, idx, ptr_slot, len_slot, byte, checked } => {
+            MicroOp::ArrStore { src, idx, ptr_slot, len_slot, byte, narrow32, checked } => {
                 if checked {
                     buf.push_stencil(
-                        if byte { &ST_ARRSTB } else { &ST_ARRST },
+                        arrst_stencil(byte, narrow32, true),
                         &[
                             HoleValue::Const(0, idx as i64),
                             HoleValue::Const(1, ptr_slot as i64),
@@ -3029,7 +3096,7 @@ pub fn compile_straightline_coded(
                     );
                 } else {
                     buf.push_stencil(
-                        if byte { &ST_ARRSTB_U } else { &ST_ARRST_U },
+                        arrst_stencil(byte, narrow32, false),
                         &[
                             HoleValue::Const(0, idx as i64),
                             HoleValue::Const(1, ptr_slot as i64),
@@ -3396,14 +3463,17 @@ pub fn reference_eval(ops: &[MicroOp], frame: &mut [i64], mut fuel: u64) -> Opti
         match ops[pc] {
             MicroOp::LoadConst { dst, value } => frame[dst as usize] = value,
             MicroOp::Move { dst, src } => frame[dst as usize] = frame[src as usize],
+            // EXACT integer arithmetic: signed overflow returns None — the JIT's
+            // side-exit (deopt) is the matching signal, so the differential stays
+            // consistent (overflow ⟺ reference None ⟺ JIT deopt).
             MicroOp::Add { dst, lhs, rhs } => {
-                frame[dst as usize] = frame[lhs as usize].wrapping_add(frame[rhs as usize])
+                frame[dst as usize] = frame[lhs as usize].checked_add(frame[rhs as usize])?
             }
             MicroOp::Sub { dst, lhs, rhs } => {
-                frame[dst as usize] = frame[lhs as usize].wrapping_sub(frame[rhs as usize])
+                frame[dst as usize] = frame[lhs as usize].checked_sub(frame[rhs as usize])?
             }
             MicroOp::Mul { dst, lhs, rhs } => {
-                frame[dst as usize] = frame[lhs as usize].wrapping_mul(frame[rhs as usize])
+                frame[dst as usize] = frame[lhs as usize].checked_mul(frame[rhs as usize])?
             }
             MicroOp::Div { dst, lhs, rhs } => {
                 let b = frame[rhs as usize];
@@ -3552,7 +3622,7 @@ pub fn reference_eval(ops: &[MicroOp], frame: &mut [i64], mut fuel: u64) -> Opti
             | MicroOp::MapHas { .. }
             | MicroOp::NewList { .. }
             | MicroOp::ListTriple { .. } => return None,
-            MicroOp::ArrLoad { dst, idx, ptr_slot, len_slot, byte, checked } => {
+            MicroOp::ArrLoad { dst, idx, ptr_slot, len_slot, byte, narrow32, checked } => {
                 let i = frame[idx as usize];
                 let len = frame[len_slot as usize];
                 let im1 = i.wrapping_sub(1);
@@ -3567,6 +3637,8 @@ pub fn reference_eval(ops: &[MicroOp], frame: &mut [i64], mut fuel: u64) -> Opti
                 frame[dst as usize] = unsafe {
                     if byte {
                         *(frame[ptr_slot as usize] as *const u8).add(im1 as usize) as i64
+                    } else if narrow32 {
+                        *(frame[ptr_slot as usize] as *const i32).add(im1 as usize) as i64
                     } else {
                         *(frame[ptr_slot as usize] as *const i64).add(im1 as usize)
                     }
@@ -3618,7 +3690,7 @@ pub fn reference_eval(ops: &[MicroOp], frame: &mut [i64], mut fuel: u64) -> Opti
                 };
                 frame[dst as usize] = op.eval(a, b);
             }
-            MicroOp::ArrStore { src, idx, ptr_slot, len_slot, byte, checked } => {
+            MicroOp::ArrStore { src, idx, ptr_slot, len_slot, byte, narrow32, checked } => {
                 // The reference always validates — a sound proof never trips it.
                 let _ = checked;
                 let i = frame[idx as usize];
@@ -3632,6 +3704,9 @@ pub fn reference_eval(ops: &[MicroOp], frame: &mut [i64], mut fuel: u64) -> Opti
                     if byte {
                         *(frame[ptr_slot as usize] as *mut u8).add(im1 as usize) =
                             (frame[src as usize] != 0) as u8;
+                    } else if narrow32 {
+                        *(frame[ptr_slot as usize] as *mut i32).add(im1 as usize) =
+                            frame[src as usize] as i32;
                     } else {
                         *(frame[ptr_slot as usize] as *mut i64).add(im1 as usize) =
                             frame[src as usize];

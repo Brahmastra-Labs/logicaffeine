@@ -322,6 +322,8 @@
             Let es be decompileExpr(end).
             Let bs be decompileBlock(body, indent + 1).
             Return "{pad}Repeat for {var} from {ss} to {es}:{nl}{bs}".
+        When CForceDynamic (fdName):
+            Return "".
         When CAdd (elem, target):
             Let es be decompileExpr(elem).
             Return "{pad}Add {es} to {target}.{nl}".
@@ -338,6 +340,10 @@
             Let cs be decompileExpr(cond).
             Let ms be decompileExpr(msg).
             Return "{pad}Assert {cs}, {ms}.{nl}".
+        When CHardAssert (cond, msg):
+            Let cs be decompileExpr(cond).
+            Let ms be decompileExpr(msg).
+            Return "{pad}Require {cs}, {ms}.{nl}".
         When CGive (expr, target):
             Let es be decompileExpr(expr).
             Return "{pad}Give {es} to {target}.{nl}".
@@ -371,7 +377,7 @@
             Return "{pad}Require {q}{dependency}{q}.{nl}".
         When CMerge (target, other):
             Let os be decompileExpr(other).
-            Return "{pad}Merge {target} with {os}.{nl}".
+            Return "{pad}Merge {os} into {target}.{nl}".
         When CIncrease (target, amount):
             Let amtS be decompileExpr(amount).
             Return "{pad}Increase {target} by {amtS}.{nl}".

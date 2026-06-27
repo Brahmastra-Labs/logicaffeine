@@ -1,0 +1,19 @@
+[package]
+name = "logicaffeine-runtime"
+version = "0.9.17"
+edition = "2021"
+license = "BUSL-1.1"
+description = "Deterministic concurrency runtime (scheduler, channels, seed/trace) for the Logicaffeine interpreter and VM. Pure, WASM-safe, tokio-free — never linked into AOT-compiled binaries."
+repository = "https://github.com/Brahmastra-Labs/logicaffeine"
+homepage = "https://logicaffeine.com"
+
+[features]
+# The cooperative M:1 driver and the work-stealing M:N driver are BOTH standard:
+# cooperative is the WASM/deterministic path, work-stealing is the native multicore
+# path (auto-gated to `cfg(not(wasm32))` in the source — no opt-in). No feature
+# toggles them; genuine multicore is a property of the native build, not optional.
+default = ["cooperative"]
+cooperative = []
+
+[dependencies]
+# Intentionally empty: this crate is pure std, WASM-safe, and tokio-free by charter.

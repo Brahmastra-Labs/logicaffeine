@@ -310,19 +310,22 @@ fn bv_not_not_is_identity() -> Result<(), String> {
 fn bv_fold_evaluator_matches_kernel() -> Result<(), String> {
     for &a in GRID {
         for &b in GRID {
+            // Exact spec: arithmetic folds ONLY when it fits i64 (overflow → None, so
+            // the promoting runtime computes the BigInt); div/mod also refuse a zero
+            // divisor. Bitwise/shift ops are total.
             let cases: &[(&str, Option<i64>, Option<i64>)] = &[
-                ("add", fold_binop(FoldOp::Add, a, b), Some(a.wrapping_add(b))),
-                ("sub", fold_binop(FoldOp::Sub, a, b), Some(a.wrapping_sub(b))),
-                ("mul", fold_binop(FoldOp::Mul, a, b), Some(a.wrapping_mul(b))),
+                ("add", fold_binop(FoldOp::Add, a, b), a.checked_add(b)),
+                ("sub", fold_binop(FoldOp::Sub, a, b), a.checked_sub(b)),
+                ("mul", fold_binop(FoldOp::Mul, a, b), a.checked_mul(b)),
                 (
                     "div",
                     fold_binop(FoldOp::Div, a, b),
-                    if b == 0 { None } else { Some(a.wrapping_div(b)) },
+                    if b == 0 { None } else { a.checked_div(b) },
                 ),
                 (
                     "mod",
                     fold_binop(FoldOp::Mod, a, b),
-                    if b == 0 { None } else { Some(a.wrapping_rem(b)) },
+                    if b == 0 { None } else { a.checked_rem(b) },
                 ),
                 ("shl", fold_binop(FoldOp::Shl, a, b), Some(a.wrapping_shl(b as u32))),
                 ("shr", fold_binop(FoldOp::Shr, a, b), Some(a.wrapping_shr(b as u32))),
@@ -358,31 +361,34 @@ pub(crate) enum FoldOp {
     Or,
 }
 
-/// Kernel-exact wrapping arithmetic. `None` = refuses to fold (the
-/// runtime error is the program's meaning).
+/// Kernel-exact arithmetic for the constant-folder. `None` = refuses to fold —
+/// either because the operation has no value (a zero divisor, whose runtime error
+/// is the program's meaning) OR because the result OVERFLOWS i64, in which case the
+/// exact (promoting) runtime must compute the BigInt rather than have us bake a
+/// wrapped constant. Bitwise/shift ops are total and always fold.
 pub(crate) fn fold_binop(op: FoldOp, a: i64, b: i64) -> Option<i64> {
-    Some(match op {
-        FoldOp::Add => a.wrapping_add(b),
-        FoldOp::Sub => a.wrapping_sub(b),
-        FoldOp::Mul => a.wrapping_mul(b),
+    match op {
+        FoldOp::Add => a.checked_add(b),
+        FoldOp::Sub => a.checked_sub(b),
+        FoldOp::Mul => a.checked_mul(b),
         FoldOp::Div => {
             if b == 0 {
                 return None;
             }
-            a.wrapping_div(b)
+            a.checked_div(b)
         }
         FoldOp::Mod => {
             if b == 0 {
                 return None;
             }
-            a.wrapping_rem(b)
+            a.checked_rem(b)
         }
-        FoldOp::Shl => a.wrapping_shl(b as u32),
-        FoldOp::Shr => a.wrapping_shr(b as u32),
-        FoldOp::Xor => a ^ b,
-        FoldOp::And => a & b,
-        FoldOp::Or => a | b,
-    })
+        FoldOp::Shl => Some(a.wrapping_shl(b as u32)),
+        FoldOp::Shr => Some(a.wrapping_shr(b as u32)),
+        FoldOp::Xor => Some(a ^ b),
+        FoldOp::And => Some(a & b),
+        FoldOp::Or => Some(a | b),
+    }
 }
 
 // =====================================================================
@@ -648,6 +654,20 @@ fn r_mul_two_add(eg: &mut CompilerEGraph, id: NodeId) -> Option<NodeId> {
     None
 }
 
+/// `x * 2^n` provably stays within i64 for every `x` in its proven interval —
+/// the soundness precondition for replacing the (EXACT, BigInt-promoting)
+/// multiply with a (wrapping) left shift. `2^n` fits a positive i64 for every
+/// `n` `pow2_log` returns (`n ≤ 62`); the product's extremes sit at the
+/// interval ends, so checking both is sufficient.
+fn mul_pow2_fits_i64(range: Option<(i64, i64)>, n: u32) -> bool {
+    let Some((lo, hi)) = range else { return false };
+    if n >= 63 {
+        return false;
+    }
+    let m = 1i64 << n;
+    lo.checked_mul(m).is_some() && hi.checked_mul(m).is_some()
+}
+
 fn r_mul_pow2_shl(eg: &mut CompilerEGraph, id: NodeId) -> Option<NodeId> {
     if let CompilerENode::Mul(l, r) = eg.canonical_node(id) {
         let hit = if let Some(n) = eg.int_value(r).and_then(pow2_log) {
@@ -658,7 +678,12 @@ fn r_mul_pow2_shl(eg: &mut CompilerEGraph, id: NodeId) -> Option<NodeId> {
             None
         };
         if let Some((x, n)) = hit {
-            if is_int(eg, x) {
+            // ORACLE GATE: integer `*` is EXACT (promotes to BigInt on overflow)
+            // but `<<` WRAPS, so the rewrite is valid only where the Oracle's
+            // interval for `x` proves `x * 2^n` cannot escape i64. Mirrors the
+            // gate on `r_div_pow2_shr`; unproven cases keep the exact multiply
+            // (the backend still lowers it to a checked native `imul`).
+            if is_int(eg, x) && mul_pow2_fits_i64(eg.int_range(x), n) {
                 let shift = eg.add(CompilerENode::Int(n as i64));
                 let shl = eg.add(CompilerENode::Shl(x, shift));
                 return Some(shl);
@@ -1297,4 +1322,49 @@ pub fn verify_all_with_kernel() -> Result<usize, String> {
         outcome.map_err(|e| format!("rule '{}': {e}", rule.name))?;
     }
     Ok(rules.len())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn mul_pow2_fits_i64_is_the_exact_overflow_boundary() {
+        // 2^3 = 8: bounded multiplicands fit; unbounded / unproven do not.
+        assert!(mul_pow2_fits_i64(Some((0, 255)), 3));
+        assert!(mul_pow2_fits_i64(Some((-100, 100)), 3));
+        assert!(!mul_pow2_fits_i64(None, 3));
+        assert!(!mul_pow2_fits_i64(Some((0, i64::MAX)), 3));
+        assert!(!mul_pow2_fits_i64(Some((i64::MIN, 0)), 1));
+        // The exact rim: ⌊i64::MAX / 8⌋ * 8 fits, one more overflows.
+        assert!(mul_pow2_fits_i64(Some((0, i64::MAX / 8)), 3));
+        assert!(!mul_pow2_fits_i64(Some((0, i64::MAX / 8 + 1)), 3));
+        // n ≥ 63 can never be safe (2^63 escapes i64).
+        assert!(!mul_pow2_fits_i64(Some((1, 1)), 63));
+    }
+
+    fn mul_by_eight(lo: i64, hi: i64) -> bool {
+        let mut eg = CompilerEGraph::new();
+        let x = eg.add(CompilerENode::Var(0, 0));
+        eg.set_scalar(x, ScalarKind::Int);
+        eg.set_int_range(x, lo, hi);
+        let eight = eg.add(CompilerENode::Int(8));
+        let mul = eg.add(CompilerENode::Mul(x, eight));
+        matches!(
+            r_mul_pow2_shl(&mut eg, mul),
+            Some(n) if matches!(eg.canonical_node(n), CompilerENode::Shl(..))
+        )
+    }
+
+    #[test]
+    fn mul_pow2_shl_fires_only_when_product_proven_to_fit() {
+        // Proven-bounded x ∈ [0, 1000]: 1000 * 8 = 8000 fits → strength-reduce.
+        assert!(mul_by_eight(0, 1000), "proven-bounded x*8 must become a shift");
+        // Unbounded x: x*8 may overflow — exact `*` promotes, `<<` would WRAP, so
+        // the rewrite must be refused (the backend keeps the checked native imul).
+        assert!(
+            !mul_by_eight(1, i64::MAX),
+            "unbounded x*8 must NOT become a wrapping shift under exact arithmetic"
+        );
+    }
 }

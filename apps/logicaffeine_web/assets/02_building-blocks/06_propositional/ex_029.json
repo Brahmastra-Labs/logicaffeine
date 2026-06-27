@@ -4,10 +4,10 @@
   "difficulty": 1,
   "prompt": "You're both not miserable and not comical",
   "options": [
-    "$ (\\\\sim M \\\\cdot C) $",
-    "$ \\\\sim M \\\\cdot \\\\sim C $",
-    "$ (\\\\sim M \\\\cdot \\\\sim C) $",
-    "$ \\\\sim(M \\\\cdot \\\\sim C) $"
+    "$ (\\sim M \\cdot C) $",
+    "$ \\sim M \\cdot \\sim C $",
+    "$ (\\sim M \\cdot \\sim C) $",
+    "$ \\sim(M \\cdot \\sim C) $"
   ],
   "correct": 2,
   "hint": "What exactly is 'both' connecting? Are both parts the full consequence, or just the second one?",

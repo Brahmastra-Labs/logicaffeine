@@ -4,12 +4,12 @@
   "difficulty": 1,
   "prompt": "Harm Donna",
   "options": [
-    "$ H\\\\underline{u} d $",
-    "$ OH\\\\underline{u} d $",
+    "$ H\\underline{u} d $",
+    "$ OH\\underline{u} d $",
     "$ Hud $",
-    "$ H\\\\underline{d} $"
+    "$ H\\underline{d} $"
   ],
   "correct": 0,
   "hint": "Identify WHO is being commanded or permitted (the agent, marked with underline) and WHAT action they must/may do.",
-  "explanation": "In deontic logic: Deontic operators express moral or legal requirements."
+  "explanation": "An imperative to you: harm Donna. You are the underlined agent, Donna the object — H͟u d."
 }

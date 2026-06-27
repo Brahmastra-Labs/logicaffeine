@@ -85,7 +85,7 @@ pub fn check_refutation(num_vars: usize, original: &[Vec<Lit>], learned: &[Vec<L
 
 /// Is clause `c` derivable by reverse unit propagation from `db`? Assume `¬c` (set each of
 /// `c`'s literals false) and unit-propagate `db`; `c` is RUP iff that reaches a conflict.
-fn is_rup(num_vars: usize, db: &[Vec<Lit>], c: &[Lit]) -> bool {
+pub(crate) fn is_rup(num_vars: usize, db: &[Vec<Lit>], c: &[Lit]) -> bool {
     let mut assign: Vec<Option<bool>> = vec![None; num_vars];
     for &l in c {
         // Assume ¬l. If that already clashes, ¬c is unsatisfiable ⇒ c is (trivially) RUP.
@@ -98,13 +98,13 @@ fn is_rup(num_vars: usize, db: &[Vec<Lit>], c: &[Lit]) -> bool {
 
 /// The value of literal `l` under `assign`.
 #[inline]
-fn lit_val(assign: &[Option<bool>], l: Lit) -> Option<bool> {
+pub(crate) fn lit_val(assign: &[Option<bool>], l: Lit) -> Option<bool> {
     assign[l.var() as usize].map(|b| if l.is_positive() { b } else { !b })
 }
 
 /// Set `l` true. Returns `false` if `l` is already false (a conflict).
 #[inline]
-fn set_true(assign: &mut [Option<bool>], l: Lit) -> bool {
+pub(crate) fn set_true(assign: &mut [Option<bool>], l: Lit) -> bool {
     match lit_val(assign, l) {
         Some(true) => true,
         Some(false) => false,
@@ -117,7 +117,7 @@ fn set_true(assign: &mut [Option<bool>], l: Lit) -> bool {
 
 /// Fixpoint unit propagation over `db`. Returns `true` on conflict (some clause all-false).
 /// Naive on purpose: a checker you can read in one sitting is a checker you can trust.
-fn propagate(db: &[Vec<Lit>], assign: &mut [Option<bool>]) -> bool {
+pub(crate) fn propagate(db: &[Vec<Lit>], assign: &mut [Option<bool>]) -> bool {
     loop {
         let mut changed = false;
         for clause in db {

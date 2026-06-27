@@ -27,9 +27,11 @@ fn jit_add_two_arguments() {
     frame[0] = 3;
     frame[1] = 5;
     assert_eq!(chain.run_with_frame(&mut frame).expect_return(), 8);
+    // Integer math is EXACT: `i64::MAX + 1` no longer wraps to `i64::MIN` — the
+    // native chain side-exits (deopt) so the exact tier can promote to BigInt.
     frame[0] = i64::MAX;
     frame[1] = 1;
-    assert_eq!(chain.run_with_frame(&mut frame).expect_return(), i64::MIN);
+    assert!(chain.run_with_frame(&mut frame).is_deopt(), "i64::MAX + 1 overflows → deopt");
 }
 
 #[test]
@@ -154,11 +156,27 @@ fn jit_ten_thousand_seeded_programs_match_reference() {
         let chain = compile_straightline(&ops).expect("compile");
         let mut jit_frame = vec![0i64; 64];
         jit_frame[..inputs.len()].copy_from_slice(&inputs);
-        let jit = chain.run_with_frame(&mut jit_frame).expect_return();
+        let outcome = chain.run_with_frame(&mut jit_frame);
 
         let mut ref_frame = vec![0i64; 64];
         ref_frame[..inputs.len()].copy_from_slice(&inputs);
-        let reference = reference_eval(&ops, &mut ref_frame, 1_000_000).expect("fuel");
+        let reference = reference_eval(&ops, &mut ref_frame, 1_000_000);
+
+        // Integer math is EXACT: the i64::MAX / i64::MIN seeds drive frequent
+        // overflows. On those the native chain SIDE-EXITS (deopt) and the exact
+        // reference returns None — they must AGREE that this leaves the i64 fast
+        // path (the exact tier would promote). Skip value/frame compare for those.
+        if outcome.is_deopt() || reference.is_none() {
+            assert!(
+                outcome.is_deopt() && reference.is_none(),
+                "seed {seed}: overflow disagreement (jit deopt={}, ref none={})",
+                outcome.is_deopt(),
+                reference.is_none()
+            );
+            continue;
+        }
+        let jit = outcome.expect_return();
+        let reference = reference.unwrap();
 
         assert_eq!(jit, reference, "seed {seed}: result diverged");
         // The FULL frame must match too — every register write, not just the

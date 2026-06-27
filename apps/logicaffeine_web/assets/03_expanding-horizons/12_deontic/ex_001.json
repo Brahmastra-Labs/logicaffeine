@@ -4,9 +4,9 @@
   "difficulty": 1,
   "prompt": "Defeat Tom",
   "options": [
-    "$ D\\\\underline{t} $",
-    "$ OD\\\\underline{u}t $",
-    "$ D\\\\underline{u} t $",
+    "$ D\\underline{t} $",
+    "$ OD\\underline{u}t $",
+    "$ D\\underline{u} t $",
     "$ Dut $"
   ],
   "correct": 2,

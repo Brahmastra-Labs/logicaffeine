@@ -1,13 +1,13 @@
 {
-  "id": "C_6.13",
+  "id": "C_6.75",
   "type": "multiple_choice",
   "difficulty": 1,
   "prompt": "Not both L and D",
   "options": [
-    "$ \\\\sim (L \\\\cdot D) $",
-    "$ \\\\sim L \\\\cdot D $",
-    "$ (\\\\sim L \\\\cdot \\\\, \\\\sim D) $",
-    "$ (\\\\sim L \\\\cdot D) $"
+    "$ \\sim (L \\cdot D) $",
+    "$ \\sim L \\cdot D $",
+    "$ (\\sim L \\cdot \\, \\sim D) $",
+    "$ (\\sim L \\cdot D) $"
   ],
   "correct": 0,
   "hint": "What exactly is 'both' connecting? Are both parts the full consequence, or just the second one?",

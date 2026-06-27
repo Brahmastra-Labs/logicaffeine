@@ -14,5 +14,5 @@
   ],
   "correct": 4,
   "hint": "Is the original term vague while the definition is precise, or vice versa?",
-  "explanation": "This violates 5."
+  "explanation": "'Tall' is relative and vague — tall for a jockey is not tall for a basketball player, and someone an inch under the line isn't suddenly 'short'. A fixed 6-foot cutoff is more precise than the word, so it fails to MATCH THE VAGUENESS."
 }

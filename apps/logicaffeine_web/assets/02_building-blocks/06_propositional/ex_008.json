@@ -4,10 +4,10 @@
   "difficulty": 1,
   "prompt": "You're either not mean or not curious",
   "options": [
-    "$ (\\\\sim M \\\\vee C) $",
-    "$ \\\\sim M \\\\vee \\\\sim C $",
-    "$ (\\\\sim M \\\\vee \\\\sim C) $",
-    "$ \\\\sim(M \\\\vee \\\\sim C) $"
+    "$ (\\sim M \\vee C) $",
+    "$ \\sim M \\vee \\sim C $",
+    "$ (\\sim M \\vee \\sim C) $",
+    "$ \\sim(M \\vee \\sim C) $"
   ],
   "correct": 2,
   "hint": "How many 'not's do you see in the sentence? Does each property get its own negation, or is the whole statement negated?",

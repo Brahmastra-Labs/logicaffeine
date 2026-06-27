@@ -12,6 +12,8 @@
 use std::sync::atomic::{AtomicI64, Ordering};
 use std::sync::Arc;
 
+use serde::{Deserialize, Serialize};
+
 use super::instruction::{Constant, Op};
 use super::value::Value;
 
@@ -47,7 +49,10 @@ impl FnTable {
 /// Per-program cells the native tier shares with every chain it compiles:
 /// the deopt status (any side-exit anywhere unwinds the whole native stack),
 /// and the LIVE LOGOS DEPTH the call stencils count against MAX_CALL_DEPTH.
-#[derive(Debug)]
+/// `Clone` is an `Arc` bump on each cell — a background-compile request carries a
+/// clone so the worker patches the same per-program table/status/depth the
+/// interpreter does.
+#[derive(Debug, Clone)]
 pub struct NativeCtx {
     pub table: Arc<FnTable>,
     pub status: Arc<AtomicI64>,
@@ -154,7 +159,7 @@ pub enum NativeRet {
 }
 
 /// A DECLARED parameter's native representation.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum ParamKind {
     Scalar(SlotKind),
     /// `Seq of <scalar>` — pinned at the boundary exactly like a region
@@ -252,7 +257,7 @@ pub trait NativeTier: Send + Sync {
 /// The runtime kind a native frame slot carries: entry guards check the VM
 /// register's discriminant against it and copy the raw representation in
 /// (f64 travels as bits); write-back re-boxes by it.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum SlotKind {
     Int,
     Bool,
@@ -269,6 +274,10 @@ pub enum ObservedKind {
     Float,
     /// A List whose payload is the unboxed all-Int repr.
     IntList,
+    /// A List whose payload is the half-width (`Vec<i32>`) narrowed Int repr
+    /// (`ListRepr::IntsI32`). Pinned as a 4-byte-element buffer (sign-extending
+    /// loads, truncating stores) under `LOGOS_NARROW_VM`.
+    IntListI32,
     /// A List whose payload is the unboxed all-Float repr.
     FloatList,
     /// A List whose payload is the unboxed all-Bool repr.
@@ -298,9 +307,15 @@ pub enum ObservedKind {
 /// native prefix already wrote).
 /// Element kind of a pinned buffer (decides the stencil's access width:
 /// 8-byte for Int/Float bits, 1-byte for Bool).
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum PinElem {
     Int,
+    /// A pinned half-width Int buffer (`ListRepr::IntsI32` = `Vec<i32>`): the
+    /// stencil/regalloc access width is 4 bytes — loads sign-extend (`movsxd`),
+    /// stores truncate the low 4 bytes. The narrowing proof guarantees every
+    /// stored value fits `i32`, so truncation is lossless; a region-entry pin
+    /// only admits an `IntsI32` buffer for this lane.
+    IntI32,
     Float,
     Bool,
     /// A pinned MAP: `vec_slot` carries `&mut MapStorage as *mut _`;
@@ -479,6 +494,9 @@ pub(crate) const REGION_DEMOTE_AFTER: u32 = 8;
 pub(crate) enum NativeSlot {
     /// Still profiling (or below threshold).
     Untried,
+    /// Submitted to the BACKGROUND compiler (HOTSWAP §6); runs bytecode until the
+    /// worker's result is drained and published. Not re-submitted while pending.
+    Pending,
     /// Compilation was attempted and bailed — never retried.
     Failed,
     /// Compiled; the guard still applies per call.

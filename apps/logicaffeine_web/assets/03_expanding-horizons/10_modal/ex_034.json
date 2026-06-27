@@ -4,12 +4,12 @@
   "difficulty": 1,
   "prompt": "Not being miserable is a necessary property of Sally",
   "options": [
-    "$ \\\\square \\\\sim Ms $",
-    "$ (\\\\square \\\\sim Ms) $",
-    "$ \\\\square (\\\\sim Ms) $",
-    "$ \\\\sim M \\\\square s $"
+    "$ \\square \\sim Ms $",
+    "$ (\\square \\sim Ms) $",
+    "$ \\square (\\sim Ms) $",
+    "$ \\sim M \\square s $"
   ],
   "correct": 0,
   "hint": "Think about what world(s) this statement is claiming something about. Is it all worlds, some worlds, or the actual world?",
-  "explanation": "In modal logic: The scope of modal operators affects meaning significantly."
+  "explanation": "A de re necessity about Sally: □∼Ms — in every possible world, Sally is not miserable. The necessity attaches to Sally herself having the property of not being miserable."
 }

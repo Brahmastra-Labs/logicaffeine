@@ -1,0 +1,15 @@
+{
+  "id": "P_1.17",
+  "type": "multiple_choice",
+  "difficulty": 2,
+  "prompt": "The rule of Conjunction (∧-introduction) lets you infer:",
+  "options": [
+    "P ∧ Q, given P and Q on separate lines",
+    "P, given P ∧ Q",
+    "P ∨ Q, given P",
+    "Q, given P → Q and P"
+  ],
+  "correct": 0,
+  "hint": "Conjunction BUILDS an 'and' from two things you already have.",
+  "explanation": "Conjunction (∧-introduction): from P and Q (each established) infer P ∧ Q. Option 2 is Simplification (∧-elimination), option 3 is Addition (∨-introduction), and option 4 is Modus Ponens."
+}

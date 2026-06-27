@@ -10,5 +10,6 @@
     "Loves(Mary) ∧ Loves(John)"
   ],
   "correct": 0,
-  "hint": "Argument order matters in relations. The subject comes first."
+  "hint": "Argument order matters in relations. The subject comes first.",
+  "explanation": "Argument ORDER encodes who does what to whom. Loves(John, Mary) puts John first (the lover) and Mary second (the beloved). 'Mary loves John' swaps those roles, so it swaps the arguments: Loves(Mary, John). Loves is not symmetric — Loves(Mary, John) ≠ Loves(John, Mary). 'John(Loves, Mary)' wrongly makes John the predicate, and the conjunction option throws away the directed relationship entirely."
 }

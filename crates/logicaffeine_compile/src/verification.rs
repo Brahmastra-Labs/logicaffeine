@@ -262,6 +262,7 @@ impl<'a> VerificationPass<'a> {
                     | BinaryOpKind::Subtract
                     | BinaryOpKind::Multiply
                     | BinaryOpKind::Divide
+                    | BinaryOpKind::ExactDivide
                     | BinaryOpKind::Modulo => VerifyType::Int,
                     // Concat produces a string (Object type)
                     BinaryOpKind::Concat => VerifyType::Object,
@@ -424,7 +425,7 @@ impl<'a> VerificationPass<'a> {
                     BinaryOpKind::Add => VerifyOp::Add,
                     BinaryOpKind::Subtract => VerifyOp::Sub,
                     BinaryOpKind::Multiply => VerifyOp::Mul,
-                    BinaryOpKind::Divide => VerifyOp::Div,
+                    BinaryOpKind::Divide | BinaryOpKind::ExactDivide => VerifyOp::Div,
                     BinaryOpKind::Eq => VerifyOp::Eq,
                     BinaryOpKind::NotEq => VerifyOp::Neq,
                     BinaryOpKind::Gt => VerifyOp::Gt,
@@ -480,7 +481,7 @@ impl<'a> VerificationPass<'a> {
                     BinaryOpKind::Add => VerifyOp::Add,
                     BinaryOpKind::Subtract => VerifyOp::Sub,
                     BinaryOpKind::Multiply => VerifyOp::Mul,
-                    BinaryOpKind::Divide => VerifyOp::Div,
+                    BinaryOpKind::Divide | BinaryOpKind::ExactDivide => VerifyOp::Div,
                     BinaryOpKind::Eq => VerifyOp::Eq,
                     BinaryOpKind::NotEq => VerifyOp::Neq,
                     BinaryOpKind::Gt => VerifyOp::Gt,

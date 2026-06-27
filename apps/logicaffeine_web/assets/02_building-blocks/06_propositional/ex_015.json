@@ -4,10 +4,10 @@
   "difficulty": 1,
   "prompt": "If you're short then you're greedy, or you're hideous",
   "options": [
-    "$ S \\\\supset G \\\\vee H $",
-    "$ (S \\\\supset G) \\\\vee H $",
-    "$ (S \\\\supset (G \\\\vee H)) $",
-    "$ ((S \\\\supset G) \\\\vee H) $"
+    "$ S \\supset G \\vee H $",
+    "$ (S \\supset G) \\vee H $",
+    "$ (S \\supset (G \\vee H)) $",
+    "$ ((S \\supset G) \\vee H) $"
   ],
   "correct": 3,
   "hint": "Identify the main connective first. What's the primary structure of this sentence?",

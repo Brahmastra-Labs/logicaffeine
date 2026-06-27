@@ -4,12 +4,12 @@
   "difficulty": 1,
   "prompt": "Someone has the property of being necessarily strong",
   "options": [
-    "$ (\\\\exists x)\\\\square Sx $",
-    "$ \\\\square (\\\\exists x)Sx $",
-    "$ \\\\square ((\\\\exists x)Sx) $",
-    "$ (\\\\exists x)(\\\\square Sx) $"
+    "$ (\\exists x)\\square Sx $",
+    "$ \\square (\\exists x)Sx $",
+    "$ \\square ((\\exists x)Sx) $",
+    "$ (\\exists x)(\\square Sx) $"
   ],
   "correct": 0,
   "hint": "Think about what world(s) this statement is claiming something about. Is it all worlds, some worlds, or the actual world?",
-  "explanation": "In modal logic: The scope of modal operators affects meaning significantly."
+  "explanation": "Here necessity sits INSIDE the quantifier: (∃x)□Sx — there is one particular individual who is strong in every possible world (de re necessity). Contrast □(∃x)Sx, where the strong one may differ per world."
 }

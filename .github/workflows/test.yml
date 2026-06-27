@@ -5,6 +5,13 @@ on:
     branches: [main]
   pull_request:
     branches: [main]
+  # Nightly (and on-demand) FULL run: everything per-PR runs PLUS the #[ignore]d
+  # multi-minute fuzz/bench monsters, so nothing in the suite ever goes unrun in
+  # CI. Per-PR stays fast; `schedule`/`workflow_dispatch` flip on `--run-ignored
+  # all` (and `--include-ignored` for doctests) in the steps below.
+  schedule:
+    - cron: '0 7 * * *'   # 07:00 UTC daily
+  workflow_dispatch: {}
 
 # Architecture: archive once, run partitioned.
 #
@@ -29,9 +36,14 @@ on:
 # are deliberately NOT persisted across runs, so a generated build can never go
 # stale (each run warms them fresh; see tests/common/mod.rs).
 #
-# #[ignore]d tests (the multi-minute jit_mega_fuzz / fuzz-overnight monsters)
-# are NOT run here — nextest skips them by default. Run them via
-# scripts/run-all-tests-fast.sh (no --no-ignored) on the dedicated box.
+# #[ignore]d tests split into two kinds:
+#   - the multi-minute FUZZ/BENCH monsters (jit_mega_fuzz, vm_fuzz_overnight,
+#     bench_wire_throughput, exhaustive_edge_completeness_audit, aot_native_corpus)
+#     are NOT run here — they're overnight-scale; run them via
+#     scripts/run-all-tests-fast.sh (no --no-ignored) on the dedicated box.
+#   - the forge `mul` grounding GATES (*_heavy) are `#[ignore]`d only to keep them
+#     out of the LOCAL fast loop; they're correctness gates (~280s), so the `test`
+#     job runs them explicitly (partition 1, `ignored-only` + name filter).
 
 env:
   CARGO_TERM_COLOR: always
@@ -95,7 +107,9 @@ jobs:
   test:
     needs: archive
     runs-on: ubuntu-latest-m
-    timeout-minutes: 45
+    # 45m covers per-PR; the nightly --run-ignored all adds the multi-minute
+    # monsters (split across the 3 partitions), so allow more headroom.
+    timeout-minutes: 120
     strategy:
       fail-fast: false
       matrix:
@@ -125,9 +139,27 @@ jobs:
       - name: Run tests — partition ${{ matrix.partition }}/3
         run: |
           set -o pipefail
+          # Nightly/on-demand: --run-ignored all so the fuzz/bench monsters run too.
+          IGNORED=""
+          case "${{ github.event_name }}" in
+            schedule|workflow_dispatch) IGNORED="--run-ignored all" ;;
+          esac
           cargo nextest run --archive-file "$ARCHIVE" --workspace-remap "$PWD" \
-            --profile full --retries 1 \
+            --profile full --retries 1 $IGNORED \
             --partition hash:${{ matrix.partition }}/3
+
+      # The forge `mul` grounding gate is `#[ignore]`d so the LOCAL --no-ignored
+      # fast loop skips its ~280s Z3 bit-blast — but it is a correctness gate, not
+      # a fuzz monster, so per-PR CI must still run it. Run it ONCE (partition 1)
+      # via the archive. Skipped on the nightly/on-demand runs, where the step
+      # above already covers it via `--run-ignored all`.
+      - name: Run re-tiered heavy correctness gates (forge mul)
+        if: matrix.partition == 1 && github.event_name != 'schedule' && github.event_name != 'workflow_dispatch'
+        run: |
+          set -o pipefail
+          cargo nextest run --archive-file "$ARCHIVE" --workspace-remap "$PWD" \
+            --profile full --run-ignored ignored-only \
+            -E 'test(witness_three_way_agreement_heavy) + test(all_specs_satisfiable_heavy)'
 
   extras:
     runs-on: ubuntu-latest-m
@@ -155,7 +187,26 @@ jobs:
       - name: Run doctests
         run: |
           set -o pipefail
-          cargo test --workspace --features verification --doc
+          DOC_IGNORED=""
+          case "${{ github.event_name }}" in
+            schedule|workflow_dispatch) DOC_IGNORED="-- --include-ignored" ;;
+          esac
+          cargo test --workspace --features verification --doc $DOC_IGNORED
+
+      # WASM-JIT codegen + differential. Built ISOLATED (scoped to
+      # logicaffeine-compile + `--features wasm-jit`) because enabling wasm-jit
+      # workspace-wide perturbs feature unification — so it can't ride the main
+      # archive and must run as its own step, exactly like the local runner's
+      # pass-1b. Without this, the wasm-jit path was never CI-tested.
+      - name: Run WASM-JIT codegen + differential (isolated --features wasm-jit)
+        run: |
+          set -o pipefail
+          IGNORED=""
+          case "${{ github.event_name }}" in
+            schedule|workflow_dispatch) IGNORED="--run-ignored all" ;;
+          esac
+          cargo nextest run -p logicaffeine-compile --features wasm-jit --profile full --retries 1 $IGNORED \
+            -E 'binary(wasm_jit_differential) + test(wasm_jit)'
 
   badge:
     needs: [archive, test, extras]

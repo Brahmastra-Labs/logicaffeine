@@ -4,10 +4,10 @@
   "difficulty": 1,
   "prompt": "It's permissible for you to sell",
   "options": [
-    "$ OS\\\\underline{u} $",
+    "$ OS\\underline{u} $",
     "$ RSu $",
     "$ OSu $",
-    "$ RS\\\\underline{u} $"
+    "$ RS\\underline{u} $"
   ],
   "correct": 3,
   "hint": "Permission means something is ALLOWED, not required. Who has this permission?",

@@ -23,7 +23,8 @@
 
 use std::collections::HashSet;
 
-use crate::ast::stmt::{BinaryOpKind, Expr, Literal, OptFlag, Stmt};
+use crate::ast::stmt::{BinaryOpKind, Expr, Literal, Stmt};
+use crate::optimization::Opt;
 use crate::intern::{Interner, Symbol};
 use crate::Arena;
 
@@ -282,7 +283,7 @@ fn accumulator_rewrite_of<'a>(
     if *is_native || *is_exported {
         return None;
     }
-    if opt_flags.contains(&OptFlag::NoTCO) || opt_flags.contains(&OptFlag::NoOptimize) {
+    if !opt_flags.is_on(Opt::Tco) {
         return None;
     }
     // `detect_accumulator_pattern` already excludes direct-tail recursion (a bare

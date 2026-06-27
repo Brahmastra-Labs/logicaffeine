@@ -1,0 +1,44 @@
+[package]
+name = "logicaffeine-wirebench"
+version = "0.0.0"
+edition.workspace = true
+publish = false
+description = "Fair head-to-head benchmark of the Logos wire codec vs industry serializers (size + encode/decode speed + single-field read). Kept out of default-members so its competitor deps never touch the main build."
+
+[[bin]]
+name = "wirebench"
+path = "src/main.rs"
+
+[dependencies]
+logicaffeine-compile = { path = "../logicaffeine_compile" }
+serde = { version = "1.0", features = ["derive"] }
+# Pure-Rust competitors (no external toolchain): a compact schema-via-types binary
+# (bincode/postcard), self-describing binaries (MessagePack/CBOR), and JSON.
+bincode = "1.3"
+postcard = { version = "1", features = ["use-std"] }
+rmp-serde = "1.3"
+ciborium = "0.2"
+serde_json = "1.0"
+
+# Heavyweights — gold-standard, but each needs a build-time toolchain (protoc /
+# the capnp compiler) and/or a heavy compile. Off by default so the core bench
+# builds and runs anywhere; the install script turns these on.
+arrow = { version = "53", optional = true, default-features = false, features = ["ipc"] }
+prost = { version = "0.13", optional = true }
+capnp = { version = "0.20", optional = true }
+
+[build-dependencies]
+prost-build = { version = "0.13", optional = true }
+capnpc = { version = "0.20", optional = true }
+
+[features]
+default = []
+# Arrow is pure-Rust — it needs no external toolchain, so it runs anywhere the
+# core bench does. It is our closest architectural sibling (columnar + zero-copy),
+# so it is the most important head-to-head and gets its own toolchain-free flag.
+arrow-bench = ["dep:arrow"]
+# protobuf and Cap'n Proto each need a build-time compiler (protoc / capnp) on PATH.
+protobuf = ["dep:prost", "dep:prost-build"]
+capnproto = ["dep:capnp", "dep:capnpc"]
+# Everything — only builds where protoc + capnp are installed.
+heavy = ["arrow-bench", "protobuf", "capnproto"]

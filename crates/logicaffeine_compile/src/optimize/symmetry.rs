@@ -465,9 +465,6 @@ pub fn break_symmetry_stmts<'a>(
     stmt_arena: &'a Arena<Stmt<'a>>,
     interner: &mut Interner,
 ) -> Vec<Stmt<'a>> {
-    if std::env::var_os("LOGOS_SYMMETRY").is_some_and(|v| v == "0") {
-        return stmts;
-    }
     // Catalogue reflection-symmetric searches.
     let mut searches: HashMap<Symbol, ()> = HashMap::new();
     for s in &stmts {
@@ -508,7 +505,7 @@ pub fn break_symmetry_stmts<'a>(
                 export_target,
                 opt_flags,
             } if generics.is_empty()
-                && !opt_flags.contains(&crate::ast::stmt::OptFlag::NoOptimize)
+                && opt_flags.is_on(crate::optimization::Opt::Symmetry)
                 && !searches.contains_key(name) =>
             {
                 let psyms: Vec<Symbol> = params.iter().map(|(p, _)| *p).collect();

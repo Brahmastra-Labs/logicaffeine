@@ -1,7 +1,8 @@
 //! Studio mode toggle component.
 //!
-//! Provides a segmented control for switching between Logic, Code, and Math modes
-//! in the Studio playground. Icons indicate each mode; labels are hidden on mobile.
+//! Provides a segmented control for switching between Logic, Code, Math, and
+//! Hardware modes in the Studio playground. Icons indicate each mode; labels are
+//! hidden on mobile.
 //!
 //! # Props
 //!
@@ -13,6 +14,7 @@
 //! - **Logic** (∀): English-to-FOL translation
 //! - **Code** (λ): Vernacular programming REPL
 //! - **Math** (π): LaTeX formula builder
+//! - **Hardware** (⚙): English-to-SVA synthesis with in-browser certified proving
 
 use dioxus::prelude::*;
 use crate::ui::state::StudioMode;
@@ -109,6 +111,15 @@ pub fn ModeToggle(
                 title: "Math Mode - Formula builder",
                 span { class: "icon", "\u{03C0}" } // π pi
                 span { class: "label", "Math" }
+            }
+
+            // Hardware mode button
+            button {
+                class: if mode == StudioMode::Hardware { "mode-toggle-btn active" } else { "mode-toggle-btn" },
+                onclick: move |_| on_change.call(StudioMode::Hardware),
+                title: "Hardware Mode - English to SystemVerilog Assertions",
+                span { class: "icon", "\u{2699}" } // ⚙ gear
+                span { class: "label", "Hardware" }
             }
         }
     }

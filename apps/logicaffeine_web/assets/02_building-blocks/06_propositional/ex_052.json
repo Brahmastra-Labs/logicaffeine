@@ -4,10 +4,10 @@
   "difficulty": 1,
   "prompt": "If you're weak and hideous, then you're candid",
   "options": [
-    "$ W \\\\cdot H \\\\supset C $",
-    "$ (W \\\\cdot (H \\\\supset C)) $",
-    "$ ((W \\\\cdot H) \\\\supset C) $",
-    "$ (W \\\\cdot H) \\\\supset C $"
+    "$ W \\cdot H \\supset C $",
+    "$ (W \\cdot (H \\supset C)) $",
+    "$ ((W \\cdot H) \\supset C) $",
+    "$ (W \\cdot H) \\supset C $"
   ],
   "correct": 2,
   "hint": "Identify the main connective first. What's the primary structure of this sentence?",

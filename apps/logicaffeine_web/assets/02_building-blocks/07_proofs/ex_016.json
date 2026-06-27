@@ -1,0 +1,15 @@
+{
+  "id": "P_1.16",
+  "type": "multiple_choice",
+  "difficulty": 3,
+  "prompt": "From 'P → Q' and '¬P', what can you validly conclude?",
+  "options": [
+    "¬Q",
+    "Q",
+    "Nothing — this is the fallacy of denying the antecedent",
+    "P"
+  ],
+  "correct": 2,
+  "hint": "P → Q does not say P is the ONLY way to get Q. If P is false, is Q forced to be false?",
+  "explanation": "You cannot conclude ¬Q. 'P → Q' plus '¬P' is the fallacy of DENYING THE ANTECEDENT — Q can still be true through some other route even though P is false. The valid cousin is Modus Tollens: from 'P → Q' and '¬Q', conclude ¬P."
+}

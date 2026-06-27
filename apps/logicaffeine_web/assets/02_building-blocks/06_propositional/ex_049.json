@@ -4,10 +4,10 @@
   "difficulty": 1,
   "prompt": "If P, then C or D",
   "options": [
-    "$ (P \\\\supset (C \\\\vee D)) $",
-    "$ ((P \\\\supset C) \\\\vee D) $",
-    "$ P \\\\supset C \\\\vee D $",
-    "$ (P \\\\supset C) \\\\vee D $"
+    "$ (P \\supset (C \\vee D)) $",
+    "$ ((P \\supset C) \\vee D) $",
+    "$ P \\supset C \\vee D $",
+    "$ (P \\supset C) \\vee D $"
   ],
   "correct": 0,
   "hint": "Is the 'or' part of what follows from the 'if', or a separate alternative?",

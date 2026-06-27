@@ -80,6 +80,36 @@ pub(crate) fn detect_narrowable<'a>(
     out
 }
 
+/// The set of `new Seq of Int` declarations in a single VM-compiled body whose
+/// elements provably fit `i32` — the symbols whose empty constructor the VM
+/// lowers to [`crate::vm::instruction::Op::NewEmptyListI32`] under
+/// `LOGOS_NARROW_VM`.
+///
+/// Reuses the AOT narrowing proof verbatim (same per-store soundness), with the
+/// uniqueness precondition (de-Rc) computed for THIS body alone: with no
+/// inter-procedural borrow facts, a candidate passed to ANY function fails both
+/// the de-Rc scan and the proof's `escapes` check, so the result is a sound
+/// (conservative) subset. The VM additionally catches any residual proof gap at
+/// runtime — a stored value outside `i32` range widens the buffer back to full
+/// width (`ListRepr::IntsI32::set`) — so an observable value can never differ
+/// from the un-narrowed run.
+pub(crate) fn narrowable_seqs_for_body(
+    body: &[Stmt],
+    interner: &Interner,
+) -> HashSet<Symbol> {
+    let no_params: HashMap<Symbol, HashSet<usize>> = HashMap::new();
+    let no_fns: HashSet<Symbol> = HashSet::new();
+    let de_rc = super::detection::collect_de_rc_seqs(
+        body,
+        interner,
+        &no_params,
+        &no_params,
+        &no_fns,
+        false,
+    );
+    detect_narrowable(body, &de_rc, interner).into_keys().collect()
+}
+
 /// A loop enclosing a write: its induction variable and (when both the start and
 /// bound are literals) its constant trip count.
 #[derive(Clone, Copy)]
@@ -239,7 +269,7 @@ fn use_is_local(s: &Stmt, c: Symbol) -> bool {
             ok_read_only(object, c) && ok_read_only(recipient, c)
         }
         Stmt::Call { args, .. } => args.iter().all(|a| ok_read_only(a, c)),
-        Stmt::RuntimeAssert { condition } => ok_read_only(condition, c),
+        Stmt::RuntimeAssert { condition, .. } => ok_read_only(condition, c),
         Stmt::Inspect { target, .. } => ok_read_only(target, c),
         // Pop/Remove/Add on `c` change its contents/length outside this analysis.
         Stmt::Pop { collection, .. }

@@ -4,10 +4,10 @@
   "difficulty": 1,
   "prompt": "It's required that you cry",
   "options": [
-    "$ RC\\\\underline{u} $",
+    "$ RC\\underline{u} $",
     "$ OCu $",
     "$ RCu $",
-    "$ OC\\\\underline{u} $"
+    "$ OC\\underline{u} $"
   ],
   "correct": 3,
   "hint": "What is being required, and who must do it? The underline marks the agent.",

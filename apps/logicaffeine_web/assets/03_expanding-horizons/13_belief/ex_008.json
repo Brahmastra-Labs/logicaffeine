@@ -4,10 +4,10 @@
   "difficulty": 1,
   "prompt": "Don't believe that you are confident",
   "options": [
-    "$ \\\\sim u:Cu $",
-    "$ \\\\sim u:C\\\\underline{u} $",
-    "$ \\\\sim \\\\underline{u}:C\\\\underline{u} $",
-    "$ \\\\sim \\\\underline{u}:Cu $"
+    "$ \\sim u:Cu $",
+    "$ \\sim u:C\\underline{u} $",
+    "$ \\sim \\underline{u}:C\\underline{u} $",
+    "$ \\sim \\underline{u}:Cu $"
   ],
   "correct": 3,
   "hint": "Who is the agent with this desire/belief? Where does the negation go \u2014 before the agent or after?",

@@ -92,6 +92,9 @@ pub enum BlockType {
     Main,
     /// `## Definition` - Introduces new terminology or type definitions.
     Definition,
+    /// `## Define` - Mints a vernacular-logic predicate definition that the
+    /// prover unfolds (Rung 0a). Distinct from `## Definition` (type defs).
+    Define,
     /// `## Proof` - Contains proof steps for a theorem.
     Proof,
     /// `## Example` - Illustrative examples.
@@ -114,6 +117,9 @@ pub enum BlockType {
     Property,
     /// `## No` - Optimization annotation (followed by Memo, TCO, Peephole, Borrow, or Optimize).
     No,
+    /// `## Tier` - Tiered-optimizer pin: `## Tier <opt> <eager|t1|t2|t3|never>` overrides
+    /// the hotness tier at which that optimization runs (HOTSWAP §8).
+    Tier,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -193,6 +199,13 @@ pub enum TokenType {
     Assert,
     /// Documented assertion with justification string.
     Trust,
+    /// Enforced runtime invariant: `Require that <cond>.` → a hard `assert!`
+    /// (survives release, unlike `Assert` → `debug_assert!`).
+    Require,
+    /// Function precondition clause: `Requires <check>.` (checked at entry).
+    Requires,
+    /// Function postcondition clause: `Ensures <check>.` (checked before return).
+    Ensures,
     Otherwise,
     /// Alias for `Otherwise` - Pythonic else clause
     Else,

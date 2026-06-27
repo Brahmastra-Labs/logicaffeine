@@ -170,6 +170,11 @@ pub enum Commands {
         /// Use "wasm" as shorthand for "wasm32-unknown-unknown".
         #[arg(long)]
         target: Option<String>,
+
+        /// Pre-build every `is exported for native` function into the AOT-native
+        /// tier bundle (a cached cdylib per function) under `.logos-native/`.
+        #[arg(long)]
+        native_functions: bool,
     },
 
     /// Run Z3 static verification without building.
@@ -236,6 +241,28 @@ pub enum Commands {
     /// largo check
     /// ```
     Check,
+
+    /// Report which optimizations actually FIRE when compiling a LOGOS file.
+    ///
+    /// Compiles the file on the AOT, run-path, and VM-compile paths with the
+    /// firing trace on, and lists the optimizations that genuinely changed the
+    /// program (not merely the ones that are enabled). Useful for understanding
+    /// and auditing what the compiler did to a given program.
+    ///
+    /// # Example
+    ///
+    /// ```bash
+    /// largo opts src/main.lg
+    /// largo opts src/main.lg --json
+    /// ```
+    Opts {
+        /// The `.lg` source file to analyze.
+        file: PathBuf,
+
+        /// Emit the fired optimizations as JSON (keyword list).
+        #[arg(long)]
+        json: bool,
+    },
 
     /// Publish the package to the LOGOS registry.
     ///
@@ -347,10 +374,11 @@ pub fn run_cli() -> Result<(), Box<dyn std::error::Error>> {
     match cli.command {
         Commands::New { name } => cmd_new(&name),
         Commands::Init { name } => cmd_init(name.as_deref()),
-        Commands::Build { release, verify, license, lib, target } => cmd_build(release, verify, license, lib, target),
+        Commands::Build { release, verify, license, lib, target, native_functions } => cmd_build(release, verify, license, lib, target, native_functions),
         Commands::Run { interpret, args, .. } if interpret => cmd_run_interpret(&args),
         Commands::Run { release, args, .. } => cmd_run(release, &args),
         Commands::Check => cmd_check(),
+        Commands::Opts { file, json } => cmd_opts(&file, json),
         Commands::Verify { license } => cmd_verify(license),
         Commands::Publish { registry, dry_run, allow_dirty } => {
             cmd_publish(registry.as_deref(), dry_run, allow_dirty)
@@ -444,6 +472,7 @@ fn cmd_build(
     license: Option<String>,
     lib: bool,
     target: Option<String>,
+    native_functions: bool,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let current_dir = env::current_dir()?;
     let project_root =
@@ -455,7 +484,7 @@ fn cmd_build(
     }
 
     let config = BuildConfig {
-        project_dir: project_root,
+        project_dir: project_root.clone(),
         release,
         lib_mode: lib,
         target,
@@ -466,6 +495,35 @@ fn cmd_build(
     let mode = if release { "release" } else { "debug" };
     println!("Built {} [{}]", result.binary_path.display(), mode);
 
+    if native_functions {
+        build_native_function_bundle(&project_root)?;
+    }
+
+    Ok(())
+}
+
+/// Pre-build the AOT-native tier bundle (HOTSWAP §Axis-3): every `is exported for
+/// native` function compiled to a cached cdylib under `.logos-native/`. Functions
+/// outside the sound scalar subset are skipped — they keep running on VM+JIT.
+fn build_native_function_bundle(
+    project_root: &std::path::Path,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let manifest = Manifest::load(project_root)?;
+    let entry_path = project_root.join(&manifest.package.entry);
+    let source = fs::read_to_string(&entry_path)?;
+
+    let bundle_dir = project_root.join(".logos-native");
+    let built = logicaffeine_compile::compile::build_native_bundle(&source, &bundle_dir)
+        .map_err(|e| format!("native bundle build failed: {e:?}"))?;
+
+    if built.is_empty() {
+        println!("No `is exported for native` functions to bundle.");
+    } else {
+        println!("Bundled {} native function(s) into {}:", built.len(), bundle_dir.display());
+        for (name, so) in &built {
+            println!("  {name} -> {}", so.display());
+        }
+    }
     Ok(())
 }
 
@@ -568,6 +626,23 @@ fn cmd_run_interpret(args: &[String]) -> Result<(), Box<dyn std::error::Error>> 
     argv.push(manifest.package.name.clone());
     argv.extend(args.iter().cloned());
 
+    // Compiled-native tier (HOTSWAP §Axis-3): if the program annotates functions
+    // `is exported for native`, load them as rustc -O3 machine code (cached, so a
+    // pre-built `largo build --native-functions` bundle is a cache hit) and queue them
+    // so the VM dispatches those functions to compiled native from their first call.
+    // Absent / unbuildable ⇒ nothing queued ⇒ runs on VM+JIT, no gap at the seam.
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        let names = logicaffeine_compile::compile::native_export_function_names(&source);
+        if !names.is_empty() {
+            let cache_dir = project_root.join(".logos-native");
+            let natives = logicaffeine_compile::compile::aot_load_bundle(&source, &cache_dir);
+            if !natives.is_empty() {
+                logicaffeine_compile::ui_bridge::set_pending_aot_natives(natives);
+            }
+        }
+    }
+
     let result = futures::executor::block_on(
         logicaffeine_compile::interpret_for_ui_with_args(&source, &argv),
     );
@@ -596,6 +671,72 @@ fn cmd_check() -> Result<(), Box<dyn std::error::Error>> {
     let _ = compile_project(&entry_path)?;
 
     println!("Check passed");
+    Ok(())
+}
+
+/// `largo opts <file>` — report which optimizations actually fire for a program.
+fn cmd_opts(file: &std::path::Path, json: bool) -> Result<(), Box<dyn std::error::Error>> {
+    use logicaffeine_compile::optimization::REGISTRY;
+    let source = fs::read_to_string(file)?;
+
+    // The complete per-program optimization graph from one all-on evaluation: what
+    // FIRED, the BLOCKERS (precedence preemptions that occurred), and the emergent
+    // DEPENDENCIES (one optimization only fired because another was on). All on the
+    // AOT codegen path, so the three views agree with the generated Rust.
+    let (fired, blockers, dependencies) = crate::compile::optimization_graph(&source);
+
+    if json {
+        let arr = |v: &[&str]| -> String {
+            v.iter().map(|k| format!("\"{k}\"")).collect::<Vec<_>>().join(",")
+        };
+        let pairs = |v: &[(&str, &str)]| -> String {
+            v.iter().map(|(a, b)| format!("[\"{a}\",\"{b}\"]")).collect::<Vec<_>>().join(",")
+        };
+        println!(
+            "{{\"fired\":[{}],\"blockers\":[{}],\"dependencies\":[{}]}}",
+            arr(&fired),
+            pairs(&blockers),
+            pairs(&dependencies)
+        );
+        return Ok(());
+    }
+
+    if fired.is_empty() {
+        println!("No optimizations fired for {}.", file.display());
+        return Ok(());
+    }
+
+    let fired_set: std::collections::BTreeSet<&str> = fired.iter().copied().collect();
+    println!(
+        "Optimizations that fired for {} ({} of {}):",
+        file.display(),
+        fired.len(),
+        REGISTRY.len()
+    );
+    // List in registry order, grouped by category.
+    let mut last_group = "";
+    for m in REGISTRY {
+        if !fired_set.contains(m.keyword) {
+            continue;
+        }
+        if m.group != last_group {
+            println!("  {}", m.group);
+            last_group = m.group;
+        }
+        println!("    {:<14} {}", m.keyword, m.label);
+    }
+    if !dependencies.is_empty() {
+        println!("Dependencies (one fired only because another was on):");
+        for (dependent, dep) in &dependencies {
+            println!("    {dependent:<14} depends on {dep}");
+        }
+    }
+    if !blockers.is_empty() {
+        println!("Blockers (one took precedence, skipping another):");
+        for (winner, loser) in &blockers {
+            println!("    {winner:<14} blocks    {loser}");
+        }
+    }
     Ok(())
 }
 

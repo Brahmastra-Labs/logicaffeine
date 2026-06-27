@@ -4,12 +4,12 @@
   "difficulty": 1,
   "prompt": "If Jim is a politician, then Jim couldn't be bold",
   "options": [
-    "$ (P \\\\supset \\\\square \\\\sim B) $",
-    "$ \\\\square (P \\\\supset \\\\sim B) $",
-    "$ \\\\square P \\\\supset \\\\sim B $",
+    "$ (P \\supset \\square \\sim B) $",
+    "$ \\square (P \\supset \\sim B) $",
+    "$ \\square P \\supset \\sim B $",
     "Ambiguous between 1 & 2"
   ],
   "correct": 3,
   "hint": "Does 'couldn't' mean 'not possible' or 'not necessary'? Think about what's being ruled out.",
-  "explanation": "'Couldn't be X' means 'it's NOT POSSIBLE to be X' \u2014 the door to that possibility is locked shut. We write this as ~\u25c7P (not-possible P). This is different from '\u25c7~P' (possibly not P), which only says there's SOME world where P is false."
+  "explanation": "This sentence is scope-ambiguous. 'Couldn't be bold' is □∼B (necessarily not bold). The box can take NARROW scope — P ⊃ □∼B, 'if Jim is a politician then it's impossible for him to be bold' (option 1) — or WIDE scope — □(P ⊃ ∼B), 'necessarily, if Jim is a politician he isn't bold' (option 2). English doesn't settle which, so BOTH are defensible. (The reading □P ⊃ ∼B puts necessity on the antecedent and isn't natural.)"
 }

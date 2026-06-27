@@ -122,8 +122,7 @@ Show found.
 /// not leak.)
 #[test]
 fn kill_switch_disables_dense() {
-    std::env::set_var("LOGOS_DENSE_MAP", "0");
-    std::env::set_var("LOGOS_NARROW_MAP", "0");
+    std::env::set_var("LOGOS_OPT_OFF", "densemap,narrowmap");
     let src = r#"## Main
 Let mutable m be a new Map of Int to Int with capacity 20.
 Let mutable i be 1.
@@ -139,8 +138,7 @@ While i is less than 21:
 Show found.
 "#;
     let rust = compile_to_rust(src).unwrap();
-    std::env::remove_var("LOGOS_DENSE_MAP");
-    std::env::remove_var("LOGOS_NARROW_MAP");
+    std::env::remove_var("LOGOS_OPT_OFF");
     assert!(
         !rust.contains("LogosDense") && !rust.contains("LogosI32") && rust.contains("LogosI64Map"),
         "both kill switches off must fall back to the base LogosI64Map. Got:\n{rust}"

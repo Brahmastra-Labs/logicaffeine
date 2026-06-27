@@ -33,7 +33,7 @@
 //! ```
 
 use dioxus::prelude::*;
-use crate::ui::pages::{Landing, Learn, Pricing, Privacy, Profile, Roadmap, Success, Terms, Workspace, Studio, Guide, Crates, News, NewsArticle, Benchmarks};
+use crate::ui::pages::{Landing, Learn, Pricing, Privacy, Profile, Roadmap, RoadmapNew, Success, Terms, Workspace, Studio, Guide, Crates, News, NewsArticle, Benchmarks};
 use crate::ui::pages::registry::{Registry, PackageDetail};
 
 /// Application routes.
@@ -61,6 +61,10 @@ pub enum Route {
     /// Product roadmap at `/roadmap`.
     #[route("/roadmap")]
     Roadmap {},
+
+    /// New roadmap preview at `/roadmap-new` (pending swap into `/roadmap`).
+    #[route("/roadmap-new")]
+    RoadmapNew {},
 
     /// Documentation and tutorials at `/guide`.
     #[route("/guide")]

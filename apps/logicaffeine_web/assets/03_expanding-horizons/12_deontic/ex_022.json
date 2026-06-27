@@ -4,12 +4,12 @@
   "difficulty": 1,
   "prompt": "Forfeit and speak",
   "options": [
-    "$ (F\\\\underline{u}\\\\cdot S\\\\underline{u}  ) $",
-    "$ (Fu\\\\cdot S\\\\underline{u} ) $",
-    "$ (Fu\\\\cdot Su) $",
-    "$ (F\\\\underline{u}\\\\cdot Su ) $"
+    "$ (F\\underline{u}\\cdot S\\underline{u}  ) $",
+    "$ (Fu\\cdot S\\underline{u} ) $",
+    "$ (Fu\\cdot Su) $",
+    "$ (F\\underline{u}\\cdot Su ) $"
   ],
   "correct": 0,
   "hint": "Identify WHO is being commanded or permitted (the agent, marked with underline) and WHAT action they must/may do.",
-  "explanation": "In deontic logic: F represents prohibition - 'must not' or 'is forbidden to'. Deontic operators express moral or legal requirements."
+  "explanation": "'Forfeit and speak' conjoins two commands. F is simply the predicate for 'forfeit' (not a prohibition): both actions are ordered of you, the underlined agent — (F͟u · S͟u)."
 }

@@ -1,13 +1,13 @@
 {
-  "id": "C_6.14",
+  "id": "C_6.76",
   "type": "multiple_choice",
   "difficulty": 1,
   "prompt": "Both not N and P",
   "options": [
-    "$ (\\\\sim N \\\\cdot P) $",
-    "$ \\\\sim N \\\\cdot P $",
-    "$ (\\\\sim N \\\\cdot \\\\, \\\\sim P) $",
-    "$ \\\\sim (N \\\\cdot P) $"
+    "$ (\\sim N \\cdot P) $",
+    "$ \\sim N \\cdot P $",
+    "$ (\\sim N \\cdot \\, \\sim P) $",
+    "$ \\sim (N \\cdot P) $"
   ],
   "correct": 0,
   "hint": "What exactly is 'both' connecting? Are both parts the full consequence, or just the second one?",

@@ -4,10 +4,10 @@
   "difficulty": 1,
   "prompt": "You're cheap and frivolous, or else generous",
   "options": [
-    "$ ((C \\\\cdot F) \\\\vee G) $",
-    "$ C \\\\cdot F \\\\vee G $",
-    "$ (C \\\\cdot (F \\\\vee G)) $",
-    "$ (C \\\\cdot F) \\\\vee G $"
+    "$ ((C \\cdot F) \\vee G) $",
+    "$ C \\cdot F \\vee G $",
+    "$ (C \\cdot (F \\vee G)) $",
+    "$ (C \\cdot F) \\vee G $"
   ],
   "correct": 0,
   "hint": "Identify the main connective first. What's the primary structure of this sentence?",

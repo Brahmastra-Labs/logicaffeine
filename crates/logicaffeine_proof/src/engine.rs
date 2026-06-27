@@ -215,12 +215,7 @@ fn cert_eq_path_proof(
     adj: &std::collections::HashMap<String, Vec<(ProofTerm, DerivationTree)>>,
 ) -> Option<DerivationTree> {
     fn term_key(t: &ProofTerm) -> Option<String> {
-        match t {
-            ProofTerm::Constant(s) | ProofTerm::Variable(s) | ProofTerm::BoundVarRef(s) => {
-                Some(s.clone())
-            }
-            _ => None,
-        }
+        term_skey(t)
     }
     let a_key = term_key(a)?;
     let c_key = term_key(c)?;
@@ -334,6 +329,406 @@ fn cert_equality_close(known: &[(ProofExpr, DerivationTree)]) -> Option<Derivati
         }
     }
     None
+}
+
+/// A structural key for a term — atomic names map to themselves, applications to
+/// `head(arg₀,…,argₙ)` recursively. This lets the equality graph treat compound
+/// terms (e.g. `F(A)`) as first-class nodes, the precondition for congruence.
+fn term_skey(t: &ProofTerm) -> Option<String> {
+    match t {
+        ProofTerm::Constant(s) | ProofTerm::Variable(s) | ProofTerm::BoundVarRef(s) => {
+            Some(s.clone())
+        }
+        ProofTerm::Function(f, args) => {
+            let mut parts = Vec::with_capacity(args.len());
+            for a in args {
+                parts.push(term_skey(a)?);
+            }
+            Some(format!("{}({})", f, parts.join(",")))
+        }
+        ProofTerm::Group(args) => {
+            let mut parts = Vec::with_capacity(args.len());
+            for a in args {
+                parts.push(term_skey(a)?);
+            }
+            Some(format!("({})", parts.join(",")))
+        }
+        _ => None,
+    }
+}
+
+/// Collect a term and all its subterms (for the congruence universe).
+fn collect_subterms(t: &ProofTerm, out: &mut Vec<ProofTerm>) {
+    out.push(t.clone());
+    if let ProofTerm::Function(_, args) | ProofTerm::Group(args) = t {
+        for a in args {
+            collect_subterms(a, out);
+        }
+    }
+}
+
+/// Build a proof of `head(xs) = head(ys)` from per-argument equality proofs,
+/// rewriting one differing argument at a time. `arg_proofs[i]` is `None` when
+/// `xs[i]` and `ys[i]` are structurally identical, else a proof of `xs[i]=ys[i]`.
+/// Each step is a `Rewrite` (Leibniz / `Eq_rec`): its motive `λz. head(xs)=head(…z…)`
+/// abstracts the i-th argument of the right-hand side, so the source premise is the
+/// running `head(xs)=head(cur)` and the equality premise the argument proof.
+fn build_congruence_proof(
+    head: &str,
+    xs: &[ProofTerm],
+    ys: &[ProofTerm],
+    arg_proofs: &[Option<DerivationTree>],
+) -> DerivationTree {
+    let f = |args: &[ProofTerm]| ProofTerm::Function(head.to_string(), args.to_vec());
+    let mut cur: Vec<ProofTerm> = xs.to_vec();
+    let mut acc = DerivationTree::leaf(
+        ProofExpr::Identity(f(xs), f(xs)),
+        InferenceRule::Reflexivity,
+    );
+    for i in 0..xs.len() {
+        let Some(arg_proof) = &arg_proofs[i] else {
+            continue;
+        };
+        let mut next = cur.clone();
+        next[i] = ys[i].clone();
+        let concl = ProofExpr::Identity(f(xs), f(&next));
+        acc = DerivationTree::new(
+            concl,
+            InferenceRule::Rewrite {
+                from: xs[i].clone(),
+                to: ys[i].clone(),
+            },
+            vec![arg_proof.clone(), acc],
+        );
+        cur = next;
+    }
+    acc
+}
+
+/// Prove `lhs = rhs` by congruence closure over the hypothesis equalities. Build an
+/// equality graph whose nodes are all subterms (compound included), seed it with the
+/// hypotheses (and their symmetrics), then saturate with congruence edges — for any
+/// two present applications `F(xs)`, `F(ys)` whose arguments are already pairwise
+/// connected, add `F(xs)=F(ys)` (its proof built by [`build_congruence_proof`]) — to
+/// a fixpoint. Finally search for a transitive path `lhs → rhs`. Every emitted node
+/// certifies (Reflexivity / EqualitySymmetry / Rewrite / EqualityTransitivity).
+fn cert_congruence_path(
+    lhs: &ProofTerm,
+    rhs: &ProofTerm,
+    hyps: &[(ProofExpr, DerivationTree)],
+) -> Option<DerivationTree> {
+    use std::collections::HashMap;
+    let mut adj: HashMap<String, Vec<(ProofTerm, DerivationTree)>> = HashMap::new();
+
+    // Seed the graph with hypothesis equalities, both directions.
+    for (prop, tree) in hyps {
+        let ProofExpr::Identity(l, r) = prop else {
+            continue;
+        };
+        let (Some(lk), Some(rk)) = (term_skey(l), term_skey(r)) else {
+            continue;
+        };
+        if lk == rk {
+            continue;
+        }
+        adj.entry(lk).or_default().push((r.clone(), tree.clone()));
+        let sym = DerivationTree::new(
+            ProofExpr::Identity(r.clone(), l.clone()),
+            InferenceRule::EqualitySymmetry,
+            vec![tree.clone()],
+        );
+        adj.entry(rk).or_default().push((l.clone(), sym));
+    }
+
+    // The universe of subterms (deduplicated by structural key).
+    let mut universe: Vec<ProofTerm> = Vec::new();
+    for (prop, _) in hyps {
+        if let ProofExpr::Identity(l, r) = prop {
+            collect_subterms(l, &mut universe);
+            collect_subterms(r, &mut universe);
+        }
+    }
+    collect_subterms(lhs, &mut universe);
+    collect_subterms(rhs, &mut universe);
+    let funcs: Vec<ProofTerm> = {
+        let mut seen = std::collections::HashSet::new();
+        universe
+            .into_iter()
+            .filter(|t| matches!(t, ProofTerm::Function(..)))
+            .filter(|t| term_skey(t).is_some_and(|k| seen.insert(k)))
+            .collect()
+    };
+
+    // Saturate congruence edges to a fixpoint.
+    loop {
+        let mut added = false;
+        for i in 0..funcs.len() {
+            for j in 0..funcs.len() {
+                if i == j {
+                    continue;
+                }
+                let (ProofTerm::Function(fi, xs), ProofTerm::Function(fj, ys)) =
+                    (&funcs[i], &funcs[j])
+                else {
+                    continue;
+                };
+                if fi != fj || xs.len() != ys.len() {
+                    continue;
+                }
+                let (ki, kj) = (term_skey(&funcs[i]).unwrap(), term_skey(&funcs[j]).unwrap());
+                let already = adj.get(&ki).is_some_and(|es| {
+                    es.iter().any(|(t, _)| term_skey(t).as_deref() == Some(kj.as_str()))
+                });
+                if already {
+                    continue;
+                }
+                let mut arg_proofs: Vec<Option<DerivationTree>> = Vec::with_capacity(xs.len());
+                let mut ok = true;
+                for (x, y) in xs.iter().zip(ys.iter()) {
+                    if term_skey(x) == term_skey(y) {
+                        arg_proofs.push(None);
+                    } else if let Some(p) = cert_eq_path_proof(x, y, &adj) {
+                        arg_proofs.push(Some(p));
+                    } else {
+                        ok = false;
+                        break;
+                    }
+                }
+                if !ok {
+                    continue;
+                }
+                let cong = build_congruence_proof(fi, xs, ys, &arg_proofs);
+                let sym = DerivationTree::new(
+                    ProofExpr::Identity(funcs[j].clone(), funcs[i].clone()),
+                    InferenceRule::EqualitySymmetry,
+                    vec![cong.clone()],
+                );
+                adj.entry(ki).or_default().push((funcs[j].clone(), cong));
+                adj.entry(kj).or_default().push((funcs[i].clone(), sym));
+                added = true;
+            }
+        }
+        if !added {
+            break;
+        }
+    }
+
+    cert_eq_path_proof(lhs, rhs, &adj)
+}
+
+/// The inequality `a ≤ b`, encoded as the Prop `le(a, b) = true`.
+fn le_eq(a: ProofTerm, b: ProofTerm) -> ProofExpr {
+    ProofExpr::Identity(
+        ProofTerm::Function("le".to_string(), vec![a, b]),
+        ProofTerm::Constant("true".to_string()),
+    )
+}
+
+/// If `e` is an inequality `le(a, b) = true`, return `(a, b)`.
+fn as_le_pair(e: &ProofExpr) -> Option<(ProofTerm, ProofTerm)> {
+    if let ProofExpr::Identity(lhs, rhs) = e {
+        if let (ProofTerm::Function(name, args), ProofTerm::Constant(t)) = (lhs, rhs) {
+            if name == "le" && args.len() == 2 && t == "true" {
+                return Some((args[0].clone(), args[1].clone()));
+            }
+        }
+    }
+    None
+}
+
+/// An integer-literal operand, if this term is one.
+fn as_int_literal(t: &ProofTerm) -> Option<i64> {
+    match t {
+        ProofTerm::Constant(s) => s.parse::<i64>().ok(),
+        _ => None,
+    }
+}
+
+/// Prove `a ≤ b` by chaining the known `≤` facts. `adj` is the DIRECTED graph of
+/// hypothesis inequalities (`≤` is not symmetric); a path `a → … → b` folds into a
+/// left-nested `le_trans`, and `a = b` closes by `le_refl`. Every node certifies.
+fn cert_le_path(
+    a: &ProofTerm,
+    b: &ProofTerm,
+    adj: &std::collections::HashMap<String, Vec<(ProofTerm, DerivationTree)>>,
+) -> Option<DerivationTree> {
+    let a_key = term_skey(a)?;
+    let b_key = term_skey(b)?;
+    if a_key == b_key {
+        return Some(DerivationTree::leaf(
+            le_eq(a.clone(), a.clone()),
+            InferenceRule::LeRefl,
+        ));
+    }
+    let mut queue: std::collections::VecDeque<(String, Option<DerivationTree>)> =
+        std::collections::VecDeque::new();
+    queue.push_back((a_key.clone(), None));
+    let mut visited: std::collections::HashSet<String> = std::collections::HashSet::new();
+    visited.insert(a_key);
+    while let Some((cur_key, acc)) = queue.pop_front() {
+        let Some(edges) = adj.get(&cur_key) else {
+            continue;
+        };
+        for (next_term, edge_tree) in edges {
+            let Some(next_key) = term_skey(next_term) else {
+                continue;
+            };
+            if visited.contains(&next_key) {
+                continue;
+            }
+            visited.insert(next_key.clone());
+            // `acc` proves `a ≤ cur`; `edge_tree` proves `cur ≤ next`.
+            let step = match &acc {
+                None => edge_tree.clone(), // cur == a: the edge already proves a ≤ next
+                Some(acc_proof) => DerivationTree::new(
+                    le_eq(a.clone(), next_term.clone()),
+                    InferenceRule::LeTrans,
+                    vec![acc_proof.clone(), edge_tree.clone()],
+                ),
+            };
+            if next_key == b_key {
+                return Some(step);
+            }
+            queue.push_back((next_key, Some(step)));
+        }
+    }
+    None
+}
+
+/// Detect a linear contradiction in the known set: a chain of `≤` facts proving
+/// `le(m, n) = true` for ground `m > n` (impossible — `le m n ⇝ false`). Returns a
+/// `⊥` derivation through the Bool no-confusion discriminator, so contradictory
+/// linear bounds (e.g. `x ≤ 3` with `5 ≤ x`) close any goal by ex falso.
+fn cert_linarith_close(known: &[(ProofExpr, DerivationTree)]) -> Option<DerivationTree> {
+    use std::collections::HashMap;
+    let mut adj: HashMap<String, Vec<(ProofTerm, DerivationTree)>> = HashMap::new();
+    let mut grounds: Vec<(i64, ProofTerm)> = Vec::new();
+    for (prop, tree) in known {
+        if let Some((x, y)) = as_le_pair(prop) {
+            if let Some(xk) = term_skey(&x) {
+                adj.entry(xk).or_default().push((y.clone(), tree.clone()));
+            }
+            for t in [&x, &y] {
+                if let Some(v) = as_int_literal(t) {
+                    grounds.push((v, t.clone()));
+                }
+            }
+        }
+    }
+    if adj.is_empty() {
+        return None;
+    }
+    for (mv, m) in &grounds {
+        for (nv, n) in &grounds {
+            if mv > nv {
+                if let Some(le_proof) = cert_le_path(m, n, &adj) {
+                    return Some(DerivationTree::new(
+                        ProofExpr::Atom("⊥".into()),
+                        InferenceRule::LinFalse,
+                        vec![le_proof],
+                    ));
+                }
+            }
+        }
+    }
+    None
+}
+
+/// General linear refutation (Farkas). Decide unsatisfiability of the `≤`
+/// hypotheses with Fourier-Motzkin ([`crate::linarith_solve::find_farkas`]), then
+/// RECONSTRUCT a kernel proof from the non-negative multipliers `λᵢ`: each `lᵢ ≤ rᵢ`
+/// becomes `0 ≤ rᵢ - lᵢ` (`le_sub`), scaled by `λᵢ` (`le_mul_nonneg`), summed
+/// (`le_add_mono`) into `le(BigL, BigR)`; the variables cancel, so `BigL` ring-reduces
+/// to `0` and `BigR` to `-d` (`d > 0`), giving the ground-false `le(0, -d)` that the
+/// discriminator turns into `⊥`. Handles arbitrary coefficients (where the chain
+/// `cert_linarith_close` cannot).
+fn cert_farkas(known: &[(ProofExpr, DerivationTree)]) -> Option<DerivationTree> {
+    use crate::linarith_solve::{combine, find_farkas, parse_lin};
+
+    let mut le_hyps: Vec<(ProofTerm, ProofTerm, DerivationTree)> = Vec::new();
+    let mut constraints = Vec::new();
+    for (prop, tree) in known {
+        if let Some((l, r)) = as_le_pair(prop) {
+            if let (Some(ll), Some(rl)) = (parse_lin(&l), parse_lin(&r)) {
+                constraints.push(ll.sub(&rl)); // l - r ≤ 0
+                le_hyps.push((l, r, tree.clone()));
+            }
+        }
+    }
+    if le_hyps.is_empty() {
+        return None;
+    }
+    let multipliers = find_farkas(&constraints)?;
+    let combo = combine(&constraints, &multipliers);
+    if !combo.is_const() || combo.constant <= 0 {
+        return None;
+    }
+    let d = combo.constant; // Σ λᵢ(lᵢ - rᵢ) = d > 0
+
+    let pc = |n: i64| ProofTerm::Constant(n.to_string());
+    let pf = |op: &str, x: ProofTerm, y: ProofTerm| ProofTerm::Function(op.to_string(), vec![x, y]);
+
+    // Per active hypothesis: 0 ≤ rᵢ - lᵢ (le_sub), scaled by λᵢ (le_mul_nonneg).
+    let mut scaled: Vec<DerivationTree> = Vec::new();
+    for (&i, &lam) in &multipliers {
+        if lam <= 0 {
+            continue;
+        }
+        let (l, r, hyp_tree) = &le_hyps[i];
+        // r + (-1)·l  — the `le_sub` form (sub-free, ring-oracle friendly).
+        let diff = pf("add", r.clone(), pf("mul", pc(-1), l.clone()));
+        let sub_i = DerivationTree::new(
+            le_eq(pc(0), diff.clone()),
+            InferenceRule::LeSub,
+            vec![hyp_tree.clone()],
+        );
+        let ground = DerivationTree::leaf(le_eq(pc(0), pc(lam)), InferenceRule::Reflexivity);
+        scaled.push(DerivationTree::new(
+            le_eq(pf("mul", pc(lam), pc(0)), pf("mul", pc(lam), diff)),
+            InferenceRule::LeMulNonneg,
+            vec![ground, sub_i],
+        ));
+    }
+    // Sum them: le(BigL, BigR).
+    let summed = scaled.into_iter().reduce(|acc, s| {
+        let (al, ar) = as_le_pair(&acc.conclusion).expect("scaled is an le-fact");
+        let (sl, sr) = as_le_pair(&s.conclusion).expect("scaled is an le-fact");
+        DerivationTree::new(
+            le_eq(pf("add", al, sl), pf("add", ar, sr)),
+            InferenceRule::LeAddMono,
+            vec![acc, s],
+        )
+    })?;
+    let (big_l, big_r) = as_le_pair(&summed.conclusion)?;
+
+    // Ring-normalize: rewrite BigR → -d, then BigL → 0, giving the ground `le(0, -d)`.
+    let rw1 = DerivationTree::new(
+        le_eq(big_l.clone(), pc(-d)),
+        InferenceRule::Rewrite { from: big_r.clone(), to: pc(-d) },
+        vec![
+            DerivationTree::leaf(
+                ProofExpr::Identity(big_r, pc(-d)),
+                InferenceRule::ArithDecision,
+            ),
+            summed,
+        ],
+    );
+    let rw2 = DerivationTree::new(
+        le_eq(pc(0), pc(-d)),
+        InferenceRule::Rewrite { from: big_l.clone(), to: pc(0) },
+        vec![
+            DerivationTree::leaf(
+                ProofExpr::Identity(big_l, pc(0)),
+                InferenceRule::ArithDecision,
+            ),
+            rw1,
+        ],
+    );
+    Some(DerivationTree::new(
+        ProofExpr::Atom("⊥".into()),
+        InferenceRule::LinFalse,
+        vec![rw2],
+    ))
 }
 
 /// Close a `P` / `¬P` pair in the known set into a `Contradiction` (⊥) node.
@@ -871,6 +1266,12 @@ fn cert_derive_falsum(
     if let Some(t) = cert_equality_close(&known) {
         return Some(t);
     }
+    if let Some(t) = cert_linarith_close(&known) {
+        return Some(t);
+    }
+    if let Some(t) = cert_farkas(&known) {
+        return Some(t);
+    }
     if depth == 0 {
         return None;
     }
@@ -1385,6 +1786,13 @@ impl BackwardChainer {
             return Ok(tree);
         }
 
+        // Strategy 0c: Linear arithmetic over `Int` — chain `≤` facts by transitivity,
+        // add inequalities, and decide ground facts by computation, certified by the
+        // `le_trans`/`le_refl`/`le_add_mono` axioms.
+        if let Some(tree) = self.try_linarith(&goal, depth)? {
+            return Ok(tree);
+        }
+
         // Strategy 1: Direct fact matching
         if let Some(tree) = self.try_match_fact(&goal)? {
             return Ok(tree);
@@ -1463,6 +1871,35 @@ impl BackwardChainer {
         #[cfg(feature = "verification")]
         if let Some(tree) = self.try_oracle_fallback(&goal)? {
             return Ok(tree);
+        }
+
+        // Strategy 8: Ex falso quodlibet — a last resort, only at the top level.
+        // If the premises are jointly contradictory, any goal follows. The
+        // contradiction is a property of the KB, so one check at depth 0 suffices;
+        // a consistent KB returns `None` and the goal still fails honestly.
+        if depth == 0 && !is_falsum(&goal.target) {
+            if let Some(false_tree) = self.find_certifiable_contradiction(&goal.context, depth)? {
+                return Ok(DerivationTree::new(
+                    goal.target.clone(),
+                    InferenceRule::ExFalso,
+                    vec![false_tree],
+                ));
+            }
+        }
+
+        // Strategy 9: Classical reductio (proof by contradiction) — last resort at the
+        // top level for a POSITIVE goal G: assume ¬G and search for ⊥; if found, G
+        // follows via the `dne` axiom. Classical, explicit, kernel-checked.
+        if depth == 0 && !is_falsum(&goal.target) && !matches!(goal.target, ProofExpr::Not(_)) {
+            let mut ext = goal.context.clone();
+            ext.push(ProofExpr::Not(Box::new(goal.target.clone())));
+            if let Some(false_tree) = self.find_certifiable_contradiction(&ext, depth)? {
+                return Ok(DerivationTree::new(
+                    goal.target.clone(),
+                    InferenceRule::ClassicalReductio,
+                    vec![false_tree],
+                ));
+            }
         }
 
         // No proof found
@@ -1609,6 +2046,61 @@ impl BackwardChainer {
                         goal.target.clone(),
                         InferenceRule::DisjunctionIntro,
                         vec![right_proof],
+                    )));
+                }
+            }
+
+            // Biconditional Introduction (↔I): to prove P ↔ Q, prove both directions
+            // P → Q and Q → P (each by →I), then combine. Certified as `conj` over the
+            // two implications (Iff ≡ And (P→Q) (Q→P)).
+            ProofExpr::Iff(left, right) => {
+                let pq = ProofExpr::Implies(left.clone(), right.clone());
+                let qp = ProofExpr::Implies(right.clone(), left.clone());
+                let pq_goal = ProofGoal::with_context(pq, goal.context.clone());
+                let qp_goal = ProofGoal::with_context(qp, goal.context.clone());
+                if let (Ok(pq_proof), Ok(qp_proof)) = (
+                    self.prove_goal(pq_goal, depth + 1),
+                    self.prove_goal(qp_goal, depth + 1),
+                ) {
+                    return Ok(Some(DerivationTree::new(
+                        goal.target.clone(),
+                        InferenceRule::BicondIntro,
+                        vec![pq_proof, qp_proof],
+                    )));
+                }
+            }
+
+            // Universal Introduction (∀I): to prove ∀x.φ(x), prove φ(x) for an
+            // arbitrary x and generalize. The certifier binds x as a local and wraps
+            // the body proof in `λ(x:Entity). …`. Soundness is kernel-enforced: a
+            // proof that secretly instantiates x (e.g. man(x) via x:=Socrates) yields
+            // a body of type `φ(Socrates)`, which cannot be wrapped as `Π(x).φ(x)`.
+            ProofExpr::ForAll { variable, body } => {
+                let body_goal = ProofGoal::with_context((**body).clone(), goal.context.clone());
+                if let Ok(body_proof) = self.prove_goal(body_goal, depth + 1) {
+                    return Ok(Some(DerivationTree::new(
+                        goal.target.clone(),
+                        InferenceRule::UniversalIntro {
+                            variable: variable.clone(),
+                            var_type: "Entity".to_string(),
+                        },
+                        vec![body_proof],
+                    )));
+                }
+            }
+
+            // Implication Introduction (→I): to prove P → Q, assume P (discharge it
+            // into the local context) and prove Q. The certifier binds P as a local
+            // hypothesis and wraps the Q-proof in `λ(hp:P). …`.
+            ProofExpr::Implies(ant, con) => {
+                let mut ext = goal.context.clone();
+                ext.push((**ant).clone());
+                let con_goal = ProofGoal::with_context((**con).clone(), ext);
+                if let Ok(con_proof) = self.prove_goal(con_goal, depth + 1) {
+                    return Ok(Some(DerivationTree::new(
+                        goal.target.clone(),
+                        InferenceRule::ImpliesIntro,
+                        vec![con_proof],
                     )));
                 }
             }
@@ -1849,21 +2341,24 @@ impl BackwardChainer {
             // Case A: the matrix unifies directly with the goal — a universal fact
             // (e.g. ∀x∀y R(x,y) discharging R(a,b)).
             if let Ok(subst) = unify_exprs(&goal.target, body) {
-                if bound_vars.iter().any(|v| subst.get(v).is_some()) {
-                    let witness = bound_vars
-                        .iter()
-                        .find_map(|v| subst.get(v).map(|t| format!("{}", t)))
-                        .unwrap_or_else(|| bound_vars[0].clone());
-                    let universal_leaf =
+                // A direct universal fact: every bound variable must be pinned by the
+                // goal. Build NESTED UniversalInst nodes so a multi-binder fact
+                // (`∀x∀y. R(x,y)`) applies to ALL witnesses, not just the first.
+                if !bound_vars.is_empty() && bound_vars.iter().all(|v| subst.get(v).is_some()) {
+                    let mut inst_node =
                         DerivationTree::leaf(forall_expr.clone(), InferenceRule::PremiseMatch);
-                    return Ok(Some(
-                        DerivationTree::new(
+                    for var in &bound_vars {
+                        let witness_str = subst
+                            .get(var)
+                            .map(|t| format!("{}", t))
+                            .unwrap_or_else(|| var.clone());
+                        inst_node = DerivationTree::new(
                             goal.target.clone(),
-                            InferenceRule::UniversalInst(witness),
-                            vec![universal_leaf],
-                        )
-                        .with_substitution(subst),
-                    ));
+                            InferenceRule::UniversalInst(witness_str),
+                            vec![inst_node],
+                        );
+                    }
+                    return Ok(Some(inst_node.with_substitution(subst)));
                 }
             }
 
@@ -1877,17 +2372,25 @@ impl BackwardChainer {
                     if let Ok((ant_proof, final_subst)) =
                         self.prove_rule_antecedent(&ant_inst, &subst, &goal.context, depth + 1)
                     {
-                        let witness = bound_vars
-                            .iter()
-                            .find_map(|v| final_subst.get(v).map(|t| format!("{}", t)))
-                            .unwrap_or_else(|| bound_vars[0].clone());
-                        let universal_leaf =
+                        // Build NESTED UniversalInst nodes — one per bound variable, in
+                        // binder order — so the certifier applies the universal proof to
+                        // ALL witnesses (`((forall x) y) z`), fully instantiating
+                        // ∀x∀y∀z. A single node with one witness left the inner
+                        // quantifiers unfilled (the "expected Entity, found And" bug).
+                        let instantiated = apply_subst_to_expr(body, &final_subst);
+                        let mut inst_node =
                             DerivationTree::leaf(forall_expr.clone(), InferenceRule::PremiseMatch);
-                        let inst_node = DerivationTree::new(
-                            apply_subst_to_expr(body, &final_subst),
-                            InferenceRule::UniversalInst(witness),
-                            vec![universal_leaf],
-                        );
+                        for var in &bound_vars {
+                            let witness_str = final_subst
+                                .get(var)
+                                .map(|t| format!("{}", t))
+                                .unwrap_or_else(|| var.clone());
+                            inst_node = DerivationTree::new(
+                                instantiated.clone(),
+                                InferenceRule::UniversalInst(witness_str),
+                                vec![inst_node],
+                            );
+                        }
                         return Ok(Some(
                             DerivationTree::new(
                                 goal.target.clone(),
@@ -1960,8 +2463,11 @@ impl BackwardChainer {
         // Ground subgoal (no open variable): prove it with the full strategy
         // suite, so non-Horn antecedents (negations, disjunctions, induction, …)
         // stay exactly as provable as a top-level goal. No new bindings arise.
+        // Recurse at `depth + 1` so a recursive axiom (whose antecedent re-enters the
+        // chainer) is bounded by `max_depth` instead of overflowing the stack.
         if self.collect_variables(&g).is_empty() {
-            let proof = self.prove_goal(ProofGoal::with_context(g.clone(), context.to_vec()), depth)?;
+            let proof =
+                self.prove_goal(ProofGoal::with_context(g.clone(), context.to_vec()), depth + 1)?;
             let (mut rest_proofs, out) = self.solve_subgoals(rest, subst, context, depth)?;
             let mut proofs = Vec::with_capacity(1 + rest_proofs.len());
             proofs.push(proof);
@@ -2075,9 +2581,12 @@ impl BackwardChainer {
 
                 if let Ok(body_proof) = self.prove_goal(inst_goal, depth + 1) {
                     let witness_str = format!("{}", witness);
-                    // Extract witness type from body if available, otherwise default to Nat
+                    // Witness type from an explicit TypedVar if present (arithmetic /
+                    // induction), else the FOL domain `Entity` — matching the rest of
+                    // the encoding (`∀` ranges over Entity, predicates are Entity→Prop),
+                    // so an untyped `∃y.P(y)` certifies as `Ex Entity …`, not `Ex Nat …`.
                     let witness_type = extract_type_from_exists_body(body)
-                        .unwrap_or_else(|| "Nat".to_string());
+                        .unwrap_or_else(|| "Entity".to_string());
                     return Ok(Some(DerivationTree::new(
                         goal.target.clone(),
                         InferenceRule::ExistentialIntro {
@@ -2335,6 +2844,48 @@ impl BackwardChainer {
                         )));
                     }
                 }
+            }
+        }
+
+        // Last resort — general case analysis (intuitionistic ∨-elimination): for a
+        // disjunction `A ∨ B` in the KB, prove the goal under EACH disjunct. Unlike
+        // disjunctive syllogism above, no negation is needed. Skip a disjunction
+        // whose disjunct is already in context (it has been decided — re-splitting
+        // would loop). The certifier's `DisjunctionCases` binds each disjunct as a
+        // local hypothesis that the branch proof cites.
+        if depth < self.max_depth {
+            for (disj_expr, left, right) in &disjunctions {
+                let decided = goal.context.iter().any(|c| {
+                    exprs_structurally_equal(c, left) || exprs_structurally_equal(c, right)
+                });
+                if decided {
+                    continue;
+                }
+                let mut left_ctx = goal.context.clone();
+                left_ctx.push(left.clone());
+                let left_branch = match self.prove_goal(
+                    ProofGoal::with_context(goal.target.clone(), left_ctx),
+                    depth + 1,
+                ) {
+                    Ok(t) => t,
+                    Err(_) => continue,
+                };
+                let mut right_ctx = goal.context.clone();
+                right_ctx.push(right.clone());
+                let right_branch = match self.prove_goal(
+                    ProofGoal::with_context(goal.target.clone(), right_ctx),
+                    depth + 1,
+                ) {
+                    Ok(t) => t,
+                    Err(_) => continue,
+                };
+                let disj_leaf =
+                    DerivationTree::leaf(disj_expr.clone(), InferenceRule::PremiseMatch);
+                return Ok(Some(DerivationTree::new(
+                    goal.target.clone(),
+                    InferenceRule::DisjunctionCases,
+                    vec![disj_leaf, left_branch, right_branch],
+                )));
             }
         }
 
@@ -4204,6 +4755,12 @@ impl BackwardChainer {
                 }
             }
 
+            // General congruence closure: `F(a)=F(b)` from `a=b`, closed through
+            // transitivity and nested applications ("equals added to equals").
+            if let Some(tree) = self.try_congruence(goal)? {
+                return Ok(Some(tree));
+            }
+
             return Ok(None);
         }
 
@@ -4289,6 +4846,82 @@ impl BackwardChainer {
         Ok(None)
     }
 
+    /// Prove an `Identity` goal by congruence closure over the known equalities
+    /// (knowledge base + local context). Decision and proof reconstruction live in
+    /// [`cert_congruence_path`]; every emitted node certifies, so a spurious
+    /// congruence would fail the kernel rather than admit a false equation.
+    fn try_congruence(&mut self, goal: &ProofGoal) -> ProofResult<Option<DerivationTree>> {
+        let ProofExpr::Identity(lhs, rhs) = &goal.target else {
+            return Ok(None);
+        };
+        let hyps: Vec<(ProofExpr, DerivationTree)> = self
+            .knowledge_base
+            .iter()
+            .chain(goal.context.iter())
+            .filter_map(|e| match e {
+                ProofExpr::Identity(l, r) => Some((
+                    e.clone(),
+                    DerivationTree::leaf(
+                        ProofExpr::Identity(l.clone(), r.clone()),
+                        InferenceRule::PremiseMatch,
+                    ),
+                )),
+                _ => None,
+            })
+            .collect();
+        if hyps.is_empty() {
+            return Ok(None);
+        }
+        Ok(cert_congruence_path(lhs, rhs, &hyps))
+    }
+
+    /// Prove an inequality goal `a ≤ b` (encoded `le(a, b) = true`) by chaining the
+    /// known `≤` facts transitively. The directed-graph search and proof
+    /// reconstruction live in [`cert_le_path`]; every node certifies via the
+    /// `le_trans`/`le_refl` axioms, so a spurious chain fails the kernel.
+    fn try_linarith(&mut self, goal: &ProofGoal, depth: usize) -> ProofResult<Option<DerivationTree>> {
+        let Some((ga, gb)) = as_le_pair(&goal.target) else {
+            return Ok(None);
+        };
+        // Ground case: both operands are literals — decided by computation. `le m n`
+        // reduces to `true`/`false`, so `m ≤ n` closes by reflexivity exactly when it
+        // holds (and is left unproven, soundly, when it does not).
+        if let (Some(av), Some(bv)) = (as_int_literal(&ga), as_int_literal(&gb)) {
+            return Ok((av <= bv)
+                .then(|| DerivationTree::leaf(goal.target.clone(), InferenceRule::Reflexivity)));
+        }
+        // Addition: `a + c ≤ b + d` from `a ≤ b` and `c ≤ d`, each proved recursively
+        // (a Farkas primitive — `le_add_mono`).
+        if let (ProofTerm::Function(fl, la), ProofTerm::Function(fr, ra)) = (&ga, &gb) {
+            if fl == "add" && fr == "add" && la.len() == 2 && ra.len() == 2 {
+                let g0 =
+                    ProofGoal::with_context(le_eq(la[0].clone(), ra[0].clone()), goal.context.clone());
+                let g1 =
+                    ProofGoal::with_context(le_eq(la[1].clone(), ra[1].clone()), goal.context.clone());
+                if let (Ok(p0), Ok(p1)) =
+                    (self.prove_goal(g0, depth + 1), self.prove_goal(g1, depth + 1))
+                {
+                    return Ok(Some(DerivationTree::new(
+                        goal.target.clone(),
+                        InferenceRule::LeAddMono,
+                        vec![p0, p1],
+                    )));
+                }
+            }
+        }
+        let mut adj: std::collections::HashMap<String, Vec<(ProofTerm, DerivationTree)>> =
+            std::collections::HashMap::new();
+        for e in goal.context.iter().chain(self.knowledge_base.iter()) {
+            if let Some((x, y)) = as_le_pair(e) {
+                if let Some(xk) = term_skey(&x) {
+                    let proof = DerivationTree::leaf(e.clone(), InferenceRule::PremiseMatch);
+                    adj.entry(xk).or_default().push((y, proof));
+                }
+            }
+        }
+        Ok(cert_le_path(&ga, &gb, &adj))
+    }
+
     /// Try equality transitivity: a = b, b = c ⊢ a = c
     fn try_equality_transitivity(
         &mut self,
@@ -4340,14 +4973,19 @@ impl BackwardChainer {
         ) = (goal_l, goal_r)
         {
             if name_l == name_r && args_l.len() == args_r.len() {
-                // All arguments must be equal
-                let mut arg_proofs = Vec::new();
+                // Prove each differing argument equal; identical arguments need no
+                // rewrite. (`None` marks a position left untouched.)
+                let mut arg_proofs: Vec<Option<DerivationTree>> = Vec::new();
                 let mut all_ok = true;
                 for (arg_l, arg_r) in args_l.iter().zip(args_r.iter()) {
+                    if arg_l == arg_r {
+                        arg_proofs.push(None);
+                        continue;
+                    }
                     let arg_goal_expr = ProofExpr::Identity(arg_l.clone(), arg_r.clone());
                     let arg_goal = ProofGoal::with_context(arg_goal_expr, goal.context.clone());
                     match self.prove_goal(arg_goal, depth + 1) {
-                        Ok(proof) => arg_proofs.push(proof),
+                        Ok(proof) => arg_proofs.push(Some(proof)),
                         Err(_) => {
                             all_ok = false;
                             break;
@@ -4355,11 +4993,11 @@ impl BackwardChainer {
                     }
                 }
                 if all_ok {
-                    // All arguments are equal, so the functions are equal by congruence
-                    return Ok(Some(DerivationTree::new(
-                        goal.target.clone(),
-                        InferenceRule::Reflexivity, // Using Reflexivity for congruence
-                        arg_proofs,
+                    // Congruence: `f(a₀…) = f(b₀…)`, each differing argument rewritten
+                    // in turn via `Rewrite` (Leibniz) — a real certificate, not a
+                    // reflexivity placeholder that ignores the argument proofs.
+                    return Ok(Some(build_congruence_proof(
+                        name_l, args_l, args_r, &arg_proofs,
                     )));
                 }
             }

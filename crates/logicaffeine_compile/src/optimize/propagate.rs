@@ -145,8 +145,9 @@ fn propagate_stmt<'a>(
             function,
             args: args.into_iter().map(|a| subst_and_fold(a, env, expr_arena, stmt_arena, interner)).collect(),
         },
-        Stmt::RuntimeAssert { condition } => Stmt::RuntimeAssert {
+        Stmt::RuntimeAssert { condition, hard } => Stmt::RuntimeAssert {
             condition: subst_and_fold(condition, env, expr_arena, stmt_arena, interner),
+            hard,
         },
         // Don't substitute into SetIndex index — preserves AST shape for
         // swap pattern detection in codegen (matching Expr::Index behavior)

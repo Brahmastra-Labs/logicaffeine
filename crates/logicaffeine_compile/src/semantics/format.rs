@@ -6,6 +6,11 @@ use crate::interpreter::RuntimeValue;
 pub fn apply_format_spec(val: &RuntimeValue, spec: &str) -> String {
     // Currency: $
     if spec == "$" {
+        // A BigInt is an exact integer number of units — print it exactly with cents,
+        // rather than routing through a lossy f64.
+        if let RuntimeValue::BigInt(b) = val {
+            return format!("${}.00", b);
+        }
         let f = match val {
             RuntimeValue::Float(f) => *f,
             RuntimeValue::Int(n) => *n as f64,
@@ -19,6 +24,7 @@ pub fn apply_format_spec(val: &RuntimeValue, spec: &str) -> String {
             match val {
                 RuntimeValue::Float(f) => return format!("{:.prec$}", f, prec = precision),
                 RuntimeValue::Int(n) => return format!("{:.prec$}", *n as f64, prec = precision),
+                RuntimeValue::BigInt(b) => return format!("{:.prec$}", b.to_f64(), prec = precision),
                 _ => return val.to_display_string(),
             }
         }

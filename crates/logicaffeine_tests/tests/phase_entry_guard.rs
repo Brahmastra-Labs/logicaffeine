@@ -110,6 +110,27 @@ fn quicksort_partition_accesses_elide_to_unchecked() {
     );
 }
 
+/// The `Unchecked` toggle keeps every bounds check. Disabling it
+/// (`LOGOS_OPT_OFF=unchecked`, the config form of `## No Unchecked`) must remove
+/// ALL oracle-elided `get_unchecked`/`get_unchecked_mut` from the generated Rust:
+/// the same quicksort that elides by default stays fully checked. This is the
+/// headline safety guarantee of the Unchecked toggle (the Safety profile relies
+/// on it).
+#[test]
+fn disabling_unchecked_keeps_all_bounds_checks() {
+    std::env::set_var("LOGOS_OPT_OFF", "unchecked");
+    let rust = compile_to_rust(QUICKSORT).unwrap();
+    std::env::remove_var("LOGOS_OPT_OFF");
+    assert!(
+        !rust.contains(".get_unchecked("),
+        "with Unchecked disabled, no read may lower to get_unchecked. Got:\n{rust}"
+    );
+    assert!(
+        !rust.contains(".get_unchecked_mut("),
+        "with Unchecked disabled, no store may lower to get_unchecked_mut. Got:\n{rust}"
+    );
+}
+
 /// A short recursive partition (no I/O before the indexing) must still sort
 /// correctly with the guard in place — the guard never fires for valid input.
 /// qs over a fixed list, checksum of the sorted result is deterministic.

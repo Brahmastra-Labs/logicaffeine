@@ -1,5 +1,7 @@
 //! Equality and relational comparison.
 
+use logicaffeine_base::{BigInt, Rational};
+
 use crate::ast::stmt::BinaryOpKind;
 use crate::interpreter::RuntimeValue;
 
@@ -9,6 +11,14 @@ use crate::interpreter::RuntimeValue;
 pub fn values_equal(left: &RuntimeValue, right: &RuntimeValue) -> bool {
     match (left, right) {
         (RuntimeValue::Int(a), RuntimeValue::Int(b)) => a == b,
+        // BigInt holds only out-of-i64 values, so a BigInt never equals an Int; two
+        // BigInts compare by exact magnitude (the `_ => false` arm would be wrong).
+        (RuntimeValue::BigInt(a), RuntimeValue::BigInt(b)) => a == b,
+        // A Rational is never whole, so it never equals an Int/BigInt; Rational==Rational
+        // is exact (reduced form is canonical). Rational vs Float uses the Float epsilon.
+        (RuntimeValue::Rational(a), RuntimeValue::Rational(b)) => a == b,
+        (RuntimeValue::Rational(a), RuntimeValue::Float(b)) => (a.to_f64() - b).abs() < f64::EPSILON,
+        (RuntimeValue::Float(a), RuntimeValue::Rational(b)) => (a - b.to_f64()).abs() < f64::EPSILON,
         (RuntimeValue::Float(a), RuntimeValue::Float(b)) => (a - b).abs() < f64::EPSILON,
         (RuntimeValue::Bool(a), RuntimeValue::Bool(b)) => a == b,
         (RuntimeValue::Text(a), RuntimeValue::Text(b)) => **a == **b,
@@ -63,6 +73,45 @@ pub fn compare(
 
     match (left, right) {
         (RuntimeValue::Int(a), RuntimeValue::Int(b)) => Ok(RuntimeValue::Bool(int_rel(*a, *b))),
+        // Exact integer ordering across the narrow/wide boundary: compare as BigInts.
+        (RuntimeValue::BigInt(a), RuntimeValue::BigInt(b)) => {
+            Ok(RuntimeValue::Bool(rel(Some((**a).cmp(b)))))
+        }
+        (RuntimeValue::BigInt(a), RuntimeValue::Int(b)) => {
+            Ok(RuntimeValue::Bool(rel(Some((**a).cmp(&BigInt::from_i64(*b))))))
+        }
+        (RuntimeValue::Int(a), RuntimeValue::BigInt(b)) => {
+            Ok(RuntimeValue::Bool(rel(Some(BigInt::from_i64(*a).cmp(b)))))
+        }
+        (RuntimeValue::BigInt(a), RuntimeValue::Float(b)) => {
+            Ok(RuntimeValue::Bool(rel(a.to_f64().partial_cmp(b))))
+        }
+        (RuntimeValue::Float(a), RuntimeValue::BigInt(b)) => {
+            Ok(RuntimeValue::Bool(rel(a.partial_cmp(&b.to_f64()))))
+        }
+        // Exact rational ordering (cross-multiply, no rounding) including the
+        // narrow/wide boundary; vs Float uses IEEE partial order on the f64 view.
+        (RuntimeValue::Rational(a), RuntimeValue::Rational(b)) => {
+            Ok(RuntimeValue::Bool(rel(Some((**a).cmp(b)))))
+        }
+        (RuntimeValue::Rational(a), RuntimeValue::Int(b)) => {
+            Ok(RuntimeValue::Bool(rel(Some((**a).cmp(&Rational::from_i64(*b))))))
+        }
+        (RuntimeValue::Int(a), RuntimeValue::Rational(b)) => {
+            Ok(RuntimeValue::Bool(rel(Some(Rational::from_i64(*a).cmp(b)))))
+        }
+        (RuntimeValue::Rational(a), RuntimeValue::BigInt(b)) => {
+            Ok(RuntimeValue::Bool(rel(Some((**a).cmp(&Rational::from_bigint((**b).clone()))))))
+        }
+        (RuntimeValue::BigInt(a), RuntimeValue::Rational(b)) => {
+            Ok(RuntimeValue::Bool(rel(Some(Rational::from_bigint((**a).clone()).cmp(b)))))
+        }
+        (RuntimeValue::Rational(a), RuntimeValue::Float(b)) => {
+            Ok(RuntimeValue::Bool(rel(a.to_f64().partial_cmp(b))))
+        }
+        (RuntimeValue::Float(a), RuntimeValue::Rational(b)) => {
+            Ok(RuntimeValue::Bool(rel(a.partial_cmp(&b.to_f64()))))
+        }
         (RuntimeValue::Float(a), RuntimeValue::Float(b)) => {
             Ok(RuntimeValue::Bool(rel(a.partial_cmp(b))))
         }

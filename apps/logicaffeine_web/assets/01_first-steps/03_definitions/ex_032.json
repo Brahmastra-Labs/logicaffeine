@@ -14,5 +14,5 @@
   ],
   "correct": 4,
   "hint": "Is the original term vague while the definition is precise, or vice versa?",
-  "explanation": "This violates 5."
+  "explanation": "Adolescence shades in and out gradually; nobody becomes an adolescent precisely on their 9th birthday and stops on their 20th. The exact 9-to-19 range is more precise than the vague term, so it fails to MATCH THE VAGUENESS."
 }

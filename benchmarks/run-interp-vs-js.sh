@@ -365,11 +365,15 @@ for bench in "${BENCHMARKS[@]}"; do
         info "Benchmarking $bench at n=$size (interp engine: ${ENGINE[$bench]:-?})..."
         MERGE_FILES=()
         # Clear any prior timeout marks for this bench so a retry actually runs.
-        unset "LANG_TIMEOUTS[${bench}_logos_interp]" "LANG_TIMEOUTS[${bench}_js]" \
+        unset "LANG_TIMEOUTS[${bench}_logos_interp]" "LANG_TIMEOUTS[${bench}_logos_tiered]" "LANG_TIMEOUTS[${bench}_js]" \
               "LANG_TIMEOUTS[${bench}_python]" "LANG_TIMEOUTS[${bench}_ruby]"
-        rm -f "$RAW_DIR/${bench}_${size}_logos_interp.timeout" "$RAW_DIR/${bench}_${size}_js.timeout"
+        rm -f "$RAW_DIR/${bench}_${size}_logos_interp.timeout" "$RAW_DIR/${bench}_${size}_logos_tiered.timeout" "$RAW_DIR/${bench}_${size}_js.timeout"
 
-        try_bench logos_interp "LOGOS (interpreted)" "cd \"${PROJ[$bench]}\" && \"$LARGO\" run --interpret $size"
+        # The two LOGOS rows the page compares (HOTSWAP §12): `eager` is today's
+        # full-upfront-optimizer headline (the A/B baseline); `tiered` starts at the
+        # baseline and escalates by hotness, reclaiming the in-window optimizer cost.
+        try_bench logos_interp "LOGOS (interpreted)" "cd \"${PROJ[$bench]}\" && LOGOS_TIER_PROFILE=eager \"$LARGO\" run --interpret $size"
+        try_bench logos_tiered "LOGOS (tiered)" "cd \"${PROJ[$bench]}\" && LOGOS_TIER_PROFILE=tiered \"$LARGO\" run --interpret $size"
         try_bench js "JavaScript (Node)" "node $PROGRAMS_DIR/$bench/main.js $size" "--shell=none"
         # Python and Ruby are interpreted peers — show them in the second section
         # too. They run the SAME algorithm at the SAME N (same-N apples-to-apples);
@@ -439,7 +443,8 @@ PY_VER=$(python3 --version 2>/dev/null | sed 's/Python //' || echo "")
 RB_VER=$(ruby --version 2>/dev/null | sed 's/ruby \([0-9.]*\).*/\1/' || echo "")
 
 LANGUAGES=$(jq -n --arg node "$NODE_VER" --arg py "$PY_VER" --arg rb "$RB_VER" '[
-  {"id":"logos_interp","label":"LOGOS (interpreted)","color":"#ff8c00","tier":"interpreted"},
+  {"id":"logos_interp","label":"LOGOS (eager)","color":"#ff8c00","tier":"interpreted"},
+  {"id":"logos_tiered","label":"LOGOS (tiered)","color":"#ffb84d","tier":"interpreted"},
   {"id":"js","label":("Node " + $node),"color":"#f7df1e","tier":"interpreted"},
   {"id":"python","label":(if $py == "" then "Python" else "Python " + $py end),"color":"#3776ab","tier":"interpreted"},
   {"id":"ruby","label":(if $rb == "" then "Ruby" else "Ruby " + $rb end),"color":"#cc342d","tier":"interpreted"}
@@ -448,6 +453,7 @@ LANGUAGES=$(jq -n --arg node "$NODE_VER" --arg py "$PY_VER" --arg rb "$RB_VER" '
 lang_id() {
     case "$1" in
         "LOGOS (interpreted)") echo logos_interp ;;
+        "LOGOS (tiered)") echo logos_tiered ;;
         "JavaScript (Node)") echo js ;;
         "Python") echo python ;;
         "Ruby") echo ruby ;;
@@ -551,12 +557,14 @@ for bench in "${BENCHMARKS[@]}"; do
 done
 BENCHMARKS_JSON+="]"
 
-# Geometric mean of LOGOS-interp ÷ Node (>1 = LOGOS interpreter is slower).
+# Geometric mean of a LOGOS engine ÷ Node (>1 = LOGOS is slower). `$1` is the engine
+# id (`logos_interp` = eager, default; `logos_tiered`).
 compute_geometric_mean() {
+    local engine="${1:-logos_interp}"
     local log_sum=0 count=0
     for bench in "${BENCHMARKS[@]}"; do
         local ref="${ACTUAL_SIZE[$bench]:-$(bench_size "$bench")}"
-        local l_file="$PER_LANG_DIR/${bench}_${ref}_logos_interp.json"
+        local l_file="$PER_LANG_DIR/${bench}_${ref}_${engine}.json"
         local j_file="$PER_LANG_DIR/${bench}_${ref}_js.json"
         [ -f "$l_file" ] && [ -f "$j_file" ] || continue
         local l_ms j_ms
@@ -575,11 +583,22 @@ compute_geometric_mean() {
     else echo "0"; fi
 }
 
-GEO=$(compute_geometric_mean)
+GEO=$(compute_geometric_mean logos_interp)
+GEO_TIERED=$(compute_geometric_mean logos_tiered)
 
 BENCHMARKS_JSON_FILE=$(mktemp)
 printf '%s\n' "$BENCHMARKS_JSON" > "$BENCHMARKS_JSON_FILE"
 mkdir -p "$(dirname "$OUT")"
+
+# Engine footprint — the largo VM+JIT binary vs node, plus the browser WASM bundle.
+INTERP_SIZES_JSON=null
+if [ -x "$SCRIPT_DIR/measure-sizes.sh" ]; then
+    if bash "$SCRIPT_DIR/measure-sizes.sh" --engines-only >/dev/null 2>&1; then
+        INTERP_SIZES_JSON="$(cat "$RESULTS_DIR/raw/interpreter_sizes.json" 2>/dev/null || echo null)"
+    else
+        warn "engine-size measurement failed (non-fatal)"
+    fi
+fi
 
 jq -n \
     --arg date "$DATE" --arg commit "$COMMIT" --arg cpu "$CPU" --arg os "$OS" \
@@ -588,6 +607,8 @@ jq -n \
     --argjson languages "$LANGUAGES" \
     --slurpfile benchmarks "$BENCHMARKS_JSON_FILE" \
     --argjson geo "${GEO:-0}" \
+    --argjson geo_tiered "${GEO_TIERED:-0}" \
+    --argjson interpreter_sizes "$INTERP_SIZES_JSON" \
     '{
         schema_version: 1,
         metadata: {
@@ -596,7 +617,11 @@ jq -n \
         },
         languages: $languages,
         benchmarks: $benchmarks[0],
-        summary: { geometric_mean_logos_interp_over_node: $geo }
+        interpreter_sizes: $interpreter_sizes,
+        summary: {
+            geometric_mean_logos_interp_over_node: $geo,
+            geometric_mean_logos_tiered_over_node: $geo_tiered
+        }
     }' > "$OUT"
 
 rm -f "$BENCHMARKS_JSON_FILE"

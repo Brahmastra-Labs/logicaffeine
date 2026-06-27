@@ -7,7 +7,7 @@ use std::path::PathBuf;
 use std::process::Command;
 use std::sync::OnceLock;
 use std::sync::atomic::{AtomicU64, Ordering};
-pub use logicaffeine_compile::compile::{compile_to_rust, compile_program_full};
+pub use logicaffeine_compile::compile::{compile_to_rust, compile_program_full, compile_program_full_deterministic};
 
 // ============================================================
 // Parse Helper - replaces the logos::parse! macro
@@ -465,6 +465,14 @@ pub fn llvm_ir_function<'a>(ir: &'a str, symbol: &str) -> &'a str {
 
 /// Compile LOGOS source and run the generated Rust, returning result.
 pub fn run_logos(source: &str) -> E2EResult {
+    run_logos_with_args(source, &[])
+}
+
+/// Like [`run_logos`] but forwards `prog_args` to the compiled binary's argv (after
+/// `--`), so a benchmark program reading `item 2 of args()` receives its size. This is
+/// the full-program AOT-native run (Logos → Rust → rustc → binary) the benchmark-corpus
+/// gate uses to prove every benchmark runs correctly on compiled-native code.
+pub fn run_logos_with_args(source: &str, prog_args: &[&str]) -> E2EResult {
     // 1. Compile LOGOS to Rust (with dependency extraction)
     let compile_output = match compile_program_full(source) {
         Ok(out) => out,
@@ -521,7 +529,8 @@ rayon = "1"
     //    Set RUST_MIN_STACK=64MB so deeply-recursive PE/cogen programs
     //    don't overflow on structural AST walks.
     let output = Command::new("cargo")
-        .args(["run", "--quiet", "--offline"])
+        .args(["run", "--quiet", "--offline", "--"])
+        .args(prog_args)
         .current_dir(project_dir)
         .env("CARGO_TARGET_DIR", get_shared_target_dir())
         .env("RUST_MIN_STACK", "268435456")
@@ -530,7 +539,8 @@ rayon = "1"
     // Fall back to online if --offline failed (e.g. first run, cache not warm)
     let output = if !output.status.success() && String::from_utf8_lossy(&output.stderr).contains("--offline") {
         Command::new("cargo")
-            .args(["run", "--quiet"])
+            .args(["run", "--quiet", "--"])
+            .args(prog_args)
             .current_dir(project_dir)
             .env("CARGO_TARGET_DIR", get_shared_target_dir())
             .env("RUST_MIN_STACK", "268435456")
@@ -1011,6 +1021,120 @@ pub fn assert_compiled_equals_interpreted(source: &str) {
             compiled.stdout.trim(),
             interp.output.trim(),
             "DIFFERENTIAL MISMATCH: compiled and interpreter produced different output\n\
+             Source:\n{}\n\nGenerated Rust:\n{}",
+            source, compiled.rust_code
+        );
+    }
+}
+
+/// Compile a program in **Mode B (deterministic replay)** and run it under
+/// `LOGOS_SEED=<seed>`, so a `Select` over multiple ready arms reproduces the
+/// interpreter's seeded winner. Mirrors [`run_logos`] but with the deterministic
+/// compile + the seed in the environment.
+#[allow(dead_code)]
+pub fn run_logos_seeded(source: &str, seed: u64) -> E2EResult {
+    let compile_output = match compile_program_full_deterministic(source) {
+        Ok(out) => out,
+        Err(e) => {
+            return E2EResult {
+                stdout: String::new(),
+                stderr: format!("LOGOS compile error: {:?}", e),
+                success: false,
+                rust_code: String::new(),
+            };
+        }
+    };
+    let rust_code = compile_output.rust_code;
+    let user_deps = format_user_deps(&compile_output.dependencies);
+
+    let temp_dir = tempfile::tempdir().expect("temp dir");
+    let project_dir = temp_dir.path();
+    let pkg_id = COMPILE_COUNTER.fetch_add(1, Ordering::SeqCst);
+    let pkg_name = format!("logos_seeded_{}_{}", get_run_id(), pkg_id);
+    let manifest_dir = std::env::var("CARGO_MANIFEST_DIR")
+        .map(PathBuf::from)
+        .unwrap_or_else(|_| std::env::current_dir().unwrap());
+    let workspace_root = manifest_dir.parent().unwrap().parent().unwrap();
+    let cargo_toml = format!(
+        r#"[package]
+name = "{}"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+logicaffeine-data = {{ path = "{}/crates/logicaffeine_data" }}
+logicaffeine-system = {{ path = "{}/crates/logicaffeine_system", features = ["full"] }}
+tokio = {{ version = "1", features = ["rt-multi-thread", "macros"] }}
+serde = {{ version = "1", features = ["derive"] }}
+rayon = "1"
+{}"#,
+        pkg_name,
+        workspace_root.display(),
+        workspace_root.display(),
+        user_deps
+    );
+
+    std::fs::create_dir_all(project_dir.join("src")).unwrap();
+    std::fs::write(project_dir.join("Cargo.toml"), cargo_toml).unwrap();
+    std::fs::write(project_dir.join("src/main.rs"), &rust_code).unwrap();
+    seed_lockfile(workspace_root, project_dir);
+
+    let run = |offline: bool| {
+        let mut args = vec!["run", "--quiet"];
+        if offline {
+            args.push("--offline");
+        }
+        Command::new("cargo")
+            .args(&args)
+            .current_dir(project_dir)
+            .env("CARGO_TARGET_DIR", get_shared_target_dir())
+            .env("RUST_MIN_STACK", "268435456")
+            .env("LOGOS_SEED", seed.to_string())
+            .output()
+            .expect("cargo run")
+    };
+    let output = run(true);
+    let output = if !output.status.success()
+        && String::from_utf8_lossy(&output.stderr).contains("--offline")
+    {
+        run(false)
+    } else {
+        output
+    };
+
+    prune_project_artifacts(get_shared_target_dir(), &pkg_name);
+
+    E2EResult {
+        stdout: String::from_utf8_lossy(&output.stdout).to_string(),
+        stderr: String::from_utf8_lossy(&output.stderr).to_string(),
+        success: output.status.success(),
+        rust_code,
+    }
+}
+
+/// SEEDED DIFFERENTIAL GATE: the Mode-B compiled binary at `seed` must produce
+/// byte-identical output to the interpreter's seeded run at the same seed. This
+/// is the nondeterminate-fragment analogue of [`assert_compiled_equals_interpreted`]:
+/// where the determinate fragment needs no seed (Kahn), the nondeterminate
+/// fragment is pinned by sharing the choice function.
+#[allow(dead_code)]
+pub fn assert_compiled_equals_interpreted_seeded(source: &str, seed: u64) {
+    use logicaffeine_compile::run_treewalker_concurrent_seeded;
+
+    let compiled = run_logos_seeded(source, seed);
+    let interp = run_treewalker_concurrent_seeded(source, seed);
+    let interp_ok = interp.error.is_none();
+    assert_eq!(
+        compiled.success, interp_ok,
+        "SEEDED DIFFERENTIAL MISMATCH (seed {seed}): compiled.success={} interpreter.ok={}\n\
+         Source:\n{}\n\ncompiled stderr:\n{}\n\ninterpreter error:\n{:?}\n\nGenerated Rust:\n{}",
+        compiled.success, interp_ok, source, compiled.stderr, interp.error, compiled.rust_code
+    );
+    if compiled.success {
+        assert_eq!(
+            compiled.stdout.trim(),
+            interp.lines.join("\n").trim(),
+            "SEEDED DIFFERENTIAL MISMATCH (seed {seed}): compiled vs interpreter output differ\n\
              Source:\n{}\n\nGenerated Rust:\n{}",
             source, compiled.rust_code
         );

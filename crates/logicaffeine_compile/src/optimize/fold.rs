@@ -79,8 +79,9 @@ fn fold_stmt<'a>(
         Stmt::Return { value } => Stmt::Return {
             value: value.map(|v| fold_expr(v, expr_arena, stmt_arena, interner)),
         },
-        Stmt::RuntimeAssert { condition } => Stmt::RuntimeAssert {
+        Stmt::RuntimeAssert { condition, hard } => Stmt::RuntimeAssert {
             condition: fold_expr(condition, expr_arena, stmt_arena, interner),
+            hard,
         },
         Stmt::Push { value, collection } => Stmt::Push {
             value: fold_expr(value, expr_arena, stmt_arena, interner),
@@ -144,9 +145,15 @@ fn fold_stmt<'a>(
             content: fold_expr(content, expr_arena, stmt_arena, interner),
             path: fold_expr(path, expr_arena, stmt_arena, interner),
         },
-        Stmt::SendMessage { message, destination } => Stmt::SendMessage {
+        Stmt::SendMessage { message, destination, compression, cached, unchecked, layout, shared, computed } => Stmt::SendMessage {
             message: fold_expr(message, expr_arena, stmt_arena, interner),
             destination: fold_expr(destination, expr_arena, stmt_arena, interner),
+            compression,
+            cached,
+            unchecked,
+            layout,
+            shared,
+            computed,
         },
         Stmt::IncreaseCrdt { object, field, amount } => Stmt::IncreaseCrdt {
             object: fold_expr(object, expr_arena, stmt_arena, interner),
@@ -177,7 +184,7 @@ fn expr_is_total(expr: &Expr) -> bool {
     match expr {
         Expr::Literal(_) | Expr::Identifier(_) => true,
         Expr::BinaryOp { op, left, right } => {
-            !matches!(op, BinaryOpKind::Divide | BinaryOpKind::Modulo)
+            !matches!(op, BinaryOpKind::Divide | BinaryOpKind::ExactDivide | BinaryOpKind::Modulo)
                 && expr_is_total(left)
                 && expr_is_total(right)
         }
@@ -484,8 +491,13 @@ fn try_simplify_algebraic<'a>(
             if is_int_zero(right) || is_float_zero(right) { return Some(left); }
             None
         }
-        // x * 1 = x, 1 * x = x, x * 0 = 0, 0 * x = 0 (int and float)
-        // x * 2^k → x << k (power-of-two strength reduction)
+        // x * 1 = x, 1 * x = x, x * 0 = 0, 0 * x = 0 (int and float).
+        //
+        // NOTE: `x * 2^k → x << k` strength reduction is NOT done here. Integer `*`
+        // is EXACT (it promotes to BigInt on overflow), but `<<` WRAPS — so the
+        // rewrite changes the value at the overflow boundary (i64::MAX * 2 promotes
+        // to 2^64-2, but i64::MAX << 1 wraps to -2). Like `x / 2^k → shift`, it
+        // belongs in the BACKEND, gated on the Oracle proving the product fits i64.
         BinaryOpKind::Multiply => {
             if is_int_one(right) || is_float_one(right) { return Some(left); }
             if is_int_one(left) || is_float_one(left) { return Some(right); }
@@ -493,26 +505,6 @@ fn try_simplify_algebraic<'a>(
             if is_int_zero(left) && expr_is_total(right) { return Some(left); }
             if is_float_zero(right) { return Some(arena.alloc(Expr::Literal(Literal::Float(0.0)))); }
             if is_float_zero(left) { return Some(arena.alloc(Expr::Literal(Literal::Float(0.0)))); }
-            // x * 2^k → x << k
-            if let Expr::Literal(Literal::Number(n)) = right {
-                if let Some(shift) = is_power_of_two(*n) {
-                    return Some(arena.alloc(Expr::BinaryOp {
-                        op: BinaryOpKind::Shl,
-                        left,
-                        right: arena.alloc(Expr::Literal(Literal::Number(shift as i64))),
-                    }));
-                }
-            }
-            // 2^k * x → x << k
-            if let Expr::Literal(Literal::Number(n)) = left {
-                if let Some(shift) = is_power_of_two(*n) {
-                    return Some(arena.alloc(Expr::BinaryOp {
-                        op: BinaryOpKind::Shl,
-                        left: right,
-                        right: arena.alloc(Expr::Literal(Literal::Number(shift as i64))),
-                    }));
-                }
-            }
             None
         }
         // x / 1 = x (int and float)
@@ -605,11 +597,12 @@ fn try_simplify_algebraic<'a>(
 
 fn fold_int_op(op: BinaryOpKind, l: i64, r: i64) -> Option<Expr<'static>> {
     match op {
-        BinaryOpKind::Add => Some(Expr::Literal(Literal::Number(l.wrapping_add(r)))),
-        BinaryOpKind::Subtract => Some(Expr::Literal(Literal::Number(l.wrapping_sub(r)))),
-        BinaryOpKind::Multiply => Some(Expr::Literal(Literal::Number(l.wrapping_mul(r)))),
-        BinaryOpKind::Divide if r != 0 => Some(Expr::Literal(Literal::Number(l.wrapping_div(r)))),
-        BinaryOpKind::Modulo if r != 0 => Some(Expr::Literal(Literal::Number(l.wrapping_rem(r)))),
+        // Fold only when it fits i64; overflow → None so the exact runtime promotes.
+        BinaryOpKind::Add => l.checked_add(r).map(|n| Expr::Literal(Literal::Number(n))),
+        BinaryOpKind::Subtract => l.checked_sub(r).map(|n| Expr::Literal(Literal::Number(n))),
+        BinaryOpKind::Multiply => l.checked_mul(r).map(|n| Expr::Literal(Literal::Number(n))),
+        BinaryOpKind::Divide if r != 0 => l.checked_div(r).map(|n| Expr::Literal(Literal::Number(n))),
+        BinaryOpKind::Modulo if r != 0 => l.checked_rem(r).map(|n| Expr::Literal(Literal::Number(n))),
         BinaryOpKind::Eq => Some(Expr::Literal(Literal::Boolean(l == r))),
         BinaryOpKind::NotEq => Some(Expr::Literal(Literal::Boolean(l != r))),
         BinaryOpKind::Lt => Some(Expr::Literal(Literal::Boolean(l < r))),

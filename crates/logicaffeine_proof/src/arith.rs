@@ -219,11 +219,13 @@ fn scaled_term(mono: &[usize], coeff: i64, atoms: &[Term]) -> Term {
 }
 /// The canonical term for a whole polynomial (left-assoc sum, sorted).
 fn reify(poly: &[(Mono, i64)], atoms: &[Term]) -> Term {
-    if poly.is_empty() {
+    // Drop zero-coefficient monomials so the canonical form is unique (a cancelled
+    // term must not linger as `add 0 …` / `mul 0 …`, which would make two equal
+    // polynomials reify to syntactically different terms).
+    let mut iter = poly.iter().filter(|(_, c)| *c != 0);
+    let Some((m0, c0)) = iter.next() else {
         return lit_t(0);
-    }
-    let mut iter = poly.iter();
-    let (m0, c0) = iter.next().unwrap();
+    };
     let mut t = scaled_term(m0, *c0, atoms);
     for (m, c) in iter {
         t = ax2("add", t, scaled_term(m, *c, atoms));
@@ -381,7 +383,56 @@ fn merge_term(atoms: &[Term], p: &[(Mono, i64)], m: &[usize], c: i64) -> Option<
         }
         Ordering::Equal => {
             if cl + c == 0 {
-                return None; // cancellation — handled later
+                // The monomial cancels (`cl·M + c·M = 0`), so it drops from the
+                // canonical form. `combine_coeff` gives `add last_t st = mul 0 M`;
+                // chain `mul 0 M = mul M 0 (mul_comm) = 0 (mul_zero)`.
+                let cc = combine_coeff(&ml, cl, c, atoms)?;
+                let cancel = match mono_to_term(&ml, atoms) {
+                    None => cc, // constant monomial: `scaled(ml, 0)` is already `lit 0`
+                    Some(m_term) => eq_trans(
+                        ax2("add", last_t.clone(), st.clone()),
+                        ax2("mul", lit_t(0), m_term.clone()),
+                        lit_t(0),
+                        cc,
+                        eq_trans(
+                            ax2("mul", lit_t(0), m_term.clone()),
+                            ax2("mul", m_term.clone(), lit_t(0)),
+                            lit_t(0),
+                            ax2("mul_comm", lit_t(0), m_term.clone()),
+                            ax1("mul_zero", m_term),
+                        ),
+                    ),
+                };
+                // cancel : add last_t st = 0
+                if init.is_empty() {
+                    return Some((vec![], cancel));
+                }
+                let ri = reify(init, atoms);
+                let assoc = ax3("add_assoc", ri.clone(), last_t.clone(), st.clone());
+                let cong = cong2(
+                    "add",
+                    &ri,
+                    &ri,
+                    &ax2("add", last_t.clone(), st.clone()),
+                    &lit_t(0),
+                    refl(ri.clone()),
+                    cancel,
+                );
+                let azero = ax1("add_zero", ri.clone());
+                let proof = eq_trans(
+                    ax2("add", ax2("add", ri.clone(), last_t.clone()), st.clone()),
+                    ax2("add", ri.clone(), ax2("add", last_t.clone(), st.clone())),
+                    ri.clone(),
+                    assoc,
+                    eq_trans(
+                        ax2("add", ri.clone(), ax2("add", last_t.clone(), st.clone())),
+                        ax2("add", ri.clone(), lit_t(0)),
+                        ri.clone(),
+                        cong,
+                        azero,
+                    ),
+                );
+                return Some((init.to_vec(), proof));
             }
             let cc = combine_coeff(&ml, cl, c, atoms)?; // add last_t st = scaled(ml, cl+c)
             let combined = scaled_term(&ml, cl + c, atoms);

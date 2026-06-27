@@ -99,6 +99,25 @@ pub fn evaluate_policy_condition(
                 false
             }
         }
+        PolicyCondition::SubjectFieldEqualsObjectField { subject_field, object: _, object_field } => {
+            let obj = match object {
+                Some(o) => o,
+                None => return false,
+            };
+            if let (RuntimeValue::Struct(subj_s), RuntimeValue::Struct(obj_s)) = (subject, obj) {
+                let subj_field_name = interner.resolve(*subject_field);
+                let obj_field_name = interner.resolve(*object_field);
+                if let (Some(a), Some(b)) =
+                    (subj_s.fields.get(subj_field_name), obj_s.fields.get(obj_field_name))
+                {
+                    values_equal(a, b)
+                } else {
+                    false
+                }
+            } else {
+                false
+            }
+        }
         PolicyCondition::Or(left, right) => {
             evaluate_policy_condition(registry, interner, left, subject, object)
                 || evaluate_policy_condition(registry, interner, right, subject, object)

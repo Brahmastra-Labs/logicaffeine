@@ -4,12 +4,12 @@
   "difficulty": 1,
   "prompt": "Would that no one cheat",
   "options": [
-    "$ \\\\sim (exists x)C\\\\underline{x} $",
-    "$ O\\\\sim (exists x)C\\\\underline{x} $",
-    "$ (\\\\exists\\\\underline{x}) Cx $",
-    "$ \\\\sim (exists x)Cx $"
+    "$ \\sim (\\exists x)C\\underline{x} $",
+    "$ O\\sim (\\exists x)C\\underline{x} $",
+    "$ (\\exists\\underline{x}) Cx $",
+    "$ \\sim (\\exists x)Cx $"
   ],
   "correct": 0,
   "hint": "Identify WHO is being commanded or permitted (the agent, marked with underline) and WHAT action they must/may do.",
-  "explanation": "In deontic logic: Deontic operators express moral or legal requirements."
+  "explanation": "'Would that no one cheat' is an optative wish that nobody cheats: ∼(∃x)C͟x — there is no person x (underlined as the agent) who cheats."
 }

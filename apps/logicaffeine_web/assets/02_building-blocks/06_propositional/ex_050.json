@@ -4,10 +4,10 @@
   "difficulty": 1,
   "prompt": "Both not C and F",
   "options": [
-    "$ \\\\sim C \\\\cdot F $",
-    "$ (\\\\sim C \\\\cdot \\\\sim F) $",
-    "$ \\\\sim(C \\\\cdot F) $",
-    "$ (\\\\sim C \\\\cdot F) $"
+    "$ \\sim C \\cdot F $",
+    "$ (\\sim C \\cdot \\sim F) $",
+    "$ \\sim(C \\cdot F) $",
+    "$ (\\sim C \\cdot F) $"
   ],
   "correct": 3,
   "hint": "What exactly is 'both' connecting? Are both parts the full consequence, or just the second one?",

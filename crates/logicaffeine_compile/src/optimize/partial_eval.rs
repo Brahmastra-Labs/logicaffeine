@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
 use crate::arena::Arena;
-use crate::ast::stmt::{Expr, Literal, Stmt, TypeExpr, Block, OptFlag, StringPart};
+use crate::ast::stmt::{Expr, Literal, Stmt, TypeExpr, Block, StringPart};
 use crate::intern::{Interner, Symbol};
 use std::collections::HashSet;
 
@@ -16,7 +16,7 @@ struct FuncInfo<'a> {
     body: Block<'a>,
     generics: Vec<Symbol>,
     return_type: Option<&'a TypeExpr<'a>>,
-    opt_flags: HashSet<OptFlag>,
+    opt_flags: crate::optimization::OptimizationConfig,
 }
 
 struct SpecRegistry<'a> {
@@ -108,6 +108,11 @@ fn body_has_io(stmts: &[Stmt]) -> bool {
     false
 }
 
+/// Whether a statement carries an opaque effectful boundary that disqualifies its
+/// enclosing function from specialization. This is the fallback for the no-`effect_env`
+/// path; the production path uses `EffectEnv::function_is_specialization_safe`, which is
+/// strictly more precise. The name is kept for continuity, but it now covers IO *and* the
+/// concurrency / networking constructs the substitution cannot enter.
 fn stmt_has_io(stmt: &Stmt) -> bool {
     match stmt {
         Stmt::Show { .. }
@@ -117,11 +122,29 @@ fn stmt_has_io(stmt: &Stmt) -> bool {
         | Stmt::SendPipe { .. }
         | Stmt::TrySendPipe { .. }
         | Stmt::ReceivePipe { .. }
+        | Stmt::TryReceivePipe { .. }
         | Stmt::ReadFrom { .. }
         | Stmt::Check { .. } => true,
+        // Concurrency / spawn / networking — opaque boundaries, never specialize across.
+        Stmt::LaunchTask { .. }
+        | Stmt::LaunchTaskWithHandle { .. }
+        | Stmt::CreatePipe { .. }
+        | Stmt::StopTask { .. }
+        | Stmt::Spawn { .. }
+        | Stmt::Listen { .. }
+        | Stmt::ConnectTo { .. }
+        | Stmt::LetPeerAgent { .. }
+        | Stmt::AwaitMessage { .. }
+        | Stmt::Sync { .. }
+        | Stmt::Mount { .. } => true,
         Stmt::IncreaseCrdt { .. }
         | Stmt::DecreaseCrdt { .. }
-        | Stmt::MergeCrdt { .. } => true,
+        | Stmt::MergeCrdt { .. }
+        | Stmt::AppendToSequence { .. }
+        | Stmt::ResolveConflict { .. } => true,
+        // A Select is nondeterministic and a Concurrent/Parallel block is a concurrency
+        // boundary — disqualifying regardless of their body contents.
+        Stmt::Select { .. } | Stmt::Concurrent { .. } | Stmt::Parallel { .. } => true,
         Stmt::If { then_block, else_block, .. } => {
             body_has_io(then_block)
                 || else_block.map_or(false, |eb| body_has_io(eb))
@@ -553,8 +576,9 @@ fn substitute_stmt<'a>(
                 has_otherwise: *has_otherwise,
             }
         }
-        Stmt::RuntimeAssert { condition } => Stmt::RuntimeAssert {
+        Stmt::RuntimeAssert { condition, hard } => Stmt::RuntimeAssert {
             condition: substitute_expr(condition, substitutions, expr_arena),
+            hard: *hard,
         },
         other => other.clone(),
     }
@@ -641,13 +665,18 @@ fn try_specialize_call<'a>(
 
     let func_info = func_defs.get(&function)?;
 
-    let has_io = if let Some(env) = effect_env {
+    // The specialization folds a static argument into the body and drops the parameter.
+    // That is only sound when the callee has no opaque effectful boundary: IO, escape,
+    // a security check, nondeterminism, or concurrency. Folding across a concurrency /
+    // networking statement would drop a parameter the substitution cannot reach (its
+    // `substitute_stmt` arm is the verbatim catch-all), leaving a dangling free variable.
+    let safe_to_specialize = if let Some(env) = effect_env {
         let fn_name = interner.resolve(function);
-        env.function_has_io(fn_name)
+        env.function_is_specialization_safe(fn_name)
     } else {
-        body_has_io(func_info.body)
+        !body_has_io(func_info.body)
     };
-    if has_io {
+    if !safe_to_specialize {
         return None;
     }
 
@@ -894,8 +923,9 @@ fn specialize_in_stmt<'a>(
                 has_otherwise,
             }
         }
-        Stmt::RuntimeAssert { condition } => Stmt::RuntimeAssert {
+        Stmt::RuntimeAssert { condition, hard } => Stmt::RuntimeAssert {
             condition: specialize_in_expr(condition, func_defs, registry, expr_arena, stmt_arena, interner, effect_env),
+            hard,
         },
         Stmt::FunctionDef { name, params, generics, body, return_type, is_native, native_path, is_exported, export_target, opt_flags } => {
             if is_native {
@@ -917,6 +947,86 @@ fn specialize_in_stmt<'a>(
                 opt_flags,
             }
         }
+        // ---- Deep specialization across concurrency boundaries ----
+        // Descend into Concurrent/Parallel/Zone/Select bodies and the expression
+        // arguments of the Go-like concurrency statements to specialize the pure calls
+        // within. Each statement is rebuilt as the SAME variant in the SAME order — the
+        // boundary is never folded across, and no effect is reordered or duplicated.
+        Stmt::Concurrent { tasks } => {
+            let new_tasks: Vec<Stmt<'a>> = tasks.iter().cloned()
+                .map(|s| specialize_in_stmt(s, func_defs, registry, expr_arena, stmt_arena, interner, effect_env))
+                .collect();
+            Stmt::Concurrent { tasks: stmt_arena.alloc_slice(new_tasks) }
+        }
+        Stmt::Parallel { tasks } => {
+            let new_tasks: Vec<Stmt<'a>> = tasks.iter().cloned()
+                .map(|s| specialize_in_stmt(s, func_defs, registry, expr_arena, stmt_arena, interner, effect_env))
+                .collect();
+            Stmt::Parallel { tasks: stmt_arena.alloc_slice(new_tasks) }
+        }
+        Stmt::Zone { name, capacity, source_file, body } => {
+            let new_body: Vec<Stmt<'a>> = body.iter().cloned()
+                .map(|s| specialize_in_stmt(s, func_defs, registry, expr_arena, stmt_arena, interner, effect_env))
+                .collect();
+            Stmt::Zone { name, capacity, source_file, body: stmt_arena.alloc_slice(new_body) }
+        }
+        Stmt::Select { branches } => {
+            let new_branches: Vec<crate::ast::stmt::SelectBranch<'a>> = branches.into_iter().map(|b| match b {
+                crate::ast::stmt::SelectBranch::Receive { var, pipe, body } => {
+                    let new_body: Vec<Stmt<'a>> = body.iter().cloned()
+                        .map(|s| specialize_in_stmt(s, func_defs, registry, expr_arena, stmt_arena, interner, effect_env))
+                        .collect();
+                    crate::ast::stmt::SelectBranch::Receive {
+                        var,
+                        pipe: specialize_in_expr(pipe, func_defs, registry, expr_arena, stmt_arena, interner, effect_env),
+                        body: stmt_arena.alloc_slice(new_body),
+                    }
+                }
+                crate::ast::stmt::SelectBranch::Timeout { milliseconds, body } => {
+                    let new_body: Vec<Stmt<'a>> = body.iter().cloned()
+                        .map(|s| specialize_in_stmt(s, func_defs, registry, expr_arena, stmt_arena, interner, effect_env))
+                        .collect();
+                    crate::ast::stmt::SelectBranch::Timeout {
+                        milliseconds: specialize_in_expr(milliseconds, func_defs, registry, expr_arena, stmt_arena, interner, effect_env),
+                        body: stmt_arena.alloc_slice(new_body),
+                    }
+                }
+            }).collect();
+            Stmt::Select { branches: new_branches }
+        }
+        Stmt::SendPipe { value, pipe } => Stmt::SendPipe {
+            value: specialize_in_expr(value, func_defs, registry, expr_arena, stmt_arena, interner, effect_env),
+            pipe: specialize_in_expr(pipe, func_defs, registry, expr_arena, stmt_arena, interner, effect_env),
+        },
+        Stmt::TrySendPipe { value, pipe, result } => Stmt::TrySendPipe {
+            value: specialize_in_expr(value, func_defs, registry, expr_arena, stmt_arena, interner, effect_env),
+            pipe: specialize_in_expr(pipe, func_defs, registry, expr_arena, stmt_arena, interner, effect_env),
+            result,
+        },
+        Stmt::ReceivePipe { var, pipe } => Stmt::ReceivePipe {
+            var,
+            pipe: specialize_in_expr(pipe, func_defs, registry, expr_arena, stmt_arena, interner, effect_env),
+        },
+        Stmt::TryReceivePipe { var, pipe } => Stmt::TryReceivePipe {
+            var,
+            pipe: specialize_in_expr(pipe, func_defs, registry, expr_arena, stmt_arena, interner, effect_env),
+        },
+        Stmt::LaunchTask { function, args } => Stmt::LaunchTask {
+            function,
+            args: args.iter()
+                .map(|a| specialize_in_expr(a, func_defs, registry, expr_arena, stmt_arena, interner, effect_env))
+                .collect(),
+        },
+        Stmt::LaunchTaskWithHandle { handle, function, args } => Stmt::LaunchTaskWithHandle {
+            handle,
+            function,
+            args: args.iter()
+                .map(|a| specialize_in_expr(a, func_defs, registry, expr_arena, stmt_arena, interner, effect_env))
+                .collect(),
+        },
+        Stmt::StopTask { handle } => Stmt::StopTask {
+            handle: specialize_in_expr(handle, func_defs, registry, expr_arena, stmt_arena, interner, effect_env),
+        },
         other => other,
     }
 }

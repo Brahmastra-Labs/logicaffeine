@@ -4,10 +4,10 @@
   "difficulty": 1,
   "prompt": "If not C then H",
   "options": [
-    "$ \\\\sim C \\\\supset H $",
-    "$ (\\\\sim C \\\\supset H) $",
-    "$ (\\\\sim C \\\\supset \\\\sim H) $",
-    "$ \\\\sim(C \\\\supset H) $"
+    "$ \\sim C \\supset H $",
+    "$ (\\sim C \\supset H) $",
+    "$ (\\sim C \\supset \\sim H) $",
+    "$ \\sim(C \\supset H) $"
   ],
   "correct": 1,
   "hint": "Identify the main connective first. What's the primary structure of this sentence?",

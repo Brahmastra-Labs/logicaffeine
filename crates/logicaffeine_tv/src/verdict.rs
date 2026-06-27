@@ -35,4 +35,14 @@ pub enum SoundnessReport {
         /// Parser diagnostic.
         detail: String,
     },
+    /// A nondeterministic program: for every seed in the sweep, the seeded encoder provably
+    /// matched the seeded interpreter (`Select` winners drawn from the same SplitMix64).
+    /// This is the seeded-replay analog of [`Self::Agrees`].
+    SeedReplayAgrees,
+    /// A nondeterministic program where the seeded encoder and interpreter diverged at some
+    /// seed — caught by the per-seed cross-check, so never a false agreement.
+    SeedReplayDisagrees {
+        /// Which seed diverged and how.
+        detail: String,
+    },
 }

@@ -4,10 +4,10 @@
   "difficulty": 1,
   "prompt": "Either not B or L",
   "options": [
-    "$ (\\\\sim B \\\\vee \\\\sim L) $",
-    "$ \\\\sim B \\\\vee L $",
-    "$ \\\\sim(B \\\\vee L) $",
-    "$ (\\\\sim B \\\\vee L) $"
+    "$ (\\sim B \\vee \\sim L) $",
+    "$ \\sim B \\vee L $",
+    "$ \\sim(B \\vee L) $",
+    "$ (\\sim B \\vee L) $"
   ],
   "correct": 3,
   "hint": "Identify the main connective first. What's the primary structure of this sentence?",

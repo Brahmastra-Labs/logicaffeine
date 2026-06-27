@@ -1,0 +1,15 @@
+{
+  "id": "C_6.117",
+  "type": "multiple_choice",
+  "difficulty": 3,
+  "prompt": "P → Q is logically equivalent to which formula?",
+  "options": [
+    "P ∨ ¬Q",
+    "¬P ∨ Q",
+    "¬P ∧ Q",
+    "Q → P"
+  ],
+  "correct": 1,
+  "hint": "A conditional fails only when the antecedent is true and the consequent false. Rewrite that with ∨.",
+  "explanation": "By Material Implication, P → Q ≡ ¬P ∨ Q: the conditional holds exactly when P is false OR Q is true. The two share an identical truth table. 'Q → P' is the converse (not equivalent), and the others differ in at least one row."
+}

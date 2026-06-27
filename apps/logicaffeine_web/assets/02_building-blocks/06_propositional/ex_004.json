@@ -4,10 +4,10 @@
   "difficulty": 1,
   "prompt": "You aren't both not forgetful and confident",
   "options": [
-    "$ (F \\\\cdot C) $",
-    "$ F \\\\cdot C $",
-    "$ \\\\sim(\\\\sim F \\\\cdot C) $",
-    "$ \\\\sim\\\\sim F \\\\cdot C $"
+    "$ (F \\cdot C) $",
+    "$ F \\cdot C $",
+    "$ \\sim(\\sim F \\cdot C) $",
+    "$ \\sim\\sim F \\cdot C $"
   ],
   "correct": 2,
   "hint": "What exactly is 'both' connecting? Are both parts the full consequence, or just the second one?",

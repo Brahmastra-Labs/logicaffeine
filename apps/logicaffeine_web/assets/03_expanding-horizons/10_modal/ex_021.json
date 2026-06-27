@@ -5,11 +5,11 @@
   "prompt": "If Einstein is a foreigner, then Einstein must be clean",
   "options": [
     "Ambiguous between 2 & 4",
-    "$ (F \\\\supset \\\\square C) $",
-    "$ \\\\square F \\\\supset C $",
-    "$ \\\\square (F \\\\supset C) $"
+    "$ (F \\supset \\square C) $",
+    "$ \\square F \\supset C $",
+    "$ \\square (F \\supset C) $"
   ],
   "correct": 0,
   "hint": "Does 'must' attach to the whole statement, or to part of it? What exactly is being required?",
-  "explanation": "'Must be' expresses necessity \u2014 \u25a1 (the box). What follows 'must' is what's necessarily true. Pay attention to negations: 'must not be X' is \u25a1~X (necessarily not X), which is different from ~\u25a1X (not necessarily X)."
+  "explanation": "Scope-ambiguous. 'Must be clean' is □C. NARROW scope gives F ⊃ □C, 'if Einstein is a foreigner then he must be clean' (option 2); WIDE scope gives □(F ⊃ C), 'necessarily, foreigners are clean' (option 4). Both readings are defensible. (□F ⊃ C, necessity on the antecedent, is not natural.)"
 }

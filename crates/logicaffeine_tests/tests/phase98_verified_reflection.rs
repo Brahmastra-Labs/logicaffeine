@@ -392,12 +392,24 @@ fn t6_tcb_inventory_locked() {
         "mul_comm",
         "mul_assoc",
         "mul_one",
+        "mul_zero",
         "mul_distrib_add",
     ] {
         assert!(ctx.get_global(ax).is_some(), "ring axiom {ax} is not registered");
         assert!(
             infer_type(&ctx, &Term::Global(ax.to_string())).is_ok(),
             "ring axiom {ax} is not well-typed"
+        );
+    }
+    // The Int ORDER axioms — the second half of the ordered-ring trusted base,
+    // added deliberately alongside the ring axioms (same opaque-`Int` rationale,
+    // same "replaceable by deriving from Nat" path). They are the primitives a
+    // linear-arithmetic / Farkas certificate is reconstructed from.
+    for ax in ["le_refl", "le_trans", "le_add_mono", "le_mul_nonneg"] {
+        assert!(ctx.get_global(ax).is_some(), "order axiom {ax} is not registered");
+        assert!(
+            infer_type(&ctx, &Term::Global(ax.to_string())).is_ok(),
+            "order axiom {ax} is not well-typed"
         );
     }
 }

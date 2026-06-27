@@ -155,6 +155,16 @@ pub fn regalloc_enabled() -> bool {
     *ON.get_or_init(|| std::env::var("LOGOS_REGALLOC").map_or(true, |v| v != "0"))
 }
 
+/// `LOGOS_SIMD=1` opts a recognized PURE ELEMENT-WISE MAP region (Oracle-proven
+/// in-bounds, unit-stride, no loop-carried scalar — see
+/// [`crate::vectorize::recognize_elementwise_map`]) into a 2-wide packed-double
+/// loop. DEFAULT OFF: the bit-identical differential gate must certify it before
+/// promotion, and no current benchmark exercises a float map. Read once.
+pub fn simd_enabled() -> bool {
+    static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *ON.get_or_init(|| std::env::var("LOGOS_SIMD").is_ok_and(|v| v == "1"))
+}
+
 /// Whether the CALL-LOCALITY ranking bonus is applied (Fix 1). Default ON: it is
 /// a pure register-assignment reorder (bit-identical, proven by the corpus
 /// differential) that lands call-surviving values in callee-saved registers so a
@@ -239,6 +249,32 @@ fn ptr_hoist_enabled() -> bool {
 /// process can A/B the two emissions for the structural gate.
 fn const_hoist_enabled() -> bool {
     std::env::var("LOGOS_NO_CONST_HOIST").map_or(true, |v| v != "1")
+}
+
+/// Diagnostic: when `LOGOS_DUMP_CLASS=1`, [`compile_impl`] prints a one-line
+/// slot-class + placement histogram per compiled region that touches any float
+/// (Int/Float/Mixed counts, how many Float slots won an XMM register vs spilled
+/// to the frame under pressure, and the Mixed-slot indices). Pure observability,
+/// no behavior change — it is how the campaign tells a Mixed-frame wall apart
+/// from an XMM-pressure wall before choosing a lever.
+fn dump_class_enabled() -> bool {
+    static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *ON.get_or_init(|| std::env::var("LOGOS_DUMP_CLASS").map_or(false, |v| v != "0"))
+}
+
+/// LS1 linear-scan register allocation (reuse a register across disjoint live
+/// ranges, float slots only). MEASURED LOSS — parked default-OFF. It is sound
+/// (forge 93/93 with `=1`, all benchmarks bit-identical) but a net SLOWDOWN on
+/// the float-pressured regions (nbody +74%, mandelbrot +104%): the floats the
+/// rank-based per-slot model leaves in the frame are COLD, so frame residency is
+/// already the cheap, correct choice — forcing them into reused registers adds a
+/// per-iteration spill-at-end store that exceeds their cold frame cost. `maxLive
+/// <= 14` measured liveness, not HOTNESS, so it overstated the win. Do NOT promote;
+/// kept behind the flag with the `LOGOS_DUMP_CLASS` diagnostic as a documented
+/// negative result. The float-cluster lever is op-count (fusion), not allocation.
+fn linear_scan_enabled() -> bool {
+    static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *ON.get_or_init(|| std::env::var("LOGOS_LINEAR_SCAN").map_or(false, |v| v == "1"))
 }
 
 /// The maximum LOGOS call depth, baked into the self-call codegen exactly as it
@@ -395,6 +431,13 @@ fn needs_deopt(op: &MicroOp) -> bool {
             | MicroOp::DivF { .. }
             | MicroOp::ArrLoad { checked: true, .. }
             | MicroOp::ArrStore { checked: true, .. }
+            // Integer add/sub/mul side-exit on signed overflow (`jo`) so the exact
+            // tier recomputes and promotes to BigInt — overflow is no longer a
+            // silent wrap. (A later perf pass elides the guard where the prover
+            // proves no overflow; for now every integer arith op is checked.)
+            | MicroOp::Add { .. }
+            | MicroOp::Sub { .. }
+            | MicroOp::Mul { .. }
             | MicroOp::CallSelf { .. }
             | MicroOp::CallSelfCopy { .. }
             // The mode-B precise self-call writes the status cell (its depth/
@@ -1355,6 +1398,243 @@ fn classify_slots(ops: &[MicroOp], max_slot: usize) -> Vec<Class> {
         .collect()
 }
 
+/// A slot's coarse LIVE INTERVAL as a single `[start, end]` span over op indices:
+/// `start` = the first op that defines or uses it, `end` = the last op that uses
+/// or defines it. This omits holes (a slot dead in the middle of its span still
+/// occupies it), so the max overlap of these intervals is an UPPER BOUND on true
+/// register pressure — the pessimistic input a classic linear-scan allocator
+/// consumes. Used by the linear-scan SIMULATION the class diagnostic reports, to
+/// confirm a simple interval allocator would reclaim the spills the whole-region
+/// per-slot model leaves on the table.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct LiveInterval {
+    slot: u16,
+    start: usize,
+    end: usize,
+}
+
+/// One coarse `[first-touch, last-touch]` interval per slot the op stream reads
+/// or writes. A slot never touched gets no interval (it needs no register).
+fn live_intervals(ops: &[MicroOp], max_slot: usize) -> Vec<LiveInterval> {
+    let mut first = vec![usize::MAX; max_slot + 1];
+    let mut last = vec![0usize; max_slot + 1];
+    let mut reads = Vec::new();
+    for (i, op) in ops.iter().enumerate() {
+        reads.clear();
+        read_slots_of(op, &mut reads);
+        let mut touch = |s: Slot| {
+            let s = s as usize;
+            if s <= max_slot {
+                if first[s] == usize::MAX {
+                    first[s] = i;
+                }
+                last[s] = i;
+            }
+        };
+        for &s in &reads {
+            touch(s);
+        }
+        if let Some(d) = dest_of(op) {
+            touch(d);
+        }
+    }
+    (0..=max_slot)
+        .filter(|&s| first[s] != usize::MAX)
+        .map(|s| LiveInterval { slot: s as u16, start: first[s], end: last[s] })
+        .collect()
+}
+
+/// Classic linear-scan over the coarse intervals of ONE register class: how many
+/// of that class's intervals would SPILL given `regs` physical registers,
+/// reusing a register the instant an interval expires. The spill victim on
+/// overflow is the active interval whose end is farthest (the textbook
+/// heuristic) — but the COUNT (what we report) is heuristic-independent: it is
+/// `intervals − (intervals placeable in `regs` colors)`, i.e. one spill per
+/// point where more than `regs` intervals overlap. This is the number the
+/// whole-region per-slot model fails to achieve (it spills every slot beyond the
+/// top-`regs` ranked, even when their ranges never overlap).
+fn linscan_spills(intervals: &[LiveInterval], class: &[Class], want: Class, regs: usize) -> usize {
+    let mut iv: Vec<&LiveInterval> =
+        intervals.iter().filter(|i| class[i.slot as usize] == want).collect();
+    iv.sort_by_key(|i| (i.start, i.end));
+    // `active` ends, kept sorted ascending so the farthest end is last.
+    let mut active: Vec<usize> = Vec::new();
+    let mut spills = 0usize;
+    for cur in iv {
+        active.retain(|&e| e >= cur.start); // expire intervals that ended before cur starts
+        if regs == 0 {
+            spills += 1;
+            continue;
+        }
+        if active.len() < regs {
+            let pos = active.partition_point(|&e| e <= cur.end);
+            active.insert(pos, cur.end);
+        } else {
+            // Pool full: spill the farthest-ending of {actives ∪ cur}.
+            let far = *active.last().unwrap();
+            if far > cur.end {
+                active.pop();
+                let pos = active.partition_point(|&e| e <= cur.end);
+                active.insert(pos, cur.end);
+            }
+            spills += 1;
+        }
+    }
+    spills
+}
+
+/// Per-slot loop-aware live RANGE `[start, end]` (op indices), or `None` if the
+/// slot is never touched. Built from the `liveness_after` backward fixpoint, so a
+/// loop-carried slot — live on the back-edge path at every body op — spans the
+/// whole loop automatically (min..max over its live points), with NO explicit
+/// loop-extension step. This is the SOUND interval the real allocator consumes
+/// (unlike `live_intervals`, naive first/last touch, used only by the diagnostic).
+fn live_ranges(ops: &[MicroOp], max_slot: usize) -> Vec<Option<(usize, usize)>> {
+    let la = liveness_after(ops, max_slot);
+    let mut start = vec![usize::MAX; max_slot + 1];
+    let mut end = vec![0usize; max_slot + 1];
+    let mut reads = Vec::new();
+    for i in 0..ops.len() {
+        // A slot OCCUPIES op i if it is live out of i, used at i, or defined at i
+        // (live_in is uses ∪ (live_after \ def), all subsumed by these three).
+        for s in 0..=max_slot {
+            if la[i][s] {
+                if start[s] == usize::MAX {
+                    start[s] = i;
+                }
+                end[s] = i;
+            }
+        }
+        reads.clear();
+        read_slots_of(&ops[i], &mut reads);
+        let mut touch = |s: usize| {
+            if s <= max_slot {
+                if start[s] == usize::MAX {
+                    start[s] = i;
+                }
+                if i > end[s] {
+                    end[s] = i;
+                }
+            }
+        };
+        for &u in &reads {
+            touch(u as usize);
+        }
+        if let Some(d) = dest_of(&ops[i]) {
+            touch(d as usize);
+        }
+    }
+    (0..=max_slot)
+        .map(|s| (start[s] != usize::MAX).then_some((start[s], end[s])))
+        .collect()
+}
+
+/// LINEAR-SCAN ASSIGNMENT (the LS1 keystone). Assign each slot a physical
+/// register of its class for its whole loop-aware live range, REUSING a register
+/// the instant its previous holder's range expires — so disjoint temporaries
+/// share registers instead of each consuming a whole-region frame home. Returns a
+/// per-slot [`Loc`]; a slot that finds no register stays `Loc::Frame` (exactly the
+/// current behavior, so the fallback is bit-identical).
+///
+/// SOUNDNESS — register REUSE is permitted only across a STRAIGHT-LINE gap: a
+/// register freed at op `e` may host a new range starting at `s` only when no
+/// control point (a branch/jump OR a jump target) lies in `(e, s]`. That confines
+/// every register reassignment to a single-predecessor, single-successor stretch,
+/// so the binding is identical on every path reaching it — no inconsistent state
+/// at a control join. Overlapping ranges never share (a holder is freed only once
+/// its end is strictly before the newcomer's start). Loop-carried slots span the
+/// whole loop (their range covers every body op), so their register is never
+/// reused mid-loop. The caller gates this to no-deopt / no-call regions so there
+/// is no mid-region side-exit whose flush would observe a transient binding.
+fn linscan_assign(ops: &[MicroOp], max_slot: usize, class: &[Class], gp: &[Reg], xmm: &[Xmm]) -> Vec<Loc> {
+    let n = ops.len();
+    let ranges = live_ranges(ops, max_slot);
+    // Control-point prefix sum: ctrl[j] = 1 if op j transfers OR is a jump target.
+    let mut is_jt = vec![false; n];
+    for op in ops {
+        if let Some(t) = op_target(op) {
+            if t < n {
+                is_jt[t] = true;
+            }
+        }
+    }
+    let mut pref = vec![0u32; n + 1];
+    for j in 0..n {
+        pref[j + 1] = pref[j] + u32::from(op_target(&ops[j]).is_some() || is_jt[j]);
+    }
+    // Any control point in the half-open gap (e, s]?
+    let ctrl_between = |e: usize, s: usize| -> bool {
+        let lo = (e + 1).min(n);
+        let hi = (s + 1).min(n);
+        pref[hi].saturating_sub(pref[lo]) > 0
+    };
+    // Slots with a range, in start order (then end, then slot — deterministic).
+    let mut order: Vec<usize> = (0..=max_slot).filter(|&s| ranges[s].is_some()).collect();
+    order.sort_by_key(|&s| {
+        let (a, b) = ranges[s].unwrap();
+        (a, b, s)
+    });
+    // Fresh pools (never used) popped from the front; freed pools carry the op
+    // index at which each register became free, for the gap test.
+    let mut gp_fresh: Vec<Reg> = gp.iter().rev().copied().collect();
+    let mut xmm_fresh: Vec<Xmm> = xmm.iter().rev().copied().collect();
+    let mut gp_freed: Vec<(Reg, usize)> = Vec::new();
+    let mut xmm_freed: Vec<(Xmm, usize)> = Vec::new();
+    let mut active: Vec<(usize, usize)> = Vec::new(); // (end, slot)
+    let mut out = vec![Loc::Frame; max_slot + 1];
+    for &s in &order {
+        let (st, en) = ranges[s].unwrap();
+        // Expire holders whose range ended strictly before this one starts.
+        let mut still = Vec::with_capacity(active.len());
+        for &(ae, asl) in &active {
+            if ae < st {
+                match out[asl] {
+                    Loc::Reg(r) => gp_freed.push((r, ae)),
+                    Loc::Xmm(x) => xmm_freed.push((x, ae)),
+                    Loc::Frame => {}
+                }
+            } else {
+                still.push((ae, asl));
+            }
+        }
+        active = still;
+        // PREFER A FRESH register over reusing a freed one: a slot in a register
+        // all to itself needs no spill-at-end, so as long as a never-used register
+        // remains we pay no reuse overhead — reuse (and its one end-spill) kicks in
+        // ONLY under real pressure, once the pool is exhausted. This makes a region
+        // that already fits (<= pool size) bit-identical in COST to the classic
+        // per-slot assignment, and reclaims frame spills only where they exist.
+        match class[s] {
+            Class::Int => {
+                let pick = gp_fresh.pop().or_else(|| {
+                    gp_freed
+                        .iter()
+                        .position(|&(_, e)| !ctrl_between(e, st))
+                        .map(|i| gp_freed.swap_remove(i).0)
+                });
+                if let Some(r) = pick {
+                    out[s] = Loc::Reg(r);
+                    active.push((en, s));
+                }
+            }
+            Class::Float => {
+                let pick = xmm_fresh.pop().or_else(|| {
+                    xmm_freed
+                        .iter()
+                        .position(|&(_, e)| !ctrl_between(e, st))
+                        .map(|i| xmm_freed.swap_remove(i).0)
+                });
+                if let Some(x) = pick {
+                    out[s] = Loc::Xmm(x);
+                    active.push((en, s));
+                }
+            }
+            Class::Mixed => {}
+        }
+    }
+    out
+}
+
 /// Per-self-call support: the label of the "bare return" epilogue that a
 /// PROPAGATED in-callee deopt jumps to — flush the frame and return WITHOUT
 /// touching the status cell (which already holds the inner exit code). The
@@ -1388,7 +1668,11 @@ struct Gen<'a> {
     /// Per-slot location (GP reg / XMM reg / frame). The location already
     /// encodes the slot's register class, so Move/LoadConst/array transfers read
     /// `loc` directly to decide whether to bridge between the GP and XMM classes.
-    loc: &'a [Loc],
+    /// OWNED (not borrowed) so the linear-scan path can MUTATE a slot's home as
+    /// the emission walks the ops — a register cache reused across disjoint live
+    /// ranges (a reused slot is spilled to its frame home and set `Frame` at its
+    /// interval end). The classic per-slot path sets it once and never mutates.
+    loc: Vec<Loc>,
     /// Op-index → label, for jump targets.
     op_labels: &'a [LabelId],
     /// The label of the deopt epilogue (set status = 1, flush, return), if any.
@@ -1822,6 +2106,23 @@ fn compile_impl(
     if ops.is_empty() {
         return None;
     }
+    // SIMD: a recognized pure element-wise map region compiles to a 2-wide packed
+    // loop. It has NO deopt paths (the recognizer requires `checked:false` Oracle-
+    // proven-in-bounds accesses and pure float arithmetic), so it runs to
+    // Completed and the VM resumes at the stored exit_pc — independent of the
+    // `precise` mode-B machinery. Bit-identical to the scalar region (each lane is
+    // the scalar op on that index); the differential gate certifies it. Default
+    // OFF (`LOGOS_SIMD=1`).
+    if !is_function && simd_enabled() {
+        if let Some(plan) = crate::vectorize::recognize_elementwise_map(ops) {
+            if let Some(code) =
+                crate::vectorize::emit_map_kernel(&ops[plan.body_start..plan.body_end], &plan)
+            {
+                let chain = JitChain::from_code(&code, ops.len()).ok()?;
+                return Some(CompiledChain::from_chain(chain, None));
+            }
+        }
+    }
     // The PRECISE mode-B FUNCTION path needs the function's VM register count
     // `rc` to know which slots are machinery (the plant window/resume/dst, pin
     // triples, the disjoint callee window — every slot `>= rc`). Infer it from
@@ -1964,6 +2265,18 @@ fn compile_impl(
     // / liveness). It covers each self-call window's full extent because the
     // frame indexing allocates against it.
     let max_slot = max_slot_of(ops);
+
+    // LS1 — linear-scan register allocation gate. Enabled for NO-CALL classic
+    // regions (the precise mode-B path is excluded). A CHECKED op (bounds/divisor)
+    // is allowed: its classic side-exit replays from the head with prefix-
+    // idempotence (native_tier.rs), so the deopt flush must hold each slot's value
+    // AT the faulting op. Linear scan keeps that true by WRITING THROUGH every
+    // REUSED slot to its frame home on each write (so the shared epilogue, which
+    // skips it, finds the current value in the frame); NON-reused slots keep a
+    // fixed register for their whole range and are flushed by the epilogue from
+    // that register. Register reuse is confined to straight-line gaps
+    // (`linscan_assign`), so no reassignment crosses a control join.
+    let linscan_active = linear_scan_enabled() && !has_call && precise.is_none();
 
     // Backward liveness, computed ONCE when the region has a SysV call and reused
     // by both the call-weight ranking (below) and the per-call-site spill-elision
@@ -2161,41 +2474,166 @@ fn compile_impl(
     }
 
     let mut loc = vec![Loc::Frame; max_slot + 1];
-    let mut pi = 0usize; // GP pool cursor
-    let mut fi = 0usize; // XMM pool cursor
-    for (s, _) in &order {
-        // Force callee-window staging slots to the frame (the callee reads them
-        // from its frame; a register-resident window slot would never reach it).
-        if let Some(thresh) = force_frame_above {
-            if *s >= thresh {
+    {
+        let mut pi = 0usize; // GP pool cursor
+        let mut fi = 0usize; // XMM pool cursor
+        for (s, _) in &order {
+            // Force callee-window staging slots to the frame (the callee reads them
+            // from its frame; a register-resident window slot would never reach it).
+            if let Some(thresh) = force_frame_above {
+                if *s >= thresh {
+                    continue;
+                }
+            }
+            // Force list-mutation handle slots (vec/ptr/len) to the frame — the
+            // helper reads/writes them there, so a register copy would go stale.
+            if force_frame_set.contains(s) {
                 continue;
             }
-        }
-        // Force list-mutation handle slots (vec/ptr/len) to the frame — the
-        // helper reads/writes them there, so a register copy would go stale.
-        if force_frame_set.contains(s) {
-            continue;
-        }
-        match class[*s as usize] {
-            Class::Int => {
-                if pi >= pool.len() {
-                    continue;
+            match class[*s as usize] {
+                Class::Int => {
+                    if pi >= pool.len() {
+                        continue;
+                    }
+                    let r = pool[pi];
+                    pi += 1;
+                    loc[*s as usize] = Loc::Reg(r);
+                    if CALLEE_SAVED.contains(&r) {
+                        used_callee.push(r);
+                    }
                 }
-                let r = pool[pi];
-                pi += 1;
-                loc[*s as usize] = Loc::Reg(r);
-                if CALLEE_SAVED.contains(&r) {
-                    used_callee.push(r);
+                Class::Float => {
+                    if fi >= FLOAT_REGS.len() {
+                        continue;
+                    }
+                    loc[*s as usize] = Loc::Xmm(FLOAT_REGS[fi]);
+                    fi += 1;
+                }
+                Class::Mixed => {} // frame-resident only.
+            }
+        }
+    }
+
+    // LS1 — linear-scan register REUSE for FLOAT slots only. The integer side
+    // keeps the classic per-slot assignment above plus its GP-only optimizations
+    // (scaled-index CSE, ptr/const hoists), which the XMM file never touches — so
+    // the two compose. This OVERRIDES the float locs with a live-range allocation
+    // that reuses an XMM register across disjoint float temporaries, reclaiming
+    // the frame spills the whole-region model leaves under XMM pressure (nbody's
+    // 47 floats / 14 registers / 33 spilled — but only ~10 live at once).
+    if linscan_active {
+        let gp_all: Vec<Reg> = CALLER_SAVED.iter().chain(CALLEE_SAVED.iter()).copied().collect();
+        let scan = linscan_assign(ops, max_slot, &class, &gp_all, &FLOAT_REGS);
+        for s in 0..=max_slot {
+            if class[s] == Class::Float {
+                let forced = force_frame_set.contains(&(s as u16))
+                    || force_frame_above.is_some_and(|t| s as u16 >= t);
+                loc[s] = if forced { Loc::Frame } else { scan[s] };
+            }
+        }
+    }
+
+    // LS1 per-point schedule: each slot's loop-aware [start,end] and whether its
+    // register is SHARED with another slot. A shared-register slot is WRITTEN
+    // THROUGH to its frame home on each write and set `Frame` at its range end —
+    // because at any region exit (or mid-region deopt) the physical register may
+    // hold a DIFFERENT member of the share-group, so the slot's authoritative
+    // value must live in the frame, not be read back from the register by the
+    // flush. A slot in a register all to itself (the common case) needs neither:
+    // the register always holds exactly its value, so the exit flush is correct.
+    // Empty unless `linscan_active`.
+    let (ls_range, ls_shared): (Vec<Option<(usize, usize)>>, Vec<bool>) = if linscan_active {
+        let ranges = live_ranges(ops, max_slot);
+        let mut shared = vec![false; max_slot + 1];
+        for a in 0..=max_slot {
+            if matches!(loc[a], Loc::Frame) || ranges[a].is_none() {
+                continue;
+            }
+            for b in 0..=max_slot {
+                if a != b && loc[b] == loc[a] && ranges[b].is_some() {
+                    shared[a] = true;
+                    break;
                 }
             }
-            Class::Float => {
-                if fi >= FLOAT_REGS.len() {
-                    continue;
-                }
-                loc[*s as usize] = Loc::Xmm(FLOAT_REGS[fi]);
-                fi += 1;
+        }
+        (ranges, shared)
+    } else {
+        (Vec::new(), Vec::new())
+    };
+
+    if linscan_active && std::env::var_os("LOGOS_DUMP_LS").is_some() {
+        eprintln!("LS-REGION ops={} max_slot={}", ops.len(), max_slot);
+        for (i, op) in ops.iter().enumerate() {
+            eprintln!("  op{i:>3}: {op:?}");
+        }
+        for s in 0..=max_slot {
+            if let Some((a, b)) = ls_range[s] {
+                eprintln!("  slot{s:>3} [{a:>3},{b:>3}] {:?} shared={}", loc[s], ls_shared[s]);
             }
-            Class::Mixed => {} // frame-resident only.
+        }
+    }
+
+    // Diagnostic class+placement histogram (LOGOS_DUMP_CLASS=1). Only for regions
+    // that touch a float, so the float-cluster investigation isn't drowned in
+    // scalar regions. Reports how many Float-class slots actually won an XMM
+    // register vs spilled to the frame under pressure, and which slots are Mixed
+    // (frame-resident class-ambiguous) — the empirical signal that decides whether
+    // the float wall is a Mixed-class problem (K1) or an XMM-pressure problem (K2).
+    if dump_class_enabled() {
+        let (mut n_int, mut n_float, mut n_mixed) = (0usize, 0usize, 0usize);
+        let (mut f_xmm, mut f_frame) = (0usize, 0usize);
+        let mut mixed_slots: Vec<u16> = Vec::new();
+        for s in 0..=max_slot {
+            match class[s] {
+                Class::Int => n_int += 1,
+                Class::Float => {
+                    n_float += 1;
+                    match loc[s] {
+                        Loc::Xmm(_) => f_xmm += 1,
+                        _ => f_frame += 1,
+                    }
+                }
+                Class::Mixed => {
+                    n_mixed += 1;
+                    mixed_slots.push(s as u16);
+                }
+            }
+        }
+        // Max SIMULTANEOUSLY-LIVE float/int slots = the true register pressure in
+        // the live-interval sense. If max-live-float <= 14 (the XMM pool), a
+        // linear-scan allocator that reuses a register once a slot's range ends
+        // fits every float with ZERO spill — even though the whole-region per-slot
+        // model spills `frame` of them. This is the number that decides whether
+        // interval allocation is the lever.
+        let la = liveness_after(ops, max_slot);
+        let (mut max_live_f, mut max_live_i) = (0usize, 0usize);
+        for row in &la {
+            let (mut lf, mut li) = (0usize, 0usize);
+            for s in 0..=max_slot {
+                if s < row.len() && row[s] {
+                    match class[s] {
+                        Class::Float => lf += 1,
+                        Class::Int => li += 1,
+                        Class::Mixed => {}
+                    }
+                }
+            }
+            max_live_f = max_live_f.max(lf);
+            max_live_i = max_live_i.max(li);
+        }
+        // Linear-scan SIMULATION: how many float/int slots a simple interval
+        // allocator (the lever we'd build) would spill, given the same XMM pool
+        // (14) and the actual GP `pool` this region has after CSE/hoist
+        // reservations. Compare `lsF`/`lsI` against `frame=`: the gap is the spill
+        // the whole-region per-slot model leaves on the table.
+        let intervals = live_intervals(ops, max_slot);
+        let ls_float = linscan_spills(&intervals, &class, Class::Float, FLOAT_REGS.len());
+        let ls_int = linscan_spills(&intervals, &class, Class::Int, pool.len());
+        if n_float > 0 || n_mixed > 0 {
+            eprintln!(
+                "DUMP-CLASS region ops={} max_slot={} int={} float={} (xmm={} frame={}) mixed={} maxLiveF={} maxLiveI={} lsF={} lsI={} mixed_slots={:?}",
+                ops.len(), max_slot, n_int, n_float, f_xmm, f_frame, n_mixed, max_live_f, max_live_i, ls_float, ls_int, mixed_slots
+            );
         }
     }
 
@@ -2317,6 +2755,21 @@ fn compile_impl(
         // Load resident slots in slot order for determinism. GP-resident slots
         // load via `mov`; XMM-resident (float) slots via `movsd`.
         for s in 0..=max_slot as u16 {
+            // LS1: under linear scan, load a resident slot at entry iff it is
+            // ENTRY-LIVE (live range starts at op 0 — an input/loop-carried value
+            // read before written) OR it has a register to ITSELF (non-shared, so
+            // the load can't clobber a co-tenant; loading a write-first temp is
+            // harmless — its def overwrites it, and the entry value preserves a
+            // conditionally-written slot on the paths it isn't written). Skip only
+            // a SHARED write-first temp: loading it would clobber the entry-live or
+            // earlier member sharing its one register.
+            if linscan_active {
+                let shared = ls_shared.get(s as usize).copied().unwrap_or(false);
+                let entry_live = matches!(ls_range.get(s as usize).copied().flatten(), Some((0, _)));
+                if shared && !entry_live {
+                    continue;
+                }
+            }
             match loc.get(s as usize) {
                 Some(Loc::Reg(r)) => asm.mov_rm(*r, BASE, (s as i32) * 8),
                 Some(Loc::Xmm(x)) => asm.movsd_rm(*x, BASE, (s as i32) * 8),
@@ -2346,7 +2799,7 @@ fn compile_impl(
 
     let mut g = Gen {
         asm,
-        loc: &loc,
+        loc: loc.clone(),
         op_labels: &op_labels,
         deopt_label,
         stack_pad,
@@ -2510,6 +2963,27 @@ fn compile_impl(
             g.invalidate_off_cache();
         } else {
             g.invalidate_off_cache_if_writes_idx(op);
+        }
+        // LS1 SPILL-AT-END: when a SHARED-register slot's range ends, store it to
+        // its frame home and set it `Frame`, freeing the register for the next
+        // member. Only the Completed exit flush reads these cells (a classic Deopt
+        // DISCARDS the private frame and replays from the VM's own registers —
+        // machine.rs — so no per-write write-through is needed). A slot in a
+        // register all to itself needs nothing: the register always holds exactly
+        // its value, so the exit flush reads it correctly. The reuse start is
+        // strictly after this end (`linscan_assign`), so the register still holds
+        // THIS slot now — never a successor's value.
+        if linscan_active {
+            for s in 0..=max_slot {
+                if ls_shared[s] && matches!(ls_range[s], Some((_, e)) if e == idx) {
+                    match g.loc[s] {
+                        Loc::Reg(r) => g.asm.mov_mr(BASE, (s as i32) * 8, r),
+                        Loc::Xmm(x) => g.asm.movsd_mr(BASE, (s as i32) * 8, x),
+                        Loc::Frame => {}
+                    }
+                    g.loc[s] = Loc::Frame;
+                }
+            }
         }
     }
 
@@ -2975,12 +3449,12 @@ fn emit_op(
                 g.store(dst, r);
             }
         }
-        MicroOp::Add { dst, lhs, rhs } => emit_commutative(g, dst, lhs, rhs, AsmBinop::Add),
-        MicroOp::Sub { dst, lhs, rhs } => emit_sub(g, dst, lhs, rhs),
-        MicroOp::Mul { dst, lhs, rhs } => emit_commutative(g, dst, lhs, rhs, AsmBinop::Mul),
-        MicroOp::BitAnd { dst, lhs, rhs } => emit_commutative(g, dst, lhs, rhs, AsmBinop::And),
-        MicroOp::BitOr { dst, lhs, rhs } => emit_commutative(g, dst, lhs, rhs, AsmBinop::Or),
-        MicroOp::BitXor { dst, lhs, rhs } => emit_commutative(g, dst, lhs, rhs, AsmBinop::Xor),
+        MicroOp::Add { dst, lhs, rhs } => emit_commutative(g, dst, lhs, rhs, AsmBinop::Add, idx),
+        MicroOp::Sub { dst, lhs, rhs } => emit_sub(g, dst, lhs, rhs, idx),
+        MicroOp::Mul { dst, lhs, rhs } => emit_commutative(g, dst, lhs, rhs, AsmBinop::Mul, idx),
+        MicroOp::BitAnd { dst, lhs, rhs } => emit_commutative(g, dst, lhs, rhs, AsmBinop::And, idx),
+        MicroOp::BitOr { dst, lhs, rhs } => emit_commutative(g, dst, lhs, rhs, AsmBinop::Or, idx),
+        MicroOp::BitXor { dst, lhs, rhs } => emit_commutative(g, dst, lhs, rhs, AsmBinop::Xor, idx),
         MicroOp::Lt { dst, lhs, rhs } => emit_compare(g, dst, lhs, rhs, Cond::Lt),
         MicroOp::Gt { dst, lhs, rhs } => emit_compare(g, dst, lhs, rhs, Cond::Gt),
         MicroOp::LtEq { dst, lhs, rhs } => emit_compare(g, dst, lhs, rhs, Cond::Le),
@@ -3037,27 +3511,35 @@ fn emit_op(
             g.asm.test_rr(r, r);
             g.asm.jcc(Cond::Ne, g.op_labels[target]); // ZF clear => value != 0
         }
-        MicroOp::ArrLoad { dst, idx: idx_slot, ptr_slot, len_slot, byte: false, checked } => {
+        MicroOp::ArrLoad { dst, idx: idx_slot, ptr_slot, len_slot, byte: false, narrow32: true, checked } => {
+            let dl = g.checked_exit(idx);
+            emit_arr_load_i32(g, dst, idx_slot, ptr_slot, len_slot, checked, dl);
+        }
+        MicroOp::ArrStore { src, idx: idx_slot, ptr_slot, len_slot, byte: false, narrow32: true, checked } => {
+            let dl = g.checked_exit(idx);
+            emit_arr_store_i32(g, src, idx_slot, ptr_slot, len_slot, checked, dl);
+        }
+        MicroOp::ArrLoad { dst, idx: idx_slot, ptr_slot, len_slot, byte: false, narrow32: false, checked } => {
             // The exit label is only consulted for a CHECKED access; an unchecked
             // load needs none (and a region with no checked op has no label).
             let dl = g.checked_exit(idx);
             emit_arr_load(g, dst, idx_slot, ptr_slot, len_slot, checked, dl);
         }
-        MicroOp::ArrStore { src, idx: idx_slot, ptr_slot, len_slot, byte: false, checked } => {
+        MicroOp::ArrStore { src, idx: idx_slot, ptr_slot, len_slot, byte: false, narrow32: false, checked } => {
             let dl = g.checked_exit(idx);
             emit_arr_store(g, src, idx_slot, ptr_slot, len_slot, checked, dl);
         }
-        MicroOp::ArrLoad { dst, idx: idx_slot, ptr_slot, len_slot, byte: true, checked } => {
+        MicroOp::ArrLoad { dst, idx: idx_slot, ptr_slot, len_slot, byte: true, narrow32: _, checked } => {
             let dl = g.checked_exit(idx);
             emit_arr_load_byte(g, dst, idx_slot, ptr_slot, len_slot, checked, dl);
         }
-        MicroOp::ArrStore { src, idx: idx_slot, ptr_slot, len_slot, byte: true, checked } => {
+        MicroOp::ArrStore { src, idx: idx_slot, ptr_slot, len_slot, byte: true, narrow32: _, checked } => {
             let dl = g.checked_exit(idx);
             emit_arr_store_byte(g, src, idx_slot, ptr_slot, len_slot, checked, dl);
         }
         // ---- LIST MUTATION (wave 13) — helper calls into the JIT runtime. ----
-        MicroOp::ArrPush { src, vec_slot, ptr_slot, len_slot, helper_addr, byte } => {
-            emit_list_push(g, idx, src, vec_slot, ptr_slot, len_slot, helper_addr, byte);
+        MicroOp::ArrPush { src, vec_slot, ptr_slot, len_slot, helper_addr, byte, narrow32 } => {
+            emit_list_push(g, idx, src, vec_slot, ptr_slot, len_slot, helper_addr, byte, narrow32);
         }
         MicroOp::ListClear { vec_slot, ptr_slot, len_slot, helper_addr } => {
             emit_list_clear(g, idx, vec_slot, ptr_slot, len_slot, helper_addr);
@@ -3271,6 +3753,55 @@ fn emit_arr_store_byte(g: &mut Gen, src: Slot, idx: Slot, ptr_slot: Slot, len_sl
     g.asm.mov_mr8(S0, 0, S1); // *(u8*)addr = (v != 0) as u8
 }
 
+/// Address machinery for a 4-byte (`IntsI32`) element: `S0 = ptr + (idx-1)*4`,
+/// with the same unsigned over-length OOB guard as [`emit_arr_addr`]. A literal
+/// per-access lowering (no scaled-index CSE — the half-width lane is rare and
+/// the index reuse is the dominant cost, already covered by the loop's other
+/// accesses); after this the address is in `S0` and the scratch `S1` is dead.
+fn emit_arr_addr_i32(g: &mut Gen, idx: Slot, ptr_slot: Slot, len_slot: Slot, checked: bool, dl: Option<LabelId>) {
+    g.load(S0, idx);
+    g.asm.sub_ri(S0, 1); // im1 = idx - 1
+    if checked {
+        let dl = dl.expect("checked array op without a deopt label");
+        let len = g.hoisted_len(ptr_slot).unwrap_or_else(|| g.operand(len_slot, S1));
+        g.asm.cmp_rr(S0, len); // im1 - len
+        g.asm.jcc(Cond::AeU, dl); // (im1 as u64) >= (len as u64) → OOB
+    }
+    g.asm.shl_ri(S0, 2); // im1 * 4 (4-byte i32 elements)
+    let ptr = g.hoisted_ptr(ptr_slot).unwrap_or_else(|| g.operand(ptr_slot, S1));
+    g.asm.add_rr(S0, ptr); // S0 = ptr + im1*4
+}
+
+/// `frame[dst] = buffer[frame[idx] - 1] as i64` over 4-byte SIGN-EXTENDED
+/// (`IntsI32`) elements — bit-identical to `logos_stencil_arrld_i32`: a
+/// `movsxd` widening the stored `i32` to a full i64. Through scratch `S1` so a
+/// resident `dst` is written with a register move; OOB side-exit identical to
+/// the 8-byte path. A half-width access drops the scaled-index CSE cache (its
+/// stride differs from any cached 8-byte run).
+fn emit_arr_load_i32(g: &mut Gen, dst: Slot, idx: Slot, ptr_slot: Slot, len_slot: Slot, checked: bool, dl: Option<LabelId>) {
+    g.invalidate_off_cache();
+    emit_arr_addr_i32(g, idx, ptr_slot, len_slot, checked, dl);
+    g.asm.movsxd_rm(S1, S0, 0); // S1 = *(i32*)addr (sign-extended)
+    g.store(dst, S1);
+}
+
+/// `buffer[frame[idx] - 1] = frame[src] as i32` over 4-byte (`IntsI32`)
+/// elements — bit-identical to `logos_stencil_arrst_i32`: a truncating 4-byte
+/// store (lossless under the narrowing proof). A CHECKED store side-exits
+/// BEFORE the write. An XMM-resident source is bit-copied to a GP reg first.
+fn emit_arr_store_i32(g: &mut Gen, src: Slot, idx: Slot, ptr_slot: Slot, len_slot: Slot, checked: bool, dl: Option<LabelId>) {
+    g.invalidate_off_cache();
+    emit_arr_addr_i32(g, idx, ptr_slot, len_slot, checked, dl);
+    let v = match g.loc[src as usize] {
+        Loc::Xmm(x) => {
+            g.asm.movq_rx(S1, x);
+            S1
+        }
+        _ => g.operand(src, SC),
+    };
+    g.asm.mov_mr32(S0, 0, v); // *(i32*)addr = value as i32 (low 4 bytes)
+}
+
 /// Lower a pinned-list PUSH (`ArrPush`) with an INLINE FAST PATH plus a cold
 /// realloc helper call — the V8-style array-push lowering.
 ///
@@ -3324,6 +3855,7 @@ fn emit_list_push(
     len_slot: Slot,
     helper_addr: i64,
     byte: bool,
+    narrow32: bool,
 ) {
     // Kill-switch / A-B toggle: fall back to the always-call helper lowering.
     if !inline_push_enabled() {
@@ -3366,7 +3898,9 @@ fn emit_list_push(
     // addr = ptr + len*stride, computed into S0 (vec dead now; reloaded below for
     // the real-len writeback). S1 still holds `len`.
     g.asm.mov_rm(S0, BASE, (ptr_slot as i32) * 8); // S0 = ptr
-    if !byte {
+    if narrow32 {
+        g.asm.shl_ri(S1, 2); // len * 4 (4-byte i32 elements)
+    } else if !byte {
         g.asm.shl_ri(S1, 3); // len * 8 (8-byte i64/f64 elements)
     }
     g.asm.add_rr(S0, S1); // S0 = ptr + len*stride  (S1 now dead)
@@ -3376,6 +3910,10 @@ fn emit_list_push(
         g.asm.test_rr(SC, SC);
         g.asm.setcc8(Cond::Ne, S1);
         g.asm.mov_mr8(S0, 0, S1); // *(u8*)addr = (value != 0) as u8
+    } else if narrow32 {
+        // 4-byte (`IntsI32`) store: TRUNCATE the value to its low 4 bytes
+        // (lossless under the narrowing proof), matching `logos_rt_push_i32`.
+        g.asm.mov_mr32(S0, 0, SC); // *(i32*)addr = value as i32
     } else {
         g.asm.mov_mr(S0, 0, SC); // *addr = value (8 raw bytes)
     }
@@ -3527,8 +4065,10 @@ enum AsmBinop {
 }
 
 /// `dst = lhs OP rhs` for a commutative op. Compute in S0 to avoid clobbering a
-/// resident operand that may be read again later.
-fn emit_commutative(g: &mut Gen, dst: Slot, lhs: Slot, rhs: Slot, op: AsmBinop) {
+/// resident operand that may be read again later. Integer `add`/`imul` SIDE-EXIT
+/// on signed overflow (`jo` → this op's deopt label) BEFORE the store, so the
+/// exact tier recomputes and promotes to BigInt; bitwise ops cannot overflow.
+fn emit_commutative(g: &mut Gen, dst: Slot, lhs: Slot, rhs: Slot, op: AsmBinop, idx: usize) {
     g.load(S0, lhs);
     let b = g.operand(rhs, S1);
     match op {
@@ -3538,14 +4078,23 @@ fn emit_commutative(g: &mut Gen, dst: Slot, lhs: Slot, rhs: Slot, op: AsmBinop) 
         AsmBinop::Or => g.asm.or_rr(S0, b),
         AsmBinop::Xor => g.asm.xor_rr(S0, b),
     }
+    if matches!(op, AsmBinop::Add | AsmBinop::Mul) {
+        if let Some(dl) = g.checked_exit(idx) {
+            g.asm.jcc(Cond::Overflow, dl);
+        }
+    }
     g.store(dst, S0);
 }
 
-/// `dst = lhs - rhs` (non-commutative). lhs into S0, then `sub S0, rhs`.
-fn emit_sub(g: &mut Gen, dst: Slot, lhs: Slot, rhs: Slot) {
+/// `dst = lhs - rhs` (non-commutative). lhs into S0, then `sub S0, rhs`; `jo` →
+/// deopt on signed overflow (before the store) so the exact tier promotes.
+fn emit_sub(g: &mut Gen, dst: Slot, lhs: Slot, rhs: Slot, idx: usize) {
     g.load(S0, lhs);
     let b = g.operand(rhs, S1);
     g.asm.sub_rr(S0, b);
+    if let Some(dl) = g.checked_exit(idx) {
+        g.asm.jcc(Cond::Overflow, dl);
+    }
     g.store(dst, S0);
 }
 
@@ -3919,6 +4468,127 @@ mod tests {
     }
 
     #[test]
+    fn live_intervals_span_first_to_last_touch() {
+        // LoadConst s0; Move s1<-s0; Return s1.
+        let ops = vec![
+            MicroOp::LoadConst { dst: 0, value: 7 },
+            MicroOp::Move { dst: 1, src: 0 },
+            MicroOp::Return { src: 1 },
+        ];
+        let iv = live_intervals(&ops, 1);
+        assert_eq!(iv, vec![
+            LiveInterval { slot: 0, start: 0, end: 1 }, // defined @0, last read @1
+            LiveInterval { slot: 1, start: 1, end: 2 }, // defined @1, returned @2
+        ]);
+    }
+
+    #[test]
+    fn linscan_reuses_a_register_across_disjoint_ranges() {
+        // Five float temporaries with strictly DISJOINT ranges. The whole-region
+        // per-slot model would give each its own home (spilling 4 of 5 with a
+        // single register); linear scan reuses the one register for all → 0 spill.
+        let class = vec![Class::Float; 5];
+        let iv: Vec<LiveInterval> = (0..5)
+            .map(|s| LiveInterval { slot: s, start: (s as usize) * 2, end: (s as usize) * 2 + 1 })
+            .collect();
+        assert_eq!(linscan_spills(&iv, &class, Class::Float, 1), 0, "disjoint ranges share 1 reg");
+        assert_eq!(linscan_spills(&iv, &class, Class::Float, 0), 5, "0 regs spills all");
+    }
+
+    #[test]
+    fn linscan_spills_only_the_overlap_excess() {
+        // Three fully-overlapping float intervals need 3 registers; with 2 exactly
+        // one spills, with 3 none. This is the pressure the per-slot model can't
+        // see — it would spill by rank, not by overlap.
+        let class = vec![Class::Float; 3];
+        let iv: Vec<LiveInterval> = (0..3).map(|s| LiveInterval { slot: s, start: 0, end: 9 }).collect();
+        assert_eq!(linscan_spills(&iv, &class, Class::Float, 3), 0);
+        assert_eq!(linscan_spills(&iv, &class, Class::Float, 2), 1);
+        assert_eq!(linscan_spills(&iv, &class, Class::Float, 1), 2);
+    }
+
+    /// A float accumulation loop: `acc` is loop-carried; `x` and `y` are disjoint
+    /// within-iteration float temps. Returns (ops, max_slot). slots: 0=i 1=N
+    /// 2=acc(f) 3=x(f) 4=y(f) 5=one.
+    fn float_loop_two_temps() -> (Vec<MicroOp>, usize) {
+        let ops = vec![
+            MicroOp::Branch { cmp: Cmp::Lt, lhs: 0, rhs: 1, target: 8 }, // loop guard (ctrl + target@8)
+            MicroOp::IntToFloat { dst: 3, src: 0 },                      // x = (f)i
+            MicroOp::AddF { dst: 2, lhs: 2, rhs: 3 },                    // acc += x   (x dead after)
+            MicroOp::IntToFloat { dst: 4, src: 0 },                      // y = (f)i
+            MicroOp::AddF { dst: 2, lhs: 2, rhs: 4 },                    // acc += y   (y dead after)
+            MicroOp::LoadConst { dst: 5, value: 1 },
+            MicroOp::Add { dst: 0, lhs: 0, rhs: 5 }, // i += 1
+            MicroOp::Jump { target: 0 },             // back-edge (ctrl + target@0)
+            MicroOp::Return { src: 2 },
+        ];
+        (ops, 5)
+    }
+
+    #[test]
+    fn live_ranges_are_loop_aware() {
+        let (ops, max_slot) = float_loop_two_temps();
+        let r = live_ranges(&ops, max_slot);
+        // acc (loop-carried) spans the whole loop, returned at op 8.
+        assert_eq!(r[2], Some((0, 8)), "carried acc must span the loop");
+        // x / y are within-iteration temps with disjoint ranges.
+        assert_eq!(r[3], Some((1, 2)));
+        assert_eq!(r[4], Some((3, 4)));
+    }
+
+    #[test]
+    fn linscan_prefers_fresh_then_reuses_under_pressure() {
+        let (ops, max_slot) = float_loop_two_temps();
+        let class = classify_slots(&ops, max_slot);
+        let ranges = live_ranges(&ops, max_slot);
+        // AMPLE XMM pool: disjoint temps x and y each get their OWN register — no
+        // reuse, hence no spill-at-end overhead when the region already fits.
+        let ample = linscan_assign(&ops, max_slot, &class, &CALLER_SAVED, &FLOAT_REGS);
+        assert_ne!(ample[3], Loc::Frame, "temp must get a register");
+        assert_ne!(ample[3], ample[4], "with registers to spare, disjoint temps do NOT share");
+        // PRESSURE: only acc + one scratch XMM. acc (loop-carried) overlaps both
+        // temps and keeps its register; x and y must then SHARE the single scratch.
+        let tight = linscan_assign(&ops, max_slot, &class, &CALLER_SAVED, &[Xmm::Xmm0, Xmm::Xmm1]);
+        assert_eq!(tight[3], tight[4], "under pressure, disjoint gap-clear temps reuse one register");
+        assert_ne!(tight[2], tight[3], "carried acc cannot share a live temp's register");
+        // INVARIANT (both regimes): no two slots with OVERLAPPING ranges share a register.
+        for assign in [&ample, &tight] {
+            for a in 0..=max_slot {
+                for b in (a + 1)..=max_slot {
+                    if let (Some((sa, ea)), Some((sb, eb))) = (ranges[a], ranges[b]) {
+                        let overlap = sa <= eb && sb <= ea;
+                        if overlap && assign[a] != Loc::Frame {
+                            assert_ne!(assign[a], assign[b], "overlapping slots {a},{b} share a register");
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn linscan_no_reuse_across_a_control_point() {
+        // Two disjoint int temps separated by a jump TARGET: reuse would cross a
+        // control join, so they must NOT share a register.
+        // 0:LoadConst t0  1:Add a=t0+t0 (t0 dead@1)  2:Jump 4  3:(unreached)  4:(target) LoadConst t1  5:Add b=t1+t1  6:Return b
+        let ops = vec![
+            MicroOp::LoadConst { dst: 0, value: 1 }, // t0 @0
+            MicroOp::Add { dst: 1, lhs: 0, rhs: 0 }, // a=t0+t0 ; t0 dead after @1
+            MicroOp::Jump { target: 4 },             // ctrl; target 4 is a jump target
+            MicroOp::LoadConst { dst: 9, value: 0 }, // filler (unreached) keeps idx 3 occupied
+            MicroOp::LoadConst { dst: 2, value: 2 }, // t1 @4 (a jump target — control join)
+            MicroOp::Add { dst: 3, lhs: 2, rhs: 2 }, // b=t1+t1
+            MicroOp::Return { src: 3 },
+        ];
+        let max_slot = 9;
+        let class = classify_slots(&ops, max_slot);
+        let assign = linscan_assign(&ops, max_slot, &class, &CALLER_SAVED, &FLOAT_REGS);
+        // t0 (range ~[0,1]) freed before t1 (range ~[4,5]) but op 4 is a jump
+        // target in the gap → t1 must take a FRESH register, not t0's.
+        assert_ne!(assign[0], assign[2], "reuse must not cross a control point");
+    }
+
+    #[test]
     fn straightline_arith_matches_reference() {
         let ops = vec![
             MicroOp::Add { dst: 3, lhs: 0, rhs: 1 },
@@ -4052,6 +4722,7 @@ mod tests {
                 len_slot: 10,
                 helper_addr,
                 byte: false,
+                narrow32: false,
             },
             MicroOp::LoadConst { dst: 2, value: 1 },
             MicroOp::Add { dst: 0, lhs: 0, rhs: 2 }, // i += 1
@@ -4185,6 +4856,7 @@ mod tests {
                 len_slot: 10,
                 helper_addr: test_push_bool as usize as i64,
                 byte: true,
+                narrow32: false,
             },
             MicroOp::LoadConst { dst: 2, value: 1 },
             MicroOp::Add { dst: 0, lhs: 0, rhs: 2 }, // i += 1
@@ -4241,6 +4913,7 @@ mod tests {
                 len_slot: 10,
                 helper_addr: test_push_f64 as usize as i64,
                 byte: false,
+                narrow32: false,
             },
             MicroOp::LoadConst { dst: 2, value: 1 },
             MicroOp::Add { dst: 0, lhs: 0, rhs: 2 }, // i += 1
@@ -4311,19 +4984,27 @@ mod tests {
                 for (i, f) in frame.iter_mut().enumerate() {
                     *f = (i as i64 + 1).wrapping_mul(1_000_003) - 7;
                 }
-                let expected = reference_eval(&ops, &mut frame.clone(), 100_000)
-                    .expect("straightline terminates");
+                // Exact integer math: `reference_eval` returns None on i64 overflow,
+                // which the native chain matches with a side-exit (deopt).
+                let expected = reference_eval(&ops, &mut frame.clone(), 100_000);
                 let (out, post) = run(&ops, &frame);
-                assert_eq!(
-                    out,
-                    ChainOutcome::Return(expected),
-                    "slots={slots} seed={seed}: return diverged"
-                );
-                // The full frame must also match the reference's full frame —
-                // every resident-written slot was flushed on exit.
-                let mut ref_frame = frame.clone();
-                reference_eval(&ops, &mut ref_frame, 100_000).unwrap();
-                assert_eq!(post, ref_frame, "slots={slots} seed={seed}: frame diverged");
+                match expected {
+                    Some(e) => {
+                        assert_eq!(
+                            out,
+                            ChainOutcome::Return(e),
+                            "slots={slots} seed={seed}: return diverged"
+                        );
+                        // The full frame must also match the reference's full frame.
+                        let mut ref_frame = frame.clone();
+                        reference_eval(&ops, &mut ref_frame, 100_000);
+                        assert_eq!(post, ref_frame, "slots={slots} seed={seed}: frame diverged");
+                    }
+                    None => assert!(
+                        out.is_deopt(),
+                        "slots={slots} seed={seed}: overflow must deopt, got {out:?}"
+                    ),
+                }
             }
         }
     }
@@ -4427,9 +5108,15 @@ mod tests {
         ];
         // slots: 0=i 1=N 2=s 3=A 4=B 5=C 6=MASK 7=t 8=u 9=extra 10=one
         let frame = vec![0i64, 5000, 1, 6364136223846793005u64 as i64, 1442695040888963407u64 as i64, 12345, 0x5DEECE66D, 0, 0, 0, 0];
-        let expected = reference_eval(&ops, &mut frame.clone(), 100_000_000).unwrap();
+        // These LCG-sized multipliers overflow i64 on the first `s*A`. Under exact
+        // integer math the reference returns None and the native chain side-exits
+        // (deopt) — the two must agree that this leaves the i64 fast path.
+        let expected = reference_eval(&ops, &mut frame.clone(), 100_000_000);
         let (out, _) = run(&ops, &frame);
-        assert_eq!(out, ChainOutcome::Return(expected));
+        match expected {
+            Some(e) => assert_eq!(out, ChainOutcome::Return(e)),
+            None => assert!(out.is_deopt(), "overflow must deopt, got {out:?}"),
+        }
     }
 
     /// `loop_depths` (the spill-weight heuristic's loop detector): a back-edge
@@ -4767,8 +5454,8 @@ mod tests {
         // 5: (exit) Return i
         let ops = vec![
             MicroOp::Branch { cmp: Cmp::Lt, lhs: 0, rhs: 1, target: 5 },
-            MicroOp::ArrStore { src: 2, idx: 0, ptr_slot: 6, len_slot: 7, byte: false, checked: true },
-            MicroOp::ArrPush { src: 2, vec_slot: 8, ptr_slot: 9, len_slot: 10, helper_addr: 0, byte: false },
+            MicroOp::ArrStore { src: 2, idx: 0, ptr_slot: 6, len_slot: 7, byte: false, narrow32: false, checked: true },
+            MicroOp::ArrPush { src: 2, vec_slot: 8, ptr_slot: 9, len_slot: 10, helper_addr: 0, byte: false, narrow32: false },
             MicroOp::Add { dst: 0, lhs: 0, rhs: 3 },
             MicroOp::Jump { target: 0 },
             MicroOp::Return { src: 0 },
@@ -4800,7 +5487,7 @@ mod tests {
     #[test]
     fn precise_region_declines_on_codes_length_mismatch() {
         let ops = vec![
-            MicroOp::ArrStore { src: 2, idx: 0, ptr_slot: 6, len_slot: 7, byte: false, checked: true },
+            MicroOp::ArrStore { src: 2, idx: 0, ptr_slot: 6, len_slot: 7, byte: false, narrow32: false, checked: true },
             MicroOp::Return { src: 0 },
         ];
         let codes = vec![1i64]; // one short
@@ -4817,7 +5504,7 @@ mod tests {
     #[test]
     fn precise_region_declines_without_status() {
         let ops = vec![
-            MicroOp::ArrStore { src: 2, idx: 0, ptr_slot: 6, len_slot: 7, byte: false, checked: true },
+            MicroOp::ArrStore { src: 2, idx: 0, ptr_slot: 6, len_slot: 7, byte: false, narrow32: false, checked: true },
             MicroOp::Return { src: 0 },
         ];
         let codes = vec![3i64, 1];

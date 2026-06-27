@@ -44,6 +44,7 @@ pub fn hover(doc: &DocumentState, position: Position) -> Option<Hover> {
                 BlockType::Theorem => "Theorem declaration",
                 BlockType::Proof => "Proof block",
                 BlockType::Definition => "Type or term definition",
+                BlockType::Define => "Predicate definition",
                 BlockType::TypeDef => "Type definition",
                 BlockType::Policy => "Security policy",
                 BlockType::Logic => "Direct logical notation",
@@ -53,6 +54,7 @@ pub fn hover(doc: &DocumentState, position: Position) -> Option<Hover> {
                 BlockType::Hardware => "Hardware signal declarations",
                 BlockType::Property => "Temporal property assertions",
                 BlockType::No => "Optimization annotation",
+                BlockType::Tier => "Tiered-optimizer pin",
             };
             let mut result = format!("**Block Header** — {}", desc);
 

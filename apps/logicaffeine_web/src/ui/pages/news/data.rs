@@ -63,31 +63,59 @@ pub fn get_articles_by_tag(tag: &str) -> Vec<&'static Article> {
 static ARTICLES: &[Article] = &[
     Article {
         slug: "release-0-9-17-copy-and-patch-jit",
-        title: "v0.9.17 — Copy-and-Patch JIT",
+        title: "v0.9.17 — EXODIA: Native Execution Tier",
         date: "2026-06-11",
-        summary: "Two new crates join the published workspace: logicaffeine-forge, the copy-and-patch JIT's executable-memory layer and stencil runtime, and logicaffeine-tv, SMT translation validation proving emitted Rust is observationally equivalent to its LOGOS source.",
+        summary: "The language gains a register bytecode VM and a copy-and-patch JIT with a register-allocating x86-64 backend (EXODIA), reaching geomean parity with V8/Node on the interpreter benchmark suite. Five new crates join the workspace — forge, jit, synth, runtime, and tv — alongside verified-arithmetic proof work and strict whole-input parsing.",
         content: r#"
-## Copy-and-Patch JIT
+## EXODIA — the native execution tier
 
-This release publishes two new crates that have been taking shape inside the workspace: a copy-and-patch JIT foundation and an SMT translation-validation engine.
+The English-like language no longer runs only on a tree-walking interpreter. It now executes on a register bytecode VM with a copy-and-patch JIT on top, and the JIT carries a contiguous register-allocating x86-64 backend (EXODIA). On the interpreter benchmark suite the VM+JIT geomean moves from 3.34x to roughly 1.0x against Node/V8, with 12 of 31 programs faster than V8.
 
-### logicaffeine-forge — the executable-memory layer
+### The bytecode VM
 
-`logicaffeine-forge` is the foundation a copy-and-patch JIT builds on. `JitPage` allocates page-aligned memory, copies machine code into it, flips the page to executable, and hands back a callable function pointer. At runtime, compiling a function is `memcpy(stencil bytes)` followed by patching relocations — no per-function assembler, just stencils stamped out and wired together.
+A register bytecode VM in `logicaffeine-compile` is the live engine for both the synchronous native path and WASM. It is corpus-certified against the tree-walking interpreter as a shadow oracle, and its `Int` fast paths are bit-identical to the kernel by the wrapping-`i64` spec, pinned by an edge-grid differential. Release-bench on a representative program: tree-walker 70ms, VM 16.6ms (4.2x), tiered 6.0ms (11.7x).
+
+### The tier-up seam
+
+Hot **functions** compile per call with argument guards and kind-inference (parameters `Int`, comparisons `Bool`). Hot **Main loops** region-tier through an OSR-lite path with incoming-dead analysis and per-entry guards, so loops that never reach a function-level JIT still run native. Anything outside the supported integer/float subset fails closed back to bytecode — the deopt contract — so correctness never depends on the JIT accepting a given program.
+
+### logicaffeine-forge — the executable-memory layer and EXODIA backend
+
+`logicaffeine-forge` is the foundation the copy-and-patch JIT builds on. `JitPage` allocates page-aligned memory, copies machine code into it, flips the page to executable, and hands back a callable function pointer. At runtime, compiling a function is `memcpy(stencil bytes)` followed by patching relocations. On top of the stencil runtime sits the J1 micro-op compiler and the EXODIA contiguous register-allocating region/function x86-64 codegen tier (`regalloc.rs`, `x64asm.rs`), which replaces per-stencil-piece dispatch with allocated registers and contiguous code.
 
 ### Platform-correct W^X
 
-Write-xor-execute is handled per platform: on macOS/aarch64 (Apple Silicon) via `mmap(MAP_JIT)` with per-thread `pthread_jit_write_protect_np` toggling and a mandatory `sys_icache_invalidate`; on other Unix via `mmap(RW)` then `mprotect(RX)` with an I-cache flush on aarch64 Linux; on Windows via `VirtualAlloc` then `VirtualProtect` then `FlushInstructionCache`. The JIT is native-only — the browser continues to use the bytecode VM.
+Write-xor-execute is handled per platform: on macOS/aarch64 (Apple Silicon) via `mmap(MAP_JIT)` with per-thread `pthread_jit_write_protect_np` toggling and a mandatory `sys_icache_invalidate`; on other Unix via `mmap(RW)` then `mprotect(RX)` with an I-cache flush on aarch64 Linux; on Windows via `VirtualAlloc` then `VirtualProtect` then `FlushInstructionCache`. The JIT is native-only; the browser continues to run the bytecode VM.
+
+### logicaffeine-jit — the native tier
+
+`logicaffeine-jit` is the seam between the VM and the forge. `ForgeTier` translates VM bytecode into the forge's `MicroOp` subset for both whole functions (`ChainFn`) and hot loop regions (`RegionChain`), and `install()` makes the tier process-wide — `largo` installs it at startup. The crate is `#![cfg(not(target_arch = "wasm32"))]`, so WASM builds it to nothing.
+
+### logicaffeine-synth — offline proof tooling for the stencils
+
+`logicaffeine-synth` (EXODIA Phase 2) proves the JIT's integer micro-operations correct offline. It carries Z3 specifications for the micro-ops over 64-bit bitvectors, satisfiability and algebraic-property gates, and a three-way witness harness that runs Z3-chosen inputs through the real compiled stencil. It runs at development and CI time and never on the production runtime path.
+
+### logicaffeine-runtime — deterministic concurrency
+
+`logicaffeine-runtime` is the operational semantics of concurrency for the interpreter and VM: the task scheduler, FIFO channels, `Select`, a logical-clock timer wheel, and the seed/trace machinery. A run is a deterministic function of `(program, seed)` and replays bit-for-bit from `(program, trace)` through a single `Chooser::decide` choke point. It is pure `std`, WASM-safe, tokio-free, and by charter never linked into AOT-compiled binaries — the compiled path uses `logicaffeine-system` instead.
 
 ### logicaffeine-tv — translation validation
 
-`logicaffeine-tv` proves that the Rust emitted by the compiler is observationally equivalent to the LOGOS source it was compiled from, per compile, by symbolically executing both sides into the shared verification domain and discharging the equivalence with Z3. Its `check_encoder_sound` check cross-validates the LOGOS encoder against the tree-walking interpreter — the load-bearing trust anchor that catches a buggy encoder rather than letting it "prove" two wrong things equal. This is translation validation (rung 3–4): the trust boundary is the encoders, Z3, and rustc.
+`logicaffeine-tv` proves that the Rust emitted by the compiler is observationally equivalent to its LOGOS source, per compile, by symbolically executing both sides into the shared `logicaffeine-verify` domain and discharging the equivalence with Z3. `check_encoder_sound` cross-validates the LOGOS encoder against the tree-walking interpreter — the trust anchor that catches a buggy encoder rather than letting it prove two wrong things equal. This is translation validation at rung 3–4: the trust boundary is the encoders, Z3, and rustc.
 
-### Lockstep & published
+### Verified arithmetic and proof work
 
-Both crates join the lockstep version line and the crates.io publish pipeline, so they ship and version alongside the rest of the workspace.
+The kernel gains proof-producing arithmetic (`arith.rs`) with certificates, the proof engine gains modal translation and independent verification, and the solver stack adds a CDCL core with an incremental grid solver, grounding, and trust-tiers.
+
+### Strict whole-input parsing
+
+`compile()` now rejects parses that strand tokens (`TrailingTokens`) instead of silently dropping meaning — for a hardware spec, a dropped `until AWREADY` clause is a wrong assertion, not a style issue. The parser gains the coverage to match: noun-noun compound heads, possessive heads over ambiguous noun/verb words, trailing temporal operators inside `If`-consequents, postposed `when`-clauses, and quantified or cardinal objects under modals and under `never`.
+
+### Published
+
+`logicaffeine-forge` and `logicaffeine-jit` join the lockstep version line and the crates.io publish pipeline, shipping and versioning alongside the rest of the workspace.
 "#,
-        tags: &["release", "jit", "compiler", "translation-validation", "verification"],
+        tags: &["release", "jit", "vm", "compiler", "benchmarks", "translation-validation", "verification", "language"],
         author: "LOGICAFFEINE Team",
     },
     Article {

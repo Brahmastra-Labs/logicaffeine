@@ -6,10 +6,12 @@
 //! through this module makes behavioral divergence structurally impossible,
 //! and every runtime error string for these operations lives here.
 
+pub mod acceptance;
 pub mod arith;
 pub mod builtins;
 pub mod collections;
 pub mod compare;
+pub mod crdt;
 pub mod format;
 pub mod policy;
 pub mod temporal;

@@ -3,7 +3,7 @@
   "type": "translation",
   "difficulty": 4,
   "prompt": "Translate this nested quantifier statement:",
-  "template": "Every {Noun:Singular} {Verb:Transitive} some {Noun2:Singular}.",
+  "template": "Every {Noun:Singular} {Verb:Present3s} some {Noun2:Singular}.",
   "constraints": {
     "Verb": ["Transitive"]
   },

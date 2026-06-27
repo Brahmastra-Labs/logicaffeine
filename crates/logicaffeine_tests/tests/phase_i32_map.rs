@@ -110,7 +110,7 @@ Show acc.
 /// falls back to `LogosI64Map`.
 #[test]
 fn kill_switch_disables_i32_narrowing() {
-    std::env::set_var("LOGOS_NARROW_MAP", "0");
+    std::env::set_var("LOGOS_OPT_OFF", "narrowmap");
     let src = r#"## Main
 Let mutable m be a new Map of Int to Int.
 Let mutable i be 0.
@@ -125,7 +125,7 @@ While i is less than 50:
 Show acc.
 "#;
     let rust = compile_to_rust(src).unwrap();
-    std::env::remove_var("LOGOS_NARROW_MAP");
+    std::env::remove_var("LOGOS_OPT_OFF");
     assert!(
         !rust.contains("LogosI32") && rust.contains("LogosI64Map"),
         "LOGOS_NARROW_MAP=0 must fall back to LogosI64Map. Got:\n{rust}"

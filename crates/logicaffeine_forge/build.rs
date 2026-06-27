@@ -60,22 +60,26 @@ fn main() {
                 regs[loc - 1].to_string()
             }
         };
-        // Binary ALU + comparison families: dst/lhs/rhs each in 5 locations.
-        let binops: &[(&str, &str)] = &[
-            ("add", "a.wrapping_add(b)"),
-            ("sub", "a.wrapping_sub(b)"),
-            ("mul", "a.wrapping_mul(b)"),
-            ("band", "a & b"),
-            ("bor", "a | b"),
-            ("bxor", "a ^ b"),
-            ("shl", "a.wrapping_shl(b as u32)"),
-            ("shr", "a.wrapping_shr(b as u32)"),
-            ("lt", "(a < b) as i64"),
-            ("le", "(a <= b) as i64"),
-            ("eq", "(a == b) as i64"),
-            ("ne", "(a != b) as i64"),
+        // Binary ALU + comparison families: dst/lhs/rhs each in 5 locations. The
+        // integer add/sub/mul families are CHECKED: on signed overflow they take the
+        // deopt continuation (`cont_1`) so the exact tier recomputes and promotes to
+        // BigInt — `checked` names the i64 method; `None` = a pure (non-overflowing)
+        // op that only ever continues via `cont_0`.
+        let binops: &[(&str, &str, Option<&str>)] = &[
+            ("add", "a.wrapping_add(b)", Some("checked_add")),
+            ("sub", "a.wrapping_sub(b)", Some("checked_sub")),
+            ("mul", "a.wrapping_mul(b)", Some("checked_mul")),
+            ("band", "a & b", None),
+            ("bor", "a | b", None),
+            ("bxor", "a ^ b", None),
+            ("shl", "a.wrapping_shl(b as u32)", None),
+            ("shr", "a.wrapping_shr(b as u32)", None),
+            ("lt", "(a < b) as i64", None),
+            ("le", "(a <= b) as i64", None),
+            ("eq", "(a == b) as i64", None),
+            ("ne", "(a != b) as i64", None),
         ];
-        for (fam, expr) in binops {
+        for (fam, expr, checked) in binops {
             for d in 0..5usize {
                 for l in 0..5usize {
                     for r in 0..5usize {
@@ -86,8 +90,18 @@ fn main() {
                         } else {
                             format!("let {} = v;", regs[d - 1])
                         };
+                        let body = if let Some(chk) = checked {
+                            // Overflow → cont_1 (deopt); otherwise store and cont_0.
+                            format!(
+                                "    let a = {a};\n    let b = {b};\n    match a.{chk}(b) {{\n        Some(v) => {{ {store}\n            logos_hole_cont_0(base, sp, r0, r1, r2, r3, f0, f1, f2, f3, f4, f5) }}\n        None => logos_hole_cont_1(base, sp, r0, r1, r2, r3, f0, f1, f2, f3, f4, f5),\n    }}\n"
+                            )
+                        } else {
+                            format!(
+                                "    let a = {a};\n    let b = {b};\n    let v = {expr};\n    {store}\n    logos_hole_cont_0(base, sp, r0, r1, r2, r3, f0, f1, f2, f3, f4, f5)\n"
+                            )
+                        };
                         gen.push_str(&format!(
-                            "#[no_mangle]\npub unsafe extern \"C\" fn logos_stencil_v_{fam}_{d}{l}{r}(base: *mut i64, sp: *mut i64, r0: i64, r1: i64, r2: i64, r3: i64, f0: f64, f1: f64, f2: f64, f3: f64, f4: f64, f5: f64) -> i64 {{\n    let a = {a};\n    let b = {b};\n    let v = {expr};\n    {store}\n    logos_hole_cont_0(base, sp, r0, r1, r2, r3, f0, f1, f2, f3, f4, f5)\n}}\n",
+                            "#[no_mangle]\npub unsafe extern \"C\" fn logos_stencil_v_{fam}_{d}{l}{r}(base: *mut i64, sp: *mut i64, r0: i64, r1: i64, r2: i64, r3: i64, f0: f64, f1: f64, f2: f64, f3: f64, f4: f64, f5: f64) -> i64 {{\n{body}}}\n",
                         ));
                     }
                 }

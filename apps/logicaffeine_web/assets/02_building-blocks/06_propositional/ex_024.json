@@ -4,10 +4,10 @@
   "difficulty": 1,
   "prompt": "Not both R and C",
   "options": [
-    "$ \\\\sim R \\\\cdot C $",
-    "$ (\\\\sim R \\\\cdot \\\\sim C) $",
-    "$ \\\\sim(R \\\\cdot C) $",
-    "$ (\\\\sim R \\\\cdot C) $"
+    "$ \\sim R \\cdot C $",
+    "$ (\\sim R \\cdot \\sim C) $",
+    "$ \\sim(R \\cdot C) $",
+    "$ (\\sim R \\cdot C) $"
   ],
   "correct": 2,
   "hint": "What exactly is 'both' connecting? Are both parts the full consequence, or just the second one?",

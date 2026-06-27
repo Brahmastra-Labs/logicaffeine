@@ -4,10 +4,10 @@
   "difficulty": 1,
   "prompt": "Either not B or not C",
   "options": [
-    "$ (\\\\sim B \\\\vee C) $",
-    "$ \\\\sim(B \\\\vee \\\\sim C) $",
-    "$ (\\\\sim B \\\\vee \\\\sim C) $",
-    "$ \\\\sim B \\\\vee \\\\sim C $"
+    "$ (\\sim B \\vee C) $",
+    "$ \\sim(B \\vee \\sim C) $",
+    "$ (\\sim B \\vee \\sim C) $",
+    "$ \\sim B \\vee \\sim C $"
   ],
   "correct": 2,
   "hint": "How many negations do you see? Does each thing get its own 'not', or is the whole statement negated?",

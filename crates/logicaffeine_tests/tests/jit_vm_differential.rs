@@ -14,12 +14,15 @@
 use logicaffeine_compile::compile::vm_outcome;
 use logicaffeine_compile::ui_bridge::with_parsed_program;
 use logicaffeine_compile::vm::Compiler;
-use logicaffeine_forge::jit::compile_straightline;
+use logicaffeine_forge::jit::{compile_straightline, ChainOutcome};
 use logicaffeine_jit::{adapt, ForgeTier};
 
-/// Compile `source`'s Main to VM bytecode, adapt, JIT, and return the result —
-/// or None when outside the J2 subset.
-fn jit_run(source: &str) -> Option<i64> {
+/// Compile `source`'s Main to VM bytecode, adapt, JIT, and return the result as a
+/// string — or None when outside the J2 subset. This is a TIERED runner: when the
+/// native chain SIDE-EXITS (a `Deopt` — e.g. integer overflow now promotes instead
+/// of wrapping), the exact bytecode VM takes over, exactly as production tiering
+/// does, and its (possibly BigInt) output is returned.
+fn jit_run(source: &str) -> Option<String> {
     with_parsed_program(source, |parsed, interner| match parsed {
         Ok((stmts, types, _policies)) => {
             let program = Compiler::compile_with_types(stmts, interner, Some(types)).ok()?;
@@ -27,7 +30,10 @@ fn jit_run(source: &str) -> Option<i64> {
                 adapt(&program.code, &program.constants, program.register_count)?;
             let chain = compile_straightline(&micro).ok()?;
             let mut frame = vec![0i64; frame_size.max(1)];
-            Some(chain.run_with_frame(&mut frame).expect_return())
+            Some(match chain.run_with_frame(&mut frame) {
+                ChainOutcome::Return(v) => v.to_string(),
+                ChainOutcome::Deopt(_) => vm_outcome(source).output.trim().to_string(),
+            })
         }
         Err(_) => None,
     })
@@ -37,11 +43,7 @@ fn assert_jit_matches_vm(source: &str) {
     let jit = jit_run(source).expect("program should be in the JIT subset");
     let vm = vm_outcome(source);
     assert_eq!(vm.error, None, "VM errored on:\n{source}");
-    assert_eq!(
-        jit.to_string(),
-        vm.output.trim(),
-        "JIT diverged from VM for:\n{source}"
-    );
+    assert_eq!(jit, vm.output.trim(), "JIT diverged from VM for:\n{source}");
 }
 
 #[test]

@@ -1,0 +1,15 @@
+{
+  "id": "P_1.18",
+  "type": "multiple_choice",
+  "difficulty": 4,
+  "prompt": "What is the form of Destructive Dilemma?",
+  "options": [
+    "(P → Q), (R → S), (P ∨ R) ⊢ (Q ∨ S)",
+    "(P → Q), (R → S), (¬Q ∨ ¬S) ⊢ (¬P ∨ ¬R)",
+    "(P → Q), (Q → R) ⊢ (P → R)",
+    "(P ∧ Q) ⊢ P"
+  ],
+  "correct": 1,
+  "hint": "'Destructive' applies Modus Tollens to each conditional, so it negates the antecedents.",
+  "explanation": "Destructive Dilemma: from two conditionals (P → Q) and (R → S) plus the negated-consequents disjunction (¬Q ∨ ¬S), conclude (¬P ∨ ¬R) — Modus Tollens applied across a disjunction. Option 1 is Constructive Dilemma, option 3 is Hypothetical Syllogism, option 4 is Simplification."
+}

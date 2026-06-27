@@ -1,0 +1,15 @@
+{
+  "id": "M_1.11",
+  "type": "multiple_choice",
+  "difficulty": 5,
+  "prompt": "Is first-order logic decidable?",
+  "options": [
+    "Yes — truth tables settle every case",
+    "No — Church and Turing proved that validity in first-order logic is undecidable",
+    "Yes — Gödel's completeness theorem makes it decidable",
+    "Only if the domain is finite"
+  ],
+  "correct": 1,
+  "hint": "Propositional logic is decidable; adding quantifiers over an arbitrary domain changes things.",
+  "explanation": "First-order validity is UNDECIDABLE (Church's theorem, 1936, via Turing's halting problem) — no algorithm can decide validity for every FOL formula. FOL is, however, complete (Gödel) and semi-decidable: valid formulas can be enumerated, but there is no general procedure that also rejects every invalid one. Propositional logic, by contrast, is decidable."
+}

@@ -4,10 +4,10 @@
   "difficulty": 1,
   "prompt": "M is consistent with D",
   "options": [
-    "$ (M \\\\cdot D) $",
-    "$ (\\\\lozenge M \\\\cdot D) $",
-    "$ (\\\\lozenge M \\\\cdot \\\\lozenge D) $",
-    "$ \\\\lozenge (M \\\\cdot D) $"
+    "$ (M \\cdot D) $",
+    "$ (\\lozenge M \\cdot D) $",
+    "$ (\\lozenge M \\cdot \\lozenge D) $",
+    "$ \\lozenge (M \\cdot D) $"
   ],
   "correct": 3,
   "hint": "When two things are 'consistent', does that mean they ARE both true, or they COULD be true together?",

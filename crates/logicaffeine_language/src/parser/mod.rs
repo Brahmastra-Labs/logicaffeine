@@ -73,7 +73,8 @@ pub use verb::{LogicVerbParsing, ImperativeVerbParsing};
 
 use crate::analysis::TypeRegistry;
 use crate::arena_ctx::AstContext;
-use crate::ast::{AspectOperator, LogicExpr, NeoEventData, NumberKind, QuantifierKind, TemporalOperator, Term, ThematicRole, Stmt, Expr, Literal, TypeExpr, BinaryOpKind, MatchArm, OptFlag};
+use crate::ast::{AspectOperator, CompressionCodec, SendLayout, LogicExpr, NeoEventData, NumberKind, QuantifierKind, TemporalOperator, Term, ThematicRole, Stmt, Expr, Literal, TypeExpr, BinaryOpKind, MatchArm};
+use crate::optimization::{by_keyword, pin_from_str, OptimizationConfig, PinSet};
 use crate::ast::stmt::{ReadSource, Pattern};
 use std::collections::HashSet;
 use crate::drs::{Case, Gender, Number, ReferentSource};
@@ -265,6 +266,14 @@ pub struct Parser<'a, 'ctx, 'int> {
     pub(super) tokens: Vec<Token>,
     /// Current position in token stream.
     pub(super) current: usize,
+    /// File-level optimization decorators: a `## No <X>` that is NOT attached to a
+    /// following `## To` function (it appears before `## Main` or at EOF) applies
+    /// program-wide. Read after `parse_program` via [`Parser::program_opt_flags`].
+    pub(super) program_opt_flags: OptimizationConfig,
+    /// File-level tiered-optimizer pins from `## Tier <opt> <value>` decorators
+    /// (HOTSWAP §8): each pins one optimization to a hotness tier (or `eager`/`never`).
+    /// Program-wide; read after `parse_program` via [`Parser::program_tier_pins`].
+    pub(super) program_tier_pins: PinSet,
     /// Counter for generating fresh variables.
     pub(super) var_counter: usize,
     /// Pending tense from temporal adverbs.
@@ -341,6 +350,11 @@ pub struct Parser<'a, 'ctx, 'int> {
     /// (`definiteness.is_some()`) is the only signal, to avoid eating a real
     /// main verb ("studies hard pass").
     pub(super) nominal_np_context: bool,
+    /// Named acceptance contracts declared by `Accept computed <Name> where <param> is an
+    /// Int from <lo> to <hi>` → `(lo, hi)`. Pure parse-time sugar: a `Run <f> on <arg> under
+    /// <Name> into <var>` statement desugars to `Let <var> be run_accepted(<f>, <arg>, lo, hi)`,
+    /// inlining the named contract's bounds — no new AST node, no runtime contract registry.
+    pub(super) contracts: std::collections::HashMap<String, (i64, i64)>,
 }
 
 impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
@@ -357,6 +371,9 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
         Parser {
             tokens,
             current: 0,
+            contracts: std::collections::HashMap::new(),
+            program_opt_flags: OptimizationConfig::all_on(),
+            program_tier_pins: PinSet::none(),
             var_counter: 0,
             pending_time: None,
             donkey_bindings: Vec::new(),
@@ -785,11 +802,11 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
             if let TokenType::BlockHeader { block_type } = &self.tokens[self.current].kind {
                 self.mode = match block_type {
                     BlockType::Main | BlockType::Function => ParserMode::Imperative,
-                    BlockType::Theorem | BlockType::Definition | BlockType::Proof |
+                    BlockType::Theorem | BlockType::Definition | BlockType::Define | BlockType::Proof |
                     BlockType::Example | BlockType::Logic | BlockType::Note | BlockType::TypeDef |
                     BlockType::Policy | BlockType::Requires |
                     BlockType::Hardware | BlockType::Property => ParserMode::Declarative,
-                    BlockType::No => self.mode, // Annotation — keep current mode
+                    BlockType::No | BlockType::Tier => self.mode, // Annotation — keep current mode
                 };
                 self.current += 1;
             } else {
@@ -1547,7 +1564,7 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
     pub fn parse_program(&mut self) -> ParseResult<Vec<Stmt<'a>>> {
         let mut statements = Vec::new();
         let mut in_definition_block = false;
-        let mut pending_opt_flags: HashSet<OptFlag> = HashSet::new();
+        let mut pending_opt_flags = OptimizationConfig::all_on();
 
         // Check if we started in a Definition block (from process_block_headers)
         if self.mode == ParserMode::Declarative {
@@ -1567,35 +1584,62 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                         continue;
                     }
                     BlockType::Main => {
+                        // A `## No <X>` before `## Main` (not attached to a function)
+                        // is a FILE-LEVEL decorator: fold it into the program config.
+                        self.program_opt_flags =
+                            self.program_opt_flags.merged(&pending_opt_flags);
+                        pending_opt_flags = OptimizationConfig::all_on();
                         in_definition_block = false;
                         self.mode = ParserMode::Imperative;
                         self.advance();
                         continue;
                     }
                     BlockType::No => {
-                        // Optimization annotation: ## No Memo, ## No TCO, etc.
-                        self.advance(); // consume the ## No header
-                        // Parse the annotation keyword that follows.
-                        // Use the token's lexeme for a universal approach regardless of token type.
+                        // Optimization annotation: `## No <Keyword>` clears that
+                        // optimization for the following function; `## No Optimize`
+                        // clears all of them. Keywords come from the registry.
+                        self.advance(); // consume the `## No` header
                         if let Some(token) = self.tokens.get(self.current) {
                             let word = self.interner.resolve(token.lexeme).to_lowercase();
-                            match word.as_str() {
-                                "memo" => { pending_opt_flags.insert(OptFlag::NoMemo); }
-                                "tco" => { pending_opt_flags.insert(OptFlag::NoTCO); }
-                                "peephole" => { pending_opt_flags.insert(OptFlag::NoPeephole); }
-                                "borrow" => { pending_opt_flags.insert(OptFlag::NoBorrow); }
-                                "optimize" => {
-                                    pending_opt_flags.insert(OptFlag::NoOptimize);
-                                    pending_opt_flags.insert(OptFlag::NoMemo);
-                                    pending_opt_flags.insert(OptFlag::NoTCO);
-                                    pending_opt_flags.insert(OptFlag::NoPeephole);
-                                    pending_opt_flags.insert(OptFlag::NoBorrow);
-                                }
-                                _ => {} // Unknown annotation — ignore silently
+                            if word == "optimize" {
+                                pending_opt_flags = OptimizationConfig::all_off();
+                            } else if let Some(opt) = by_keyword(&word) {
+                                pending_opt_flags.set(opt, false);
                             }
+                            // Unknown annotation — ignore silently.
                             self.advance(); // consume the flag word
                         }
-                        // Skip any trailing newlines
+                        while self.check(&TokenType::Newline) {
+                            self.advance();
+                        }
+                        continue;
+                    }
+                    BlockType::Tier => {
+                        // Tiered-optimizer pin: `## Tier <opt> <eager|t1|t2|t3|never>`
+                        // overrides the hotness tier at which that optimization runs.
+                        // Program-wide (governs the whole program's tiering ladder),
+                        // collected directly — no per-function pending state.
+                        self.advance(); // consume the `## Tier` header
+                        let kw = self
+                            .tokens
+                            .get(self.current)
+                            .map(|t| self.interner.resolve(t.lexeme).to_lowercase());
+                        if kw.is_some() {
+                            self.advance(); // consume the optimization keyword
+                        }
+                        let val = self
+                            .tokens
+                            .get(self.current)
+                            .map(|t| self.interner.resolve(t.lexeme).to_lowercase());
+                        if val.is_some() {
+                            self.advance(); // consume the tier value
+                        }
+                        if let (Some(kw), Some(val)) = (kw, val) {
+                            if let (Some(opt), Some(pin)) = (by_keyword(&kw), pin_from_str(&val)) {
+                                self.program_tier_pins.set(opt, pin);
+                            }
+                            // Unknown opt / value — ignore silently.
+                        }
                         while self.check(&TokenType::Newline) {
                             self.advance();
                         }
@@ -1643,6 +1687,15 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                         statements.push(theorem);
                         continue;
                     }
+                    BlockType::Define => {
+                        // Rung 0a: vernacular-logic predicate definition.
+                        in_definition_block = false;
+                        self.mode = ParserMode::Declarative;
+                        self.advance();
+                        let definition = self.parse_define_block()?;
+                        statements.push(definition);
+                        continue;
+                    }
                     BlockType::Requires => {
                         in_definition_block = false;
                         self.mode = ParserMode::Declarative;
@@ -1675,6 +1728,13 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
 
             // In imperative mode, parse statements
             if self.mode == ParserMode::Imperative {
+                // `Accept computed <Name> where <param> is an Int from <lo> to <hi>` is a
+                // pure parse-time contract declaration — it records the named bounds and
+                // emits NO runtime statement (a later `Run … under <Name>` inlines them).
+                if self.check_word("Accept") {
+                    self.parse_accept_contract()?;
+                    continue;
+                }
                 let stmt = self.parse_statement()?;
                 statements.push(stmt);
 
@@ -1687,7 +1747,24 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
             }
         }
 
+        // Any decorators not consumed by a function (trailing, or a library with
+        // no `## Main`) are file-level.
+        self.program_opt_flags = self.program_opt_flags.merged(&pending_opt_flags);
         Ok(statements)
+    }
+
+    /// The program-wide optimization config from file-level `## No <X>` decorators
+    /// (all-on minus the file-level disables). The compile entry combines this with
+    /// `from_env` and per-function flags.
+    pub fn program_opt_flags(&self) -> OptimizationConfig {
+        self.program_opt_flags
+    }
+
+    /// The program-wide tiered-optimizer pins from file-level `## Tier <opt> <value>`
+    /// decorators (HOTSWAP §8). The run-path engine overlays these onto the env
+    /// [`crate::optimization::HotswapConfig`] before optimizing.
+    pub fn program_tier_pins(&self) -> PinSet {
+        self.program_tier_pins
     }
 
     fn parse_statement(&mut self) -> ParseResult<Stmt<'a>> {
@@ -1724,6 +1801,9 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
         if self.check(&TokenType::Assert) {
             return self.parse_assert_statement();
         }
+        if self.check(&TokenType::Require) {
+            return self.parse_require_statement();
+        }
         // Phase 35: Trust statement
         if self.check(&TokenType::Trust) {
             return self.parse_trust_statement();
@@ -1741,6 +1821,11 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
         }
         if self.check(&TokenType::Sleep) {
             return self.parse_sleep_statement();
+        }
+        // `Run <f> on <arg> under <Name> into <var>` — invoke a shipped computation through a
+        // named acceptance contract; desugars to `Let <var> be run_accepted(<f>, <arg>, lo, hi)`.
+        if self.check_word("Run") {
+            return self.parse_run_under_contract();
         }
         // Phase 52: GossipSub sync statement
         if self.check(&TokenType::Sync) {
@@ -2641,10 +2726,15 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
             self.current = saved_pos;
         }
 
-        // Phase 54: Check for "a Pipe of Type" pattern
+        // Phase 54: Check for "a [new] Pipe of Type" pattern. The optional `new`
+        // matches the `a new X` idiom every other collection construction uses
+        // (`a new Map`, `a new Set`); the guide writes `a new Pipe of Int`.
         if self.check_article() {
             let saved_pos = self.current;
             self.advance(); // consume article
+            if self.check(&TokenType::New) {
+                self.advance(); // consume optional "new"
+            }
 
             if self.check(&TokenType::Pipe) {
                 self.advance(); // consume "Pipe"
@@ -2799,10 +2889,12 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
         match declared {
             TypeExpr::Primitive(sym) | TypeExpr::Named(sym) => {
                 let declared_name = self.interner.resolve(*sym);
-                // Nat and Byte are compatible with Int literals
+                // Nat and Byte are compatible with Int literals; an integer literal is
+                // also a valid Rational (`Let x: Rational be 5` → exact 5/1).
                 declared_name.eq_ignore_ascii_case(inferred)
                     || (declared_name.eq_ignore_ascii_case("Nat") && inferred == "Int")
                     || (declared_name.eq_ignore_ascii_case("Byte") && inferred == "Int")
+                    || (declared_name.eq_ignore_ascii_case("Rational") && inferred == "Int")
             }
             _ => true, // For generics/functions, skip check for now
         }
@@ -2994,7 +3086,22 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
         // This allows syntax like "Assert that b is not 0."
         let condition = self.parse_condition()?;
 
-        Ok(Stmt::RuntimeAssert { condition })
+        Ok(Stmt::RuntimeAssert { condition, hard: false })
+    }
+
+    /// `Require that <cond>.` — an ENFORCED runtime invariant lowering to a hard
+    /// `assert!` (survives release). Same surface as `Assert that` but `hard: true`;
+    /// this is the form a proven property check (`Require that check_thm(args).`) uses.
+    fn parse_require_statement(&mut self) -> ParseResult<Stmt<'a>> {
+        self.advance(); // consume "Require"
+
+        // Optionally consume "that" (may be tokenized as That or Article(Distal)).
+        if self.check(&TokenType::That) || matches!(self.peek().kind, TokenType::Article(Definiteness::Distal)) {
+            self.advance();
+        }
+
+        let condition = self.parse_condition()?;
+        Ok(Stmt::RuntimeAssert { condition, hard: true })
     }
 
     /// Phase 35: Parse Trust statement
@@ -3182,6 +3289,104 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
             source_text,
             span: start_span,
         })
+    }
+
+    /// Read the current token's lexeme as an owned `String` and advance.
+    fn read_word_string(&mut self) -> String {
+        let s = self.interner.resolve(self.peek().lexeme).to_string();
+        self.advance();
+        s
+    }
+
+    /// Expect a specific keyword (case-insensitive) and advance; else a `Custom` error.
+    fn expect_keyword(&mut self, word: &str) -> ParseResult<()> {
+        if self.check_word(word) {
+            self.advance();
+            Ok(())
+        } else {
+            Err(ParseError {
+                kind: ParseErrorKind::Custom(format!("expected `{}` here", word)),
+                span: self.current_span(),
+            })
+        }
+    }
+
+    /// Read an integer literal token and advance; else a `Custom` error.
+    fn read_int_literal(&mut self) -> ParseResult<i64> {
+        if let TokenType::Number(sym) = &self.peek().kind {
+            let sym = *sym;
+            self.advance();
+            self.interner.resolve(sym).parse::<i64>().map_err(|_| ParseError {
+                kind: ParseErrorKind::Custom("expected an integer bound".to_string()),
+                span: self.current_span(),
+            })
+        } else {
+            Err(ParseError {
+                kind: ParseErrorKind::Custom("expected an integer bound".to_string()),
+                span: self.current_span(),
+            })
+        }
+    }
+
+    /// `Accept computed <Name> where <param> is an Int from <lo> to <hi>` — a parse-time
+    /// acceptance-contract declaration. Records the named integer bounds (consumed by a later
+    /// `Run … under <Name>`) and emits NO runtime statement.
+    fn parse_accept_contract(&mut self) -> ParseResult<()> {
+        self.advance(); // "Accept"
+        self.expect_keyword("computed")?;
+        let name = self.read_word_string();
+        self.expect_keyword("where")?;
+        let _param = self.read_word_string(); // the parameter name is documentation only
+        self.expect_keyword("is")?;
+        if self.check_word("a") || self.check_word("an") {
+            self.advance();
+        }
+        self.expect_keyword("Int")?;
+        self.expect_keyword("from")?;
+        let lo = self.read_int_literal()?;
+        // "to" can be the `To` token or the bare word.
+        if self.check(&TokenType::To) || self.check_word("to") {
+            self.advance();
+        } else {
+            return Err(ParseError {
+                kind: ParseErrorKind::Custom("expected `to` between the contract bounds".to_string()),
+                span: self.current_span(),
+            });
+        }
+        let hi = self.read_int_literal()?;
+        if self.check(&TokenType::Period) {
+            self.advance(); // this declaration `continue`s in parse_program, so eat its own `.`
+        }
+        self.contracts.insert(name, (lo, hi));
+        Ok(())
+    }
+
+    /// `Run <f> on <arg> under <Name> into <var>` → `Let <var> be run_accepted(<f>, <arg>, lo, hi)`,
+    /// inlining the named acceptance contract's bounds. The trailing `.` is consumed by
+    /// `parse_program` (this returns a real statement).
+    fn parse_run_under_contract(&mut self) -> ParseResult<Stmt<'a>> {
+        self.advance(); // "Run"
+        let f_expr = self.parse_imperative_expr()?;
+        self.expect_keyword("on")?;
+        let arg_expr = self.parse_imperative_expr()?;
+        self.expect_keyword("under")?;
+        let name = self.read_word_string();
+        let (lo, hi) = *self.contracts.get(&name).ok_or_else(|| ParseError {
+            kind: ParseErrorKind::Custom(format!(
+                "unknown acceptance contract `{name}` — declare it with `Accept computed {name} where …`"
+            )),
+            span: self.current_span(),
+        })?;
+        self.expect_keyword("into")?;
+        let var = self.peek().lexeme;
+        self.advance();
+        let lo_e = self.ctx.alloc_imperative_expr(Expr::Literal(crate::ast::Literal::Number(lo)));
+        let hi_e = self.ctx.alloc_imperative_expr(Expr::Literal(crate::ast::Literal::Number(hi)));
+        let run_sym = self.interner.intern("run_accepted");
+        let call = self
+            .ctx
+            .alloc_imperative_expr(Expr::Call { function: run_sym, args: vec![f_expr, arg_expr, lo_e, hi_e] });
+        Ok(Stmt::Let { var, ty: None, value: call, mutable: false })
     }
 
     /// Phase 51: Parse Listen statement - bind to network address
@@ -4313,15 +4518,15 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
             }
             self.advance(); // consume "from"
 
-            // Parse file path (must be string literal)
+            // Parse file path — a string literal, or a variable holding the path
+            // (the path is often known only at runtime, e.g. a function parameter).
             if let TokenType::StringLiteral(path) = &self.peek().kind {
-                source_file = Some(*path);
+                let p = *path;
                 self.advance();
+                source_file = Some(crate::ast::stmt::ZoneSource::Literal(p));
             } else {
-                return Err(ParseError {
-                    kind: ParseErrorKind::ExpectedKeyword { keyword: "file path string".to_string() },
-                    span: self.current_span(),
-                });
+                let var = self.expect_identifier()?;
+                source_file = Some(crate::ast::stmt::ZoneSource::Variable(var));
             }
         }
         // Check for "of size N Unit" (sized heap zone)
@@ -5133,6 +5338,95 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
         Ok(Stmt::Theorem(theorem))
     }
 
+    /// Parse a `## Define` block (Rung 0a): a vernacular-logic predicate
+    /// definition written as one biconditional sentence,
+    /// `<subject> is <predicate> if and only if <definiens>`. The LHS predicate
+    /// is the definiendum (its name + parameter symbols); the RHS is the
+    /// definiens. A body that is not a top-level biconditional whose left side
+    /// is a predicate application is a malformed definition and errors.
+    fn parse_define_block(&mut self) -> ParseResult<Stmt<'a>> {
+        use crate::ast::definition::DefinitionBlock;
+
+        self.skip_whitespace_tokens();
+
+        // Optional `: Label` after the header — the definiendum names itself, so
+        // a label is decorative. Consume and ignore one if present.
+        if self.check(&TokenType::Colon) {
+            self.advance();
+            self.skip_whitespace_tokens();
+            if let Some(token) = self.tokens.get(self.current) {
+                if matches!(
+                    token.kind,
+                    TokenType::Noun(_)
+                        | TokenType::ProperName(_)
+                        | TokenType::Adjective(_)
+                        | TokenType::Verb { .. }
+                ) {
+                    self.advance();
+                }
+            }
+            if self.check(&TokenType::Period) {
+                self.advance();
+            }
+        }
+
+        self.skip_whitespace_tokens();
+
+        // The body is one biconditional sentence.
+        let sentence = self.parse_sentence()?;
+        if self.check(&TokenType::Period) || self.check(&TokenType::Exclamation) {
+            self.advance();
+        }
+
+        // Split at the top-level biconditional.
+        let (definiendum, definiens) = match sentence {
+            LogicExpr::BinaryOp { left, op: TokenType::Iff, right } => (*left, *right),
+            _ => {
+                return Err(ParseError {
+                    kind: ParseErrorKind::Custom(
+                        "a `## Define` body must be a biconditional: \
+                         `<subject> is <predicate> if and only if <definiens>`"
+                            .to_string(),
+                    ),
+                    span: self.current_span(),
+                });
+            }
+        };
+
+        // The definiendum must be a predicate applied to its parameters; the
+        // predicate name is the new concept, its arguments are the parameters.
+        let (name, params) = match definiendum {
+            LogicExpr::Predicate { name, args, .. } => {
+                let pname = self.interner.resolve(*name).to_string();
+                let params: Vec<Symbol> = args
+                    .iter()
+                    .filter_map(|t| match t {
+                        Term::Constant(s) | Term::Variable(s) => Some(*s),
+                        _ => None,
+                    })
+                    .collect();
+                (pname, params)
+            }
+            _ => {
+                return Err(ParseError {
+                    kind: ParseErrorKind::Custom(
+                        "the left side of a `## Define` biconditional must be a \
+                         predicate applied to its parameters (e.g. `x is a bachelor`)"
+                            .to_string(),
+                    ),
+                    span: self.current_span(),
+                });
+            }
+        };
+
+        Ok(Stmt::Definition(DefinitionBlock {
+            name,
+            params,
+            definiendum,
+            definiens,
+        }))
+    }
+
     /// Skip whitespace tokens (newlines, indentation)
     fn skip_whitespace_tokens(&mut self) {
         while self.check(&TokenType::Newline) || self.check(&TokenType::Indent) || self.check(&TokenType::Dedent) {
@@ -5140,16 +5434,82 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
         }
     }
 
+    /// Insert each postcondition (`checks`) as a hard `RuntimeAssert` immediately
+    /// before every `Return` reachable in `stmts`, recursing into the control-flow
+    /// constructs whose returns EXIT the function (`If`/`While`/`Repeat`/`Inspect`/
+    /// `Zone`). `Concurrent`/`Parallel` are intentionally left as leaves: their
+    /// returns are swallowed (they don't exit the function), so a postcondition must
+    /// NOT be inserted there. The fallthrough exit is handled by the caller.
+    fn insert_ensures_before_returns(
+        &self,
+        stmts: &[Stmt<'a>],
+        checks: &[&'a Expr<'a>],
+    ) -> Vec<Stmt<'a>> {
+        let mut out: Vec<Stmt<'a>> = Vec::new();
+        for s in stmts {
+            if matches!(s, Stmt::Return { .. }) {
+                for &c in checks {
+                    out.push(Stmt::RuntimeAssert { condition: c, hard: true });
+                }
+                out.push(s.clone());
+                continue;
+            }
+            // Clone, then rewrite only the child blocks (via `..` patterns) — no need
+            // to re-spell every field of every block-bearing variant.
+            let mut c = s.clone();
+            match &mut c {
+                Stmt::If { then_block, else_block, .. } => {
+                    *then_block = self.alloc_block(self.insert_ensures_before_returns(then_block, checks));
+                    if let Some(eb) = else_block {
+                        *eb = self.alloc_block(self.insert_ensures_before_returns(eb, checks));
+                    }
+                }
+                Stmt::While { body, .. }
+                | Stmt::Repeat { body, .. }
+                | Stmt::Zone { body, .. } => {
+                    *body = self.alloc_block(self.insert_ensures_before_returns(body, checks));
+                }
+                Stmt::Inspect { arms, .. } => {
+                    for arm in arms.iter_mut() {
+                        arm.body = self.alloc_block(self.insert_ensures_before_returns(arm.body, checks));
+                    }
+                }
+                Stmt::Select { branches } => {
+                    // A `Return` in a `select!` arm EXITS the function (unlike
+                    // Concurrent/Parallel, whose returns are swallowed) — guard it too.
+                    for br in branches.iter_mut() {
+                        match br {
+                            crate::ast::stmt::SelectBranch::Receive { body, .. }
+                            | crate::ast::stmt::SelectBranch::Timeout { body, .. } => {
+                                *body = self.alloc_block(self.insert_ensures_before_returns(body, checks));
+                            }
+                        }
+                    }
+                }
+                // Concurrent/Parallel: their Returns are swallowed (don't exit the
+                // function), so the postcondition must NOT be inserted there.
+                _ => {}
+            }
+            out.push(c);
+        }
+        out
+    }
+
+    /// Allocate a freshly-built statement list in the imperative arena.
+    fn alloc_block(&self, stmts: Vec<Stmt<'a>>) -> &'a [Stmt<'a>] {
+        self.ctx.stmts.expect("imperative arenas not initialized").alloc_slice(stmts.into_iter())
+    }
+
     /// Phase 32: Parse function definition after `## To` header
     /// Phase 32/38: Parse function definition
     /// Syntax: [To] [native] name (a: Type) [and (b: Type)] [-> ReturnType]
     ///         body statements... (only if not native)
     fn parse_function_def(&mut self) -> ParseResult<Stmt<'a>> {
-        self.parse_function_def_with_flags(HashSet::new())
+        self.parse_function_def_with_flags(OptimizationConfig::all_on())
     }
 
     /// Parse function definition with optimization annotation flags.
-    fn parse_function_def_with_flags(&mut self, opt_flags: HashSet<OptFlag>) -> ParseResult<Stmt<'a>> {
+    fn parse_function_def_with_flags(&mut self, opt_flags: OptimizationConfig) -> ParseResult<Stmt<'a>> {
         // Consume "To" if present (when called from parse_statement)
         if self.check(&TokenType::To) || self.check_preposition_is("to") {
             self.advance();
@@ -5286,12 +5646,21 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                 is_exported = true;
                 if self.check_word("for") {
                     self.advance(); // consume "for"
-                    let target_sym = self.expect_identifier()?;
+                    // "native" lexes as a keyword token, not an identifier.
+                    let target_sym = if self.check(&TokenType::Native) {
+                        self.advance();
+                        self.interner.intern("native")
+                    } else {
+                        self.expect_identifier()?
+                    };
                     let target_str = self.interner.resolve(target_sym);
-                    if !target_str.eq_ignore_ascii_case("c") && !target_str.eq_ignore_ascii_case("wasm") {
+                    if !target_str.eq_ignore_ascii_case("c")
+                        && !target_str.eq_ignore_ascii_case("wasm")
+                        && !target_str.eq_ignore_ascii_case("native")
+                    {
                         return Err(ParseError {
                             kind: ParseErrorKind::Custom(
-                                format!("Unsupported export target \"{}\". Supported targets are \"c\" and \"wasm\".", target_str)
+                                format!("Unsupported export target \"{}\". Supported targets are \"c\", \"wasm\", and \"native\".", target_str)
                             ),
                             span: self.current_span(),
                         });
@@ -5325,7 +5694,7 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                 native_path,
                 is_exported: false,
                 export_target: None,
-                opt_flags: opt_flags.clone(),
+                opt_flags,
             });
         }
 
@@ -5349,6 +5718,12 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
 
         // Parse body statements
         let mut body_stmts = Vec::new();
+        // Contract clauses: `Requires <cond>.` (precondition, checked at entry) and
+        // `Ensures <cond>.` (postcondition, checked before every return). Collected
+        // here and desugared into enforced (hard) asserts below — NOT emitted as
+        // ordinary statements.
+        let mut requires_checks: Vec<&'a Expr<'a>> = Vec::new();
+        let mut ensures_checks: Vec<&'a Expr<'a>> = Vec::new();
         while !self.check(&TokenType::Dedent) && !self.is_at_end() {
             // Skip newlines between statements
             if self.check(&TokenType::Newline) {
@@ -5358,6 +5733,18 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
             // Stop if we hit another block header
             if matches!(self.peek().kind, TokenType::BlockHeader { .. }) {
                 break;
+            }
+            if self.check(&TokenType::Requires) {
+                self.advance(); // consume "Requires"
+                requires_checks.push(self.parse_condition()?);
+                if self.check(&TokenType::Period) { self.advance(); }
+                continue;
+            }
+            if self.check(&TokenType::Ensures) {
+                self.advance(); // consume "Ensures"
+                ensures_checks.push(self.parse_condition()?);
+                if self.check(&TokenType::Period) { self.advance(); }
+                continue;
             }
             let stmt = self.parse_statement()?;
             body_stmts.push(stmt);
@@ -5369,6 +5756,26 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
         // Consume dedent if present
         if self.check(&TokenType::Dedent) {
             self.advance();
+        }
+
+        // Desugar postconditions: a hard assert before EVERY return path (recursing
+        // into nested control flow) and at fallthrough — so no exit escapes the check.
+        if !ensures_checks.is_empty() {
+            body_stmts = self.insert_ensures_before_returns(&body_stmts, &ensures_checks);
+            if !matches!(body_stmts.last(), Some(Stmt::Return { .. })) {
+                for &c in &ensures_checks {
+                    body_stmts.push(Stmt::RuntimeAssert { condition: c, hard: true });
+                }
+            }
+        }
+        // Desugar preconditions: hard asserts at function entry.
+        if !requires_checks.is_empty() {
+            let mut prefixed: Vec<Stmt<'a>> = requires_checks
+                .iter()
+                .map(|&c| Stmt::RuntimeAssert { condition: c, hard: true })
+                .collect();
+            prefixed.extend(body_stmts);
+            body_stmts = prefixed;
         }
 
         // Allocate body in arena
@@ -7034,6 +7441,9 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
             TokenType::Merge |
             TokenType::Increase |
             TokenType::Decrease |
+            // Phase 51: "sleep" leads the Sleep statement but also names a native
+            // (`## To native sleep`) — in name position the declarer wins.
+            TokenType::Sleep |
             // Phase 49b: CRDT type keywords can be type names
             TokenType::Tally |
             TokenType::SharedSet |
@@ -13031,8 +13441,24 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
         false
     }
 
-    /// Check for trailing "in the next cycle" and wrap in Temporal::Next.
+    /// Check for a trailing "next cycle" — both "in the next cycle" and the bare adverbial form
+    /// "…grant is high next cycle." — and wrap in Temporal::Next.
     pub(super) fn try_wrap_next_cycle(&mut self, expr: &'a LogicExpr<'a>) -> &'a LogicExpr<'a> {
+        // Bare "next cycle" (no preposition): "next" immediately followed by "cycle".
+        let bare_next_cycle = self.interner.resolve(self.peek().lexeme).eq_ignore_ascii_case("next")
+            && self
+                .tokens
+                .get(self.current + 1)
+                .map(|t| self.interner.resolve(t.lexeme).eq_ignore_ascii_case("cycle"))
+                .unwrap_or(false);
+        if bare_next_cycle {
+            self.advance(); // next
+            self.advance(); // cycle
+            return self.ctx.exprs.alloc(LogicExpr::Temporal {
+                operator: TemporalOperator::Next,
+                body: expr,
+            });
+        }
         if !self.check_preposition_is("in") {
             return expr;
         }
@@ -13981,6 +14407,79 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
     fn parse_send_statement(&mut self) -> ParseResult<Stmt<'a>> {
         self.advance(); // consume "Send"
 
+        // Optional `cached`, `unchecked`, and `compressed [with <codec>]` modifiers,
+        // in any order. Bare `compressed` = deflate; `with deflate|lz4|zstd` picks it.
+        let mut cached = false;
+        let mut unchecked = false;
+        let mut compression = None;
+        let mut layout = None;
+        let mut shared = false;
+        let mut computed = false;
+        loop {
+            if !cached && self.check_word("cached") {
+                self.advance();
+                cached = true;
+            } else if !shared && (self.check_word("shared") || self.check_word("known")) {
+                self.advance();
+                shared = true;
+            } else if !computed && self.check_word("computed") {
+                self.advance();
+                computed = true;
+            } else if !unchecked && self.check_word("unchecked") {
+                self.advance();
+                unchecked = true;
+            } else if layout.is_none()
+                && (self.check_word("fast") || self.check_word("quickly"))
+            {
+                self.advance();
+                layout = Some(SendLayout::Fast);
+            } else if layout.is_none()
+                && (self.check_word("compact") || self.check_word("small"))
+            {
+                self.advance();
+                layout = Some(SendLayout::Compact);
+            } else if layout.is_none() && self.check_word("packed") {
+                self.advance();
+                layout = Some(SendLayout::Packed);
+            } else if layout.is_none()
+                && (self.check_word("smallest") || self.check_word("best"))
+            {
+                self.advance();
+                layout = Some(SendLayout::Smallest);
+            } else if layout.is_none()
+                && (self.check_word("redundant") || self.check_word("tough"))
+            {
+                self.advance();
+                layout = Some(SendLayout::Redundant);
+            } else if compression.is_none() && self.check_word("compressed") {
+                self.advance();
+                let codec = if self.check_word("with") {
+                    self.advance();
+                    let name = self.interner.resolve(self.peek().lexeme).to_ascii_lowercase();
+                    let c = match name.as_str() {
+                        "deflate" => CompressionCodec::Deflate,
+                        "lz4" => CompressionCodec::Lz4,
+                        "zstd" => CompressionCodec::Zstd,
+                        _ => {
+                            return Err(ParseError {
+                                kind: ParseErrorKind::ExpectedKeyword {
+                                    keyword: "a codec (deflate, lz4, or zstd)".to_string(),
+                                },
+                                span: self.current_span(),
+                            })
+                        }
+                    };
+                    self.advance(); // consume the codec name
+                    c
+                } else {
+                    CompressionCodec::Deflate
+                };
+                compression = Some(codec);
+            } else {
+                break;
+            }
+        }
+
         // Parse message expression
         let message = self.parse_imperative_expr()?;
 
@@ -13996,12 +14495,19 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
         // Parse destination expression
         let destination = self.parse_imperative_expr()?;
 
-        Ok(Stmt::SendMessage { message, destination })
+        Ok(Stmt::SendMessage { message, destination, compression, cached, unchecked, layout, shared, computed })
     }
 
     /// Parse await statement: "Await response from 'agent' into result."
     fn parse_await_statement(&mut self) -> ParseResult<Stmt<'a>> {
         self.advance(); // consume "Await"
+
+        // Optional `view` knob: receive a record-list LAZILY (zero-copy, decode-on-touch).
+        let mut view = false;
+        if self.check_word("view") || self.check_word("viewed") {
+            view = true;
+            self.advance();
+        }
 
         // Skip optional "response" word
         if self.check_word("response") {
@@ -14029,28 +14535,13 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
         }
         self.advance(); // consume "into"
 
-        // Get variable name (Noun, ProperName, or Adjective - can be any content word)
-        let into = match &self.tokens[self.current].kind {
-            TokenType::Noun(sym) | TokenType::ProperName(sym) | TokenType::Adjective(sym) => {
-                let s = *sym;
-                self.advance();
-                s
-            }
-            // Also accept lexemes from other token types if they look like identifiers
-            _ if self.check_content_word() => {
-                let sym = self.tokens[self.current].lexeme;
-                self.advance();
-                sym
-            }
-            _ => {
-                return Err(ParseError {
-                    kind: ParseErrorKind::ExpectedKeyword { keyword: "variable name".to_string() },
-                    span: self.current_span(),
-                });
-            }
-        };
+        // The bound variable: a binding position accepts any content word, so a
+        // name that elsewhere lexes as a verb ("reply", "run") or another keyword
+        // is taken as the identifier here — the same rule as every other `let`-like
+        // binding (`expect_identifier`).
+        let into = self.expect_identifier()?;
 
-        Ok(Stmt::AwaitMessage { source, into })
+        Ok(Stmt::AwaitMessage { source, into, view })
     }
 
     // =========================================================================

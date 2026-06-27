@@ -38,6 +38,7 @@
 use crate::arena::Arena;
 use crate::ast::stmt::{BinaryOpKind, Block, Expr, Literal, Stmt};
 use crate::intern::{Interner, Symbol};
+use crate::optimization::{Opt, OptimizationConfig};
 
 fn as_ident(e: &Expr) -> Option<Symbol> {
     match e {
@@ -283,8 +284,9 @@ pub fn popcount_leaf_stmts<'a>(
     expr_arena: &'a Arena<Expr<'a>>,
     stmt_arena: &'a Arena<Stmt<'a>>,
     interner: &mut Interner,
+    cfg: &OptimizationConfig,
 ) -> Vec<Stmt<'a>> {
-    if std::env::var_os("LOGOS_POPCOUNT_LEAF").is_some_and(|v| v == "0") {
+    if !cfg.is_on(Opt::Popcount) {
         return stmts;
     }
     let count_ones = interner.intern("count_ones");
@@ -303,7 +305,7 @@ pub fn popcount_leaf_stmts<'a>(
                 export_target,
                 opt_flags,
             } if generics.is_empty()
-                && !opt_flags.contains(&crate::ast::stmt::OptFlag::NoOptimize) =>
+                && opt_flags.is_on(crate::optimization::Opt::Popcount) =>
             {
                 match try_rewrite_body(*name, body, expr_arena, stmt_arena, count_ones) {
                     Some(new_body) => Stmt::FunctionDef {
@@ -526,7 +528,7 @@ mod tests {
         let mut it = Interner::new();
         let (func, solve, available) = build_solve(&ea, &sa, &ta, &mut it, 1);
 
-        let out = popcount_leaf_stmts(vec![func], &ea, &sa, &mut it);
+        let out = popcount_leaf_stmts(vec![func], &ea, &sa, &mut it, &OptimizationConfig::all_on());
         let count_ones = it.intern("count_ones");
         let body = body_of(&out, solve);
 
@@ -561,7 +563,7 @@ mod tests {
         let mut it = Interner::new();
         let (func, solve, _) = build_solve(&ea, &sa, &ta, &mut it, 3);
 
-        let out = popcount_leaf_stmts(vec![func], &ea, &sa, &mut it);
+        let out = popcount_leaf_stmts(vec![func], &ea, &sa, &mut it, &OptimizationConfig::all_on());
         let body = body_of(&out, solve);
         match &body[3] {
             Stmt::If { then_block, .. } => match &then_block[0] {
@@ -584,8 +586,8 @@ mod tests {
         let (func, solve, _) = build_solve(&ea, &sa, &ta, &mut it, 1);
         let count_ones = it.intern("count_ones");
 
-        let once = popcount_leaf_stmts(vec![func], &ea, &sa, &mut it);
-        let twice = popcount_leaf_stmts(once, &ea, &sa, &mut it);
+        let once = popcount_leaf_stmts(vec![func], &ea, &sa, &mut it, &OptimizationConfig::all_on());
+        let twice = popcount_leaf_stmts(once, &ea, &sa, &mut it, &OptimizationConfig::all_on());
         assert_eq!(
             count_count_ones(body_of(&twice, solve), count_ones),
             1,
@@ -594,7 +596,7 @@ mod tests {
     }
 
     #[test]
-    fn kill_switch_is_a_noop() {
+    fn disabling_popcount_is_a_noop() {
         let ea: Arena<Expr> = Arena::new();
         let sa: Arena<Stmt> = Arena::new();
         let ta: Arena<TypeExpr> = Arena::new();
@@ -602,10 +604,13 @@ mod tests {
         let (func, solve, _) = build_solve(&ea, &sa, &ta, &mut it, 1);
         let count_ones = it.intern("count_ones");
 
-        std::env::set_var("LOGOS_POPCOUNT_LEAF", "0");
-        let out = popcount_leaf_stmts(vec![func], &ea, &sa, &mut it);
-        std::env::remove_var("LOGOS_POPCOUNT_LEAF");
-        assert_eq!(count_count_ones(body_of(&out, solve), count_ones), 0, "kill switch = no-op");
+        let cfg = OptimizationConfig::all_on().disable(Opt::Popcount);
+        let out = popcount_leaf_stmts(vec![func], &ea, &sa, &mut it, &cfg);
+        assert_eq!(
+            count_count_ones(body_of(&out, solve), count_ones),
+            0,
+            "disabling Popcount = no-op"
+        );
     }
 
     /// A function whose loop body is NOT the lowest-bit-clearing idiom (no
@@ -688,7 +693,7 @@ mod tests {
             opt_flags: Default::default(),
         };
         let count_ones = it.intern("count_ones");
-        let out = popcount_leaf_stmts(vec![func], &ea, &sa, &mut it);
+        let out = popcount_leaf_stmts(vec![func], &ea, &sa, &mut it, &OptimizationConfig::all_on());
         assert_eq!(
             count_count_ones(body_of(&out, solve), count_ones),
             0,

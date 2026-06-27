@@ -4,10 +4,10 @@
   "difficulty": 1,
   "prompt": "Both not M and L",
   "options": [
-    "$ (\\\\sim M \\\\cdot L) $",
-    "$ (\\\\sim M \\\\cdot \\\\sim L) $",
-    "$ \\\\sim(M \\\\cdot L) $",
-    "$ \\\\sim M \\\\cdot L $"
+    "$ (\\sim M \\cdot L) $",
+    "$ (\\sim M \\cdot \\sim L) $",
+    "$ \\sim(M \\cdot L) $",
+    "$ \\sim M \\cdot L $"
   ],
   "correct": 0,
   "hint": "What exactly is 'both' connecting? Are both parts the full consequence, or just the second one?",

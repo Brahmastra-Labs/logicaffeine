@@ -4,10 +4,10 @@
   "difficulty": 1,
   "prompt": "You're cruel and lonely, or else humorous",
   "options": [
-    "$ ((C \\\\cdot L) \\\\vee H) $",
-    "$ (C \\\\cdot L) \\\\vee H $",
-    "$ C \\\\cdot L \\\\vee H $",
-    "$ (C \\\\cdot (L \\\\vee H)) $"
+    "$ ((C \\cdot L) \\vee H) $",
+    "$ (C \\cdot L) \\vee H $",
+    "$ C \\cdot L \\vee H $",
+    "$ (C \\cdot (L \\vee H)) $"
   ],
   "correct": 0,
   "hint": "Identify the main connective first. What's the primary structure of this sentence?",

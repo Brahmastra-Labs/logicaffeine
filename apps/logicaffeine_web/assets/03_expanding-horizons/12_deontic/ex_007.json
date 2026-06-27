@@ -4,12 +4,12 @@
   "difficulty": 1,
   "prompt": "Flirt only if you laugh",
   "options": [
-    "$ (F\\\\underline{u} \\\\supset Lu) $",
-    "$ (F\\\\underline{u} \\\\supset L\\\\underline{u} ) $",
-    "$ (OF\\\\underline{y} \\\\supset Lu ) $",
-    "$ (Fu\\\\supset Lu) $"
+    "$ (F\\underline{u} \\supset Lu) $",
+    "$ (F\\underline{u} \\supset L\\underline{u} ) $",
+    "$ (OF\\underline{y} \\supset Lu ) $",
+    "$ (Fu\\supset Lu) $"
   ],
   "correct": 0,
   "hint": "Identify WHO is being commanded or permitted (the agent, marked with underline) and WHAT action they must/may do.",
-  "explanation": "In deontic logic: F represents prohibition - 'must not' or 'is forbidden to'. Deontic operators express moral or legal requirements."
+  "explanation": "'A only if B' is the conditional A ⊃ B. Here F͟u is the commanded action 'you flirt' (F = flirt, with you underlined as agent), and Lu is the descriptive 'you laugh'. So flirting is conditioned on laughing: (F͟u ⊃ Lu)."
 }

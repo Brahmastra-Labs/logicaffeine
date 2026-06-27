@@ -4,10 +4,10 @@
   "difficulty": 1,
   "prompt": "Don't appoint Donna",
   "options": [
-    "$ \\\\sim A\\\\underline{d} $",
-    "$ \\\\sim Aud $",
-    "$ \\\\sim A\\\\underline{u} d $",
-    "$ O\\\\sim A\\\\underline{u} d $"
+    "$ \\sim A\\underline{d} $",
+    "$ \\sim Aud $",
+    "$ \\sim A\\underline{u} d $",
+    "$ O\\sim A\\underline{u} d $"
   ],
   "correct": 2,
   "hint": "Is this a COMMAND not to do something? Who is being commanded (the agent)?",

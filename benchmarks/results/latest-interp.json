@@ -1,8 +1,8 @@
 {
   "schema_version": 1,
   "metadata": {
-    "date": "2026-06-20T07:50:07Z",
-    "commit": "4d31c18",
+    "date": "2026-06-24T06:28:15Z",
+    "commit": "9fc144c",
     "logos_version": "0.9.17",
     "node": "v22.22.3",
     "cpu": "Intel(R) Core(TM) i9-14900K",
@@ -13,8 +13,14 @@
   "languages": [
     {
       "id": "logos_interp",
-      "label": "LOGOS (interpreted)",
+      "label": "LOGOS (eager)",
       "color": "#ff8c00",
+      "tier": "interpreted"
+    },
+    {
+      "id": "logos_tiered",
+      "label": "LOGOS (tiered)",
+      "color": "#ffb84d",
       "tier": "interpreted"
     },
     {
@@ -52,48 +58,133 @@
       "scaling": {
         "38": {
           "logos_interp": {
-            "mean_ms": 636.97885284000,
-            "median_ms": 632.72578734000,
-            "stddev_ms": 13.011221803908629000,
-            "min_ms": 624.13189784000,
-            "max_ms": 668.06933884000,
-            "cv": 0.02042645803058843820,
+            "mean_ms": 172.73827804000003000,
+            "median_ms": 171.90899684000,
+            "stddev_ms": 2.6816540826970535000,
+            "min_ms": 169.77382834000002000,
+            "max_ms": 178.19083534000002000,
+            "cv": 0.01552437660676505047,
             "runs": 10,
-            "user_ms": 629.52748000,
-            "system_ms": 7.140820000000001000
+            "user_ms": 166.33122000,
+            "system_ms": 6.211279999999999000
+          },
+          "logos_tiered": {
+            "mean_ms": 360.4269144000,
+            "median_ms": 358.80255470000005000,
+            "stddev_ms": 10.410536622215898000,
+            "min_ms": 347.58137320000004000,
+            "max_ms": 379.04168320000003000,
+            "cv": 0.02888390463166781198,
+            "runs": 10,
+            "user_ms": 354.7071000,
+            "system_ms": 5.4598599999999995000
           },
           "js": {
-            "mean_ms": 208.88422240000004000,
-            "median_ms": 209.04029600000001000,
-            "stddev_ms": 3.7676068137376677000,
-            "min_ms": 203.696397000,
-            "max_ms": 216.345528000,
-            "cv": 0.01803681853253109545,
+            "mean_ms": 213.87367080000003000,
+            "median_ms": 212.72933500000002000,
+            "stddev_ms": 5.6040874655316165000,
+            "min_ms": 207.68972400000002000,
+            "max_ms": 227.387642000,
+            "cv": 0.02620279272604889387,
             "runs": 10,
-            "user_ms": 203.7337000,
-            "system_ms": 5.888900000000001000
+            "user_ms": 208.3434000,
+            "system_ms": 6.392500000000001000
           },
           "python": {
-            "mean_ms": 1962.1967015000,
-            "median_ms": 1959.6106995000,
-            "stddev_ms": 9.726485406289074000,
-            "min_ms": 1952.2824010000002000,
-            "max_ms": 1982.1821370000001000,
-            "cv": 0.00495693698743539244,
+            "mean_ms": 1971.4776781000,
+            "median_ms": 1972.5756800000003000,
+            "stddev_ms": 8.956220864695502000,
+            "min_ms": 1957.505977000,
+            "max_ms": 1981.603131000,
+            "cv": 0.00454289742368628140,
             "runs": 10,
-            "user_ms": 1959.4837999999999000,
-            "system_ms": 2.4000000000000002000
+            "user_ms": 1968.789000,
+            "system_ms": 2.2998000000000003000
           },
           "ruby": {
-            "mean_ms": 1452.6112678999998000,
-            "median_ms": 1449.0326995000,
-            "stddev_ms": 14.967524681040761000,
-            "min_ms": 1434.542243000,
-            "max_ms": 1483.381143000,
-            "cv": 0.01030387482996665735,
+            "mean_ms": 1485.6079944000,
+            "median_ms": 1456.9398735000,
+            "stddev_ms": 88.66506451969262000,
+            "min_ms": 1448.936119000,
+            "max_ms": 1737.608768000,
+            "cv": 0.05968267864329999596,
             "runs": 10,
-            "user_ms": 1443.0996000,
-            "system_ms": 9.2998000
+            "user_ms": 1476.0423000,
+            "system_ms": 9.2993000
+          }
+        }
+      },
+      "compilation": {},
+      "timeouts": {}
+    },
+    {
+      "id": "ackermann",
+      "name": "Ackermann Function",
+      "reference_size": "8",
+      "interpreter_engine": "vm+jit",
+      "sizes": [
+        "10",
+        "11",
+        "12"
+      ],
+      "logos_source": "## To native args () -> Seq of Text\n## To native parseInt (s: Text) -> Int\n\n## To ackermann (m: Int) and (n: Int) -> Int:\n    If m equals 0:\n        Return n + 1.\n    If n equals 0:\n        Return ackermann(m - 1, 1).\n    Return ackermann(m - 1, ackermann(m, n - 1)).\n\n## Main\nLet arguments be args().\nLet n be parseInt(item 2 of arguments).\nShow ackermann(3, n).",
+      "js_source": "function ackermann(m, n) {\n    if (m === 0) return n + 1;\n    if (n === 0) return ackermann(m - 1, 1);\n    return ackermann(m - 1, ackermann(m, n - 1));\n}\n\nconst m = parseInt(process.argv[2]);\nconsole.log(ackermann(3, m));",
+      "scaling": {
+        "8": {
+          "logos_interp": {
+            "mean_ms": 27.304791120000005000,
+            "median_ms": 26.89926502000,
+            "stddev_ms": 4.568819561232133000,
+            "min_ms": 22.080840520000002000,
+            "max_ms": 37.45325052000,
+            "cv": 0.16732666223861346145,
+            "runs": 10,
+            "user_ms": 20.812080000000004000,
+            "system_ms": 6.434960000000001000
+          },
+          "logos_tiered": {
+            "mean_ms": 19.580545120000004000,
+            "median_ms": 18.212208620000003000,
+            "stddev_ms": 4.864921600056835000,
+            "min_ms": 13.663510120000001000,
+            "max_ms": 29.15313312000,
+            "cv": 0.24845690302501823331,
+            "runs": 10,
+            "user_ms": 12.92082000,
+            "system_ms": 6.64496000
+          },
+          "js": {
+            "mean_ms": 27.004308900000003000,
+            "median_ms": 24.967491000,
+            "stddev_ms": 8.987671033818168000,
+            "min_ms": 18.758756000,
+            "max_ms": 49.658735000,
+            "cv": 0.33282359000930281172,
+            "runs": 10,
+            "user_ms": 22.039000,
+            "system_ms": 5.8459000
+          },
+          "python": {
+            "mean_ms": 144.3719945000,
+            "median_ms": 142.401542000,
+            "stddev_ms": 4.870327348205831000,
+            "min_ms": 139.235453000,
+            "max_ms": 153.57985400000002000,
+            "cv": 0.03373457134171427547,
+            "runs": 10,
+            "user_ms": 75.803000,
+            "system_ms": 67.14869999999999000
+          },
+          "ruby": {
+            "mean_ms": 67.10374160000002000,
+            "median_ms": 64.963096000,
+            "stddev_ms": 3.8666003452100237000,
+            "min_ms": 62.763856000,
+            "max_ms": 73.50735600000001000,
+            "cv": 0.05762123322807416371,
+            "runs": 10,
+            "user_ms": 59.030099999999995000,
+            "system_ms": 7.897099999999999000
           }
         }
       },
@@ -115,48 +206,59 @@
       "scaling": {
         "14": {
           "logos_interp": {
-            "mean_ms": 744.72093396000,
-            "median_ms": 743.8133038600001000,
-            "stddev_ms": 5.50570180790904000,
-            "min_ms": 738.26056236000,
-            "max_ms": 756.64268936000,
-            "cv": 0.00739297306795562554,
+            "mean_ms": 233.96523413999998000,
+            "median_ms": 232.29842514000001000,
+            "stddev_ms": 5.688447273430038000,
+            "min_ms": 227.11558364000,
+            "max_ms": 241.85920064000002000,
+            "cv": 0.02431321599698093711,
             "runs": 10,
-            "user_ms": 733.1896999999998000,
-            "system_ms": 11.26582000
+            "user_ms": 222.28846000,
+            "system_ms": 11.504499999999999000
+          },
+          "logos_tiered": {
+            "mean_ms": 247.00633890000004000,
+            "median_ms": 246.6478391000,
+            "stddev_ms": 3.538050066775341000,
+            "min_ms": 241.45911960000002000,
+            "max_ms": 250.86617860000004000,
+            "cv": 0.01432372174143965026,
+            "runs": 10,
+            "user_ms": 234.18737999999997000,
+            "system_ms": 12.638940000000001000
           },
           "js": {
-            "mean_ms": 190.7931055000,
-            "median_ms": 188.931485000,
-            "stddev_ms": 4.6009288551295624000,
-            "min_ms": 186.005615000,
-            "max_ms": 200.03542600000002000,
-            "cv": 0.02411475426783470642,
+            "mean_ms": 193.02538460000002000,
+            "median_ms": 193.91492850000003000,
+            "stddev_ms": 3.6396817155888513000,
+            "min_ms": 187.522651000,
+            "max_ms": 197.726544000,
+            "cv": 0.01885597442601262364,
             "runs": 10,
-            "user_ms": 186.7905000,
-            "system_ms": 5.113099999999999000
+            "user_ms": 187.24579999999996000,
+            "system_ms": 7.0114999999999995000
           },
           "python": {
-            "mean_ms": 3856.8309859000003000,
-            "median_ms": 3857.0273100000003000,
-            "stddev_ms": 31.340812724437735000,
-            "min_ms": 3820.230892000,
-            "max_ms": 3906.041375000,
-            "cv": 0.00812605292765357850,
+            "mean_ms": 3868.770021600001000,
+            "median_ms": 3865.096791000,
+            "stddev_ms": 17.175629212947498000,
+            "min_ms": 3849.635772000,
+            "max_ms": 3908.7807210000003000,
+            "cv": 0.00443955808100585948,
             "runs": 10,
-            "user_ms": 3854.2982000,
-            "system_ms": 2.3001000000000002000
+            "user_ms": 3866.6083999999996000,
+            "system_ms": 1.8999000
           },
           "ruby": {
-            "mean_ms": 2917.0861116000,
-            "median_ms": 2902.844297000,
-            "stddev_ms": 41.47018508533699000,
-            "min_ms": 2872.749881000,
-            "max_ms": 2985.756961000,
-            "cv": 0.01421630472971910398,
+            "mean_ms": 2922.394936599999000,
+            "median_ms": 2902.6159065000003000,
+            "stddev_ms": 69.79467255222774000,
+            "min_ms": 2866.541386000,
+            "max_ms": 3113.415177000,
+            "cv": 0.02388269692029679377,
             "runs": 10,
-            "user_ms": 2908.4259999999995000,
-            "system_ms": 8.3997000
+            "user_ms": 2912.6902000,
+            "system_ms": 9.3996000
           }
         }
       },
@@ -166,7 +268,7 @@
     {
       "id": "bubble_sort",
       "name": "Bubble Sort",
-      "reference_size": "18193",
+      "reference_size": "18145",
       "interpreter_engine": "vm+jit",
       "sizes": [
         "5000",
@@ -176,28 +278,39 @@
       "logos_source": "## To native args () -> Seq of Text\n## To native parseInt (s: Text) -> Int\n\n## Main\nLet arguments be args().\nLet n be parseInt(item 2 of arguments).\nLet mutable arr be a new Seq of Int.\nLet mutable seed be 42.\nLet mutable i be 0.\nWhile i is less than n:\n    Set seed to (seed * 1103515245 + 12345) % 4294967296.\n    Push (seed / 65536) % 32768 to arr.\n    Set i to i + 1.\nSet i to 0.\nWhile i is less than n - 1:\n    Let mutable j be 1.\n    While j is at most n - 1 - i:\n        Let a be item j of arr.\n        Let b be item (j + 1) of arr.\n        If a is greater than b:\n            Set item j of arr to b.\n            Set item (j + 1) of arr to a.\n        Set j to j + 1.\n    Set i to i + 1.\nShow item 1 of arr.",
       "js_source": "const n = parseInt(process.argv[2]);\nconst arr = new Int32Array(n);\nlet seed = 42;\nfor (let i = 0; i < n; i++) {\n    seed = (Math.imul(seed, 1103515245) + 12345) >>> 0;\n    arr[i] = (seed >>> 16) & 0x7fff;\n}\nfor (let i = 0; i < n - 1; i++)\n    for (let j = 0; j < n - 1 - i; j++)\n        if (arr[j] > arr[j + 1]) {\n            const tmp = arr[j];\n            arr[j] = arr[j + 1];\n            arr[j + 1] = tmp;\n        }\nconsole.log(arr[0]);",
       "scaling": {
-        "18193": {
+        "18145": {
           "logos_interp": {
-            "mean_ms": 1290.2594598000001000,
-            "median_ms": 1291.7504774000002000,
-            "stddev_ms": 8.545125786429549000,
-            "min_ms": 1276.3336424000002000,
-            "max_ms": 1306.5774974000002000,
-            "cv": 0.00662279646277819782,
+            "mean_ms": 323.31955269999996000,
+            "median_ms": 322.9584613000,
+            "stddev_ms": 4.485829594701832000,
+            "min_ms": 317.3120668000,
+            "max_ms": 333.2510598000,
+            "cv": 0.01387429110686701922,
             "runs": 10,
-            "user_ms": 1288.98732000,
-            "system_ms": 1.07274000
+            "user_ms": 321.8444000,
+            "system_ms": 1.315728000
+          },
+          "logos_tiered": {
+            "mean_ms": 322.33994190000004000,
+            "median_ms": 323.47495870000004000,
+            "stddev_ms": 5.6705466251251654000,
+            "min_ms": 314.21565170000004000,
+            "max_ms": 329.70582870000004000,
+            "cv": 0.01759182120496983528,
+            "runs": 10,
+            "user_ms": 320.49890000000003000,
+            "system_ms": 1.62612000
           },
           "js": {
-            "mean_ms": 259.788407000,
-            "median_ms": 258.400481000,
-            "stddev_ms": 19.57075042298399000,
-            "min_ms": 236.81985400000002000,
-            "max_ms": 284.142869000,
-            "cv": 0.07533342480129989018,
+            "mean_ms": 261.0617009000,
+            "median_ms": 261.5409495000,
+            "stddev_ms": 16.984706042935692000,
+            "min_ms": 240.05999100000003000,
+            "max_ms": 282.13013000000003000,
+            "cv": 0.06506012174279713351,
             "runs": 10,
-            "user_ms": 257.66310000000003000,
-            "system_ms": 5.608999999999999000
+            "user_ms": 259.5875000,
+            "system_ms": 5.207000
           }
         }
       },
@@ -207,7 +320,7 @@
     {
       "id": "mergesort",
       "name": "Merge Sort",
-      "reference_size": "961828",
+      "reference_size": "962123",
       "interpreter_engine": "vm+jit",
       "sizes": [
         "50000",
@@ -217,50 +330,61 @@
       "logos_source": "## To native args () -> Seq of Text\n## To native parseInt (s: Text) -> Int\n\n## To mergeSort (arr: Seq of Int) -> Seq of Int:\n    Let n be length of arr.\n    If n is less than 2:\n        Return arr.\n    Let mid be n / 2.\n    Let mutable left be a new Seq of Int.\n    Let mutable right be a new Seq of Int.\n    Let mutable i be 1.\n    While i is at most mid:\n        Push item i of arr to left.\n        Set i to i + 1.\n    While i is at most n:\n        Push item i of arr to right.\n        Set i to i + 1.\n    Set left to mergeSort(left).\n    Set right to mergeSort(right).\n    Let mutable result be a new Seq of Int.\n    Let mutable li be 1.\n    Let mutable ri be 1.\n    While li is at most length of left:\n        If ri is greater than length of right:\n            Push item li of left to result.\n            Set li to li + 1.\n        Otherwise:\n            If item li of left is at most item ri of right:\n                Push item li of left to result.\n                Set li to li + 1.\n            Otherwise:\n                Push item ri of right to result.\n                Set ri to ri + 1.\n    While ri is at most length of right:\n        Push item ri of right to result.\n        Set ri to ri + 1.\n    Return result.\n\n## Main\nLet arguments be args().\nLet n be parseInt(item 2 of arguments).\nLet mutable arr be a new Seq of Int.\nLet mutable seed be 42.\nLet mutable i be 0.\nWhile i is less than n:\n    Set seed to (seed * 1103515245 + 12345) % 2147483648.\n    Push (seed / 65536) % 32768 to arr.\n    Set i to i + 1.\nSet arr to mergeSort(arr).\nLet mutable checksum be 0.\nSet i to 1.\nWhile i is at most n:\n    Set checksum to (checksum + item i of arr) % 1000000007.\n    Set i to i + 1.\nShow \"\" + item 1 of arr + \" \" + item n of arr + \" \" + checksum.",
       "js_source": "function mergeSort(arr) {\n    if (arr.length < 2) return arr;\n    const mid = Math.floor(arr.length / 2);\n    const left = mergeSort(arr.slice(0, mid));\n    const right = mergeSort(arr.slice(mid));\n    const result = [];\n    let i = 0, j = 0;\n    while (i < left.length && j < right.length) {\n        if (left[i] <= right[j]) result.push(left[i++]);\n        else result.push(right[j++]);\n    }\n    while (i < left.length) result.push(left[i++]);\n    while (j < right.length) result.push(right[j++]);\n    return result;\n}\nconst n = parseInt(process.argv[2]);\nlet arr = new Array(n);\nlet seed = 42;\nfor (let i = 0; i < n; i++) {\n    seed = ((Math.imul(seed, 1103515245) + 12345) >>> 0) % 2147483648;\n    arr[i] = (seed >> 16) & 0x7fff;\n}\narr = mergeSort(arr);\nlet checksum = 0;\nfor (const v of arr) checksum = (checksum + v) % 1000000007;\nconsole.log(`${arr[0]} ${arr[n - 1]} ${checksum}`);",
       "scaling": {
-        "961828": {
+        "962123": {
           "logos_interp": {
-            "mean_ms": 595.89066892000,
-            "median_ms": 595.03677422000,
-            "stddev_ms": 5.482203585800311000,
-            "min_ms": 589.1779837200001000,
-            "max_ms": 604.9483987200001000,
-            "cv": 0.00920001582796442859,
+            "mean_ms": 351.72293700000007000,
+            "median_ms": 349.9562292000,
+            "stddev_ms": 12.162558196278607000,
+            "min_ms": 337.7591172000,
+            "max_ms": 375.4596232000,
+            "cv": 0.03457994039290819574,
             "runs": 10,
-            "user_ms": 523.10828000,
-            "system_ms": 72.59681999999998000
+            "user_ms": 282.1458000,
+            "system_ms": 69.32113999999999000
+          },
+          "logos_tiered": {
+            "mean_ms": 348.15176134000003000,
+            "median_ms": 350.82593784000005000,
+            "stddev_ms": 12.231751889202483000,
+            "min_ms": 330.78315034000005000,
+            "max_ms": 363.18337434000003000,
+            "cv": 0.03513339080096489609,
+            "runs": 10,
+            "user_ms": 278.06845999999996000,
+            "system_ms": 69.83406000
           },
           "js": {
-            "mean_ms": 243.45312850000003000,
-            "median_ms": 244.2046985000,
-            "stddev_ms": 4.3314139744392525000,
-            "min_ms": 234.716536000,
-            "max_ms": 249.39593000000002000,
-            "cv": 0.01779157245226878226,
+            "mean_ms": 249.31288290000006000,
+            "median_ms": 251.1067275000,
+            "stddev_ms": 5.91686406251866000,
+            "min_ms": 241.399578000,
+            "max_ms": 258.69190000000003000,
+            "cv": 0.02373268478425130984,
             "runs": 10,
-            "user_ms": 192.5189000,
-            "system_ms": 65.39239999999999000
+            "user_ms": 196.9054000,
+            "system_ms": 66.4708000
           },
           "python": {
-            "mean_ms": 1258.7015115999998000,
-            "median_ms": 1254.3069575000,
-            "stddev_ms": 13.068540650679753000,
-            "min_ms": 1248.872467000,
-            "max_ms": 1291.645306000,
-            "cv": 0.01038255736585845780,
+            "mean_ms": 1313.4428682000001000,
+            "median_ms": 1310.9929905000,
+            "stddev_ms": 22.730773933305665000,
+            "min_ms": 1272.982611000,
+            "max_ms": 1341.755901000,
+            "cv": 0.01730625250906947919,
             "runs": 10,
-            "user_ms": 1235.6308999999999000,
-            "system_ms": 22.8006000
+            "user_ms": 1292.7841000,
+            "system_ms": 20.4005000
           },
           "ruby": {
-            "mean_ms": 1049.7279674999997000,
-            "median_ms": 1048.8710365000,
-            "stddev_ms": 5.158942839748736000,
-            "min_ms": 1039.675585000,
-            "max_ms": 1057.258046000,
-            "cv": 0.00491455215014906942,
+            "mean_ms": 1064.4210048000002000,
+            "median_ms": 1062.845336000,
+            "stddev_ms": 6.636286520509644000,
+            "min_ms": 1056.836721000,
+            "max_ms": 1076.489995000,
+            "cv": 0.00623464445983623899,
             "runs": 10,
-            "user_ms": 1028.0044999999998000,
-            "system_ms": 21.497599999999995000
+            "user_ms": 1041.6752000,
+            "system_ms": 22.4945000
           }
         }
       },
@@ -270,7 +394,7 @@
     {
       "id": "quicksort",
       "name": "Quicksort",
-      "reference_size": "1799948",
+      "reference_size": "1792645",
       "interpreter_engine": "vm+jit",
       "sizes": [
         "50000",
@@ -280,50 +404,61 @@
       "logos_source": "## To native args () -> Seq of Text\n## To native parseInt (s: Text) -> Int\n\n## To qs (arr: Seq of Int, lo: Int, hi: Int) -> Seq of Int:\n    If lo is at least hi:\n        Return arr.\n    Let pivot be item hi of arr.\n    Let mutable result be arr.\n    Let mutable i be lo.\n    Let mutable j be lo.\n    While j is less than hi:\n        If item j of result is at most pivot:\n            Let tmp be item i of result.\n            Set item i of result to item j of result.\n            Set item j of result to tmp.\n            Set i to i + 1.\n        Set j to j + 1.\n    Let tmp be item i of result.\n    Set item i of result to item hi of result.\n    Set item hi of result to tmp.\n    Set result to qs(result, lo, i - 1).\n    Set result to qs(result, i + 1, hi).\n    Return result.\n\n## Main\nLet arguments be args().\nLet n be parseInt(item 2 of arguments).\nLet mutable arr be a new Seq of Int.\nLet mutable seed be 42.\nLet mutable i be 0.\nWhile i is less than n:\n    Set seed to (seed * 1103515245 + 12345) % 2147483648.\n    Push (seed / 65536) % 32768 to arr.\n    Set i to i + 1.\nSet arr to qs(arr, 1, n).\nLet mutable checksum be 0.\nSet i to 1.\nWhile i is at most n:\n    Set checksum to (checksum + item i of arr) % 1000000007.\n    Set i to i + 1.\nShow \"\" + item 1 of arr + \" \" + item n of arr + \" \" + checksum.",
       "js_source": "function partition(arr, lo, hi) {\n    const pivot = arr[hi]; let i = lo;\n    for (let j = lo; j < hi; j++)\n        if (arr[j] <= pivot) { [arr[i], arr[j]] = [arr[j], arr[i]]; i++; }\n    [arr[i], arr[hi]] = [arr[hi], arr[i]];\n    return i;\n}\nfunction qs(arr, lo, hi) {\n    if (lo < hi) { const p = partition(arr, lo, hi); qs(arr, lo, p-1); qs(arr, p+1, hi); }\n}\nconst n = parseInt(process.argv[2]);\nconst arr = new Array(n);\nlet seed = 42;\nfor (let i = 0; i < n; i++) { seed = ((Math.imul(seed, 1103515245) + 12345) >>> 0) % 2147483648; arr[i] = (seed>>16)&0x7fff; }\nqs(arr, 0, n-1);\nlet checksum = 0;\nfor (const v of arr) checksum = (checksum + v) % 1000000007;\nconsole.log(`${arr[0]} ${arr[n-1]} ${checksum}`);",
       "scaling": {
-        "1799948": {
+        "1792645": {
           "logos_interp": {
-            "mean_ms": 863.3672769399998000,
-            "median_ms": 862.10284314000,
-            "stddev_ms": 6.411357056419389000,
-            "min_ms": 857.02988664000,
-            "max_ms": 876.95485264000,
-            "cv": 0.00742599033767288577,
+            "mean_ms": 316.91476806000,
+            "median_ms": 317.43246666000,
+            "stddev_ms": 4.044002457580502000,
+            "min_ms": 310.25832366000,
+            "max_ms": 323.12603766000,
+            "cv": 0.01276053647589837091,
             "runs": 10,
-            "user_ms": 846.8174599999999000,
-            "system_ms": 16.339700000000002000
+            "user_ms": 298.30534000,
+            "system_ms": 18.412019999999998000
+          },
+          "logos_tiered": {
+            "mean_ms": 324.4333406000,
+            "median_ms": 325.7003809000,
+            "stddev_ms": 5.659541186953325000,
+            "min_ms": 316.5012249000,
+            "max_ms": 333.86360789999997000,
+            "cv": 0.01744438834950406758,
+            "runs": 10,
+            "user_ms": 305.9973399999999000,
+            "system_ms": 18.29022000
           },
           "js": {
-            "mean_ms": 246.6735611000,
-            "median_ms": 245.39762250000002000,
-            "stddev_ms": 5.028799700401797000,
-            "min_ms": 239.252194000,
-            "max_ms": 254.824222000,
-            "cv": 0.02038645600272966181,
+            "mean_ms": 254.0555768000,
+            "median_ms": 254.74483800000003000,
+            "stddev_ms": 4.124203797741506000,
+            "min_ms": 244.84597600000002000,
+            "max_ms": 258.291883000,
+            "cv": 0.01623347084007606795,
             "runs": 10,
-            "user_ms": 243.7143000,
-            "system_ms": 11.9978000
+            "user_ms": 250.4086000,
+            "system_ms": 13.433500000000001000
           },
           "python": {
-            "mean_ms": 3206.4905825000003000,
-            "median_ms": 3205.7819739999998000,
-            "stddev_ms": 13.677355807608147000,
-            "min_ms": 3181.254611000,
-            "max_ms": 3224.828594000,
-            "cv": 0.00426552190181214908,
+            "mean_ms": 3182.2804534999998000,
+            "median_ms": 3176.4936905000,
+            "stddev_ms": 46.47491882208941000,
+            "min_ms": 3119.596233000,
+            "max_ms": 3269.157868000,
+            "cv": 0.01460428126973360518,
             "runs": 10,
-            "user_ms": 3186.5579000,
-            "system_ms": 19.6001000
+            "user_ms": 3162.1089999999996000,
+            "system_ms": 19.899999999999994000
           },
           "ruby": {
-            "mean_ms": 3934.2287702000,
-            "median_ms": 3924.0823235000004000,
-            "stddev_ms": 39.64823023574564000,
-            "min_ms": 3903.9461820000003000,
-            "max_ms": 4040.674216000,
-            "cv": 0.01007776429679509642,
+            "mean_ms": 3933.6623396000,
+            "median_ms": 3924.088461000,
+            "stddev_ms": 29.381943203635574000,
+            "min_ms": 3891.1088190000003000,
+            "max_ms": 3979.586435000,
+            "cv": 0.00746936078062646279,
             "runs": 10,
-            "user_ms": 3921.8117999999995000,
-            "system_ms": 12.100099999999999000
+            "user_ms": 3919.8348000000003000,
+            "system_ms": 13.400699999999998000
           }
         }
       },
@@ -333,7 +468,7 @@
     {
       "id": "counting_sort",
       "name": "Counting Sort",
-      "reference_size": "7558380",
+      "reference_size": "8140373",
       "interpreter_engine": "vm+jit",
       "sizes": [
         "1000000",
@@ -342,50 +477,61 @@
       "logos_source": "## To native args () -> Seq of Text\n## To native parseInt (s: Text) -> Int\n\n## Main\nLet arguments be args().\nLet n be parseInt(item 2 of arguments).\nLet mutable arr be a new Seq of Int.\nLet mutable seed be 42.\nLet mutable i be 0.\nWhile i is less than n:\n    Set seed to (seed * 1103515245 + 12345) % 2147483648.\n    Push (seed / 65536) % 1000 to arr.\n    Set i to i + 1.\nLet mutable counts be a new Seq of Int.\nSet i to 0.\nWhile i is less than 1000:\n    Push 0 to counts.\n    Set i to i + 1.\nSet i to 1.\nWhile i is at most n:\n    Let v be item i of arr.\n    Set item (v + 1) of counts to (item (v + 1) of counts) + 1.\n    Set i to i + 1.\nLet mutable sorted be a new Seq of Int.\nLet mutable v be 0.\nWhile v is less than 1000:\n    Let mutable c be 0.\n    While c is less than item (v + 1) of counts:\n        Push v to sorted.\n        Set c to c + 1.\n    Set v to v + 1.\nLet mutable checksum be 0.\nSet i to 1.\nWhile i is at most n:\n    Set checksum to (checksum + item i of sorted) % 1000000007.\n    Set i to i + 1.\nShow \"\" + item 1 of sorted + \" \" + item n of sorted + \" \" + checksum.",
       "js_source": "const n = parseInt(process.argv[2]);\nconst arr = new Array(n);\nlet seed = 42;\nfor (let i = 0; i < n; i++) {\n    seed = ((Math.imul(seed, 1103515245) + 12345) >>> 0) % 2147483648;\n    arr[i] = (seed >> 16) % 1000;\n}\nconst counts = new Array(1000).fill(0);\nfor (const v of arr) counts[v]++;\nconst sorted = [];\nfor (let v = 0; v < 1000; v++)\n    for (let c = 0; c < counts[v]; c++)\n        sorted.push(v);\nlet checksum = 0;\nfor (const v of sorted) checksum = (checksum + v) % 1000000007;\nconsole.log(`${sorted[0]} ${sorted[n - 1]} ${checksum}`);",
       "scaling": {
-        "7558380": {
+        "8140373": {
           "logos_interp": {
-            "mean_ms": 213.85683539999997000,
-            "median_ms": 211.77368359999998000,
-            "stddev_ms": 4.302627347327544000,
-            "min_ms": 209.4895356000,
-            "max_ms": 219.9777156000,
-            "cv": 0.02011919487763796117,
+            "mean_ms": 79.39529424000,
+            "median_ms": 79.47165464000001000,
+            "stddev_ms": 7.342933728130199000,
+            "min_ms": 71.22750264000001000,
+            "max_ms": 94.91195764000002000,
+            "cv": 0.09248575496091264312,
             "runs": 10,
-            "user_ms": 186.44909999999998000,
-            "system_ms": 27.213220000000003000
+            "user_ms": 54.01598000,
+            "system_ms": 25.189540000000003000
+          },
+          "logos_tiered": {
+            "mean_ms": 73.98466532000,
+            "median_ms": 73.95838802000,
+            "stddev_ms": 3.072797100762494000,
+            "min_ms": 70.27395652000,
+            "max_ms": 80.23767752000,
+            "cv": 0.04153289181578329264,
+            "runs": 10,
+            "user_ms": 51.44156000,
+            "system_ms": 22.349920000000002000
           },
           "js": {
-            "mean_ms": 242.1316597000,
-            "median_ms": 242.66415750000003000,
-            "stddev_ms": 6.4367297005471545000,
-            "min_ms": 231.40369600000002000,
-            "max_ms": 256.48263800000004000,
-            "cv": 0.02658359385353502576,
+            "mean_ms": 254.8724837000,
+            "median_ms": 254.12627600000004000,
+            "stddev_ms": 4.231672417609616000,
+            "min_ms": 249.98861300000003000,
+            "max_ms": 262.476878000,
+            "cv": 0.01660309640404550269,
             "runs": 10,
-            "user_ms": 169.1245000,
-            "system_ms": 91.8247000
+            "user_ms": 179.92059999999999000,
+            "system_ms": 90.43209999999999000
           },
           "python": {
-            "mean_ms": 1506.9009243999998000,
-            "median_ms": 1501.063356000,
-            "stddev_ms": 27.997246969570413000,
-            "min_ms": 1467.4206170000001000,
-            "max_ms": 1567.096303000,
-            "cv": 0.01857935483098733223,
+            "mean_ms": 1612.9175366000,
+            "median_ms": 1606.406105000,
+            "stddev_ms": 19.260838966735562000,
+            "min_ms": 1593.8250310000002000,
+            "max_ms": 1657.102595000,
+            "cv": 0.01194161420511122366,
             "runs": 10,
-            "user_ms": 1438.2196999999999000,
-            "system_ms": 68.4008000
+            "user_ms": 1536.0942000,
+            "system_ms": 76.59000
           },
           "ruby": {
-            "mean_ms": 804.6608090999999000,
-            "median_ms": 803.4827815000001000,
-            "stddev_ms": 3.5689872635264823000,
-            "min_ms": 800.0260770000001000,
-            "max_ms": 810.268133000,
-            "cv": 0.00443539342685067118,
+            "mean_ms": 865.3889389000,
+            "median_ms": 866.1070195000,
+            "stddev_ms": 6.5668698798627455000,
+            "min_ms": 853.787257000,
+            "max_ms": 874.906956000,
+            "cv": 0.00758834506044175358,
             "runs": 10,
-            "user_ms": 769.3570999999999000,
-            "system_ms": 35.094200000000006000
+            "user_ms": 826.0031000,
+            "system_ms": 39.1999000
           }
         }
       },
@@ -395,7 +541,7 @@
     {
       "id": "heap_sort",
       "name": "Heap Sort",
-      "reference_size": "1603988",
+      "reference_size": "1590396",
       "interpreter_engine": "vm+jit",
       "sizes": [
         "50000",
@@ -405,50 +551,61 @@
       "logos_source": "## To native args () -> Seq of Text\n## To native parseInt (s: Text) -> Int\n\n## To siftDown (arr: Seq of Int, start: Int, end: Int) -> Seq of Int:\n    Let mutable result be arr.\n    Let mutable root be start.\n    While 2 * root + 1 is at most end:\n        Let child be 2 * root + 1.\n        Let mutable swapIdx be root.\n        If item (swapIdx + 1) of result is less than item (child + 1) of result:\n            Set swapIdx to child.\n        If child + 1 is at most end:\n            If item (swapIdx + 1) of result is less than item (child + 2) of result:\n                Set swapIdx to child + 1.\n        If swapIdx equals root:\n            Return result.\n        Let tmp be item (root + 1) of result.\n        Set item (root + 1) of result to item (swapIdx + 1) of result.\n        Set item (swapIdx + 1) of result to tmp.\n        Set root to swapIdx.\n    Return result.\n\n## Main\nLet arguments be args().\nLet n be parseInt(item 2 of arguments).\nLet mutable arr be a new Seq of Int.\nLet mutable seed be 42.\nLet mutable i be 0.\nWhile i is less than n:\n    Set seed to (seed * 1103515245 + 12345) % 2147483648.\n    Push (seed / 65536) % 32768 to arr.\n    Set i to i + 1.\nLet mutable start be (n - 2) / 2.\nWhile start is at least 0:\n    Set arr to siftDown(arr, start, n - 1).\n    Set start to start - 1.\nLet mutable end be n - 1.\nWhile end is greater than 0:\n    Let tmp be item 1 of arr.\n    Set item 1 of arr to item (end + 1) of arr.\n    Set item (end + 1) of arr to tmp.\n    Set end to end - 1.\n    Set arr to siftDown(arr, 0, end).\nLet mutable checksum be 0.\nSet i to 1.\nWhile i is at most n:\n    Set checksum to (checksum + item i of arr) % 1000000007.\n    Set i to i + 1.\nShow \"\" + item 1 of arr + \" \" + item n of arr + \" \" + checksum.",
       "js_source": "function siftDown(arr, start, end) {\n    let root = start;\n    while (2 * root + 1 <= end) {\n        let child = 2 * root + 1;\n        let swap = root;\n        if (arr[swap] < arr[child]) swap = child;\n        if (child + 1 <= end && arr[swap] < arr[child + 1]) swap = child + 1;\n        if (swap === root) return;\n        [arr[root], arr[swap]] = [arr[swap], arr[root]];\n        root = swap;\n    }\n}\nconst n = parseInt(process.argv[2]);\nconst arr = new Array(n);\nlet seed = 42;\nfor (let i = 0; i < n; i++) { seed = ((Math.imul(seed, 1103515245) + 12345) >>> 0) % 2147483648; arr[i] = (seed>>16)&0x7fff; }\nfor (let s = Math.floor((n-2)/2); s >= 0; s--) siftDown(arr, s, n-1);\nfor (let end = n-1; end > 0; end--) { [arr[0], arr[end]] = [arr[end], arr[0]]; siftDown(arr, 0, end-1); }\nlet checksum = 0;\nfor (const v of arr) checksum = (checksum + v) % 1000000007;\nconsole.log(`${arr[0]} ${arr[n-1]} ${checksum}`);",
       "scaling": {
-        "1603988": {
+        "1590396": {
           "logos_interp": {
-            "mean_ms": 1179.69804744000,
-            "median_ms": 1180.13116824000,
-            "stddev_ms": 6.656726862523714000,
-            "min_ms": 1171.62831474000,
-            "max_ms": 1190.4808897399999000,
-            "cv": 0.00564273788277358174,
+            "mean_ms": 336.29972764000005000,
+            "median_ms": 332.36732844000005000,
+            "stddev_ms": 9.555456121054774000,
+            "min_ms": 327.13311394000005000,
+            "max_ms": 358.37518894000003000,
+            "cv": 0.02841351132845292297,
             "runs": 10,
-            "user_ms": 1159.4887000,
-            "system_ms": 19.98834000
+            "user_ms": 313.91282000,
+            "system_ms": 22.184439999999996000
+          },
+          "logos_tiered": {
+            "mean_ms": 327.96449936000005000,
+            "median_ms": 326.23725096000006000,
+            "stddev_ms": 6.774978802588962000,
+            "min_ms": 320.14852046000003000,
+            "max_ms": 344.47282146000,
+            "cv": 0.02065765903263878483,
+            "runs": 10,
+            "user_ms": 304.75528000,
+            "system_ms": 22.98656000
           },
           "js": {
-            "mean_ms": 248.65088929999998000,
-            "median_ms": 247.10960450000002000,
-            "stddev_ms": 6.337407958335866000,
-            "min_ms": 241.305506000,
-            "max_ms": 261.49725100000004000,
-            "cv": 0.02548717189862818041,
+            "mean_ms": 247.16230710000003000,
+            "median_ms": 246.440501000,
+            "stddev_ms": 4.102290467527986000,
+            "min_ms": 241.15012600000002000,
+            "max_ms": 253.647146000,
+            "cv": 0.01659755694814836716,
             "runs": 10,
-            "user_ms": 246.74770000000001000,
-            "system_ms": 12.117999999999999000
+            "user_ms": 242.90049999999996000,
+            "system_ms": 14.136799999999996000
           },
           "python": {
-            "mean_ms": 3879.8134101999997000,
-            "median_ms": 3878.3262780000003000,
-            "stddev_ms": 21.295851224226284000,
-            "min_ms": 3852.2380910000003000,
-            "max_ms": 3924.522167000,
-            "cv": 0.00548888541089106358,
+            "mean_ms": 4002.3448939000,
+            "median_ms": 3995.0225405000,
+            "stddev_ms": 40.360113021056306000,
+            "min_ms": 3946.205239000,
+            "max_ms": 4075.166346000,
+            "cv": 0.01008411670932443076,
             "runs": 10,
-            "user_ms": 3860.7720999999997000,
-            "system_ms": 18.700199999999997000
+            "user_ms": 3983.7108999999997000,
+            "system_ms": 18.298699999999998000
           },
           "ruby": {
-            "mean_ms": 2990.362785000,
-            "median_ms": 2988.3250605000,
-            "stddev_ms": 7.218021572733328000,
-            "min_ms": 2981.4486330000003000,
-            "max_ms": 3005.072772000,
-            "cv": 0.00241376116936036842,
+            "mean_ms": 3016.7352045000007000,
+            "median_ms": 3013.689649000,
+            "stddev_ms": 17.37898525754141000,
+            "min_ms": 2993.538953000,
+            "max_ms": 3047.42706000,
+            "cv": 0.00576085870301693758,
             "runs": 10,
-            "user_ms": 2977.7639999999996000,
-            "system_ms": 12.299599999999997000
+            "user_ms": 3002.6558000000003000,
+            "system_ms": 13.799000
           }
         }
       },
@@ -458,7 +615,7 @@
     {
       "id": "nbody",
       "name": "N-Body Simulation",
-      "reference_size": "5613145",
+      "reference_size": "5678228",
       "interpreter_engine": "vm+jit",
       "sizes": [
         "50000",
@@ -468,28 +625,39 @@
       "logos_source": "## To native args () -> Seq of Text\n## To native parseInt (s: Text) -> Int\n\n## Main\nLet arguments be args().\nLet n be parseInt(item 2 of arguments).\nLet pi be 3.141592653589793.\nLet solarMass be 4.0 * pi * pi.\nLet daysPerYear be 365.24.\n\nLet mutable bx be a new Seq of Float.\nLet mutable posY be a new Seq of Float.\nLet mutable bz be a new Seq of Float.\nLet mutable bvx be a new Seq of Float.\nLet mutable bvy be a new Seq of Float.\nLet mutable bvz be a new Seq of Float.\nLet mutable bm be a new Seq of Float.\n\nPush 0.0 to bx. Push 0.0 to posY. Push 0.0 to bz.\nPush 0.0 to bvx. Push 0.0 to bvy. Push 0.0 to bvz.\nPush solarMass to bm.\n\nPush 4.841431442464721 to bx. Push 0.0 - 1.1603200440274284 to posY. Push 0.0 - 0.10362204447112311 to bz.\nPush 0.001660076642744037 * daysPerYear to bvx. Push 0.007699011184197404 * daysPerYear to bvy. Push 0.0 - 0.0000690460016972063 * daysPerYear to bvz.\nPush 0.0009547919384243266 * solarMass to bm.\n\nPush 8.34336671824458 to bx. Push 4.124798564124305 to posY. Push 0.0 - 0.4035234171143214 to bz.\nPush 0.0 - 0.002767425107268624 * daysPerYear to bvx. Push 0.004998528012349172 * daysPerYear to bvy. Push 0.00002304172975737639 * daysPerYear to bvz.\nPush 0.0002858859806661308 * solarMass to bm.\n\nPush 12.894369562139131 to bx. Push 0.0 - 15.111151401698631 to posY. Push 0.0 - 0.22330757889265573 to bz.\nPush 0.002964601375647616 * daysPerYear to bvx. Push 0.0023784717395948095 * daysPerYear to bvy. Push 0.0 - 0.000029658956854023756 * daysPerYear to bvz.\nPush 0.00004366244043351563 * solarMass to bm.\n\nPush 15.379697114850917 to bx. Push 0.0 - 25.919314609987964 to posY. Push 0.17925877295037118 to bz.\nPush 0.0026806777249038932 * daysPerYear to bvx. Push 0.001628241700382423 * daysPerYear to bvy. Push 0.0 - 0.00009515922545197159 * daysPerYear to bvz.\nPush 0.00005151389020466114 * solarMass to bm.\n\nLet mutable px be 0.0.\nLet mutable py be 0.0.\nLet mutable pz be 0.0.\nLet mutable i be 1.\nWhile i is at most 5:\n    Set px to px + item i of bvx * item i of bm.\n    Set py to py + item i of bvy * item i of bm.\n    Set pz to pz + item i of bvz * item i of bm.\n    Set i to i + 1.\nSet item 1 of bvx to 0.0 - px / solarMass.\nSet item 1 of bvy to 0.0 - py / solarMass.\nSet item 1 of bvz to 0.0 - pz / solarMass.\n\nLet mutable e be 0.0.\nSet i to 1.\nWhile i is at most 5:\n    Set e to e + 0.5 * item i of bm * (item i of bvx * item i of bvx + item i of bvy * item i of bvy + item i of bvz * item i of bvz).\n    Let mutable j be i + 1.\n    While j is at most 5:\n        Let dx be item i of bx - item j of bx.\n        Let dy be item i of posY - item j of posY.\n        Let dz be item i of bz - item j of bz.\n        Set e to e - item i of bm * item j of bm / sqrt(dx * dx + dy * dy + dz * dz).\n        Set j to j + 1.\n    Set i to i + 1.\nShow \"{e:.9}\".\n\nLet dt be 0.01.\nLet mutable step be 0.\nWhile step is less than n:\n    Set i to 1.\n    While i is at most 5:\n        Let mutable j be i + 1.\n        While j is at most 5:\n            Let dx be item i of bx - item j of bx.\n            Let dy be item i of posY - item j of posY.\n            Let dz be item i of bz - item j of bz.\n            Let dist be sqrt(dx * dx + dy * dy + dz * dz).\n            Let mag be dt / (dist * dist * dist).\n            Set item i of bvx to item i of bvx - dx * item j of bm * mag.\n            Set item i of bvy to item i of bvy - dy * item j of bm * mag.\n            Set item i of bvz to item i of bvz - dz * item j of bm * mag.\n            Set item j of bvx to item j of bvx + dx * item i of bm * mag.\n            Set item j of bvy to item j of bvy + dy * item i of bm * mag.\n            Set item j of bvz to item j of bvz + dz * item i of bm * mag.\n            Set j to j + 1.\n        Set i to i + 1.\n    Set i to 1.\n    While i is at most 5:\n        Set item i of bx to item i of bx + dt * item i of bvx.\n        Set item i of posY to item i of posY + dt * item i of bvy.\n        Set item i of bz to item i of bz + dt * item i of bvz.\n        Set i to i + 1.\n    Set step to step + 1.\n\nSet e to 0.0.\nSet i to 1.\nWhile i is at most 5:\n    Set e to e + 0.5 * item i of bm * (item i of bvx * item i of bvx + item i of bvy * item i of bvy + item i of bvz * item i of bvz).\n    Let mutable j be i + 1.\n    While j is at most 5:\n        Let dx be item i of bx - item j of bx.\n        Let dy be item i of posY - item j of posY.\n        Let dz be item i of bz - item j of bz.\n        Set e to e - item i of bm * item j of bm / sqrt(dx * dx + dy * dy + dz * dz).\n        Set j to j + 1.\n    Set i to i + 1.\nShow \"{e:.9}\".",
       "js_source": "const PI = 3.141592653589793;\nconst SOLAR_MASS = 4.0 * PI * PI;\nconst DAYS_PER_YEAR = 365.24;\n\nconst bodies = [\n    { x:0, y:0, z:0, vx:0, vy:0, vz:0, mass:SOLAR_MASS },\n    { x:4.84143144246472090e+00, y:-1.16032004402742839e+00, z:-1.03622044471123109e-01,\n      vx:1.66007664274403694e-03*DAYS_PER_YEAR, vy:7.69901118419740425e-03*DAYS_PER_YEAR,\n      vz:-6.90460016972063023e-05*DAYS_PER_YEAR, mass:9.54791938424326609e-04*SOLAR_MASS },\n    { x:8.34336671824457987e+00, y:4.12479856412430479e+00, z:-4.03523417114321381e-01,\n      vx:-2.76742510726862411e-03*DAYS_PER_YEAR, vy:4.99852801234917238e-03*DAYS_PER_YEAR,\n      vz:2.30417297573763929e-05*DAYS_PER_YEAR, mass:2.85885980666130812e-04*SOLAR_MASS },\n    { x:1.28943695621391310e+01, y:-1.51111514016986312e+01, z:-2.23307578892655734e-01,\n      vx:2.96460137564761618e-03*DAYS_PER_YEAR, vy:2.37847173959480950e-03*DAYS_PER_YEAR,\n      vz:-2.96589568540237556e-05*DAYS_PER_YEAR, mass:4.36624404335156298e-05*SOLAR_MASS },\n    { x:1.53796971148509165e+01, y:-2.59193146099879641e+01, z:1.79258772950371181e-01,\n      vx:2.68067772490389322e-03*DAYS_PER_YEAR, vy:1.62824170038242295e-03*DAYS_PER_YEAR,\n      vz:-9.51592254519715870e-05*DAYS_PER_YEAR, mass:5.15138902046611451e-05*SOLAR_MASS }\n];\n\nfunction offsetMomentum() {\n    let px=0, py=0, pz=0;\n    for (let i=0; i<5; i++) { px+=bodies[i].vx*bodies[i].mass; py+=bodies[i].vy*bodies[i].mass; pz+=bodies[i].vz*bodies[i].mass; }\n    bodies[0].vx=-px/SOLAR_MASS; bodies[0].vy=-py/SOLAR_MASS; bodies[0].vz=-pz/SOLAR_MASS;\n}\n\nfunction energy() {\n    let e=0;\n    for (let i=0; i<5; i++) {\n        e += 0.5*bodies[i].mass*(bodies[i].vx*bodies[i].vx+bodies[i].vy*bodies[i].vy+bodies[i].vz*bodies[i].vz);\n        for (let j=i+1; j<5; j++) {\n            const dx=bodies[i].x-bodies[j].x, dy=bodies[i].y-bodies[j].y, dz=bodies[i].z-bodies[j].z;\n            e -= bodies[i].mass*bodies[j].mass/Math.sqrt(dx*dx+dy*dy+dz*dz);\n        }\n    }\n    return e;\n}\n\nfunction advance(dt) {\n    for (let i=0; i<5; i++) {\n        for (let j=i+1; j<5; j++) {\n            const dx=bodies[i].x-bodies[j].x, dy=bodies[i].y-bodies[j].y, dz=bodies[i].z-bodies[j].z;\n            const dist=Math.sqrt(dx*dx+dy*dy+dz*dz);\n            const mag=dt/(dist*dist*dist);\n            bodies[i].vx-=dx*bodies[j].mass*mag; bodies[i].vy-=dy*bodies[j].mass*mag; bodies[i].vz-=dz*bodies[j].mass*mag;\n            bodies[j].vx+=dx*bodies[i].mass*mag; bodies[j].vy+=dy*bodies[i].mass*mag; bodies[j].vz+=dz*bodies[i].mass*mag;\n        }\n    }\n    for (let i=0; i<5; i++) { bodies[i].x+=dt*bodies[i].vx; bodies[i].y+=dt*bodies[i].vy; bodies[i].z+=dt*bodies[i].vz; }\n}\n\nconst n = parseInt(process.argv[2]);\noffsetMomentum();\nconsole.log(energy().toFixed(9));\nfor (let i=0; i<n; i++) advance(0.01);\nconsole.log(energy().toFixed(9));",
       "scaling": {
-        "5613145": {
+        "5678228": {
           "logos_interp": {
-            "mean_ms": 2990.3559237200006000,
-            "median_ms": 2990.7007083200003000,
-            "stddev_ms": 7.288575112988498000,
-            "min_ms": 2980.6563403200004000,
-            "max_ms": 3006.39213032000,
-            "cv": 0.00243736040087211954,
+            "mean_ms": 641.5644552599999000,
+            "median_ms": 639.33356146000,
+            "stddev_ms": 5.653962512686069000,
+            "min_ms": 634.8763149600001000,
+            "max_ms": 650.2497619600001000,
+            "cv": 0.00881277394084238762,
             "runs": 10,
-            "user_ms": 2988.66994000,
-            "system_ms": 1.3875999999999997000
+            "user_ms": 639.2610599999999000,
+            "system_ms": 2.0753200000000003000
+          },
+          "logos_tiered": {
+            "mean_ms": 1386.249077000,
+            "median_ms": 1387.6563275000,
+            "stddev_ms": 7.2361651040842604000,
+            "min_ms": 1374.3135485000,
+            "max_ms": 1398.0173445000001000,
+            "cv": 0.00521996026842747567,
+            "runs": 10,
+            "user_ms": 1383.8955000,
+            "system_ms": 2.13132000
           },
           "js": {
-            "mean_ms": 243.68643380000005000,
-            "median_ms": 242.618135000,
-            "stddev_ms": 4.763196604571085000,
-            "min_ms": 238.73716900000003000,
-            "max_ms": 250.69900500000003000,
-            "cv": 0.01954641680414744541,
+            "mean_ms": 249.8217844000,
+            "median_ms": 249.53751050000003000,
+            "stddev_ms": 4.762836773054695000,
+            "min_ms": 243.4096000,
+            "max_ms": 258.802762000,
+            "cv": 0.01906493776951300568,
             "runs": 10,
-            "user_ms": 239.6395000,
-            "system_ms": 7.690700000000002000
+            "user_ms": 246.0582000,
+            "system_ms": 7.4100999999999985000
           }
         }
       },
@@ -499,7 +667,7 @@
     {
       "id": "mandelbrot",
       "name": "Mandelbrot Set",
-      "reference_size": "2356",
+      "reference_size": "2328",
       "interpreter_engine": "vm+jit",
       "sizes": [
         "500",
@@ -509,28 +677,39 @@
       "logos_source": "## To native args () -> Seq of Text\n## To native parseInt (s: Text) -> Int\n\n## Main\nLet arguments be args().\nLet n be parseInt(item 2 of arguments).\nLet mutable count be 0.\nLet mutable y be 0.\nWhile y is less than n:\n    Let mutable x be 0.\n    While x is less than n:\n        Let cr be 2.0 * x / n - 1.5.\n        Let ci be 2.0 * y / n - 1.0.\n        Let mutable zr be 0.0.\n        Let mutable zi be 0.0.\n        Let mutable isInside be 1.\n        Let mutable iter be 0.\n        While iter is less than 50:\n            Let zr2 be zr * zr - zi * zi + cr.\n            Let zi2 be 2.0 * zr * zi + ci.\n            Set zr to zr2.\n            Set zi to zi2.\n            If zr * zr + zi * zi is greater than 4.0:\n                Set isInside to 0.\n                Set iter to 50.\n            Set iter to iter + 1.\n        If isInside equals 1:\n            Set count to count + 1.\n        Set x to x + 1.\n    Set y to y + 1.\nShow count.",
       "js_source": "const n = parseInt(process.argv[2]);\nlet count = 0;\nfor (let y = 0; y < n; y++) for (let x = 0; x < n; x++) {\n    const cr = 2*x/n - 1.5, ci = 2*y/n - 1;\n    let zr = 0, zi = 0, inside = true;\n    for (let i = 0; i < 50; i++) {\n        const t = zr*zr - zi*zi + cr; zi = 2*zr*zi + ci; zr = t;\n        if (zr*zr + zi*zi > 4) { inside = false; break; }\n    }\n    if (inside) count++;\n}\nconsole.log(count);",
       "scaling": {
-        "2356": {
+        "2328": {
           "logos_interp": {
-            "mean_ms": 1113.56471236000,
-            "median_ms": 1107.53465196000,
-            "stddev_ms": 17.785768806739134000,
-            "min_ms": 1102.92000846000,
-            "max_ms": 1162.70398746000,
-            "cv": 0.01597192207091889425,
+            "mean_ms": 499.13585214000006000,
+            "median_ms": 499.71059324000,
+            "stddev_ms": 5.849350767340346000,
+            "min_ms": 488.74932174000,
+            "max_ms": 509.80090974000,
+            "cv": 0.01171895535506371829,
             "runs": 10,
-            "user_ms": 1112.0303399999998000,
-            "system_ms": 1.309118000
+            "user_ms": 497.3441600000001000,
+            "system_ms": 1.63186000
+          },
+          "logos_tiered": {
+            "mean_ms": 570.2100862000001000,
+            "median_ms": 570.1072553000001000,
+            "stddev_ms": 4.563419960864925000,
+            "min_ms": 564.5809128000001000,
+            "max_ms": 580.2823918000001000,
+            "cv": 0.00800305022886654823,
+            "runs": 10,
+            "user_ms": 568.50482000,
+            "system_ms": 1.55502000
           },
           "js": {
-            "mean_ms": 246.0926374000,
-            "median_ms": 245.972988000,
-            "stddev_ms": 5.198337071983016000,
-            "min_ms": 239.310771000,
-            "max_ms": 254.36216700000003000,
-            "cv": 0.02112349693556096611,
+            "mean_ms": 242.82814709999995000,
+            "median_ms": 239.558016000,
+            "stddev_ms": 6.037291258077221000,
+            "min_ms": 238.68439000000002000,
+            "max_ms": 254.36527400000003000,
+            "cv": 0.02486240302114145746,
             "runs": 10,
-            "user_ms": 241.78389999999994000,
-            "system_ms": 6.304499999999999000
+            "user_ms": 238.98289999999997000,
+            "system_ms": 5.9007999999999994000
           }
         }
       },
@@ -540,7 +719,7 @@
     {
       "id": "spectral_norm",
       "name": "Spectral Norm",
-      "reference_size": "2012",
+      "reference_size": "2022",
       "interpreter_engine": "vm+jit",
       "sizes": [
         "1000",
@@ -550,28 +729,39 @@
       "logos_source": "## To native args () -> Seq of Text\n## To native parseInt (s: Text) -> Int\n\n## To aVal (i: Int, j: Int) -> Float:\n    Return 1.0 / ((i + j) * (i + j + 1) / 2 + i + 1).\n\n## To mulAv (n: Int, v: Seq of Float, out: Seq of Float) -> Seq of Float:\n    Let mutable result be out.\n    Let mutable i be 0.\n    While i is less than n:\n        Let mutable sum be 0.0.\n        Let mutable j be 0.\n        While j is less than n:\n            Set sum to sum + aVal(i, j) * item (j + 1) of v.\n            Set j to j + 1.\n        Set item (i + 1) of result to sum.\n        Set i to i + 1.\n    Return result.\n\n## To mulAtv (n: Int, v: Seq of Float, out: Seq of Float) -> Seq of Float:\n    Let mutable result be out.\n    Let mutable i be 0.\n    While i is less than n:\n        Let mutable sum be 0.0.\n        Let mutable j be 0.\n        While j is less than n:\n            Set sum to sum + aVal(j, i) * item (j + 1) of v.\n            Set j to j + 1.\n        Set item (i + 1) of result to sum.\n        Set i to i + 1.\n    Return result.\n\n## To mulAtav (n: Int, v: Seq of Float, result: Seq of Float, tmp: Seq of Float) -> Seq of Float:\n    Let t be mulAv(n, v, tmp).\n    Return mulAtv(n, t, result).\n\n## Main\nLet arguments be args().\nLet n be parseInt(item 2 of arguments).\nLet mutable u be a new Seq of Float.\nLet mutable v be a new Seq of Float.\nLet mutable tmp be a new Seq of Float.\nLet mutable i be 0.\nWhile i is less than n:\n    Push 1.0 to u.\n    Push 0.0 to v.\n    Push 0.0 to tmp.\n    Set i to i + 1.\nSet i to 0.\nWhile i is less than 10:\n    Set v to mulAtav(n, u, v, tmp).\n    Set u to mulAtav(n, v, u, tmp).\n    Set i to i + 1.\nLet mutable vbv be 0.0.\nLet mutable vv be 0.0.\nSet i to 1.\nWhile i is at most n:\n    Set vbv to vbv + item i of u * item i of v.\n    Set vv to vv + item i of v * item i of v.\n    Set i to i + 1.\nLet result be sqrt(vbv / vv).\nShow \"{result:.9}\".",
       "js_source": "function A(i,j){return 1/((i+j)*(i+j+1)/2+i+1)}\nfunction mulAv(n,v,r){for(let i=0;i<n;i++){r[i]=0;for(let j=0;j<n;j++)r[i]+=A(i,j)*v[j]}}\nfunction mulAtv(n,v,r){for(let i=0;i<n;i++){r[i]=0;for(let j=0;j<n;j++)r[i]+=A(j,i)*v[j]}}\nfunction mulAtAv(n,v,r,t){mulAv(n,v,t);mulAtv(n,t,r)}\nconst n=parseInt(process.argv[2]);\nconst u=new Float64Array(n).fill(1),v=new Float64Array(n),t=new Float64Array(n);\nfor(let i=0;i<10;i++){mulAtAv(n,u,v,t);mulAtAv(n,v,u,t)}\nlet vBv=0,vv=0;\nfor(let i=0;i<n;i++){vBv+=u[i]*v[i];vv+=v[i]*v[i]}\nconsole.log(Math.sqrt(vBv/vv).toFixed(9));",
       "scaling": {
-        "2012": {
+        "2022": {
           "logos_interp": {
-            "mean_ms": 1314.1043266599999000,
-            "median_ms": 1313.1366028599998000,
-            "stddev_ms": 5.671029094838389000,
-            "min_ms": 1307.42870136000,
-            "max_ms": 1324.0627453599998000,
-            "cv": 0.00431550903515567109,
+            "mean_ms": 310.98011602000,
+            "median_ms": 308.25441312000,
+            "stddev_ms": 6.6778779975682255000,
+            "min_ms": 304.97013062000006000,
+            "max_ms": 323.57643262000,
+            "cv": 0.02147364945075379839,
             "runs": 10,
-            "user_ms": 1312.37636000,
-            "system_ms": 1.4977399999999998000
+            "user_ms": 309.30544000000004000,
+            "system_ms": 1.5177199999999997000
+          },
+          "logos_tiered": {
+            "mean_ms": 1663.38276826000,
+            "median_ms": 1662.3080294600001000,
+            "stddev_ms": 7.706450092366747000,
+            "min_ms": 1651.2700549600001000,
+            "max_ms": 1675.5158139600002000,
+            "cv": 0.00463299863351846828,
+            "runs": 10,
+            "user_ms": 1651.9211999999999000,
+            "system_ms": 11.20974000
           },
           "js": {
-            "mean_ms": 245.01052639999998000,
-            "median_ms": 245.722191000,
-            "stddev_ms": 5.281896383742115000,
-            "min_ms": 237.61637000000002000,
-            "max_ms": 251.231298000,
-            "cv": 0.02155783451980745359,
+            "mean_ms": 244.62815449999997000,
+            "median_ms": 244.1430565000,
+            "stddev_ms": 5.719285815409133000,
+            "min_ms": 238.014037000,
+            "max_ms": 256.13520300000003000,
+            "cv": 0.02337950767399969777,
             "runs": 10,
-            "user_ms": 241.76619999999996000,
-            "system_ms": 7.618599999999999000
+            "user_ms": 242.00589999999997000,
+            "system_ms": 7.896000
           }
         }
       },
@@ -581,7 +771,7 @@
     {
       "id": "pi_leibniz",
       "name": "Pi (Leibniz Series)",
-      "reference_size": "273270549",
+      "reference_size": "271202075",
       "interpreter_engine": "vm+jit",
       "sizes": [
         "50000000",
@@ -591,28 +781,39 @@
       "logos_source": "## To native args () -> Seq of Text\n## To native parseInt (s: Text) -> Int\n\n## Main\nLet arguments be args().\nLet n be parseInt(item 2 of arguments).\nLet mutable sum be 0.0.\nLet mutable sign be 1.0.\nLet mutable k be 0.\nWhile k is less than n:\n    Set sum to sum + sign / (2.0 * k + 1.0).\n    Set sign to 0.0 - sign.\n    Set k to k + 1.\nLet result be sum * 4.0.\nShow \"{result:.15}\".",
       "js_source": "const n = parseInt(process.argv[2]);\nlet sum = 0, sign = 1;\nfor (let k = 0; k < n; k++) { sum += sign / (2 * k + 1); sign = -sign; }\nconsole.log((sum * 4).toFixed(15));",
       "scaling": {
-        "273270549": {
+        "271202075": {
           "logos_interp": {
-            "mean_ms": 739.5198313000001000,
-            "median_ms": 740.0610001000001000,
-            "stddev_ms": 6.857715776011959000,
-            "min_ms": 730.2762906000001000,
-            "max_ms": 753.6643326000001000,
-            "cv": 0.00927320064420287044,
+            "mean_ms": 290.28511284000,
+            "median_ms": 288.52962694000,
+            "stddev_ms": 5.074302662472824000,
+            "min_ms": 285.85520094000,
+            "max_ms": 301.24645394000,
+            "cv": 0.01748040956295850256,
             "runs": 10,
-            "user_ms": 738.1254399999999000,
-            "system_ms": 1.2303000
+            "user_ms": 288.67734000,
+            "system_ms": 1.4277799999999996000
+          },
+          "logos_tiered": {
+            "mean_ms": 414.1689052200001000,
+            "median_ms": 412.21500162000,
+            "stddev_ms": 3.972205556757696000,
+            "min_ms": 409.71826712000003000,
+            "max_ms": 419.62527012000,
+            "cv": 0.00959078652862102722,
+            "runs": 10,
+            "user_ms": 411.8705799999999000,
+            "system_ms": 2.05916000
           },
           "js": {
-            "mean_ms": 247.71362710000006000,
-            "median_ms": 246.90878500000002000,
-            "stddev_ms": 4.832025789508545000,
-            "min_ms": 243.009419000,
-            "max_ms": 256.275385000,
-            "cv": 0.01950649968706765518,
+            "mean_ms": 246.50882690000006000,
+            "median_ms": 245.3865175000,
+            "stddev_ms": 2.780719373386616000,
+            "min_ms": 244.239801000,
+            "max_ms": 253.423294000,
+            "cv": 0.01128040487781257346,
             "runs": 10,
-            "user_ms": 242.92069999999993000,
-            "system_ms": 5.9923000
+            "user_ms": 240.85989999999996000,
+            "system_ms": 7.1086000
           }
         }
       },
@@ -622,7 +823,7 @@
     {
       "id": "gcd",
       "name": "GCD Sum",
-      "reference_size": "4660",
+      "reference_size": "4630",
       "interpreter_engine": "vm+jit",
       "sizes": [
         "2000",
@@ -632,50 +833,61 @@
       "logos_source": "## To native args () -> Seq of Text\n## To native parseInt (s: Text) -> Int\n\n## To gcd (a: Int, b: Int) -> Int:\n    Let mutable x be a.\n    Let mutable y be b.\n    While y is greater than 0:\n        Let temp be y.\n        Set y to x % y.\n        Set x to temp.\n    Return x.\n\n## Main\nLet arguments be args().\nLet n be parseInt(item 2 of arguments).\nLet mutable sum be 0.\nLet mutable i be 1.\nWhile i is at most n:\n    Let mutable j be i.\n    While j is at most n:\n        Set sum to sum + gcd(i, j).\n        Set j to j + 1.\n    Set i to i + 1.\nShow sum.",
       "js_source": "function gcd(a, b) {\n    while (b > 0) { const t = b; b = a % b; a = t; }\n    return a;\n}\nconst n = parseInt(process.argv[2]);\nlet sum = 0;\nfor (let i = 1; i <= n; i++)\n    for (let j = i; j <= n; j++)\n        sum += gcd(i, j);\nconsole.log(sum);",
       "scaling": {
-        "4660": {
+        "4630": {
           "logos_interp": {
-            "mean_ms": 503.79172246000,
-            "median_ms": 502.5943176600001000,
-            "stddev_ms": 3.903288699292274000,
-            "min_ms": 499.52694966000005000,
-            "max_ms": 510.21892166000,
-            "cv": 0.00774782221556287457,
+            "mean_ms": 256.72293170000005000,
+            "median_ms": 255.83832530000006000,
+            "stddev_ms": 4.595858316633827000,
+            "min_ms": 252.0437258000,
+            "max_ms": 264.5788498000,
+            "cv": 0.01790201711315929984,
             "runs": 10,
-            "user_ms": 502.4818999999999000,
-            "system_ms": 1.13624000
+            "user_ms": 255.19349999999996000,
+            "system_ms": 1.37982000
+          },
+          "logos_tiered": {
+            "mean_ms": 326.47906536000004000,
+            "median_ms": 318.17245506000,
+            "stddev_ms": 24.787699885009538000,
+            "min_ms": 314.33606206000,
+            "max_ms": 396.20590406000,
+            "cv": 0.07592431648772573220,
+            "runs": 10,
+            "user_ms": 315.08464000,
+            "system_ms": 11.2096000
           },
           "js": {
-            "mean_ms": 244.47719839999998000,
-            "median_ms": 242.55723250000003000,
-            "stddev_ms": 5.568342701778835000,
-            "min_ms": 238.80525700000002000,
-            "max_ms": 254.03451600000004000,
-            "cv": 0.02277653187381598960,
+            "mean_ms": 239.7465532000,
+            "median_ms": 238.27956500000003000,
+            "stddev_ms": 3.978840848618126000,
+            "min_ms": 236.67863300000003000,
+            "max_ms": 250.15041800000004000,
+            "cv": 0.01659602941319002036,
             "runs": 10,
-            "user_ms": 241.37550000000002000,
-            "system_ms": 5.0977999999999996000
+            "user_ms": 236.45619999999998000,
+            "system_ms": 5.7983000
           },
           "python": {
-            "mean_ms": 1577.4766010999999000,
-            "median_ms": 1576.2994385000,
-            "stddev_ms": 22.116721996555625000,
-            "min_ms": 1546.303973000,
-            "max_ms": 1620.937487000,
-            "cv": 0.01402031699305921730,
+            "mean_ms": 1555.0429574000,
+            "median_ms": 1543.9780105000,
+            "stddev_ms": 41.887831755790216000,
+            "min_ms": 1519.91735000,
+            "max_ms": 1660.927905000,
+            "cv": 0.02693676824582763516,
             "runs": 10,
-            "user_ms": 1574.6762000,
-            "system_ms": 2.5997999999999998000
+            "user_ms": 1552.4067000000001000,
+            "system_ms": 2.4000000000000002000
           },
           "ruby": {
-            "mean_ms": 1257.9308863000,
-            "median_ms": 1255.590536000,
-            "stddev_ms": 13.91336572226197000,
-            "min_ms": 1246.389823000,
-            "max_ms": 1294.303544000,
-            "cv": 0.01106051681677511093,
+            "mean_ms": 1250.3671227000,
+            "median_ms": 1251.7467245000,
+            "stddev_ms": 12.638943768087583000,
+            "min_ms": 1225.502014000,
+            "max_ms": 1268.111209000,
+            "cv": 0.01010818625876492985,
             "runs": 10,
-            "user_ms": 1248.2035000,
-            "system_ms": 9.499699999999998000
+            "user_ms": 1241.8359000,
+            "system_ms": 8.301300000000001000
           }
         }
       },
@@ -685,7 +897,7 @@
     {
       "id": "collatz",
       "name": "Collatz Conjecture",
-      "reference_size": "362777",
+      "reference_size": "369942",
       "interpreter_engine": "vm+jit",
       "sizes": [
         "1000000",
@@ -695,50 +907,61 @@
       "logos_source": "## To native args () -> Seq of Text\n## To native parseInt (s: Text) -> Int\n\n## Main\nLet arguments be args().\nLet n be parseInt(item 2 of arguments).\nLet mutable total be 0.\nLet mutable i be 1.\nWhile i is at most n:\n    Let mutable k be i.\n    While k is not 1:\n        If k % 2 equals 0:\n            Set k to k / 2.\n        Otherwise:\n            Set k to 3 * k + 1.\n        Set total to total + 1.\n    Set i to i + 1.\nShow total.",
       "js_source": "const n = parseInt(process.argv[2]);\nlet total = 0;\nfor (let i = 1; i <= n; i++) {\n    let k = i;\n    while (k !== 1) {\n        if (k % 2 === 0) k = k / 2;\n        else k = 3 * k + 1;\n        total++;\n    }\n}\nconsole.log(total);",
       "scaling": {
-        "362777": {
+        "369942": {
           "logos_interp": {
-            "mean_ms": 276.86079367999994000,
-            "median_ms": 276.75591258000,
-            "stddev_ms": 5.640071652514547000,
-            "min_ms": 269.56134657999997000,
-            "max_ms": 284.06739258000,
-            "cv": 0.02037150720240089511,
+            "mean_ms": 79.56303858000,
+            "median_ms": 78.24183818000001000,
+            "stddev_ms": 3.9149210027497000,
+            "min_ms": 75.41730418000,
+            "max_ms": 88.25783118000001000,
+            "cv": 0.04920527260674286831,
             "runs": 10,
-            "user_ms": 275.53288000,
-            "system_ms": 1.16438000
+            "user_ms": 78.32826000,
+            "system_ms": 1.0416059999999998000
+          },
+          "logos_tiered": {
+            "mean_ms": 61.20359398000001000,
+            "median_ms": 60.49215698000,
+            "stddev_ms": 1.751038338312331000,
+            "min_ms": 59.480785480000006000,
+            "max_ms": 63.83548448000001000,
+            "cv": 0.02861005742382599071,
+            "runs": 10,
+            "user_ms": 59.37089999999999000,
+            "system_ms": 1.66754000
           },
           "js": {
-            "mean_ms": 243.1024952000,
-            "median_ms": 242.2706845000,
-            "stddev_ms": 3.337402192314417000,
-            "min_ms": 239.599535000,
-            "max_ms": 247.97681500000002000,
-            "cv": 0.01372837489622943615,
+            "mean_ms": 250.99112570000004000,
+            "median_ms": 249.7096305000,
+            "stddev_ms": 2.8142773361387887000,
+            "min_ms": 247.71842300000002000,
+            "max_ms": 255.801306000,
+            "cv": 0.01121265673553169872,
             "runs": 10,
-            "user_ms": 239.95819999999995000,
-            "system_ms": 5.208099999999999000
+            "user_ms": 247.8313000,
+            "system_ms": 5.2128999999999995000
           },
           "python": {
-            "mean_ms": 2398.9523465999993000,
-            "median_ms": 2364.7949070000003000,
-            "stddev_ms": 59.74596392675399000,
-            "min_ms": 2347.2239679999998000,
-            "max_ms": 2499.272313000,
-            "cv": 0.02490502323292544198,
+            "mean_ms": 2472.3027199999996000,
+            "median_ms": 2465.6032354999997000,
+            "stddev_ms": 57.35453121562903000,
+            "min_ms": 2410.832316000,
+            "max_ms": 2575.825367000,
+            "cv": 0.02319883028548746622,
             "runs": 10,
-            "user_ms": 2396.3946999999997000,
-            "system_ms": 2.3000
+            "user_ms": 2469.5015999999996000,
+            "system_ms": 2.5999000
           },
           "ruby": {
-            "mean_ms": 841.6851633000,
-            "median_ms": 839.9450805000,
-            "stddev_ms": 14.82944179890484000,
-            "min_ms": 824.7580160000001000,
-            "max_ms": 879.349417000,
-            "cv": 0.01761875157780251203,
+            "mean_ms": 851.5492491000,
+            "median_ms": 851.2021165000001000,
+            "stddev_ms": 4.633779660699348000,
+            "min_ms": 846.404826000,
+            "max_ms": 860.832911000,
+            "cv": 0.00544158739567532548,
             "runs": 10,
-            "user_ms": 832.864000,
-            "system_ms": 8.5998000
+            "user_ms": 843.4433000,
+            "system_ms": 7.9005000
           }
         }
       },
@@ -748,7 +971,7 @@
     {
       "id": "primes",
       "name": "Primes (Trial Division)",
-      "reference_size": "2341604",
+      "reference_size": "2322515",
       "interpreter_engine": "vm+jit",
       "sizes": [
         "500000",
@@ -758,39 +981,50 @@
       "logos_source": "## To native args () -> Seq of Text\n## To native parseInt (s: Text) -> Int\n\n## Main\nLet arguments be args().\nLet n be parseInt(item 2 of arguments).\nLet mutable count be 0.\nLet mutable i be 2.\nWhile i is at most n:\n    Let mutable isPrime be 1.\n    Let mutable d be 2.\n    While d * d is at most i:\n        If i % d equals 0:\n            Set isPrime to 0.\n            Break.\n        Set d to d + 1.\n    If isPrime equals 1:\n        Set count to count + 1.\n    Set i to i + 1.\nShow count.",
       "js_source": "const n = parseInt(process.argv[2]);\nlet count = 0;\nfor (let i = 2; i <= n; i++) {\n    let isPrime = true;\n    for (let d = 2; d * d <= i; d++) {\n        if (i % d === 0) { isPrime = false; break; }\n    }\n    if (isPrime) count++;\n}\nconsole.log(count);",
       "scaling": {
-        "2341604": {
+        "2322515": {
           "logos_interp": {
-            "mean_ms": 605.0722131600003000,
-            "median_ms": 610.2699367600001000,
-            "stddev_ms": 12.833341424511454000,
-            "min_ms": 573.4402072600001000,
-            "max_ms": 617.7126182600001000,
-            "cv": 0.02120960299513524538,
+            "mean_ms": 382.76508018000005000,
+            "median_ms": 382.19500218000,
+            "stddev_ms": 2.1234353999926778000,
+            "min_ms": 380.48691568000,
+            "max_ms": 385.92037768000,
+            "cv": 0.00554762048563600899,
             "runs": 10,
-            "user_ms": 603.99878000,
-            "system_ms": 0.8919420000000001000
+            "user_ms": 381.33908000,
+            "system_ms": 1.201648000
+          },
+          "logos_tiered": {
+            "mean_ms": 382.03147340000004000,
+            "median_ms": 382.31224760000004000,
+            "stddev_ms": 1.9365666515231258000,
+            "min_ms": 379.4160106000,
+            "max_ms": 384.66145360000004000,
+            "cv": 0.00506912855710051452,
+            "runs": 10,
+            "user_ms": 380.51451999999997000,
+            "system_ms": 1.28386000
           },
           "js": {
-            "mean_ms": 248.98720739999997000,
-            "median_ms": 248.895794000,
-            "stddev_ms": 3.4589586022447136000,
-            "min_ms": 244.03527100000003000,
-            "max_ms": 256.33327000,
-            "cv": 0.01389211372891085334,
+            "mean_ms": 245.64088160000006000,
+            "median_ms": 245.33050500000003000,
+            "stddev_ms": 2.4260862752368286000,
+            "min_ms": 242.468817000,
+            "max_ms": 249.07262000000002000,
+            "cv": 0.00987655743390243559,
             "runs": 10,
-            "user_ms": 243.77459999999998000,
-            "system_ms": 6.405899999999999000
+            "user_ms": 240.73599999999998000,
+            "system_ms": 6.1137000
           },
           "ruby": {
-            "mean_ms": 3440.0400683000,
-            "median_ms": 3440.2365305000,
-            "stddev_ms": 21.216837280333054000,
-            "min_ms": 3407.949381000,
-            "max_ms": 3471.7448000,
-            "cv": 0.00616761341701987698,
+            "mean_ms": 3440.9395362000006000,
+            "median_ms": 3436.7211830000004000,
+            "stddev_ms": 30.27879475771587000,
+            "min_ms": 3405.24604000,
+            "max_ms": 3512.139000,
+            "cv": 0.00879957187249917150,
             "runs": 10,
-            "user_ms": 3430.865000,
-            "system_ms": 8.7991000
+            "user_ms": 3432.4714999999997000,
+            "system_ms": 8.099499999999999000
           }
         }
       },
@@ -800,7 +1034,7 @@
     {
       "id": "sieve",
       "name": "Sieve of Eratosthenes",
-      "reference_size": "45299987",
+      "reference_size": "44411231",
       "interpreter_engine": "vm+jit",
       "sizes": [
         "5000000",
@@ -810,50 +1044,61 @@
       "logos_source": "## To native args () -> Seq of Text\n## To native parseInt (s: Text) -> Int\n\n## To sieve (limit: Int) -> Int:\n    Let mutable flags be a new Seq of Bool.\n    Let mutable i be 0.\n    While i is at most limit:\n        Push false to flags.\n        Set i to i + 1.\n    Let mutable count be 0.\n    Set i to 2.\n    While i is at most limit:\n        If item (i + 1) of flags equals false:\n            Set count to count + 1.\n            Let mutable j be i * i.\n            While j is at most limit:\n                Set item (j + 1) of flags to true.\n                Set j to j + i.\n        Set i to i + 1.\n    Return count.\n\n## Main\nLet arguments be args().\nLet limit be parseInt(item 2 of arguments).\nShow sieve(limit).",
       "js_source": "const limit = parseInt(process.argv[2]);\nconst sieve = new Uint8Array(limit + 1);\nlet count = 0;\nfor (let i = 2; i <= limit; i++) {\n    if (!sieve[i]) {\n        count++;\n        for (let j = i * i; j <= limit; j += i)\n            sieve[j] = 1;\n    }\n}\nconsole.log(count);",
       "scaling": {
-        "45299987": {
+        "44411231": {
           "logos_interp": {
-            "mean_ms": 695.4226053800001000,
-            "median_ms": 664.00436758000,
-            "stddev_ms": 50.10102084455211000,
-            "min_ms": 647.43967558000,
-            "max_ms": 759.6425725800001000,
-            "cv": 0.07204399232489054006,
+            "mean_ms": 231.22176698000,
+            "median_ms": 228.38847148000002000,
+            "stddev_ms": 9.425758072629254000,
+            "min_ms": 222.58625548000,
+            "max_ms": 254.60404748000,
+            "cv": 0.04076501185740248337,
             "runs": 10,
-            "user_ms": 683.91022000,
-            "system_ms": 11.25292000
+            "user_ms": 219.3876000,
+            "system_ms": 11.633860000000001000
+          },
+          "logos_tiered": {
+            "mean_ms": 233.09514287999997000,
+            "median_ms": 230.13196208000,
+            "stddev_ms": 6.647658556457511000,
+            "min_ms": 228.67606458000,
+            "max_ms": 250.20470158000,
+            "cv": 0.02851907797958622077,
+            "runs": 10,
+            "user_ms": 220.82111999999995000,
+            "system_ms": 12.05064000
           },
           "js": {
-            "mean_ms": 250.8531179000,
-            "median_ms": 252.43059050000005000,
-            "stddev_ms": 5.4753956484376665000,
-            "min_ms": 241.298597000,
-            "max_ms": 257.340987000,
-            "cv": 0.02182709824089320796,
+            "mean_ms": 244.46386950000001000,
+            "median_ms": 243.96348750000002000,
+            "stddev_ms": 5.207312127851554000,
+            "min_ms": 234.422235000,
+            "max_ms": 252.237276000,
+            "cv": 0.02130094781900502391,
             "runs": 10,
-            "user_ms": 236.96659999999997000,
-            "system_ms": 17.407899999999997000
+            "user_ms": 230.0735000,
+            "system_ms": 17.9337000
           },
           "python": {
-            "mean_ms": 2571.0065739999997000,
-            "median_ms": 2561.9361510000003000,
-            "stddev_ms": 22.21255115919594000,
-            "min_ms": 2557.503643000,
-            "max_ms": 2631.488348000,
-            "cv": 0.00863963219068608363,
+            "mean_ms": 2530.704043000,
+            "median_ms": 2532.102233000,
+            "stddev_ms": 14.902484115520823000,
+            "min_ms": 2515.733834000,
+            "max_ms": 2563.329517000,
+            "cv": 0.00588867124021930643,
             "runs": 10,
-            "user_ms": 2555.312000,
-            "system_ms": 15.298999999999998000
+            "user_ms": 2516.4676999999998000,
+            "system_ms": 13.8992000
           },
           "ruby": {
-            "mean_ms": 2437.3699229000,
-            "median_ms": 2406.8846775000,
-            "stddev_ms": 82.80807381789074000,
-            "min_ms": 2390.550279000,
-            "max_ms": 2665.694829000,
-            "cv": 0.03397435614507177768,
+            "mean_ms": 2411.7673193000,
+            "median_ms": 2407.020557000,
+            "stddev_ms": 21.845406099168848000,
+            "min_ms": 2381.311512000,
+            "max_ms": 2462.835948000,
+            "cv": 0.00905784149422396893,
             "runs": 10,
-            "user_ms": 2347.6948999999996000,
-            "system_ms": 89.4034000
+            "user_ms": 2321.5031999999995000,
+            "system_ms": 89.8886000
           }
         }
       },
@@ -863,7 +1108,7 @@
     {
       "id": "matrix_mult",
       "name": "Matrix Multiply",
-      "reference_size": "510",
+      "reference_size": "511",
       "interpreter_engine": "vm+jit",
       "sizes": [
         "300",
@@ -873,28 +1118,39 @@
       "logos_source": "## To native args () -> Seq of Text\n## To native parseInt (s: Text) -> Int\n\n## Main\nLet arguments be args().\nLet n be parseInt(item 2 of arguments).\nLet mutable a be a new Seq of Int.\nLet mutable b be a new Seq of Int.\nLet mutable c be a new Seq of Int.\nLet mutable i be 0.\nWhile i is less than n:\n    Let mutable j be 0.\n    While j is less than n:\n        Push (i * n + j) % 100 to a.\n        Push (j * n + i) % 100 to b.\n        Push 0 to c.\n        Set j to j + 1.\n    Set i to i + 1.\nSet i to 0.\nWhile i is less than n:\n    Let mutable k be 0.\n    While k is less than n:\n        Let mutable j be 0.\n        While j is less than n:\n            Let idx be i * n + j + 1.\n            Set item idx of c to (item idx of c + item (i * n + k + 1) of a * item (k * n + j + 1) of b) % 1000000007.\n            Set j to j + 1.\n        Set k to k + 1.\n    Set i to i + 1.\nLet mutable checksum be 0.\nSet i to 1.\nWhile i is at most n * n:\n    Set checksum to (checksum + item i of c) % 1000000007.\n    Set i to i + 1.\nShow checksum.",
       "js_source": "const MOD = 1000000007;\nconst n = parseInt(process.argv[2]);\nconst a = new Array(n * n).fill(0);\nconst b = new Array(n * n).fill(0);\nconst c = new Array(n * n).fill(0);\nfor (let i = 0; i < n; i++)\n    for (let j = 0; j < n; j++) {\n        a[i * n + j] = (i * n + j) % 100;\n        b[i * n + j] = (j * n + i) % 100;\n    }\nfor (let i = 0; i < n; i++)\n    for (let k = 0; k < n; k++)\n        for (let j = 0; j < n; j++)\n            c[i * n + j] = (c[i * n + j] + a[i * n + k] * b[k * n + j]) % MOD;\nlet checksum = 0;\nfor (let i = 0; i < n * n; i++) checksum = (checksum + c[i]) % MOD;\nconsole.log(checksum);",
       "scaling": {
-        "510": {
+        "511": {
           "logos_interp": {
-            "mean_ms": 1625.25150462000,
-            "median_ms": 1626.49174392000,
-            "stddev_ms": 6.1465310419719565000,
-            "min_ms": 1614.71860342000,
-            "max_ms": 1633.68738042000,
-            "cv": 0.00378189530943340164,
+            "mean_ms": 268.4263698799999000,
+            "median_ms": 267.97521028000,
+            "stddev_ms": 4.891224024544219000,
+            "min_ms": 262.10527778000,
+            "max_ms": 276.07953277999997000,
+            "cv": 0.01822184618720896298,
             "runs": 10,
-            "user_ms": 1620.86078000,
-            "system_ms": 3.8544399999999993000
+            "user_ms": 265.38231999999995000,
+            "system_ms": 2.7911000000000004000
+          },
+          "logos_tiered": {
+            "mean_ms": 338.79198302000,
+            "median_ms": 338.32490422000006000,
+            "stddev_ms": 4.8688033653393000,
+            "min_ms": 332.88457722000003000,
+            "max_ms": 347.34087622000004000,
+            "cv": 0.01437107018276721912,
+            "runs": 10,
+            "user_ms": 335.63858000,
+            "system_ms": 2.91902000
           },
           "js": {
-            "mean_ms": 242.96863270000002000,
-            "median_ms": 243.96893800000002000,
-            "stddev_ms": 4.830684212881304000,
-            "min_ms": 237.072247000,
-            "max_ms": 249.33043000000002000,
-            "cv": 0.01988192533003172142,
+            "mean_ms": 248.9547356000,
+            "median_ms": 247.81076900000001000,
+            "stddev_ms": 5.364798360374815000,
+            "min_ms": 241.69077900000002000,
+            "max_ms": 256.18628400000004000,
+            "cv": 0.02154929227373498092,
             "runs": 10,
-            "user_ms": 239.90359999999997000,
-            "system_ms": 8.6231000
+            "user_ms": 246.86840000000002000,
+            "system_ms": 8.0919000
           }
         }
       },
@@ -904,7 +1160,7 @@
     {
       "id": "prefix_sum",
       "name": "Prefix Sum",
-      "reference_size": "27180813",
+      "reference_size": "26826907",
       "interpreter_engine": "vm+jit",
       "sizes": [
         "5000000",
@@ -914,50 +1170,61 @@
       "logos_source": "## To native args () -> Seq of Text\n## To native parseInt (s: Text) -> Int\n\n## Main\nLet arguments be args().\nLet n be parseInt(item 2 of arguments).\nLet mutable arr be a new Seq of Int.\nLet mutable seed be 42.\nLet mutable i be 0.\nWhile i is less than n:\n    Set seed to (seed * 1103515245 + 12345) % 2147483648.\n    Push ((seed / 65536) % 32768) % 1000 to arr.\n    Set i to i + 1.\nSet i to 2.\nWhile i is at most n:\n    Set item i of arr to (item i of arr + item (i - 1) of arr) % 1000000007.\n    Set i to i + 1.\nShow item n of arr.",
       "js_source": "const n = parseInt(process.argv[2]);\nconst arr = new Array(n);\nlet seed = 42;\nfor (let i = 0; i < n; i++) {\n    seed = ((Math.imul(seed, 1103515245) + 12345) >>> 0) % 2147483648;\n    arr[i] = ((seed >> 16) & 0x7fff) % 1000;\n}\nfor (let i = 1; i < n; i++) arr[i] = (arr[i] + arr[i - 1]) % 1000000007;\nconsole.log(arr[n - 1]);",
       "scaling": {
-        "27180813": {
+        "26826907": {
           "logos_interp": {
-            "mean_ms": 587.2205455399999000,
-            "median_ms": 586.33219734000,
-            "stddev_ms": 3.8283693419967012000,
-            "min_ms": 582.95598484000,
-            "max_ms": 594.63686584000,
-            "cv": 0.00651947444801371118,
+            "mean_ms": 163.68999886000002000,
+            "median_ms": 164.23537106000002000,
+            "stddev_ms": 5.106626581243144000,
+            "min_ms": 156.69629606000002000,
+            "max_ms": 173.29881206000,
+            "cv": 0.03119693699558709481,
             "runs": 10,
-            "user_ms": 490.91594000,
-            "system_ms": 96.02259999999999000
+            "user_ms": 136.1901000,
+            "system_ms": 27.334740000000003000
+          },
+          "logos_tiered": {
+            "mean_ms": 163.98998524000002000,
+            "median_ms": 162.78248874000,
+            "stddev_ms": 3.7892732389461915000,
+            "min_ms": 159.93392924000002000,
+            "max_ms": 171.91744524000002000,
+            "cv": 0.02310673565462289956,
+            "runs": 10,
+            "user_ms": 136.34103999999997000,
+            "system_ms": 27.450419999999996000
           },
           "js": {
-            "mean_ms": 251.03329280000003000,
-            "median_ms": 250.18380900000003000,
-            "stddev_ms": 6.419239515206869000,
-            "min_ms": 243.45959600000003000,
-            "max_ms": 263.532823000,
-            "cv": 0.02557126763389556364,
+            "mean_ms": 256.8958505000,
+            "median_ms": 256.47303450000003000,
+            "stddev_ms": 6.371198810949636000,
+            "min_ms": 247.305405000,
+            "max_ms": 271.438858000,
+            "cv": 0.02480070736272805620,
             "runs": 10,
-            "user_ms": 193.7481000,
-            "system_ms": 59.99000
+            "user_ms": 195.4666000,
+            "system_ms": 64.0597000
           },
           "python": {
-            "mean_ms": 5347.1155327000,
-            "median_ms": 5357.0807745000,
-            "stddev_ms": 95.99121869152545000,
-            "min_ms": 5203.685219000,
-            "max_ms": 5523.155597000,
-            "cv": 0.01795196271793572985,
+            "mean_ms": 5332.661952900001000,
+            "median_ms": 5311.2199315000,
+            "stddev_ms": 99.97873852778208000,
+            "min_ms": 5238.86432000,
+            "max_ms": 5593.334567000,
+            "cv": 0.01874837359105648499,
             "runs": 10,
-            "user_ms": 5089.747099999999000,
-            "system_ms": 256.88269999999996000
+            "user_ms": 5064.7446000,
+            "system_ms": 267.4815000
           },
           "ruby": {
-            "mean_ms": 1783.8201081000,
-            "median_ms": 1779.39343000,
-            "stddev_ms": 13.557474252863534000,
-            "min_ms": 1768.92785000,
-            "max_ms": 1810.0659280000002000,
-            "cv": 0.00760024746402483610,
+            "mean_ms": 1779.2521525000002000,
+            "median_ms": 1776.0858745000,
+            "stddev_ms": 15.678221330229745000,
+            "min_ms": 1758.950149000,
+            "max_ms": 1814.417519000,
+            "cv": 0.00881169164707796706,
             "runs": 10,
-            "user_ms": 1730.1963999999999000,
-            "system_ms": 53.39370000000001000
+            "user_ms": 1719.8323999999996000,
+            "system_ms": 59.09829999999999000
           }
         }
       },
@@ -979,48 +1246,59 @@
       "scaling": {
         "33554432": {
           "logos_interp": {
-            "mean_ms": 421.44096928000,
-            "median_ms": 411.88920198000,
-            "stddev_ms": 21.807037771197878000,
-            "min_ms": 403.39063798000,
-            "max_ms": 464.07397398000005000,
-            "cv": 0.05174399111802906016,
+            "mean_ms": 147.01506970000003000,
+            "median_ms": 147.6205452000,
+            "stddev_ms": 4.349350748796507000,
+            "min_ms": 139.57774120000002000,
+            "max_ms": 153.90279320000003000,
+            "cv": 0.02958438721739085848,
             "runs": 10,
-            "user_ms": 361.9775799999999000,
-            "system_ms": 59.242059999999985000
+            "user_ms": 87.08534000,
+            "system_ms": 59.77314000
+          },
+          "logos_tiered": {
+            "mean_ms": 142.92214988000002000,
+            "median_ms": 141.94045828000001000,
+            "stddev_ms": 5.038814655346657000,
+            "min_ms": 135.01220628000002000,
+            "max_ms": 151.76132928000,
+            "cv": 0.03525565952917259807,
+            "runs": 10,
+            "user_ms": 81.22152000,
+            "system_ms": 61.462699999999995000
           },
           "js": {
-            "mean_ms": 191.07077620000004000,
-            "median_ms": 191.57666900000003000,
-            "stddev_ms": 6.817561633062838000,
-            "min_ms": 180.511688000,
-            "max_ms": 200.262622000,
-            "cv": 0.03568081822165558655,
+            "mean_ms": 188.94729580000003000,
+            "median_ms": 189.35035650000004000,
+            "stddev_ms": 5.28593894806377000,
+            "min_ms": 179.12380900000002000,
+            "max_ms": 194.86862300000002000,
+            "cv": 0.02797573220449217543,
             "runs": 10,
-            "user_ms": 119.89109999999999000,
-            "system_ms": 73.8539000
+            "user_ms": 119.7964000,
+            "system_ms": 71.6699000
           },
           "python": {
-            "mean_ms": 5488.5109281000,
-            "median_ms": 5491.0002285000,
-            "stddev_ms": 113.13486791829991000,
-            "min_ms": 5346.938558000,
-            "max_ms": 5744.6709160000005000,
-            "cv": 0.02061303501083939292,
+            "mean_ms": 5461.3164902000,
+            "median_ms": 5433.8204445000,
+            "stddev_ms": 94.02165065828619000,
+            "min_ms": 5355.896723000,
+            "max_ms": 5645.96808000,
+            "cv": 0.01721593151156910953,
             "runs": 10,
-            "user_ms": 5171.570999999999000,
-            "system_ms": 316.51170000000006000
+            "user_ms": 5133.5578000,
+            "system_ms": 327.1851000
           },
           "ruby": {
-            "mean_ms": 1837.5718537000,
-            "median_ms": 1838.772057000,
-            "stddev_ms": 10.172358305589081000,
-            "min_ms": 1820.384379000,
-            "max_ms": 1853.620945000,
-            "cv": 0.00553576083847103224,
+            "mean_ms": 1868.0837991000,
+            "median_ms": 1869.026328000,
+            "stddev_ms": 15.406607702433362000,
+            "min_ms": 1843.760051000,
+            "max_ms": 1894.9310750000001000,
+            "cv": 0.00824727868731365949,
             "runs": 10,
-            "user_ms": 1769.1377000,
-            "system_ms": 68.2091000
+            "user_ms": 1797.9664999999998000,
+            "system_ms": 69.80259999999999000
           }
         }
       },
@@ -1030,7 +1308,7 @@
     {
       "id": "array_fill",
       "name": "Array Fill & Sum",
-      "reference_size": "26846991",
+      "reference_size": "27076289",
       "interpreter_engine": "vm+jit",
       "sizes": [
         "5000000",
@@ -1040,50 +1318,61 @@
       "logos_source": "## To native args () -> Seq of Text\n## To native parseInt (s: Text) -> Int\n\n## Main\nLet arguments be args().\nLet n be parseInt(item 2 of arguments).\nLet mutable arr be a new Seq of Int.\nLet mutable i be 0.\nWhile i is less than n:\n    Push (i * 7 + 3) % 1000000 to arr.\n    Set i to i + 1.\nLet mutable sum be 0.\nSet i to 1.\nWhile i is at most n:\n    Set sum to (sum + item i of arr) % 1000000007.\n    Set i to i + 1.\nShow sum.",
       "js_source": "const n = parseInt(process.argv[2]);\nconst arr = new Array(n);\nfor (let i = 0; i < n; i++) arr[i] = (i * 7 + 3) % 1000000;\nlet sum = 0;\nfor (const v of arr) sum = (sum + v) % 1000000007;\nconsole.log(sum);",
       "scaling": {
-        "26846991": {
+        "27076289": {
           "logos_interp": {
-            "mean_ms": 339.57618066000006000,
-            "median_ms": 337.65360376000003000,
-            "stddev_ms": 5.910963833757851000,
-            "min_ms": 332.16649026000006000,
-            "max_ms": 348.31003026000,
-            "cv": 0.01740688590780809553,
+            "mean_ms": 109.27621777999999000,
+            "median_ms": 110.37171258000,
+            "stddev_ms": 3.6531230589398143000,
+            "min_ms": 103.56810708000001000,
+            "max_ms": 114.10300908000001000,
+            "cv": 0.03343017477320136650,
             "runs": 10,
-            "user_ms": 293.27578000,
-            "system_ms": 46.16185999999999000
+            "user_ms": 82.47131999999999000,
+            "system_ms": 26.59742000
+          },
+          "logos_tiered": {
+            "mean_ms": 111.79662658000,
+            "median_ms": 111.66323678000001000,
+            "stddev_ms": 4.6658450284750505000,
+            "min_ms": 104.14441428000001000,
+            "max_ms": 117.88734728000001000,
+            "cv": 0.04173511465604233887,
+            "runs": 10,
+            "user_ms": 84.73268000000002000,
+            "system_ms": 26.85068000
           },
           "js": {
-            "mean_ms": 246.9777896000,
-            "median_ms": 245.4422025000,
-            "stddev_ms": 5.988938961448387000,
-            "min_ms": 239.72548700000001000,
-            "max_ms": 255.743351000,
-            "cv": 0.02424889691962967912,
+            "mean_ms": 252.8886615000,
+            "median_ms": 251.7807125000,
+            "stddev_ms": 7.4053520061507045000,
+            "min_ms": 240.72528000,
+            "max_ms": 268.170892000,
+            "cv": 0.02928305271666244514,
             "runs": 10,
-            "user_ms": 188.3549000,
-            "system_ms": 61.4498000
+            "user_ms": 195.3333000,
+            "system_ms": 60.6569000
           },
           "python": {
-            "mean_ms": 2161.8767872999998000,
-            "median_ms": 2154.2622165000003000,
-            "stddev_ms": 44.00305712278017000,
-            "min_ms": 2111.229434000,
-            "max_ms": 2234.710727000,
-            "cv": 0.02035410037300795716,
+            "mean_ms": 2174.0133567000,
+            "median_ms": 2180.3519825000,
+            "stddev_ms": 29.76751798631315000,
+            "min_ms": 2138.894166000,
+            "max_ms": 2226.038416000,
+            "cv": 0.01369242644925519559,
             "runs": 10,
-            "user_ms": 1903.2380999999998000,
-            "system_ms": 258.26360000000004000
+            "user_ms": 1921.109000,
+            "system_ms": 252.5614000
           },
           "ruby": {
-            "mean_ms": 1351.3775908000,
-            "median_ms": 1348.706998000,
-            "stddev_ms": 10.574409977100751000,
-            "min_ms": 1339.344442000,
-            "max_ms": 1376.656936000,
-            "cv": 0.00782491144524664038,
+            "mean_ms": 1379.1497155000,
+            "median_ms": 1380.3179185000,
+            "stddev_ms": 9.420019667646985000,
+            "min_ms": 1361.727479000,
+            "max_ms": 1392.011362000,
+            "cv": 0.00683030969138244005,
             "runs": 10,
-            "user_ms": 1299.947000,
-            "system_ms": 51.19729999999999000
+            "user_ms": 1322.8804000000003000,
+            "system_ms": 56.020199999999985000
           }
         }
       },
@@ -1105,48 +1394,59 @@
       "scaling": {
         "2097152": {
           "logos_interp": {
-            "mean_ms": 216.78777534000,
-            "median_ms": 215.92356194000,
-            "stddev_ms": 5.486000816377453000,
-            "min_ms": 209.53929844000002000,
-            "max_ms": 226.98066344000,
-            "cv": 0.02530585872645937268,
+            "mean_ms": 234.99482766000002000,
+            "median_ms": 236.87347876000,
+            "stddev_ms": 14.979823253319162000,
+            "min_ms": 211.37073176000,
+            "max_ms": 253.65531176000,
+            "cv": 0.06374533176956802439,
             "runs": 10,
-            "user_ms": 158.76575999999998000,
-            "system_ms": 57.78137999999999000
+            "user_ms": 171.45090000000002000,
+            "system_ms": 63.28895999999999000
+          },
+          "logos_tiered": {
+            "mean_ms": 244.49940338000,
+            "median_ms": 246.02593748000,
+            "stddev_ms": 7.4421686088017155000,
+            "min_ms": 224.38298698000,
+            "max_ms": 251.43163398000,
+            "cv": 0.03043839169306735140,
+            "runs": 10,
+            "user_ms": 183.19622000,
+            "system_ms": 61.09372000
           },
           "js": {
-            "mean_ms": 215.6533596000,
-            "median_ms": 214.638546000,
-            "stddev_ms": 4.702887215883667000,
-            "min_ms": 210.33663000000002000,
-            "max_ms": 224.521573000,
-            "cv": 0.02180762323669205197,
+            "mean_ms": 229.279235000,
+            "median_ms": 228.18713950000002000,
+            "stddev_ms": 11.209072606932328000,
+            "min_ms": 215.44252700000002000,
+            "max_ms": 248.81106200000003000,
+            "cv": 0.04888830254049097817,
             "runs": 10,
-            "user_ms": 182.04049999999997000,
-            "system_ms": 35.8707000
+            "user_ms": 194.9039000,
+            "system_ms": 36.7326000
           },
           "python": {
-            "mean_ms": 292.7448971000,
-            "median_ms": 292.4135375000,
-            "stddev_ms": 6.003330453129127000,
-            "min_ms": 281.59905500000004000,
-            "max_ms": 303.414304000,
-            "cv": 0.02050703705717686103,
+            "mean_ms": 306.75731510000004000,
+            "median_ms": 307.8384015000,
+            "stddev_ms": 9.784056412396375000,
+            "min_ms": 297.21614100000004000,
+            "max_ms": 329.86466200000003000,
+            "cv": 0.03189510381914401403,
             "runs": 10,
-            "user_ms": 224.4687000,
-            "system_ms": 68.01959999999999000
+            "user_ms": 235.41689999999998000,
+            "system_ms": 71.13689999999999000
           },
           "ruby": {
-            "mean_ms": 370.03734039999997000,
-            "median_ms": 368.44153300000004000,
-            "stddev_ms": 6.029509890402481000,
-            "min_ms": 362.47183600000005000,
-            "max_ms": 384.133596000,
-            "cv": 0.01629432825315615496,
+            "mean_ms": 429.6185255000,
+            "median_ms": 425.4724825000,
+            "stddev_ms": 30.93134354902952000,
+            "min_ms": 383.29790300000005000,
+            "max_ms": 475.656273000,
+            "cv": 0.07199722943285768527,
             "runs": 10,
-            "user_ms": 334.3769000,
-            "system_ms": 35.4293000
+            "user_ms": 392.36299999999996000,
+            "system_ms": 37.0041000
           }
         }
       },
@@ -1156,7 +1456,7 @@
     {
       "id": "two_sum",
       "name": "Two Sum",
-      "reference_size": "5770178",
+      "reference_size": "5817623",
       "interpreter_engine": "vm+jit",
       "sizes": [
         "1000000",
@@ -1166,50 +1466,61 @@
       "logos_source": "## To native args () -> Seq of Text\n## To native parseInt (s: Text) -> Int\n\n## Main\nLet arguments be args().\nLet n be parseInt(item 2 of arguments).\nLet target be n.\nLet mutable arr be a new Seq of Int.\nLet mutable seed be 42.\nLet mutable i be 0.\nWhile i is less than n:\n    Set seed to (seed * 1103515245 + 12345) % 2147483648.\n    Push ((seed / 65536) % 32768) % n to arr.\n    Set i to i + 1.\nLet mutable seen be a new Map of Int to Int.\nLet mutable count be 0.\nSet i to 1.\nWhile i is at most n:\n    Let x be item i of arr.\n    Let complement be target - x.\n    If complement is at least 0:\n        If seen contains complement:\n            Set count to count + 1.\n    Set seen at x to 1.\n    Set i to i + 1.\nShow count.",
       "js_source": "const n = parseInt(process.argv[2]);\nconst arr = new Array(n);\nlet seed = 42;\nfor (let i = 0; i < n; i++) { seed=((Math.imul(seed,1103515245)+12345)>>>0)%2147483648; arr[i]=((seed>>16)&0x7fff)%n; }\nconst seen = new Set();\nlet count = 0;\nfor (const x of arr) { if (n-x>=0 && seen.has(n-x)) count++; seen.add(x); }\nconsole.log(count);",
       "scaling": {
-        "5770178": {
+        "5817623": {
           "logos_interp": {
-            "mean_ms": 218.42213686000003000,
-            "median_ms": 218.72883146000,
-            "stddev_ms": 4.351070164319485000,
-            "min_ms": 212.49925546000,
-            "max_ms": 224.19089746000,
-            "cv": 0.01992046331415734324,
+            "mean_ms": 135.42422922000003000,
+            "median_ms": 135.72664522000003000,
+            "stddev_ms": 4.994831790811065000,
+            "min_ms": 128.80784822000002000,
+            "max_ms": 142.36098822000,
+            "cv": 0.03688285190604139584,
             "runs": 10,
-            "user_ms": 206.90352000,
-            "system_ms": 11.356279999999998000
+            "user_ms": 124.87067999999998000,
+            "system_ms": 10.30606000
+          },
+          "logos_tiered": {
+            "mean_ms": 134.32837028000,
+            "median_ms": 133.48997508000,
+            "stddev_ms": 3.4897525625243574000,
+            "min_ms": 130.89621308000,
+            "max_ms": 143.63966408000,
+            "cv": 0.02597926674201557505,
+            "runs": 10,
+            "user_ms": 125.10614000,
+            "system_ms": 9.02012000
           },
           "js": {
-            "mean_ms": 239.23749360000005000,
-            "median_ms": 239.31384300000003000,
-            "stddev_ms": 3.3127319238762335000,
-            "min_ms": 234.926929000,
-            "max_ms": 244.756557000,
-            "cv": 0.01384704326243715841,
+            "mean_ms": 247.08888540000004000,
+            "median_ms": 246.073645000,
+            "stddev_ms": 5.785585344918877000,
+            "min_ms": 239.481353000,
+            "max_ms": 256.723329000,
+            "cv": 0.02341499633038077585,
             "runs": 10,
-            "user_ms": 223.1937000,
-            "system_ms": 19.000399999999997000
+            "user_ms": 229.85919999999993000,
+            "system_ms": 20.334899999999996000
           },
           "python": {
-            "mean_ms": 1206.1061453000002000,
-            "median_ms": 1207.0556725000001000,
-            "stddev_ms": 37.239768603176786000,
-            "min_ms": 1145.183649000,
-            "max_ms": 1269.231303000,
-            "cv": 0.03087602923531574499,
+            "mean_ms": 1303.0320832000002000,
+            "median_ms": 1288.0063355000,
+            "stddev_ms": 46.830397374153926000,
+            "min_ms": 1252.123428000,
+            "max_ms": 1407.5681310000001000,
+            "cv": 0.03593955818735278767,
             "runs": 10,
-            "user_ms": 1153.5467000,
-            "system_ms": 52.298000
+            "user_ms": 1246.6928000,
+            "system_ms": 56.1000
           },
           "ruby": {
-            "mean_ms": 600.8330515000,
-            "median_ms": 600.0498795000,
-            "stddev_ms": 10.454607080996362000,
-            "min_ms": 588.254783000,
-            "max_ms": 617.4478880000001000,
-            "cv": 0.01740018638271660060,
+            "mean_ms": 613.3306987000,
+            "median_ms": 615.089403000,
+            "stddev_ms": 4.5819015136237635000,
+            "min_ms": 605.656017000,
+            "max_ms": 619.969396000,
+            "cv": 0.00747052368866493116,
             "runs": 10,
-            "user_ms": 582.2604000,
-            "system_ms": 18.295099999999998000
+            "user_ms": 594.3119000,
+            "system_ms": 18.804300000000003000
           }
         }
       },
@@ -1219,7 +1530,7 @@
     {
       "id": "histogram",
       "name": "Histogram",
-      "reference_size": "184400072",
+      "reference_size": "181343504",
       "interpreter_engine": "vm+jit",
       "sizes": [
         "5000000",
@@ -1229,39 +1540,50 @@
       "logos_source": "## To native args () -> Seq of Text\n## To native parseInt (s: Text) -> Int\n\n## Main\nLet arguments be args().\nLet n be parseInt(item 2 of arguments).\nLet mutable counts be a new Seq of Int.\nLet mutable idx be 0.\nWhile idx is less than 1000:\n    Push 0 to counts.\n    Set idx to idx + 1.\nLet mutable seed be 42.\nLet mutable i be 0.\nWhile i is less than n:\n    Set seed to (seed * 1103515245 + 12345) % 2147483648.\n    Let v be ((seed / 65536) % 32768) % 1000.\n    Set item (v + 1) of counts to (item (v + 1) of counts) + 1.\n    Set i to i + 1.\nLet mutable maxFreq be 0.\nLet mutable maxIndex be 0.\nLet mutable distinct be 0.\nSet i to 0.\nWhile i is less than 1000:\n    If item (i + 1) of counts is greater than 0:\n        Set distinct to distinct + 1.\n    If item (i + 1) of counts is greater than maxFreq:\n        Set maxFreq to item (i + 1) of counts.\n        Set maxIndex to i.\n    Set i to i + 1.\nShow \"\" + maxFreq + \" \" + maxIndex + \" \" + distinct.",
       "js_source": "const n = parseInt(process.argv[2]);\nconst counts = new Array(1000).fill(0);\nlet seed = 42;\nfor (let i = 0; i < n; i++) {\n    seed = ((Math.imul(seed, 1103515245) + 12345) >>> 0) % 2147483648;\n    counts[((seed >> 16) & 0x7fff) % 1000]++;\n}\nlet maxFreq = 0, maxIdx = 0, distinct = 0;\nfor (let i = 0; i < 1000; i++) {\n    if (counts[i] > 0) distinct++;\n    if (counts[i] > maxFreq) { maxFreq = counts[i]; maxIdx = i; }\n}\nconsole.log(`${maxFreq} ${maxIdx} ${distinct}`);",
       "scaling": {
-        "184400072": {
+        "181343504": {
           "logos_interp": {
-            "mean_ms": 2177.07313914000,
-            "median_ms": 1887.9269920400001000,
-            "stddev_ms": 487.3426626572002000,
-            "min_ms": 1870.07626554000,
-            "max_ms": 3193.37189654000,
-            "cv": 0.22385222337992425560,
+            "mean_ms": 408.47572832000,
+            "median_ms": 406.96521922000006000,
+            "stddev_ms": 4.55014454271686000,
+            "min_ms": 404.09966572000006000,
+            "max_ms": 416.22639772000003000,
+            "cv": 0.01113932659213542179,
             "runs": 10,
-            "user_ms": 2175.37974000,
-            "system_ms": 1.311974000
+            "user_ms": 406.8230599999999000,
+            "system_ms": 1.399284000
+          },
+          "logos_tiered": {
+            "mean_ms": 412.6064991800001000,
+            "median_ms": 411.19521018000005000,
+            "stddev_ms": 5.545926932801986000,
+            "min_ms": 406.55050168000006000,
+            "max_ms": 421.86456868000005000,
+            "cv": 0.01344120110522681916,
+            "runs": 10,
+            "user_ms": 410.59181999999994000,
+            "system_ms": 1.7146079999999998000
           },
           "js": {
-            "mean_ms": 246.91725469999998000,
-            "median_ms": 247.3061625000,
-            "stddev_ms": 2.4400527686032633000,
-            "min_ms": 242.56661000000002000,
-            "max_ms": 250.271456000,
-            "cv": 0.00988206665252245531,
+            "mean_ms": 245.14468690000002000,
+            "median_ms": 243.22941950000002000,
+            "stddev_ms": 6.441937794367008000,
+            "min_ms": 239.23727200000003000,
+            "max_ms": 257.094584000,
+            "cv": 0.02627810488503394716,
             "runs": 10,
-            "user_ms": 242.40319999999999000,
-            "system_ms": 5.711600000000001000
+            "user_ms": 240.1083000,
+            "system_ms": 6.386000
           },
           "ruby": {
-            "mean_ms": 6997.6012858000,
-            "median_ms": 7001.1328205000005000,
-            "stddev_ms": 13.99078273732919000,
-            "min_ms": 6964.276063000,
-            "max_ms": 7014.932579000,
-            "cv": 0.00199936837866430329,
+            "mean_ms": 6888.8613405000,
+            "median_ms": 6886.3128805000,
+            "stddev_ms": 25.998373818479702000,
+            "min_ms": 6851.775985000,
+            "max_ms": 6919.813203000,
+            "cv": 0.00377397258174348965,
             "runs": 10,
-            "user_ms": 6987.8507999999995000,
-            "system_ms": 9.399999999999999000
+            "user_ms": 6879.506799999999000,
+            "system_ms": 9.000000000000003000
           }
         }
       },
@@ -1271,7 +1593,7 @@
     {
       "id": "knapsack",
       "name": "0/1 Knapsack",
-      "reference_size": "6040",
+      "reference_size": "5985",
       "interpreter_engine": "vm+jit",
       "sizes": [
         "2000",
@@ -1281,39 +1603,50 @@
       "logos_source": "## To native args () -> Seq of Text\n## To native parseInt (s: Text) -> Int\n\n## Main\nLet arguments be args().\nLet n be parseInt(item 2 of arguments).\nLet capacity be n * 5.\nLet mutable weights be a new Seq of Int.\nLet mutable vals be a new Seq of Int.\nLet mutable i be 0.\nWhile i is less than n:\n    Push (i * 17 + 3) % 50 + 1 to weights.\n    Push (i * 31 + 7) % 100 + 1 to vals.\n    Set i to i + 1.\nLet cols be capacity + 1.\nLet mutable prev be a new Seq of Int.\nSet i to 0.\nWhile i is less than cols:\n    Push 0 to prev.\n    Set i to i + 1.\nSet i to 0.\nWhile i is less than n:\n    Let mutable curr be a new Seq of Int.\n    Let wi be item (i + 1) of weights.\n    Let vi be item (i + 1) of vals.\n    Let mutable w be 0.\n    While w is at most capacity:\n        Let mutable best be item (w + 1) of prev.\n        If w is at least wi:\n            Let take be item (w - wi + 1) of prev + vi.\n            If take is greater than best:\n                Set best to take.\n        Push best to curr.\n        Set w to w + 1.\n    Set prev to curr.\n    Set i to i + 1.\nShow item (capacity + 1) of prev.",
       "js_source": "const n = parseInt(process.argv[2]);\nconst capacity = n * 5;\nlet prev = new Array(capacity + 1).fill(0);\nlet curr = new Array(capacity + 1).fill(0);\nfor (let i = 0; i < n; i++) {\n    const w = (i * 17 + 3) % 50 + 1, v = (i * 31 + 7) % 100 + 1;\n    for (let j = 0; j <= capacity; j++) {\n        curr[j] = prev[j];\n        if (j >= w && prev[j - w] + v > curr[j]) curr[j] = prev[j - w] + v;\n    }\n    [prev, curr] = [curr, prev];\n}\nconsole.log(prev[capacity]);",
       "scaling": {
-        "6040": {
+        "5985": {
           "logos_interp": {
-            "mean_ms": 1582.4448954800001000,
-            "median_ms": 1582.7011046800001000,
-            "stddev_ms": 8.69102307894048000,
-            "min_ms": 1568.2226996800002000,
-            "max_ms": 1599.6923556800002000,
-            "cv": 0.00549214895492727280,
+            "mean_ms": 288.13593564000,
+            "median_ms": 288.27675314000,
+            "stddev_ms": 3.637611142596366000,
+            "min_ms": 281.50923214000,
+            "max_ms": 292.52618914000006000,
+            "cv": 0.01262463543298269729,
             "runs": 10,
-            "user_ms": 1580.4686000000001000,
-            "system_ms": 1.6929399999999998000
+            "user_ms": 285.69042000,
+            "system_ms": 2.23482000
+          },
+          "logos_tiered": {
+            "mean_ms": 283.88033102000004000,
+            "median_ms": 283.12204212000003000,
+            "stddev_ms": 3.96400395371547000,
+            "min_ms": 280.47825862000003000,
+            "max_ms": 293.40823862000004000,
+            "cv": 0.01396364425627007091,
+            "runs": 10,
+            "user_ms": 282.23888000,
+            "system_ms": 1.4710600000000002000
           },
           "js": {
-            "mean_ms": 250.7273506000,
-            "median_ms": 251.22784900000006000,
-            "stddev_ms": 5.948133531441819000,
-            "min_ms": 242.85658200000002000,
-            "max_ms": 263.602606000,
-            "cv": 0.02372351288045644510,
+            "mean_ms": 246.25705130000003000,
+            "median_ms": 245.904946000,
+            "stddev_ms": 4.384291159080314000,
+            "min_ms": 239.90465200000002000,
+            "max_ms": 253.285994000,
+            "cv": 0.01780371825267735375,
             "runs": 10,
-            "user_ms": 246.4254000,
-            "system_ms": 8.2183000
+            "user_ms": 244.43220000000002000,
+            "system_ms": 5.403099999999999000
           },
           "ruby": {
-            "mean_ms": 7154.8610568000,
-            "median_ms": 7157.0856745000,
-            "stddev_ms": 19.883921791111654000,
-            "min_ms": 7128.153096000,
-            "max_ms": 7182.422524000,
-            "cv": 0.00277907867577860495,
+            "mean_ms": 7025.847476199999000,
+            "median_ms": 7027.529937000001000,
+            "stddev_ms": 22.53285474097408000,
+            "min_ms": 6996.97189000,
+            "max_ms": 7067.920446000,
+            "cv": 0.00320713690658727528,
             "runs": 10,
-            "user_ms": 7146.5806000,
-            "system_ms": 7.899899999999998000
+            "user_ms": 7016.3084000,
+            "system_ms": 9.0996000
           }
         }
       },
@@ -1323,7 +1656,7 @@
     {
       "id": "coins",
       "name": "Coin Change",
-      "reference_size": "14848272",
+      "reference_size": "13974310",
       "interpreter_engine": "vm+jit",
       "sizes": [
         "50000",
@@ -1333,50 +1666,61 @@
       "logos_source": "## To native args () -> Seq of Text\n## To native parseInt (s: Text) -> Int\n\n## Main\nLet arguments be args().\nLet n be parseInt(item 2 of arguments).\nLet mutable coinList be a new Seq of Int.\nPush 1 to coinList.\nPush 5 to coinList.\nPush 10 to coinList.\nPush 25 to coinList.\nPush 50 to coinList.\nPush 100 to coinList.\nLet mutable dp be a new Seq of Int.\nPush 1 to dp.\nLet mutable i be 1.\nWhile i is at most n:\n    Push 0 to dp.\n    Set i to i + 1.\nLet mutable c be 1.\nWhile c is at most 6:\n    Let coin be item c of coinList.\n    Let mutable j be coin.\n    While j is at most n:\n        Set item (j + 1) of dp to (item (j + 1) of dp + item (j - coin + 1) of dp) % 1000000007.\n        Set j to j + 1.\n    Set c to c + 1.\nShow item (n + 1) of dp.",
       "js_source": "const n = parseInt(process.argv[2]);\nconst coins = [1, 5, 10, 25, 50, 100];\nconst dp = new Array(n + 1).fill(0);\ndp[0] = 1;\nfor (const c of coins) for (let j = c; j <= n; j++) dp[j] = (dp[j] + dp[j - c]) % 1000000007;\nconsole.log(dp[n]);",
       "scaling": {
-        "14848272": {
+        "13974310": {
           "logos_interp": {
-            "mean_ms": 828.55486794000,
-            "median_ms": 827.46359894000,
-            "stddev_ms": 9.65590582783172000,
-            "min_ms": 812.44332894000,
-            "max_ms": 846.41852294000,
-            "cv": 0.01165391237376805170,
+            "mean_ms": 275.1274132000,
+            "median_ms": 276.6639266000,
+            "stddev_ms": 5.873816938076651000,
+            "min_ms": 262.7397241000,
+            "max_ms": 281.5610001000,
+            "cv": 0.02134944268096891698,
             "runs": 10,
-            "user_ms": 648.04408000,
-            "system_ms": 180.23883999999998000
+            "user_ms": 188.77134000,
+            "system_ms": 86.19072000
+          },
+          "logos_tiered": {
+            "mean_ms": 279.32711554000,
+            "median_ms": 278.59506104000004000,
+            "stddev_ms": 7.937323105726073000,
+            "min_ms": 265.53991554000,
+            "max_ms": 292.25453354000,
+            "cv": 0.02841587036898119611,
+            "runs": 10,
+            "user_ms": 193.81105999999998000,
+            "system_ms": 85.31823999999999000
           },
           "js": {
-            "mean_ms": 247.97600560000005000,
-            "median_ms": 245.14642550000001000,
-            "stddev_ms": 9.348398412797852000,
-            "min_ms": 239.57955900000003000,
-            "max_ms": 266.879517000,
-            "cv": 0.03769880231024194751,
+            "mean_ms": 242.15193350000003000,
+            "median_ms": 241.667752000,
+            "stddev_ms": 7.809254704783563000,
+            "min_ms": 226.51831200000003000,
+            "max_ms": 254.423263000,
+            "cv": 0.03224940058049778913,
             "runs": 10,
-            "user_ms": 215.2345000,
-            "system_ms": 36.386299999999996000
+            "user_ms": 207.9334000,
+            "system_ms": 37.9411000
           },
           "python": {
-            "mean_ms": 5721.2252704000,
-            "median_ms": 5650.8627975000,
-            "stddev_ms": 275.247013635585000,
-            "min_ms": 5492.986703000,
-            "max_ms": 6339.801388000,
-            "cv": 0.04810980176914814600,
+            "mean_ms": 5494.1842665000,
+            "median_ms": 5288.4648665000,
+            "stddev_ms": 523.4242276986886000,
+            "min_ms": 5202.976404000,
+            "max_ms": 6921.434154000,
+            "cv": 0.09526877918714752666,
             "runs": 10,
-            "user_ms": 5580.6313000,
-            "system_ms": 140.0882000
+            "user_ms": 5366.2534000,
+            "system_ms": 127.5963000
           },
           "ruby": {
-            "mean_ms": 2586.4762811000,
-            "median_ms": 2588.928965000,
-            "stddev_ms": 7.869434515911277000,
-            "min_ms": 2572.370395000,
-            "max_ms": 2594.898755000,
-            "cv": 0.00304253109661786374,
+            "mean_ms": 2470.6625847000,
+            "median_ms": 2468.476303000,
+            "stddev_ms": 20.446346913671004000,
+            "min_ms": 2443.171697000,
+            "max_ms": 2506.998117000,
+            "cv": 0.00827565327628649056,
             "runs": 10,
-            "user_ms": 2548.3263999999997000,
-            "system_ms": 37.59139999999999000
+            "user_ms": 2436.4811000,
+            "system_ms": 33.799800000000005000
           }
         }
       },
@@ -1398,48 +1742,59 @@
       "scaling": {
         "10": {
           "logos_interp": {
-            "mean_ms": 5007.574159000001000,
-            "median_ms": 4961.9746736000,
-            "stddev_ms": 187.7878086211354000,
-            "min_ms": 4784.590174100001000,
-            "max_ms": 5506.2461771000,
-            "cv": 0.03750075438895469436,
+            "mean_ms": 272.3482583400001000,
+            "median_ms": 273.96001814000004000,
+            "stddev_ms": 6.78745845777334000,
+            "min_ms": 261.99598514000005000,
+            "max_ms": 283.18448314000005000,
+            "cv": 0.02492198224120773904,
             "runs": 10,
-            "user_ms": 5005.45372000,
-            "system_ms": 1.7589799999999996000
+            "user_ms": 270.76957999999995000,
+            "system_ms": 1.3674159999999998000
+          },
+          "logos_tiered": {
+            "mean_ms": 271.04202482000,
+            "median_ms": 271.87117612000,
+            "stddev_ms": 5.948288593942902000,
+            "min_ms": 263.17846362000,
+            "max_ms": 279.01524062000,
+            "cv": 0.02194600117045754144,
+            "runs": 10,
+            "user_ms": 269.08998000,
+            "system_ms": 1.7519399999999998000
           },
           "js": {
-            "mean_ms": 203.2432844000,
-            "median_ms": 203.871603000,
-            "stddev_ms": 5.5899751705941565000,
-            "min_ms": 196.289137000,
-            "max_ms": 209.680479000,
-            "cv": 0.02750386162621054602,
+            "mean_ms": 206.6713635000,
+            "median_ms": 206.10870400000003000,
+            "stddev_ms": 3.9043418358003595000,
+            "min_ms": 201.815566000,
+            "max_ms": 213.112411000,
+            "cv": 0.01889154728395818368,
             "runs": 10,
-            "user_ms": 199.59539999999998000,
-            "system_ms": 6.2929000
+            "user_ms": 202.1351000,
+            "system_ms": 7.316399999999999000
           },
           "python": {
-            "mean_ms": 4439.5237212000,
-            "median_ms": 4379.5678005000,
-            "stddev_ms": 170.84311863342386000,
-            "min_ms": 4213.279818000,
-            "max_ms": 4751.474368000,
-            "cv": 0.03848230786955792874,
+            "mean_ms": 4601.9330244000,
+            "median_ms": 4525.5049255000,
+            "stddev_ms": 222.20754921001787000,
+            "min_ms": 4389.63607000,
+            "max_ms": 4984.539535000,
+            "cv": 0.04828569821243526005,
             "runs": 10,
-            "user_ms": 4437.0387000000004000,
-            "system_ms": 2.1998000
+            "user_ms": 4598.5756000,
+            "system_ms": 2.6001000
           },
           "ruby": {
-            "mean_ms": 5495.9451201000,
-            "median_ms": 5485.893944000,
-            "stddev_ms": 49.732108019732664000,
-            "min_ms": 5445.089857000,
-            "max_ms": 5617.4235370000005000,
-            "cv": 0.00904887274762812346,
+            "mean_ms": 5520.3416628000,
+            "median_ms": 5525.5118535000,
+            "stddev_ms": 26.582168496587826000,
+            "min_ms": 5480.489738000,
+            "max_ms": 5563.634238000,
+            "cv": 0.00481531218904754382,
             "runs": 10,
-            "user_ms": 5481.9289000,
-            "system_ms": 13.600300000000001000
+            "user_ms": 5506.255299999999000,
+            "system_ms": 13.699800000000002000
           }
         }
       },
@@ -1449,7 +1804,7 @@
     {
       "id": "strings",
       "name": "String Assembly",
-      "reference_size": "1960222",
+      "reference_size": "1956426",
       "interpreter_engine": "vm+jit",
       "sizes": [
         "100000",
@@ -1459,50 +1814,61 @@
       "logos_source": "## To native args () -> Seq of Text\n## To native parseInt (s: Text) -> Int\n\n## Main\nLet arguments be args().\nLet n be parseInt(item 2 of arguments).\nLet mutable result be \"\" with capacity n * 6.\nLet mutable i be 0.\nWhile i is less than n:\n    Set result to result + i + \" \".\n    Set i to i + 1.\nLet mutable count be 0.\nSet i to 1.\nWhile i is at most length of result:\n    If item i of result equals \" \":\n        Set count to count + 1.\n    Set i to i + 1.\nShow count.",
       "js_source": "const n = parseInt(process.argv[2]);\nconst parts = [];\nfor (let i = 0; i < n; i++)\n    parts.push(String(i) + ' ');\nconst result = parts.join('');\nlet spaces = 0;\nfor (let i = 0; i < result.length; i++)\n    if (result[i] === ' ') spaces++;\nconsole.log(spaces);",
       "scaling": {
-        "1960222": {
+        "1956426": {
           "logos_interp": {
-            "mean_ms": 931.3309292600002000,
-            "median_ms": 930.37068556000,
-            "stddev_ms": 4.586895705854053000,
-            "min_ms": 926.28920406000,
-            "max_ms": 940.60727206000,
-            "cv": 0.00492509757997474026,
+            "mean_ms": 103.10994710000002000,
+            "median_ms": 101.897782000,
+            "stddev_ms": 3.715985288362952000,
+            "min_ms": 99.21014500000001000,
+            "max_ms": 109.84968300000002000,
+            "cv": 0.03603905726727844746,
             "runs": 10,
-            "user_ms": 925.84912000,
-            "system_ms": 5.22118000
+            "user_ms": 98.17411999999999000,
+            "system_ms": 4.7715399999999995000
+          },
+          "logos_tiered": {
+            "mean_ms": 103.00131490000002000,
+            "median_ms": 102.56623120000001000,
+            "stddev_ms": 2.7970058402850893000,
+            "min_ms": 99.53783120000001000,
+            "max_ms": 107.4031482000,
+            "cv": 0.02715504984572860784,
+            "runs": 10,
+            "user_ms": 98.18288000,
+            "system_ms": 4.62992000
           },
           "js": {
-            "mean_ms": 248.98095369999998000,
-            "median_ms": 244.56848000000003000,
-            "stddev_ms": 10.797637769184226000,
-            "min_ms": 237.20068000000002000,
-            "max_ms": 267.5655000,
-            "cv": 0.04336732432230307931,
+            "mean_ms": 257.0585368000,
+            "median_ms": 257.415045000,
+            "stddev_ms": 10.568418640471082000,
+            "min_ms": 246.26354900000003000,
+            "max_ms": 283.768057000,
+            "cv": 0.04111288725141098679,
             "runs": 10,
-            "user_ms": 285.31209999999996000,
-            "system_ms": 66.0788000
+            "user_ms": 295.00760000000004000,
+            "system_ms": 68.3236000
           },
           "python": {
-            "mean_ms": 207.5703663000,
-            "median_ms": 207.55770500000004000,
-            "stddev_ms": 6.245892358216218000,
-            "min_ms": 198.0503000,
-            "max_ms": 217.514386000,
-            "cv": 0.03009048193897328011,
+            "mean_ms": 208.9673687000,
+            "median_ms": 209.2723955000,
+            "stddev_ms": 11.05465877686493000,
+            "min_ms": 196.46512600000002000,
+            "max_ms": 227.898385000,
+            "cv": 0.05290136371834848107,
             "runs": 10,
-            "user_ms": 172.83819999999997000,
-            "system_ms": 34.509399999999996000
+            "user_ms": 177.69519999999997000,
+            "system_ms": 30.999000000000006000
           },
           "ruby": {
-            "mean_ms": 180.80264030000007000,
-            "median_ms": 180.15584000,
-            "stddev_ms": 5.939476079471373000,
-            "min_ms": 173.90339700000002000,
-            "max_ms": 190.767025000,
-            "cv": 0.03285060477886931997,
+            "mean_ms": 177.0516013000,
+            "median_ms": 176.9420585000,
+            "stddev_ms": 2.461435408049043000,
+            "min_ms": 173.280809000,
+            "max_ms": 182.74065000,
+            "cv": 0.01390236174073531522,
             "runs": 10,
-            "user_ms": 166.575000,
-            "system_ms": 13.9878000
+            "user_ms": 164.2602000,
+            "system_ms": 12.6027000
           }
         }
       },
@@ -1524,48 +1890,59 @@
       "scaling": {
         "19": {
           "logos_interp": {
-            "mean_ms": 819.8372553000001000,
-            "median_ms": 802.4757166000,
-            "stddev_ms": 55.77089804436253000,
-            "min_ms": 791.3261996000001000,
-            "max_ms": 977.4191646000001000,
-            "cv": 0.06802679151724385316,
+            "mean_ms": 186.90992632000003000,
+            "median_ms": 185.66964751999998000,
+            "stddev_ms": 5.207044894510853000,
+            "min_ms": 178.91844702000,
+            "max_ms": 197.40021502000,
+            "cv": 0.02785857871237992452,
             "runs": 10,
-            "user_ms": 808.09496000,
-            "system_ms": 11.476260000000002000
+            "user_ms": 175.18004000,
+            "system_ms": 11.588739999999998000
+          },
+          "logos_tiered": {
+            "mean_ms": 395.7688487000,
+            "median_ms": 395.4825025000,
+            "stddev_ms": 3.3520696917353435000,
+            "min_ms": 391.43734000,
+            "max_ms": 401.88526000,
+            "cv": 0.00846976638698583732,
+            "runs": 10,
+            "user_ms": 384.53002000,
+            "system_ms": 10.988139999999999000
           },
           "js": {
-            "mean_ms": 219.30467890000002000,
-            "median_ms": 218.64265300000002000,
-            "stddev_ms": 6.918341822308862000,
-            "min_ms": 210.563197000,
-            "max_ms": 233.88123800000002000,
-            "cv": 0.03154671326216223911,
+            "mean_ms": 220.8859828000,
+            "median_ms": 219.5808555000,
+            "stddev_ms": 5.2246105801823425000,
+            "min_ms": 216.88493800000003000,
+            "max_ms": 233.730235000,
+            "cv": 0.02365297477890635303,
             "runs": 10,
-            "user_ms": 218.33159999999996000,
-            "system_ms": 4.9118000
+            "user_ms": 217.061000,
+            "system_ms": 8.0094000
           },
           "python": {
-            "mean_ms": 2294.0473239000,
-            "median_ms": 2294.3506659999997000,
-            "stddev_ms": 4.57468751399773000,
-            "min_ms": 2287.800063000,
-            "max_ms": 2300.360922000,
-            "cv": 0.00199415568560308635,
+            "mean_ms": 2314.0906461000,
+            "median_ms": 2311.8779849999997000,
+            "stddev_ms": 12.239811207529532000,
+            "min_ms": 2294.483773000,
+            "max_ms": 2338.945709000,
+            "cv": 0.00528925313628384403,
             "runs": 10,
-            "user_ms": 2291.3632000,
-            "system_ms": 2.4001000
+            "user_ms": 2310.6465000,
+            "system_ms": 3.0998999999999996000
           },
           "ruby": {
-            "mean_ms": 1795.3802335000,
-            "median_ms": 1792.681357000,
-            "stddev_ms": 16.090053468150612000,
-            "min_ms": 1773.197692000,
-            "max_ms": 1835.872922000,
-            "cv": 0.00896191969139812410,
+            "mean_ms": 1810.8674172000,
+            "median_ms": 1812.8407895000,
+            "stddev_ms": 14.032651057316351000,
+            "min_ms": 1787.4981920000002000,
+            "max_ms": 1828.749777000,
+            "cv": 0.00774913222471798693,
             "runs": 10,
-            "user_ms": 1786.1998999999997000,
-            "system_ms": 8.900599999999998000
+            "user_ms": 1800.2946999999998000,
+            "system_ms": 10.2993000
           }
         }
       },
@@ -1575,7 +1952,7 @@
     {
       "id": "loop_sum",
       "name": "Loop Sum",
-      "reference_size": "103922713",
+      "reference_size": "105821541",
       "interpreter_engine": "vm+jit",
       "sizes": [
         "100000000",
@@ -1585,50 +1962,61 @@
       "logos_source": "## To native args () -> Seq of Text\n## To native parseInt (s: Text) -> Int\n\n## Main\nLet arguments be args().\nLet n be parseInt(item 2 of arguments).\nLet mutable sum be 0.\nLet mutable i be 1.\nWhile i is at most n:\n    Set sum to (sum + i) % 1000000007.\n    Set i to i + 1.\nShow sum.",
       "js_source": "const n = parseInt(process.argv[2]);\nlet sum = 0;\nfor (let i = 1; i <= n; i++) {\n    sum = (sum + i) % 1000000007;\n}\nconsole.log(sum);",
       "scaling": {
-        "103922713": {
+        "105821541": {
           "logos_interp": {
-            "mean_ms": 208.89835376000004000,
-            "median_ms": 205.82135386000003000,
-            "stddev_ms": 5.7606244348378174000,
-            "min_ms": 203.85517786000001000,
-            "max_ms": 218.36652486000002000,
-            "cv": 0.02757620790758411717,
+            "mean_ms": 49.38525642000,
+            "median_ms": 48.93503372000001000,
+            "stddev_ms": 3.750082254161273000,
+            "min_ms": 43.87207422000,
+            "max_ms": 57.463369220000005000,
+            "cv": 0.07593525934680715382,
             "runs": 10,
-            "user_ms": 207.36813999999998000,
-            "system_ms": 1.319518000
+            "user_ms": 48.293459999999996000,
+            "system_ms": 0.964522000
+          },
+          "logos_tiered": {
+            "mean_ms": 189.78257218000,
+            "median_ms": 188.53872178000003000,
+            "stddev_ms": 6.039498822911157000,
+            "min_ms": 181.80207628000003000,
+            "max_ms": 200.85129428000004000,
+            "cv": 0.03182325307079815235,
+            "runs": 10,
+            "user_ms": 187.87184000000004000,
+            "system_ms": 1.6541399999999997000
           },
           "js": {
-            "mean_ms": 247.1459141000,
-            "median_ms": 249.08945000000002000,
-            "stddev_ms": 4.165055109969654000,
-            "min_ms": 240.031287000,
-            "max_ms": 252.024246000,
-            "cv": 0.01685261569116773838,
+            "mean_ms": 249.9584504000,
+            "median_ms": 249.78023500000002000,
+            "stddev_ms": 3.8248053541677417000,
+            "min_ms": 245.06284600000003000,
+            "max_ms": 255.848356000,
+            "cv": 0.01530176454545559824,
             "runs": 10,
-            "user_ms": 242.03039999999998000,
-            "system_ms": 6.2104000
+            "user_ms": 245.9577000,
+            "system_ms": 5.0103000000000005000
           },
           "python": {
-            "mean_ms": 4092.1320523000,
-            "median_ms": 4045.205353000,
-            "stddev_ms": 142.01763589207228000,
-            "min_ms": 3909.429957000,
-            "max_ms": 4374.625577000,
-            "cv": 0.03470504716783288347,
+            "mean_ms": 4166.5821334000,
+            "median_ms": 4128.8921145000,
+            "stddev_ms": 122.79630638467968000,
+            "min_ms": 4030.210816000,
+            "max_ms": 4383.159123000,
+            "cv": 0.02947171145393355322,
             "runs": 10,
-            "user_ms": 4089.7632999999995000,
-            "system_ms": 2.0998999999999996000
+            "user_ms": 4162.995499999999000,
+            "system_ms": 3.2001000
           },
           "ruby": {
-            "mean_ms": 1963.3833117000,
-            "median_ms": 1964.3700915000,
-            "stddev_ms": 9.162379671098281000,
-            "min_ms": 1950.691597000,
-            "max_ms": 1977.725624000,
-            "cv": 0.00466662806824257525,
+            "mean_ms": 2016.6227498000002000,
+            "median_ms": 2015.6058855000,
+            "stddev_ms": 14.362253113197327000,
+            "min_ms": 1993.2705890000002000,
+            "max_ms": 2042.413132000,
+            "cv": 0.00712193349728981896,
             "runs": 10,
-            "user_ms": 1953.6003000000002000,
-            "system_ms": 9.498999999999999000
+            "user_ms": 2006.9955000,
+            "system_ms": 9.3005000
           }
         }
       },
@@ -1638,7 +2026,7 @@
     {
       "id": "fib_iterative",
       "name": "Iterative Fibonacci",
-      "reference_size": "105682072",
+      "reference_size": "103622293",
       "interpreter_engine": "vm+jit",
       "sizes": [
         "100000000",
@@ -1648,50 +2036,61 @@
       "logos_source": "## To native args () -> Seq of Text\n## To native parseInt (s: Text) -> Int\n\n## Main\nLet arguments be args().\nLet n be parseInt(item 2 of arguments).\nLet mutable a be 0.\nLet mutable b be 1.\nLet mutable i be 0.\nWhile i is less than n:\n    Let temp be b.\n    Set b to (a + b) % 1000000007.\n    Set a to temp.\n    Set i to i + 1.\nShow a.",
       "js_source": "const n = parseInt(process.argv[2]);\nlet a = 0, b = 1;\nfor (let i = 0; i < n; i++) {\n    const temp = b;\n    b = (a + b) % 1000000007;\n    a = temp;\n}\nconsole.log(a);",
       "scaling": {
-        "105682072": {
+        "103622293": {
           "logos_interp": {
-            "mean_ms": 466.62821260000004000,
-            "median_ms": 464.7229346000,
-            "stddev_ms": 4.688503923571799000,
-            "min_ms": 462.07856760000005000,
-            "max_ms": 476.0761706000,
-            "cv": 0.01004762206178658002,
+            "mean_ms": 185.32585084000,
+            "median_ms": 186.94542264000003000,
+            "stddev_ms": 6.630059612265777000,
+            "min_ms": 177.06352614000,
+            "max_ms": 196.46682114000003000,
+            "cv": 0.03577514729982165611,
             "runs": 10,
-            "user_ms": 465.4466599999999000,
-            "system_ms": 0.9842739999999998000
+            "user_ms": 183.97174000,
+            "system_ms": 1.199102000
+          },
+          "logos_tiered": {
+            "mean_ms": 183.43646274000,
+            "median_ms": 180.41079344000,
+            "stddev_ms": 7.605995355034692000,
+            "min_ms": 177.20444644000002000,
+            "max_ms": 202.00270044000002000,
+            "cv": 0.04146392293780387579,
+            "runs": 10,
+            "user_ms": 182.15888000,
+            "system_ms": 1.107314000
           },
           "js": {
-            "mean_ms": 248.02599630000005000,
-            "median_ms": 247.00718850000003000,
-            "stddev_ms": 4.49176631630577000,
-            "min_ms": 243.079606000,
-            "max_ms": 255.64026900000003000,
-            "cv": 0.01811006258744244824,
+            "mean_ms": 245.4780436000,
+            "median_ms": 245.14991000000003000,
+            "stddev_ms": 2.970092829064444000,
+            "min_ms": 240.41909800000003000,
+            "max_ms": 249.86653700000003000,
+            "cv": 0.01209921989562590761,
             "runs": 10,
-            "user_ms": 243.61850000000002000,
-            "system_ms": 5.4101999999999996000
+            "user_ms": 241.4529000,
+            "system_ms": 5.1138000
           },
           "python": {
-            "mean_ms": 5746.5352382000,
-            "median_ms": 5712.7204000,
-            "stddev_ms": 218.89617923767996000,
-            "min_ms": 5498.545382000,
-            "max_ms": 6166.373402000,
-            "cv": 0.03809185364122909242,
+            "mean_ms": 5604.207615999999000,
+            "median_ms": 5597.9621875000,
+            "stddev_ms": 122.31499713132868000,
+            "min_ms": 5414.828096000,
+            "max_ms": 5800.054223000,
+            "cv": 0.02182556491699552014,
             "runs": 10,
-            "user_ms": 5743.242999999999000,
-            "system_ms": 2.9998000
+            "user_ms": 5601.2525000,
+            "system_ms": 2.5998000
           },
           "ruby": {
-            "mean_ms": 3794.479413000,
-            "median_ms": 3796.5954140000004000,
-            "stddev_ms": 17.170513799371706000,
-            "min_ms": 3767.2983330000003000,
-            "max_ms": 3820.047291000,
-            "cv": 0.00452513030919208890,
+            "mean_ms": 3746.75975000,
+            "median_ms": 3747.1496675000,
+            "stddev_ms": 15.42984214637903000,
+            "min_ms": 3721.434104000,
+            "max_ms": 3768.170951000,
+            "cv": 0.00411818295698810952,
             "runs": 10,
-            "user_ms": 3779.0405000,
-            "system_ms": 15.099499999999998000
+            "user_ms": 3730.6091000,
+            "system_ms": 15.7994000
           }
         }
       },
@@ -1701,7 +2100,7 @@
     {
       "id": "graph_bfs",
       "name": "Graph BFS",
-      "reference_size": "2633876",
+      "reference_size": "2574029",
       "interpreter_engine": "vm+jit",
       "sizes": [
         "50000",
@@ -1711,50 +2110,61 @@
       "logos_source": "## To native args () -> Seq of Text\n## To native parseInt (s: Text) -> Int\n\n## Main\nLet arguments be args().\nLet n be parseInt(item 2 of arguments).\nLet mutable adj be a new Seq of Int.\nLet mutable adjStarts be a new Seq of Int.\nLet mutable adjCounts be a new Seq of Int.\nLet mutable i be 0.\nWhile i is less than n:\n    Push i * 5 to adjStarts.\n    Push 0 to adjCounts.\n    Push 0 to adj. Push 0 to adj. Push 0 to adj. Push 0 to adj. Push 0 to adj.\n    Set i to i + 1.\nLet mutable primes be a new Seq of Int.\nPush 31 to primes. Push 37 to primes. Push 41 to primes. Push 43 to primes. Push 47 to primes.\nLet mutable offsets be a new Seq of Int.\nPush 7 to offsets. Push 13 to offsets. Push 17 to offsets. Push 23 to offsets. Push 29 to offsets.\nLet mutable p be 1.\nWhile p is at most 5:\n    Set i to 0.\n    While i is less than n:\n        Let neighbor be (i * item p of primes + item p of offsets) % n.\n        If neighbor is not i:\n            Let start be item (i + 1) of adjStarts.\n            Let cnt be item (i + 1) of adjCounts.\n            Set item (start + cnt + 1) of adj to neighbor.\n            Set item (i + 1) of adjCounts to cnt + 1.\n        Set i to i + 1.\n    Set p to p + 1.\nLet mutable queue be a new Seq of Int.\nLet mutable dist be a new Seq of Int.\nSet i to 0.\nWhile i is less than n:\n    Push 0 - 1 to dist.\n    Set i to i + 1.\nPush 0 to queue.\nSet item 1 of dist to 0.\nLet mutable front be 1.\nWhile front is at most length of queue:\n    Let v be item front of queue.\n    Let start be item (v + 1) of adjStarts.\n    Let cnt be item (v + 1) of adjCounts.\n    Let mutable e be 0.\n    While e is less than cnt:\n        Let u be item (start + e + 1) of adj.\n        If item (u + 1) of dist equals 0 - 1:\n            Set item (u + 1) of dist to item (v + 1) of dist + 1.\n            Push u to queue.\n        Set e to e + 1.\n    Set front to front + 1.\nLet mutable reachable be 0.\nLet mutable totalDist be 0.\nSet i to 0.\nWhile i is less than n:\n    If item (i + 1) of dist is at least 0:\n        Set reachable to reachable + 1.\n        Set totalDist to totalDist + item (i + 1) of dist.\n    Set i to i + 1.\nShow \"\" + reachable + \" \" + totalDist.",
       "js_source": "const MAX_EDGES = 5;\nconst n = parseInt(process.argv[2]);\nconst primes = [31, 37, 41, 43, 47];\nconst offsets = [7, 13, 17, 23, 29];\nconst adj = new Int32Array(n * MAX_EDGES);\nconst adjCount = new Int32Array(n);\nfor (let p = 0; p < MAX_EDGES; p++) {\n    for (let i = 0; i < n; i++) {\n        const neighbor = (i * primes[p] + offsets[p]) % n;\n        if (neighbor !== i) {\n            adj[i * MAX_EDGES + adjCount[i]] = neighbor;\n            adjCount[i]++;\n        }\n    }\n}\nconst queue = new Int32Array(n);\nconst dist = new Int32Array(n).fill(-1);\nlet front = 0, back = 0;\nqueue[back++] = 0;\ndist[0] = 0;\nwhile (front < back) {\n    const v = queue[front++];\n    for (let e = 0; e < adjCount[v]; e++) {\n        const u = adj[v * MAX_EDGES + e];\n        if (dist[u] === -1) { dist[u] = dist[v] + 1; queue[back++] = u; }\n    }\n}\nlet reachable = 0, totalDist = 0;\nfor (let i = 0; i < n; i++) {\n    if (dist[i] >= 0) { reachable++; totalDist += dist[i]; }\n}\nconsole.log(reachable + \" \" + totalDist);",
       "scaling": {
-        "2633876": {
+        "2574029": {
           "logos_interp": {
-            "mean_ms": 1354.8348805600001000,
-            "median_ms": 1354.14978936000,
-            "stddev_ms": 9.318793644348816000,
-            "min_ms": 1339.44167836000,
-            "max_ms": 1371.1224033600002000,
-            "cv": 0.00687817665315572358,
+            "mean_ms": 426.3597439200001000,
+            "median_ms": 428.28385412000003000,
+            "stddev_ms": 7.645630586464045000,
+            "min_ms": 414.38786462000005000,
+            "max_ms": 436.02963062000,
+            "cv": 0.01793234632371538086,
             "runs": 10,
-            "user_ms": 1184.8714399999998000,
-            "system_ms": 169.75858000000002000
+            "user_ms": 337.43132000,
+            "system_ms": 88.76577999999999000
+          },
+          "logos_tiered": {
+            "mean_ms": 584.34883262000,
+            "median_ms": 583.43184882000,
+            "stddev_ms": 14.184984874341914000,
+            "min_ms": 570.11670482000,
+            "max_ms": 616.22870382000,
+            "cv": 0.02427485789736549367,
+            "runs": 10,
+            "user_ms": 489.45986000,
+            "system_ms": 94.64956000
           },
           "js": {
-            "mean_ms": 248.50696000,
-            "median_ms": 249.243869000,
-            "stddev_ms": 3.8257425804382045000,
-            "min_ms": 241.160066000,
-            "max_ms": 252.729928000,
-            "cv": 0.01539491119459271683,
+            "mean_ms": 246.28265000,
+            "median_ms": 246.6987465000,
+            "stddev_ms": 3.0219717384738177000,
+            "min_ms": 240.77972400000003000,
+            "max_ms": 251.73015200000004000,
+            "cv": 0.01227033954066117812,
             "runs": 10,
-            "user_ms": 230.98199999999997000,
-            "system_ms": 26.984000
+            "user_ms": 227.76760000000001000,
+            "system_ms": 28.409500000000004000
           },
           "python": {
-            "mean_ms": 6150.179132700001000,
-            "median_ms": 6151.6773215000,
-            "stddev_ms": 135.76303114249186000,
-            "min_ms": 5948.942177000,
-            "max_ms": 6343.76972000,
-            "cv": 0.02207464664251011693,
+            "mean_ms": 6355.9727492000,
+            "median_ms": 6333.0222805000,
+            "stddev_ms": 189.05559691716267000,
+            "min_ms": 5996.208652000,
+            "max_ms": 6673.975295000,
+            "cv": 0.02974455750159695319,
             "runs": 10,
-            "user_ms": 6009.578299999999000,
-            "system_ms": 139.9897000
+            "user_ms": 6215.8065000,
+            "system_ms": 139.59360000000004000
           },
           "ruby": {
-            "mean_ms": 2177.7807733000,
-            "median_ms": 2177.54205000,
-            "stddev_ms": 22.403412753690188000,
-            "min_ms": 2152.276518000,
-            "max_ms": 2215.562352000,
-            "cv": 0.01028726721640682233,
+            "mean_ms": 2284.3398304000,
+            "median_ms": 2293.425405000,
+            "stddev_ms": 44.47853001430417000,
+            "min_ms": 2209.86773000,
+            "max_ms": 2347.522999000,
+            "cv": 0.01947106530402516506,
             "runs": 10,
-            "user_ms": 2130.4673999999997000,
-            "system_ms": 46.899699999999996000
+            "user_ms": 2240.0632000,
+            "system_ms": 44.002999999999994000
           }
         }
       },
@@ -1776,48 +2186,59 @@
       "scaling": {
         "14856116": {
           "logos_interp": {
-            "mean_ms": 5352.248835279999000,
-            "median_ms": 5356.67686678000,
-            "stddev_ms": 14.231065279839524000,
-            "min_ms": 5332.22988928000,
-            "max_ms": 5368.384594279999000,
-            "cv": 0.00265889455401133945,
+            "mean_ms": 126.12181460000002000,
+            "median_ms": 124.8450384000,
+            "stddev_ms": 5.670352392517714000,
+            "min_ms": 118.1337309000,
+            "max_ms": 135.2269409000,
+            "cv": 0.04495933086993273486,
             "runs": 10,
-            "user_ms": 5347.24438000,
-            "system_ms": 4.68116000
+            "user_ms": 121.51704000,
+            "system_ms": 4.3843799999999985000
+          },
+          "logos_tiered": {
+            "mean_ms": 95.39270136000001000,
+            "median_ms": 94.23871976000,
+            "stddev_ms": 2.772801392156765000,
+            "min_ms": 92.68129676000,
+            "max_ms": 100.18604376000001000,
+            "cv": 0.02906722791812512635,
+            "runs": 10,
+            "user_ms": 90.94659999999997000,
+            "system_ms": 4.2942399999999995000
           },
           "js": {
-            "mean_ms": 218.85333090000003000,
-            "median_ms": 219.505275000,
-            "stddev_ms": 9.207698868232254000,
-            "min_ms": 206.407853000,
-            "max_ms": 236.06089500000002000,
-            "cv": 0.04207246392077760575,
+            "mean_ms": 214.8173421000,
+            "median_ms": 214.427898000,
+            "stddev_ms": 5.071000846269729000,
+            "min_ms": 205.89881000000002000,
+            "max_ms": 224.852147000,
+            "cv": 0.02360610552526582536,
             "runs": 10,
-            "user_ms": 143.7447000,
-            "system_ms": 93.1101000
+            "user_ms": 137.7851000,
+            "system_ms": 94.9227000
           },
           "python": {
-            "mean_ms": 2892.7780633000006000,
-            "median_ms": 2858.7855925000003000,
-            "stddev_ms": 106.6905903472936000,
-            "min_ms": 2778.8512030000003000,
-            "max_ms": 3097.736123000,
-            "cv": 0.03688170610142969202,
+            "mean_ms": 2834.1739351000004000,
+            "median_ms": 2834.0777745000,
+            "stddev_ms": 49.380345886288785000,
+            "min_ms": 2735.638732000,
+            "max_ms": 2927.159882000,
+            "cv": 0.01742318820829408947,
             "runs": 10,
-            "user_ms": 2861.4880000000005000,
-            "system_ms": 30.6946000
+            "user_ms": 2802.2639000,
+            "system_ms": 31.396099999999996000
           },
           "ruby": {
-            "mean_ms": 2966.6115705000005000,
-            "median_ms": 2956.2435675000,
-            "stddev_ms": 45.675168482593766000,
-            "min_ms": 2914.281883000,
-            "max_ms": 3032.216071000,
-            "cv": 0.01539641014576625318,
+            "mean_ms": 2945.8791794000,
+            "median_ms": 2936.6609705000,
+            "stddev_ms": 43.587801519084174000,
+            "min_ms": 2885.727169000,
+            "max_ms": 3002.437509000,
+            "cv": 0.01479619457032921857,
             "runs": 10,
-            "user_ms": 2686.9091000000003000,
-            "system_ms": 277.00179999999996000
+            "user_ms": 2668.1625000,
+            "system_ms": 274.59240000000007000
           }
         }
       },
@@ -1826,36 +2247,51 @@
     }
   ],
   "summary": {
-    "geometric_mean_logos_interp_over_node": 3.343
+    "geometric_mean_logos_interp_over_node": 0.920,
+    "geometric_mean_logos_tiered_over_node": 1.099
   },
   "startup": {
     "runs": 50,
     "warmup": 5,
     "engines": {
       "logos_interp": {
-        "mean_ms": 4.4767698199999995,
-        "min_ms": 1.8249967999999999,
-        "median_ms": 4.6551708000000005,
-        "stddev_ms": 0.767913509502701
+        "mean_ms": 4.639802300000001,
+        "min_ms": 3.0721489799999997,
+        "median_ms": 4.73125248,
+        "stddev_ms": 0.6526766913414529
       },
       "js": {
-        "mean_ms": 22.78023774,
-        "min_ms": 12.146297800000001,
-        "median_ms": 22.1447418,
-        "stddev_ms": 5.573682589753871
+        "mean_ms": 20.659930640000006,
+        "min_ms": 11.346102980000001,
+        "median_ms": 18.57726548,
+        "stddev_ms": 7.594835606671542
       },
       "python": {
-        "mean_ms": 21.875037900000006,
-        "min_ms": 9.7158738,
-        "median_ms": 20.560529300000002,
-        "stddev_ms": 7.938794445798455
+        "mean_ms": 15.871886060000003,
+        "min_ms": 7.28048998,
+        "median_ms": 14.87524048,
+        "stddev_ms": 5.216118598815547
       },
       "ruby": {
-        "mean_ms": 30.373357760000008,
-        "min_ms": 26.5062658,
-        "median_ms": 30.376489300000003,
-        "stddev_ms": 1.9764252692997561
+        "mean_ms": 30.46630866,
+        "min_ms": 25.716391980000004,
+        "median_ms": 30.629159980000004,
+        "stddev_ms": 2.5258644549536577
       }
     }
+  },
+  "interpreter_sizes": {
+    "method": "file_size_bytes",
+    "engines": {
+      "logos": {
+        "as_built": 13989424,
+        "stripped": 10800144
+      },
+      "node": {
+        "as_built": 124819136,
+        "stripped": 107104704
+      }
+    },
+    "wasm_bundle_bytes": 12162766
   }
 }

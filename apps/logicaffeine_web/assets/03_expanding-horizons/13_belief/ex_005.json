@@ -5,9 +5,9 @@
   "prompt": "Believe that C is true",
   "options": [
     "$ u:C $",
-    "$ \\\\underline{u} :\\\\underline{C} $",
-    "$ u:C $",
-    "$ \\\\underline{u} :C $"
+    "$ \\underline{u} :\\underline{C} $",
+    "$ u:\\underline{C} $",
+    "$ \\underline{u} :C $"
   ],
   "correct": 3,
   "hint": "Who is the believer (underlined)? What do they believe?",

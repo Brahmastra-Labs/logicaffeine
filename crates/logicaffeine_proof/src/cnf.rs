@@ -77,6 +77,16 @@ impl Cnf {
         &self.clauses
     }
 
+    /// The Boolean value of atom `e` under a SAT `model` (a [`crate::cdcl::SolveResult::Sat`]
+    /// assignment, indexed by variable), or `None` if `e` is not a recognised atom or was
+    /// never encoded into this CNF. This decodes a model back to source atoms (e.g.
+    /// `signal@t`), skipping the Tseitin auxiliaries that carry no source meaning.
+    pub fn atom_value(&self, e: &ProofExpr, model: &[bool]) -> Option<bool> {
+        let key = atom_key(e)?;
+        let v = *self.atom_of.get(&key)?;
+        model.get(v as usize).copied()
+    }
+
     fn fresh(&mut self) -> Var {
         let v = self.num_vars as Var;
         self.num_vars += 1;
@@ -230,6 +240,19 @@ impl Cnf {
                 v.extend(self.clause_lits(b)?);
                 Some(v)
             }
+            // De Morgan keeps a negated subformula a single clause with NO auxiliary:
+            // ¬(a ∧ b) ≡ ¬a ∨ ¬b, and ¬¬x ≡ x. (¬(a ∨ b) is a conjunction, not a clause, so it
+            // still falls through to one auxiliary below.) Every at-most-one pair is `¬(a ∧ b)`,
+            // so this collapses hundreds of Tseitin spines into plain binary clauses.
+            ProofExpr::Not(inner) => match inner.as_ref() {
+                ProofExpr::And(a, b) => {
+                    let mut v = self.clause_lits(&negate_expr(a))?;
+                    v.extend(self.clause_lits(&negate_expr(b))?);
+                    Some(v)
+                }
+                ProofExpr::Not(x) => self.clause_lits(x),
+                _ => Some(vec![self.encode(e)?]),
+            },
             // A non-clausal subformula (typically a conjunction): one auxiliary variable.
             _ => Some(vec![self.encode(e)?]),
         }
@@ -252,11 +275,18 @@ impl Cnf {
 
     /// Hand the accumulated CNF to a fresh CDCL solver.
     pub fn into_solver(self) -> Solver {
+        self.into_solver_with_atoms().0
+    }
+
+    /// Like [`into_solver`](Self::into_solver) but also hands back the atom→variable map (moved,
+    /// not cloned). Callers that need to decode a SAT model can do so from this small map instead
+    /// of cloning the entire clause database just to keep the table alive.
+    pub fn into_solver_with_atoms(self) -> (Solver, HashMap<String, Var>) {
         let mut s = Solver::new(self.num_vars);
         for c in self.clauses {
             s.add_clause(c);
         }
-        s
+        (s, self.atom_of)
     }
 }
 
@@ -410,5 +440,47 @@ mod tests {
         ];
         assert_eq!(cdcl_entails(&prem, &in_("Beta", me)), Some(true), "Beta∈Maine is forced");
         assert_eq!(cdcl_entails(&prem, &in_("Beta", fl)), Some(false), "Beta∈Florida is refuted");
+    }
+
+    #[test]
+    fn negated_conjunction_clausifies_directly_without_aux() {
+        // ¬(P ∧ Q) ≡ ¬P ∨ ¬Q — one binary clause, NO Tseitin auxiliary. Every at-most-one
+        // constraint is this shape; minting an aux per pair bloated the CNF and the solve.
+        let p = pred("P", vec![c("a")]);
+        let q = pred("Q", vec![c("a")]);
+        let mut cnf = Cnf::new();
+        cnf.assert(&not(and(p, q))).unwrap();
+        assert_eq!(cnf.num_atoms(), 2, "only P and Q are atoms");
+        assert_eq!(cnf.num_vars(), 2, "no auxiliary variable should be minted");
+        assert_eq!(cnf.clauses().len(), 1, "exactly one clause");
+        assert_eq!(cnf.clauses()[0].len(), 2, "the binary clause ¬P ∨ ¬Q");
+    }
+
+    #[test]
+    fn negated_conjunction_preserves_models() {
+        // Soundness guard for the De Morgan clause: P ∧ ¬(P ∧ Q) ⊨ ¬Q, but ¬(P ∧ Q) alone does not.
+        let p = pred("P", vec![c("a")]);
+        let q = pred("Q", vec![c("a")]);
+        assert_eq!(
+            cdcl_entails(&[p.clone(), not(and(p.clone(), q.clone()))], &not(q.clone())),
+            Some(true)
+        );
+        assert_eq!(cdcl_entails(&[not(and(p, q.clone()))], &not(q)), Some(false));
+    }
+
+    #[test]
+    fn nested_demorgan_and_double_negation_clausify() {
+        // ¬((P ∧ Q) ∧ R) ≡ ¬P ∨ ¬Q ∨ ¬R (one ternary clause, no aux); ¬¬P ≡ P.
+        let (p, q, r) = (pred("P", vec![c("a")]), pred("Q", vec![c("a")]), pred("R", vec![c("a")]));
+        let mut cnf = Cnf::new();
+        cnf.assert(&not(and(and(p, q), r))).unwrap();
+        assert_eq!(cnf.num_vars(), 3, "no aux for a nested negated conjunction");
+        assert_eq!(cnf.clauses().len(), 1);
+        assert_eq!(cnf.clauses()[0].len(), 3, "ternary clause ¬P ∨ ¬Q ∨ ¬R");
+
+        let p2 = pred("P", vec![c("a")]);
+        let mut cnf2 = Cnf::new();
+        cnf2.assert(&not(not(p2))).unwrap();
+        assert_eq!(cnf2.num_vars(), 1, "¬¬P is just P");
     }
 }

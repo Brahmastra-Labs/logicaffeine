@@ -2280,8 +2280,26 @@ impl<'a, 'ctx, 'int> ClauseParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int> {
             }
         }
 
+        // Postposed necessary condition: "Y only when X." / "Y only if X." ⇔ Y → X (X is
+        // *necessary* for Y — the textbook reading of "only if"). This is the converse direction
+        // of the sufficient "Y when X" below, so it must be matched first.
+        if self.interner.resolve(self.peek().lexeme).eq_ignore_ascii_case("only")
+            && matches!(
+                self.tokens.get(self.current + 1).map(|t| &t.kind),
+                Some(TokenType::When) | Some(TokenType::If)
+            )
+        {
+            self.advance(); // only
+            self.advance(); // when | if
+            let condition = self.parse_conjunction()?;
+            expr = self.ctx.exprs.alloc(LogicExpr::BinaryOp {
+                left: expr,
+                op: TokenType::If,
+                right: condition,
+            });
+        }
         // Postposed "when": "Y when X." ⇔ "When X, Y." → X → Y
-        if self.check(&TokenType::When) {
+        else if self.check(&TokenType::When) {
             self.advance();
             let condition = self.parse_conjunction()?;
             expr = self.ctx.exprs.alloc(LogicExpr::BinaryOp {

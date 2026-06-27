@@ -4,10 +4,10 @@
   "difficulty": 1,
   "prompt": "Let no one boast",
   "options": [
-    "$ O\\\\sim (\\\\exists x)B\\\\underline{x} $",
-    "$ (\\\\exists x)Bx $",
-    "$ \\\\sim (\\\\exists x)Bx $",
-    "$ \\\\sim (\\\\exists x)B\\\\underline{x} $"
+    "$ O\\sim (\\exists x)B\\underline{x} $",
+    "$ (\\exists x)Bx $",
+    "$ \\sim (\\exists x)Bx $",
+    "$ \\sim (\\exists x)B\\underline{x} $"
   ],
   "correct": 3,
   "hint": "Is this about a specific person, or about EVERYONE being prohibited?",

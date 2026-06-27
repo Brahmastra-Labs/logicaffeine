@@ -4,10 +4,10 @@
   "difficulty": 1,
   "prompt": "Not both L and N",
   "options": [
-    "$ (\\\\sim L \\\\cdot \\\\sim N) $",
-    "$ \\\\sim L \\\\cdot N $",
-    "$ \\\\sim(L \\\\cdot N) $",
-    "$ (\\\\sim L \\\\cdot N) $"
+    "$ (\\sim L \\cdot \\sim N) $",
+    "$ \\sim L \\cdot N $",
+    "$ \\sim(L \\cdot N) $",
+    "$ (\\sim L \\cdot N) $"
   ],
   "correct": 2,
   "hint": "What exactly is 'both' connecting? Are both parts the full consequence, or just the second one?",

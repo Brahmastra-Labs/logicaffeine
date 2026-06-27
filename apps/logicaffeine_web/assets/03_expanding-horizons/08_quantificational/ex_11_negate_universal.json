@@ -1,0 +1,15 @@
+{
+  "id": "Q_1.11",
+  "type": "multiple_choice",
+  "difficulty": 4,
+  "prompt": "What is the correct negation of ∀x(P(x) → Q(x))?",
+  "options": [
+    "∀x(P(x) → ¬Q(x))",
+    "∃x(P(x) ∧ ¬Q(x))",
+    "∃x(¬P(x) ∧ Q(x))",
+    "∀x(¬P(x) → ¬Q(x))"
+  ],
+  "correct": 1,
+  "hint": "Push ¬ through the quantifier (¬∀ becomes ∃) and then negate the conditional (¬(A → B) = A ∧ ¬B).",
+  "explanation": "¬∀x(P(x) → Q(x)) becomes ∃x¬(P(x) → Q(x)). Since ¬(A → B) ≡ A ∧ ¬B, this is ∃x(P(x) ∧ ¬Q(x)) — 'some P is not Q', the counterexample. 'Not all P are Q' means exactly 'there is a P that is not Q'."
+}

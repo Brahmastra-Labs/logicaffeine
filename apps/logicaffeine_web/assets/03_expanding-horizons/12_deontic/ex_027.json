@@ -4,12 +4,12 @@
   "difficulty": 1,
   "prompt": "Let someone despair",
   "options": [
-    "$ O(\\\\exists x)D\\\\underline{x} $",
-    "$ (\\\\exists x)Dx $",
-    "$ (\\\\exists x)D\\\\underline{x} $",
-    "$ (\\\\exists \\\\underline{x} )Dx $"
+    "$ O(\\exists x)D\\underline{x} $",
+    "$ (\\exists x)Dx $",
+    "$ (\\exists x)D\\underline{x} $",
+    "$ (\\exists \\underline{x} )Dx $"
   ],
   "correct": 2,
   "hint": "Identify WHO is being commanded or permitted (the agent, marked with underline) and WHAT action they must/may do.",
-  "explanation": "In deontic logic: Deontic operators express moral or legal requirements."
+  "explanation": "'Let someone despair' is an optative with an indefinite agent: (∃x)D͟x — some person despairs."
 }

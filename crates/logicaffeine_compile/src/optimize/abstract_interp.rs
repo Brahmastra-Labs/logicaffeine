@@ -4,6 +4,19 @@ use crate::arena::Arena;
 use crate::ast::stmt::{BinaryOpKind, Expr, Literal, MatchArm, Pattern, Stmt};
 use crate::intern::Symbol;
 
+/// Per-collection ELEMENT-TYPE tracking: a read `item k of arr` carries `arr`'s
+/// proven element type (the join of every value written into it). A
+/// homogeneously-typed collection's reads gain a concrete scalar kind, which the
+/// magic-reciprocal modulo gate (`(... + ...) % c`) consumes to replace idiv.
+/// PROMOTED 2026-06-21: default ON (kill-switch LOGOS_ELEM_TYPE=0) — coins -11%
+/// on the faithful interleaved A/B, all 33 benchmarks bit-identical, no regression
+/// (a spurious histogram +2.4% on best-of-min was confirmed noise — identical raw
+/// distributions). With it off `eval_type` treats an index read as `Top` exactly
+/// as before, so the byte output is unchanged.
+fn elem_type_enabled() -> bool {
+    crate::optimize::active_config().is_on(crate::optimization::Opt::ElemType)
+}
+
 #[derive(Clone, Debug, PartialEq)]
 enum Bound {
     NegInf,
@@ -564,6 +577,9 @@ fn binop_type(op: BinaryOpKind, l: &TypeAbstraction, r: &TypeAbstraction) -> Typ
             else if is(l, TypeTag::Text) || is(r, TypeTag::Text) { conc(TypeTag::Text) }
             else { TypeAbstraction::Top }
         }
+        // ExactDivide produces a Rational, never a known Int — `Top` keeps a
+        // Rational-derived value out of the integer-only strength reductions.
+        ExactDivide => TypeAbstraction::Top,
         Subtract | Multiply | Divide | Modulo => {
             if is(l, TypeTag::Int) && is(r, TypeTag::Int) { conc(TypeTag::Int) }
             else if is(l, TypeTag::Float) && is(r, TypeTag::Float) { conc(TypeTag::Float) }
@@ -585,16 +601,17 @@ fn eval_type(
     expr: &Expr,
     types: &HashMap<Symbol, TypeAbstraction>,
     fn_returns: &HashMap<Symbol, TypeTag>,
+    elem_type: &HashMap<Symbol, TypeAbstraction>,
 ) -> TypeAbstraction {
     match expr {
         Expr::Literal(lit) => TypeAbstraction::Concrete(literal_type(lit)),
         Expr::Identifier(sym) => types.get(sym).cloned().unwrap_or(TypeAbstraction::Top),
         Expr::BinaryOp { op, left, right } => {
-            let l = eval_type(left, types, fn_returns);
-            let r = eval_type(right, types, fn_returns);
+            let l = eval_type(left, types, fn_returns, elem_type);
+            let r = eval_type(right, types, fn_returns, elem_type);
             binop_type(*op, &l, &r)
         }
-        Expr::Not { operand } => match eval_type(operand, types, fn_returns) {
+        Expr::Not { operand } => match eval_type(operand, types, fn_returns, elem_type) {
             TypeAbstraction::Concrete(TypeTag::Bool) => TypeAbstraction::Concrete(TypeTag::Bool),
             TypeAbstraction::Concrete(TypeTag::Int) => TypeAbstraction::Concrete(TypeTag::Int),
             _ => TypeAbstraction::Top,
@@ -607,6 +624,17 @@ fn eval_type(
             .get(function)
             .map(|t| TypeAbstraction::Concrete(t.clone()))
             .unwrap_or(TypeAbstraction::Top),
+        // A read `item k of arr` carries `arr`'s proven ELEMENT TYPE — the join
+        // over every value written into it. Sound because every element IS one
+        // of those written values, so they all satisfy the join. Gated OFF by
+        // default (`Top`, the prior behaviour) for byte-identical A/B.
+        Expr::Index { collection: Expr::Identifier(sym), .. } if elem_type_enabled() => {
+            let t = elem_type.get(sym).cloned().unwrap_or(TypeAbstraction::Top);
+            if !matches!(t, TypeAbstraction::Top) {
+                crate::optimize::mark_fired(crate::optimization::Opt::ElemType);
+            }
+            t
+        }
         _ => TypeAbstraction::Top,
     }
 }
@@ -1108,6 +1136,12 @@ fn eval_expr(expr: &Expr, state: &AbstractState) -> Interval {
                 BinaryOpKind::Subtract => l.sub(&r),
                 BinaryOpKind::Multiply => l.mul(&r),
                 BinaryOpKind::Divide => l.div(&r),
+                // ExactDivide yields a Rational — it has NO integer interval, so report
+                // `top`. This is also the defense that keeps a Rational-derived value
+                // from being "proven Int": the integer-only division strength reductions
+                // (MagicDivU / DivPow2) require a proven non-negative Int and so never
+                // misfire on it.
+                BinaryOpKind::ExactDivide => Interval::top(),
                 BinaryOpKind::Modulo => l.modulo(&r),
                 BinaryOpKind::Shr => l.shr(&r),
                 _ => Interval::top(),
@@ -1689,6 +1723,17 @@ pub(crate) struct RichAbstractState {
     /// does. Seeded by stores/pushes whose value carries a `scalar_upper`, read
     /// back as a `scalar_upper` on `Let u be item _ of A`.
     elem_upper: HashMap<Symbol, super::affine::LinExpr>,
+    /// Per-collection ELEMENT TYPE: `A -> T` means EVERY element of `A` is of
+    /// scalar type `T` (the join over every value written into `A`). The type
+    /// sibling of the concrete `elem` interval — seeded by the first
+    /// store/push, joined on every later one, and read back as the proven type
+    /// of `item k of A`. Lets a read of a homogeneously-typed collection carry
+    /// a concrete scalar kind (`item k of dp ∈ Int` when `dp` is built only
+    /// from `Int` writes), which the magic-reciprocal modulo gate needs to fire
+    /// on `(... + ...) % c`. Absent means ⊤ (unknown) when the concrete `elem`
+    /// interval is non-⊥, or ⊥ (fresh, no elements) when it is — the same
+    /// `is_bottom()` freshness test the `elem`/`elem_upper` siblings use.
+    elem_type: HashMap<Symbol, TypeAbstraction>,
     /// SYMBOLIC scalar LOWER bound — the mirror of `scalar_upper`, the relation
     /// that makes `dist[u+1]`'s LOWER half (`u >= 0`) provable when `u`'s raw
     /// interval is widened to ⊤ (a loop-local read variable's undefined entry
@@ -1723,6 +1768,7 @@ impl RichAbstractState {
             scalar_def: HashMap::new(),
             scalar_upper: HashMap::new(),
             elem_upper: HashMap::new(),
+            elem_type: HashMap::new(),
             scalar_lower: HashMap::new(),
             aot_entry_guard: false,
         }
@@ -1761,6 +1807,7 @@ impl RichAbstractState {
         self.scalar_upper.retain(|_, e| !e.coefficients.contains_key(&si));
         self.elem_upper.remove(&sym);
         self.elem_upper.retain(|_, e| !e.coefficients.contains_key(&si));
+        self.elem_type.remove(&sym);
         self.scalar_lower.remove(&sym);
         self.scalar_lower.retain(|_, e| !e.coefficients.contains_key(&si));
     }
@@ -2139,7 +2186,7 @@ fn record_expr(e: &Expr, st: &RichAbstractState, facts: &mut OracleFacts) {
     }
     let av = AbstractValue {
         interval: eval_expr(e, &st.intervals),
-        ty: eval_type(e, &st.types, &st.fn_returns),
+        ty: eval_type(e, &st.types, &st.fn_returns, &st.elem_type),
         shape: match e {
             Expr::Identifier(sym) => {
                 st.shapes.get(sym).cloned().unwrap_or(CollectionShape::Top)
@@ -3735,7 +3782,7 @@ fn for_each_direct_expr(stmt: &Stmt, f: &mut impl FnMut(&Expr)) {
         // (e.g. `Push item li of left to result` — the "build B from A" loop).
         Stmt::Push { value, .. } | Stmt::Add { value, .. } | Stmt::Remove { value, .. } => f(value),
         Stmt::Return { value: Some(v) } => f(v),
-        Stmt::RuntimeAssert { condition } => f(condition),
+        Stmt::RuntimeAssert { condition, .. } => f(condition),
         Stmt::If { cond, .. } => f(cond),
         Stmt::While { cond, decreasing, .. } => {
             f(cond);
@@ -4441,7 +4488,7 @@ fn record_stmt_exprs(stmt: &Stmt, st: &RichAbstractState, facts: &mut OracleFact
             record_expr(value, st, facts);
         }
         Stmt::Inspect { target, .. } => record_expr(target, st, facts),
-        Stmt::RuntimeAssert { condition } => record_expr(condition, st, facts),
+        Stmt::RuntimeAssert { condition, .. } => record_expr(condition, st, facts),
         Stmt::Sleep { milliseconds } => record_expr(milliseconds, st, facts),
         Stmt::ReadFrom { source: ReadSource::File(p), .. } => record_expr(p, st, facts),
         _ => {}
@@ -4655,11 +4702,27 @@ fn observe_written_elem(collection: &Expr, value: &Expr, st: &mut RichAbstractSt
         // The symbolic element upper of the written value, computed BEFORE the
         // mutations below (it reads other variables' bounds, never `sym`'s).
         let sym_up = value_upper(value, st);
+        // The scalar TYPE of the written value, likewise BEFORE the mutations
+        // (it reads `types`/`elem_type`, never the array's own future state).
+        let sym_ty = eval_type(value, &st.types, &st.fn_returns, &st.elem_type);
         for a in st.aliases.may_alias(*sym) {
             // Freshness BEFORE the concrete update: a fresh array (⊥ element
             // interval) is SEEDED by the first write; a non-fresh one JOINS.
             let was_fresh = st.intervals.get_elem(&a).is_bottom();
             st.intervals.observe_elem(a, v.clone());
+            // Element TYPE: every element must satisfy the join over all writes.
+            // A fresh array is seeded; a non-fresh one joins. An unknown write
+            // type (`Top`) forces the element type to ⊤, exactly as the symbolic
+            // upper does — once an element's type is unknown, all reads are ⊤.
+            if was_fresh {
+                st.elem_type.insert(a, sym_ty.clone());
+            } else {
+                let joined = match st.elem_type.get(&a) {
+                    Some(existing) => existing.join(&sym_ty),
+                    None => TypeAbstraction::Top,
+                };
+                st.elem_type.insert(a, joined);
+            }
             match &sym_up {
                 // An unbounded written value forces the array's element upper to
                 // ⊤ — every element must satisfy the bound, and this one doesn't.
@@ -4706,6 +4769,10 @@ fn rich_bind(var: Symbol, value: &Expr, st: &mut RichAbstractState) {
     st.scalar_upper.retain(|_, e| !e.coefficients.contains_key(&vi));
     st.elem_upper.remove(&var);
     st.elem_upper.retain(|_, e| !e.coefficients.contains_key(&vi));
+    // The element TYPE of a rebound collection is stale; its values can't name
+    // another variable, so only its own entry needs dropping (re-seeded below
+    // for a fresh/aliased collection by the element-write observers).
+    st.elem_type.remove(&var);
     st.scalar_lower.remove(&var);
     st.scalar_lower.retain(|_, e| !e.coefficients.contains_key(&vi));
     // Rebinding resets `var`'s extern-length status; the producer arms below
@@ -4714,7 +4781,8 @@ fn rich_bind(var: Symbol, value: &Expr, st: &mut RichAbstractState) {
 
     let iv = eval_expr(value, &st.intervals);
     st.intervals.set_var(var, iv);
-    st.types.insert(var, eval_type(value, &st.types, &st.fn_returns));
+    let value_ty = eval_type(value, &st.types, &st.fn_returns, &st.elem_type);
+    st.types.insert(var, value_ty);
     st.nullability.insert(var, nullability_of_expr(value, st));
     // Rebinding discards the old binding's element bound; the producer arms
     // below re-establish it for fresh/aliased collections.
@@ -4780,6 +4848,16 @@ fn rich_bind(var: Symbol, value: &Expr, st: &mut RichAbstractState) {
                 el = el.join(&eval_expr(it, &st.intervals));
             }
             st.intervals.observe_elem(var, el);
+            // Element TYPE = join of the item types; an empty list stays fresh
+            // (absent), so its later writes seed it exactly.
+            let mut item_iter = items.iter();
+            if let Some(first) = item_iter.next() {
+                let mut ty = eval_type(first, &st.types, &st.fn_returns, &st.elem_type);
+                for it in item_iter {
+                    ty = ty.join(&eval_type(it, &st.types, &st.fn_returns, &st.elem_type));
+                }
+                st.elem_type.insert(var, ty);
+            }
         }
         Expr::Identifier(src) => {
             // `v` and `src` are now two names for one allocation.
@@ -4792,6 +4870,10 @@ fn rich_bind(var: Symbol, value: &Expr, st: &mut RichAbstractState) {
             if st.intervals.elem.contains_key(src) {
                 let e = st.intervals.get_elem(src);
                 st.intervals.observe_elem(var, e);
+            }
+            // …and the source's element TYPE (one allocation, same elements).
+            if let Some(t) = st.elem_type.get(src).cloned() {
+                st.elem_type.insert(var, t);
             }
             if st.coll_vars.contains(src) {
                 st.coll_vars.insert(var);
@@ -5097,6 +5179,31 @@ fn rich_walk_loop(
                     inside.elem_upper.remove(&m);
                 }
             }
+            // Element TYPE — the type sibling of the concrete elem above. Seeded
+            // from `next` on a fresh entry, then JOINED across the back-edge. The
+            // type lattice is finite-height (`widen == join`, capped union), so a
+            // plain join converges; a divergent type lands at ⊤ (sound: every
+            // element must satisfy the join, so a wider type only forfeits the
+            // elision). Stability participates in the fixpoint check.
+            let merged_et = if inside_fresh_elem {
+                next.elem_type.get(&m).cloned()
+            } else {
+                match (inside.elem_type.get(&m).cloned(), next.elem_type.get(&m).cloned()) {
+                    (Some(e), Some(n)) => Some(e.join(&n)),
+                    _ => None,
+                }
+            };
+            if inside.elem_type.get(&m) != merged_et.as_ref() {
+                stable = false;
+            }
+            match merged_et {
+                Some(t) => {
+                    inside.elem_type.insert(m, t);
+                }
+                None => {
+                    inside.elem_type.remove(&m);
+                }
+            }
             // A mutated SCALAR's `scalar_upper` (the element/modulo bound on `u =
             // item _ of adj`, re-established by its in-body `Let` every pass) IS
             // a loop invariant when stable: build it up from the first defining
@@ -5331,6 +5438,7 @@ fn rich_join(a: &RichAbstractState, b: &RichAbstractState) -> RichAbstractState 
             .map(|(k, v)| (*k, v.clone()))
             .collect(),
         elem_upper: join_elem_upper_maps(a, b),
+        elem_type: join_elem_type_maps(a, b),
         scalar_lower: a
             .scalar_lower
             .iter()
@@ -5370,6 +5478,37 @@ fn join_elem_upper_maps(
         };
         if let Some(l) = v {
             out.insert(key, l);
+        }
+    }
+    out
+}
+
+/// Join the per-collection element TYPES under the "EVERY element satisfies it"
+/// reading, mirroring [`join_elem_upper_maps`]'s ⊥-seed: a side whose array is ⊥
+/// (a fresh `new Seq`, no elements) contributes nothing, so the OTHER side's type
+/// carries across the 0-iteration exit branch of a build loop. When both sides
+/// hold elements the types JOIN (a divergent pair lands at ⊤, sound).
+fn join_elem_type_maps(
+    a: &RichAbstractState,
+    b: &RichAbstractState,
+) -> HashMap<Symbol, TypeAbstraction> {
+    let mut out = HashMap::new();
+    let keys: HashSet<Symbol> = a.elem_type.keys().chain(b.elem_type.keys()).cloned().collect();
+    for key in keys {
+        let a_bot = a.intervals.get_elem(&key).is_bottom();
+        let b_bot = b.intervals.get_elem(&key).is_bottom();
+        let v = if a_bot {
+            b.elem_type.get(&key).cloned()
+        } else if b_bot {
+            a.elem_type.get(&key).cloned()
+        } else {
+            match (a.elem_type.get(&key), b.elem_type.get(&key)) {
+                (Some(x), Some(y)) => Some(x.join(y)),
+                _ => None,
+            }
+        };
+        if let Some(t) = v {
+            out.insert(key, t);
         }
     }
     out
@@ -5605,17 +5744,17 @@ mod type_domain_tests {
 
     #[test]
     fn literal_types_are_concrete() {
-        assert_eq!(eval_type(&Expr::Literal(Literal::Number(5)), &empty_types(), &HashMap::new()),
+        assert_eq!(eval_type(&Expr::Literal(Literal::Number(5)), &empty_types(), &HashMap::new(), &HashMap::new()),
                    TypeAbstraction::Concrete(TypeTag::Int));
-        assert_eq!(eval_type(&Expr::Literal(Literal::Float(1.5)), &empty_types(), &HashMap::new()),
+        assert_eq!(eval_type(&Expr::Literal(Literal::Float(1.5)), &empty_types(), &HashMap::new(), &HashMap::new()),
                    TypeAbstraction::Concrete(TypeTag::Float));
-        assert_eq!(eval_type(&Expr::Literal(Literal::Boolean(true)), &empty_types(), &HashMap::new()),
+        assert_eq!(eval_type(&Expr::Literal(Literal::Boolean(true)), &empty_types(), &HashMap::new(), &HashMap::new()),
                    TypeAbstraction::Concrete(TypeTag::Bool));
-        assert_eq!(eval_type(&Expr::Literal(Literal::Nothing), &empty_types(), &HashMap::new()),
+        assert_eq!(eval_type(&Expr::Literal(Literal::Nothing), &empty_types(), &HashMap::new(), &HashMap::new()),
                    TypeAbstraction::Concrete(TypeTag::Nothing));
-        assert_eq!(eval_type(&Expr::Literal(Literal::Char('a')), &empty_types(), &HashMap::new()),
+        assert_eq!(eval_type(&Expr::Literal(Literal::Char('a')), &empty_types(), &HashMap::new(), &HashMap::new()),
                    TypeAbstraction::Concrete(TypeTag::Char));
-        assert_eq!(eval_type(&Expr::Literal(Literal::Duration(60)), &empty_types(), &HashMap::new()),
+        assert_eq!(eval_type(&Expr::Literal(Literal::Duration(60)), &empty_types(), &HashMap::new(), &HashMap::new()),
                    TypeAbstraction::Concrete(TypeTag::Duration));
     }
 
@@ -5625,22 +5764,22 @@ mod type_domain_tests {
         let three = Expr::Literal(Literal::Number(3));
         // Int + Int : Int
         let add = Expr::BinaryOp { op: BinaryOpKind::Add, left: &five, right: &three };
-        assert_eq!(eval_type(&add, &empty_types(), &HashMap::new()), TypeAbstraction::Concrete(TypeTag::Int));
+        assert_eq!(eval_type(&add, &empty_types(), &HashMap::new(), &HashMap::new()), TypeAbstraction::Concrete(TypeTag::Int));
         // Int < Int : Bool
         let lt = Expr::BinaryOp { op: BinaryOpKind::Lt, left: &five, right: &three };
-        assert_eq!(eval_type(&lt, &empty_types(), &HashMap::new()), TypeAbstraction::Concrete(TypeTag::Bool));
+        assert_eq!(eval_type(&lt, &empty_types(), &HashMap::new(), &HashMap::new()), TypeAbstraction::Concrete(TypeTag::Bool));
         // Float + Float : Float
         let f1 = Expr::Literal(Literal::Float(1.0));
         let f2 = Expr::Literal(Literal::Float(2.0));
         let fadd = Expr::BinaryOp { op: BinaryOpKind::Add, left: &f1, right: &f2 };
-        assert_eq!(eval_type(&fadd, &empty_types(), &HashMap::new()), TypeAbstraction::Concrete(TypeTag::Float));
+        assert_eq!(eval_type(&fadd, &empty_types(), &HashMap::new(), &HashMap::new()), TypeAbstraction::Concrete(TypeTag::Float));
         // Int + Float : Top (we do not assume a coercion — conservative)
         let mixed = Expr::BinaryOp { op: BinaryOpKind::Add, left: &five, right: &f1 };
-        assert_eq!(eval_type(&mixed, &empty_types(), &HashMap::new()), TypeAbstraction::Top);
+        assert_eq!(eval_type(&mixed, &empty_types(), &HashMap::new(), &HashMap::new()), TypeAbstraction::Top);
         // Text + Int : Text (interpolating concat)
         let txt = Expr::Literal(Literal::Text(Symbol::EMPTY));
         let concat = Expr::BinaryOp { op: BinaryOpKind::Add, left: &txt, right: &three };
-        assert_eq!(eval_type(&concat, &empty_types(), &HashMap::new()), TypeAbstraction::Concrete(TypeTag::Text));
+        assert_eq!(eval_type(&concat, &empty_types(), &HashMap::new(), &HashMap::new()), TypeAbstraction::Concrete(TypeTag::Text));
     }
 
     #[test]
@@ -5649,14 +5788,14 @@ mod type_domain_tests {
         let x = Symbol::EMPTY;
         let mut env = empty_types();
         let value = Expr::Literal(Literal::Number(5));
-        env.insert(x, eval_type(&value, &env, &HashMap::new()));
+        env.insert(x, eval_type(&value, &env, &HashMap::new(), &HashMap::new()));
         assert_eq!(env.get(&x), Some(&TypeAbstraction::Concrete(TypeTag::Int)));
         // and an identifier reference resolves through the env
-        assert_eq!(eval_type(&Expr::Identifier(x), &env, &HashMap::new()),
+        assert_eq!(eval_type(&Expr::Identifier(x), &env, &HashMap::new(), &HashMap::new()),
                    TypeAbstraction::Concrete(TypeTag::Int));
         // an unbound identifier is Top (no information)
         let unbound = empty_types();
-        assert_eq!(eval_type(&Expr::Identifier(x), &unbound, &HashMap::new()), TypeAbstraction::Top);
+        assert_eq!(eval_type(&Expr::Identifier(x), &unbound, &HashMap::new(), &HashMap::new()), TypeAbstraction::Top);
     }
 
     #[test]

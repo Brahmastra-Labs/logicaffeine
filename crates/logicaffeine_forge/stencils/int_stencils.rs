@@ -223,11 +223,17 @@ pub unsafe extern "C" fn logos_stencil_constst(base: *mut i64, sp: *mut i64, r0:
 pub unsafe extern "C" fn logos_stencil_add3(base: *mut i64, sp: *mut i64, r0: i64, r1: i64, r2: i64, r3: i64, f0: f64, f1: f64, f2: f64, f3: f64, f4: f64, f5: f64) -> i64 {
     let a = *base.add(LOGOS_HOLE_I64_0 as usize);
     let b = *base.add(LOGOS_HOLE_I64_1 as usize);
-    *base.add(LOGOS_HOLE_I64_2 as usize) = a.wrapping_add(b);
-    logos_hole_cont_0(base, sp, r0, r1, r2, r3, f0, f1, f2, f3, f4, f5)
+    // EXACT: signed overflow side-exits (cont_1) so the VM recomputes and promotes.
+    match a.checked_add(b) {
+        Some(v) => {
+            *base.add(LOGOS_HOLE_I64_2 as usize) = v;
+            logos_hole_cont_0(base, sp, r0, r1, r2, r3, f0, f1, f2, f3, f4, f5)
+        }
+        None => logos_hole_cont_1(base, sp, r0, r1, r2, r3, f0, f1, f2, f3, f4, f5),
+    }
 }
 
-/// `frame[D] = frame[L] - frame[R]` (wrapping).
+/// `frame[D] = frame[L] - frame[R]`, EXACT (overflow side-exits via cont_1).
 ///
 /// # Safety
 /// `base` must point at a frame larger than every patched index.
@@ -235,11 +241,16 @@ pub unsafe extern "C" fn logos_stencil_add3(base: *mut i64, sp: *mut i64, r0: i6
 pub unsafe extern "C" fn logos_stencil_sub3(base: *mut i64, sp: *mut i64, r0: i64, r1: i64, r2: i64, r3: i64, f0: f64, f1: f64, f2: f64, f3: f64, f4: f64, f5: f64) -> i64 {
     let a = *base.add(LOGOS_HOLE_I64_0 as usize);
     let b = *base.add(LOGOS_HOLE_I64_1 as usize);
-    *base.add(LOGOS_HOLE_I64_2 as usize) = a.wrapping_sub(b);
-    logos_hole_cont_0(base, sp, r0, r1, r2, r3, f0, f1, f2, f3, f4, f5)
+    match a.checked_sub(b) {
+        Some(v) => {
+            *base.add(LOGOS_HOLE_I64_2 as usize) = v;
+            logos_hole_cont_0(base, sp, r0, r1, r2, r3, f0, f1, f2, f3, f4, f5)
+        }
+        None => logos_hole_cont_1(base, sp, r0, r1, r2, r3, f0, f1, f2, f3, f4, f5),
+    }
 }
 
-/// `frame[D] = frame[L] * frame[R]` (wrapping).
+/// `frame[D] = frame[L] * frame[R]`, EXACT (overflow side-exits via cont_1).
 ///
 /// # Safety
 /// `base` must point at a frame larger than every patched index.
@@ -247,8 +258,13 @@ pub unsafe extern "C" fn logos_stencil_sub3(base: *mut i64, sp: *mut i64, r0: i6
 pub unsafe extern "C" fn logos_stencil_mul3(base: *mut i64, sp: *mut i64, r0: i64, r1: i64, r2: i64, r3: i64, f0: f64, f1: f64, f2: f64, f3: f64, f4: f64, f5: f64) -> i64 {
     let a = *base.add(LOGOS_HOLE_I64_0 as usize);
     let b = *base.add(LOGOS_HOLE_I64_1 as usize);
-    *base.add(LOGOS_HOLE_I64_2 as usize) = a.wrapping_mul(b);
-    logos_hole_cont_0(base, sp, r0, r1, r2, r3, f0, f1, f2, f3, f4, f5)
+    match a.checked_mul(b) {
+        Some(v) => {
+            *base.add(LOGOS_HOLE_I64_2 as usize) = v;
+            logos_hole_cont_0(base, sp, r0, r1, r2, r3, f0, f1, f2, f3, f4, f5)
+        }
+        None => logos_hole_cont_1(base, sp, r0, r1, r2, r3, f0, f1, f2, f3, f4, f5),
+    }
 }
 
 /// `frame[D] = (frame[L] < frame[R]) as i64`.
@@ -1287,6 +1303,73 @@ pub unsafe extern "C" fn logos_stencil_arrstb(base: *mut i64, sp: *mut i64, r0: 
     }
     let ptr = *base.add(LOGOS_HOLE_I64_1 as usize) as *mut u8;
     *ptr.add(im1 as usize) = (*base.add(LOGOS_HOLE_I64_3 as usize) != 0) as u8;
+    logos_hole_cont_0(base, sp, r0, r1, r2, r3, f0, f1, f2, f3, f4, f5)
+}
+
+/// 4-byte SIGN-EXTENDED pinned-array load (`ListRepr::IntsI32`): `frame[D] =
+/// *(i32*)(ptr + (I-1)*4) as i64`. Holes/bounds identical to `arrld`; the only
+/// difference is the 4-byte element stride and the sign-extending widen.
+///
+/// # Safety
+/// See [`logos_stencil_arrld`]; the pinned buffer must hold 4-byte `i32`
+/// elements (the `IntsI32` repr the VM pins for this lane).
+#[no_mangle]
+pub unsafe extern "C" fn logos_stencil_arrld_i32(base: *mut i64, sp: *mut i64, r0: i64, r1: i64, r2: i64, r3: i64, f0: f64, f1: f64, f2: f64, f3: f64, f4: f64, f5: f64) -> i64 {
+    let i = *base.add(LOGOS_HOLE_I64_0 as usize);
+    let len = *base.add(LOGOS_HOLE_I64_2 as usize);
+    let im1 = i.wrapping_sub(1);
+    if (im1 as u64) >= (len as u64) {
+        return logos_hole_cont_1(base, sp, r0, r1, r2, r3, f0, f1, f2, f3, f4, f5);
+    }
+    let ptr = *base.add(LOGOS_HOLE_I64_1 as usize) as *const i32;
+    *base.add(LOGOS_HOLE_I64_3 as usize) = *ptr.add(im1 as usize) as i64;
+    logos_hole_cont_0(base, sp, r0, r1, r2, r3, f0, f1, f2, f3, f4, f5)
+}
+
+/// 4-byte sign-extended UNCHECKED load (the `arrld_i32` twin without the bounds
+/// check — Oracle-proven in range). Holes 0/1/3 only.
+///
+/// # Safety
+/// See [`logos_stencil_arrld_i32`]; the index is proven in bounds.
+#[no_mangle]
+pub unsafe extern "C" fn logos_stencil_arrld_i32_u(base: *mut i64, sp: *mut i64, r0: i64, r1: i64, r2: i64, r3: i64, f0: f64, f1: f64, f2: f64, f3: f64, f4: f64, f5: f64) -> i64 {
+    let i = *base.add(LOGOS_HOLE_I64_0 as usize);
+    let im1 = i.wrapping_sub(1);
+    let ptr = *base.add(LOGOS_HOLE_I64_1 as usize) as *const i32;
+    *base.add(LOGOS_HOLE_I64_3 as usize) = *ptr.add(im1 as usize) as i64;
+    logos_hole_cont_0(base, sp, r0, r1, r2, r3, f0, f1, f2, f3, f4, f5)
+}
+
+/// 4-byte TRUNCATING pinned-array store (`ListRepr::IntsI32`): `*(i32*)(ptr +
+/// (I-1)*4) = frame[S] as i32`. The narrowing proof guarantees the value fits
+/// `i32`, so the truncation is lossless. Holes/bounds identical to `arrst`.
+///
+/// # Safety
+/// See [`logos_stencil_arrld_i32`].
+#[no_mangle]
+pub unsafe extern "C" fn logos_stencil_arrst_i32(base: *mut i64, sp: *mut i64, r0: i64, r1: i64, r2: i64, r3: i64, f0: f64, f1: f64, f2: f64, f3: f64, f4: f64, f5: f64) -> i64 {
+    let i = *base.add(LOGOS_HOLE_I64_0 as usize);
+    let len = *base.add(LOGOS_HOLE_I64_2 as usize);
+    let im1 = i.wrapping_sub(1);
+    if (im1 as u64) >= (len as u64) {
+        return logos_hole_cont_1(base, sp, r0, r1, r2, r3, f0, f1, f2, f3, f4, f5);
+    }
+    let ptr = *base.add(LOGOS_HOLE_I64_1 as usize) as *mut i32;
+    *ptr.add(im1 as usize) = *base.add(LOGOS_HOLE_I64_3 as usize) as i32;
+    logos_hole_cont_0(base, sp, r0, r1, r2, r3, f0, f1, f2, f3, f4, f5)
+}
+
+/// 4-byte truncating UNCHECKED store (the `arrst_i32` twin without the bounds
+/// check). Holes 0/1/3 only.
+///
+/// # Safety
+/// See [`logos_stencil_arrst_i32`]; the index is proven in bounds.
+#[no_mangle]
+pub unsafe extern "C" fn logos_stencil_arrst_i32_u(base: *mut i64, sp: *mut i64, r0: i64, r1: i64, r2: i64, r3: i64, f0: f64, f1: f64, f2: f64, f3: f64, f4: f64, f5: f64) -> i64 {
+    let i = *base.add(LOGOS_HOLE_I64_0 as usize);
+    let im1 = i.wrapping_sub(1);
+    let ptr = *base.add(LOGOS_HOLE_I64_1 as usize) as *mut i32;
+    *ptr.add(im1 as usize) = *base.add(LOGOS_HOLE_I64_3 as usize) as i32;
     logos_hole_cont_0(base, sp, r0, r1, r2, r3, f0, f1, f2, f3, f4, f5)
 }
 

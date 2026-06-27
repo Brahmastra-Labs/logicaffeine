@@ -4,10 +4,10 @@
   "difficulty": 1,
   "prompt": "C entails M",
   "options": [
-    "$ (C \\\\supset \\\\square M) $",
-    "$ \\\\square (C \\\\supset M) $",
+    "$ (C \\supset \\square M) $",
+    "$ \\square (C \\supset M) $",
     "Ambiguous between 1 & 2",
-    "$ \\\\square C \\\\supset M $"
+    "$ \\square C \\supset M $"
   ],
   "correct": 1,
   "hint": "Does 'A entails B' mean 'if A then B' is TRUE, or that 'if A then B' is NECESSARY?",

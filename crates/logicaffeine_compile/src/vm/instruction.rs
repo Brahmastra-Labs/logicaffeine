@@ -7,17 +7,45 @@
 
 use std::collections::HashMap;
 
+use serde::{Deserialize, Serialize};
+
 use crate::intern::Symbol;
+
+/// Serialize an interned [`Symbol`] as its `u32` index (HOTSWAP §P12). Sound for the
+/// tier cache because the cache key pins the exact source — re-parsing it reproduces
+/// the same interning order, so the index round-trips to the same symbol.
+pub(crate) mod symbol_serde {
+    use crate::intern::Symbol;
+    use serde::{Deserialize, Deserializer, Serializer};
+    pub fn serialize<S: Serializer>(s: &Symbol, ser: S) -> Result<S::Ok, S::Error> {
+        ser.serialize_u32(s.index() as u32)
+    }
+    pub fn deserialize<'de, D: Deserializer<'de>>(de: D) -> Result<Symbol, D::Error> {
+        Ok(Symbol::from_index(u32::deserialize(de)? as usize))
+    }
+}
+
+/// Serialize an `f64` by its raw bits so the cache round-trips bit-exactly (a text
+/// format would otherwise mangle NaN / ±∞ and risk precision drift).
+pub(crate) mod f64_bits {
+    use serde::{Deserialize, Deserializer, Serializer};
+    pub fn serialize<S: Serializer>(v: &f64, ser: S) -> Result<S::Ok, S::Error> {
+        ser.serialize_u64(v.to_bits())
+    }
+    pub fn deserialize<'de, D: Deserializer<'de>>(de: D) -> Result<f64, D::Error> {
+        Ok(f64::from_bits(u64::deserialize(de)?))
+    }
+}
 
 pub type Reg = u16;
 pub type ConstIdx = u32;
 pub type FuncIdx = u16;
 
 /// A constant-pool entry.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub enum Constant {
     Int(i64),
-    Float(f64),
+    Float(#[serde(with = "f64_bits")] f64),
     Bool(bool),
     Text(String),
     Char(char),
@@ -32,7 +60,7 @@ pub enum Constant {
 /// A bytecode instruction. Every field is a small `Copy` scalar (registers,
 /// constant-pool indices, interned symbols), so the dispatch loop reads each
 /// op by value instead of `clone()`-ing through the `Clone` machinery.
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, Serialize, Deserialize)]
 pub enum Op {
     /// `R[dst] = constants[idx]`
     LoadConst { dst: Reg, idx: ConstIdx },
@@ -48,6 +76,9 @@ pub enum Op {
     Sub { dst: Reg, lhs: Reg, rhs: Reg },
     Mul { dst: Reg, lhs: Reg, rhs: Reg },
     Div { dst: Reg, lhs: Reg, rhs: Reg },
+    /// EXACT division (`7 / 2 → 7/2`, a Rational), the type-directed sibling of
+    /// [`Op::Div`] — emitted for `BinaryOpKind::ExactDivide`.
+    ExactDiv { dst: Reg, lhs: Reg, rhs: Reg },
     Mod { dst: Reg, lhs: Reg, rhs: Reg },
     /// `dst = lhs / 2^k` (signed, round toward zero) — emitted only when the
     /// divisor is a literal power of two AND the Oracle proved `lhs` is `Int`.
@@ -128,6 +159,7 @@ pub enum Op {
     /// `object == Reg::MAX` means no object.
     CheckPolicy {
         subject: Reg,
+        #[serde(with = "symbol_serde")]
         predicate: Symbol,
         is_capability: bool,
         object: Reg,
@@ -152,6 +184,11 @@ pub enum Op {
     /// `R[dst] = [R[start], …, R[start+count-1]]` (a new list).
     NewList { dst: Reg, start: Reg, count: u16 },
     NewEmptyList { dst: Reg },
+    /// `R[dst] = a new half-width (`Vec<i32>`) Int sequence` — emitted (behind
+    /// `LOGOS_NARROW_VM`) for a `new Seq of Int` declaration the narrowing
+    /// proof certified fits `i32`. Observably identical to `NewEmptyList`; only
+    /// the storage width differs (see [`crate::interpreter::ListRepr::IntsI32`]).
+    NewEmptyListI32 { dst: Reg },
     NewEmptySet { dst: Reg },
     NewEmptyMap { dst: Reg },
     /// `R[dst] = [R[start]..=R[end]]` (inclusive integer range as a list).
@@ -238,6 +275,16 @@ pub enum Op {
     CrdtBump { obj: Reg, field: ConstIdx, amount: Reg, negate: bool },
     /// GCounter merge: fold every field of `R[source]` into `R[target]`.
     CrdtMerge { target: Reg, source: Reg },
+    /// `R[dst]` = a fresh, empty rich CRDT — `kind` 0 = SharedSet (OR-Set),
+    /// 1 = SharedSequence (RGA), 2 = Divergent (MV-register). Used to default-fill a
+    /// `Shared` struct's CRDT fields, mirroring the tree-walker's `new`-struct init.
+    NewCrdt { dst: Reg, kind: u8 },
+    /// RGA append: push `R[value]` onto the replicated sequence in `R[seq]` (mutates the
+    /// shared CRDT in place, so a field access propagates).
+    CrdtAppend { seq: Reg, value: Reg },
+    /// Resolve `R[obj].field` to `R[value]`: a real MV-register resolves in place, a plain
+    /// field is overwritten — the same fallback the tree-walker's `Resolve` takes.
+    CrdtResolve { obj: Reg, field: ConstIdx, value: Reg },
 
     // ---- Repeat (snapshot iteration) ----
     /// Snapshot `R[iterable]` (List/Set items, Text chars, Map (k,v) tuples)
@@ -265,6 +312,40 @@ pub enum Op {
     /// `env::args()`: index 0 is the program name). Outside the JIT integer
     /// subset, so the adapters bail on it and it always runs in the VM.
     Args { dst: Reg },
+    // ─── Go-like concurrency (Phase 54 / T10) ───────────────────────────────
+    // Args travel through register ranges (`Op` is `Copy`). Channel/task handles
+    // are ordinary `Value`s (`RuntimeValue::Chan` / `::TaskHandle`). Every op that
+    // can block suspends the resumable VM (`run_until_block`) and is serviced by
+    // the deterministic scheduler, exactly as the tree-walker's `yield_request`.
+
+    /// `R[dst] = a new channel`; `cap < 0` ⇒ the scheduler's default capacity.
+    ChanNew { dst: Reg, cap: i32 },
+    /// Send `R[val]` into channel `R[chan]` (blocks if the channel is full).
+    ChanSend { chan: Reg, val: Reg },
+    /// `R[dst] = receive from channel R[chan]` (blocks if the channel is empty).
+    ChanRecv { dst: Reg, chan: Reg },
+    /// `R[dst] = bool` — non-blocking send of `R[val]` into `R[chan]`.
+    ChanTrySend { dst: Reg, chan: Reg, val: Reg },
+    /// `R[dst] = received value, or Nothing` — non-blocking receive from `R[chan]`.
+    ChanTryRecv { dst: Reg, chan: Reg },
+    /// Close channel `R[chan]`.
+    ChanClose { chan: Reg },
+    /// Spawn `functions[func]` with args in `R[args_start..+arg_count]` (fire-and-forget).
+    Spawn { func: FuncIdx, args_start: Reg, arg_count: u16 },
+    /// `R[dst] = task handle` of a spawned `functions[func]` (same arg convention).
+    SpawnHandle { dst: Reg, func: FuncIdx, args_start: Reg, arg_count: u16 },
+    /// `R[dst] = result of awaiting task R[handle]` (Nothing if it was aborted).
+    TaskAwait { dst: Reg, handle: Reg },
+    /// Abort task `R[handle]`.
+    TaskAbort { handle: Reg },
+    /// Register a `Receive var from chan` arm for the next `SelectWait`.
+    SelectArmRecv { chan: Reg, var: Reg },
+    /// Register an `After ticks` timeout arm for the next `SelectWait`.
+    SelectArmTimeout { ticks: Reg },
+    /// Block on the registered select arms; `R[dst_arm] = the winning arm index`
+    /// (a recv arm's received value is already in its `var` register).
+    SelectWait { dst_arm: Reg },
+
     /// Fail with the Text constant at `msg` — used for constructs whose
     /// tree-walker semantics are "error WHEN EXECUTED" (an unbound `Set`, an
     /// unsupported statement). Never fails at compile time: dead branches must
@@ -327,4 +408,43 @@ pub struct CompiledProgram {
     /// Keyed by absolute pc (one code array); valued by the head's OWNING frame's
     /// register indices (Main or the enclosing function).
     pub loop_locals: HashMap<usize, Vec<bool>>,
+    /// DEBUG-ONLY: Main-frame register index → source variable name, populated only
+    /// by the debugger's compile path ([`crate::vm::Compiler::compile_for_debug`]).
+    /// Empty on every production build, so the runtime pays nothing; it just lets the
+    /// Studio debug drawer show `x` instead of `R0`.
+    pub reg_names: Vec<(u16, String)>,
+}
+
+#[cfg(test)]
+mod concurrency_op_tests {
+    use super::*;
+
+    /// Every concurrency op must survive the tier cache's `serde_json` roundtrip
+    /// (`CompiledProgram`/`FnBytecode` are cached as JSON), or a cached program
+    /// containing one would fail to reload. `Op` is `Copy` but not `PartialEq`,
+    /// so we compare its `Debug` form.
+    #[test]
+    fn concurrency_ops_serde_roundtrip() {
+        let ops = [
+            Op::ChanNew { dst: 1, cap: -1 },
+            Op::ChanNew { dst: 2, cap: 8 },
+            Op::ChanSend { chan: 3, val: 4 },
+            Op::ChanRecv { dst: 5, chan: 6 },
+            Op::ChanTrySend { dst: 7, chan: 8, val: 9 },
+            Op::ChanTryRecv { dst: 10, chan: 11 },
+            Op::ChanClose { chan: 12 },
+            Op::Spawn { func: 1, args_start: 13, arg_count: 2 },
+            Op::SpawnHandle { dst: 14, func: 2, args_start: 15, arg_count: 0 },
+            Op::TaskAwait { dst: 16, handle: 17 },
+            Op::TaskAbort { handle: 18 },
+            Op::SelectArmRecv { chan: 19, var: 20 },
+            Op::SelectArmTimeout { ticks: 21 },
+            Op::SelectWait { dst_arm: 22 },
+        ];
+        for op in ops {
+            let json = serde_json::to_string(&op).expect("serialize");
+            let back: Op = serde_json::from_str(&json).expect("deserialize");
+            assert_eq!(format!("{op:?}"), format!("{back:?}"), "roundtrip {op:?} via {json}");
+        }
+    }
 }

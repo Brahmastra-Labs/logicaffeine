@@ -12,7 +12,7 @@
     "Poor match in emotional tone",
     "Has non-essential properties"
   ],
-  "correct": 1,
+  "correct": 2,
   "hint": "Can you think of a genuine male that this definition would wrongly EXCLUDE?",
-  "explanation": "This violates 3 (and 2, if we consider castration)."
+  "explanation": "The word 'male' appears inside its own definition — 'whatever has male reproductive organs' — so it explains the term using the term. That is CIRCULAR: anyone who didn't already know what 'male' meant is no better off."
 }

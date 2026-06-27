@@ -28,11 +28,19 @@ pub enum PolicyCondition {
         subject: Symbol,
         predicate: Symbol,
     },
-    /// Object field comparison: `the user equals the document's owner`
+    /// Whole-subject vs object field: `the user equals the document's owner`
+    /// (the object field shares the subject's type). Compiles to `self == &object.field`.
     ObjectFieldEquals {
         subject: Symbol,
         object: Symbol,
         field: Symbol,
+    },
+    /// Cross-field comparison: `the user's name equals the document's owner`.
+    /// Compiles to `self.<subject_field> == <object>.<object_field>`.
+    SubjectFieldEqualsObjectField {
+        subject_field: Symbol,
+        object: Symbol,
+        object_field: Symbol,
     },
     /// Logical OR: `A OR B`
     Or(Box<PolicyCondition>, Box<PolicyCondition>),

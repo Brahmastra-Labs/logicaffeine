@@ -9,6 +9,7 @@
 #![cfg(not(target_arch = "wasm32"))]
 
 use logicaffeine_compile::compile::{tw_outcome_with_args, vm_outcome_with_args};
+use logicaffeine_compile::optimization::{Opt, OptimizationConfig};
 use logicaffeine_compile::vm::NativeTier;
 use logicaffeine_jit::ForgeTier;
 
@@ -189,4 +190,108 @@ fn boxed_lists_stay_on_bytecode_correctly() {
     let (out, err, _) = tiered(src);
     assert_eq!(err, None);
     assert_eq!(out, "1200");
+}
+
+// ---- i32-backed Int sequences (`Opt::NarrowVm`) ----
+//
+// These exercise the half-width (`Vec<i32>`) VM list storage and its JIT region
+// path (sign-extending `movsxd` loads, truncating 4-byte stores). Each asserts
+// the tiered VM is bit-identical to the tree-walker AND that the hot loop still
+// tiers (the i32 array must NOT bail the region — the whole point of the lever).
+//
+// `NarrowVm` is a default-on optimization in the single `OptimizationConfig`; the
+// helper asserts the effective config actually has it enabled, so if the default
+// ever flips off (or the ambient env disables it) these tests fail loudly instead
+// of silently exercising the full-width path.
+
+fn tiered_narrow(src: &str) -> (String, Option<String>, u32) {
+    let mut cfg = OptimizationConfig::from_env();
+    cfg.normalize();
+    assert!(
+        cfg.is_on(Opt::NarrowVm),
+        "NarrowVm must be enabled for the narrowed-array tests (effective config has it off)"
+    );
+    tiered(src)
+}
+
+/// A graph_bfs-shaped narrowable array: `% n` element values (always fit i32),
+/// written in place and read in a hot loop. Must tier with the half-width buffer
+/// and match the tree-walker exactly.
+#[test]
+fn narrowed_int_array_mod_pattern_tiers_and_matches() {
+    let src = "## Main\n\
+               Let n be 4000.\n\
+               Let mutable a be a new Seq of Int.\n\
+               Let mutable i be 0.\n\
+               While i is less than n:\n\
+               \x20   Push 0 to a.\n\
+               \x20   Set i to i + 1.\n\
+               Set i to 0.\n\
+               While i is less than n:\n\
+               \x20   Set item (i + 1) of a to (i * 7) % n.\n\
+               \x20   Set i to i + 1.\n\
+               Let mutable total be 0.\n\
+               Set i to 0.\n\
+               While i is less than n:\n\
+               \x20   Set total to total + item (i + 1) of a.\n\
+               \x20   Set i to i + 1.\n\
+               Show total.\n";
+    let (out, err, region_ok) = tiered_narrow(src);
+    assert_eq!(err, None);
+    assert!(region_ok >= 1, "narrowed-array loop must tier (got {region_ok})");
+    // Independently recompute the reference sum of (i*7) % 4000 for i in 0..4000.
+    let want: i64 = (0..4000i64).map(|i| (i * 7) % 4000).sum();
+    assert_eq!(out, want.to_string());
+}
+
+/// SOUNDNESS net: when a value outside i32 range reaches a (would-be) narrowed
+/// buffer, the result must STILL equal the full-width run — the buffer widens
+/// rather than truncating. (Constant out-of-range stores also keep the proof
+/// from narrowing; either way the observable value is unchanged.)
+#[test]
+fn narrowed_array_out_of_range_value_is_lossless() {
+    let src = "## Main\n\
+               Let n be 3000.\n\
+               Let mutable a be a new Seq of Int.\n\
+               Let mutable i be 0.\n\
+               While i is less than n:\n\
+               \x20   Push i % 5 to a.\n\
+               \x20   Set i to i + 1.\n\
+               Set item 1 of a to 9000000000.\n\
+               Let mutable total be 0.\n\
+               Set i to 0.\n\
+               While i is less than n:\n\
+               \x20   Set total to total + item (i + 1) of a.\n\
+               \x20   Set i to i + 1.\n\
+               Show total.\n";
+    // tiered_narrow already asserts VM == tree-walker; the explicit value pins
+    // that the big number survived intact under narrowing.
+    let (out, err, _) = tiered_narrow(src);
+    assert_eq!(err, None);
+    let base: i64 = (1..3000i64).map(|i| i % 5).sum(); // a[0] is overwritten
+    let want = base + 9_000_000_000;
+    assert_eq!(out, want.to_string());
+}
+
+/// A narrowable array carrying negative values must SIGN-extend on read (not
+/// zero-extend) — the i32 load is `movsxd`, not `movzx`.
+#[test]
+fn narrowed_array_negative_values_sign_extend() {
+    let src = "## Main\n\
+               Let n be 2000.\n\
+               Let mutable a be a new Seq of Int.\n\
+               Let mutable i be 0.\n\
+               While i is less than n:\n\
+               \x20   Push 0 - (i % 100) to a.\n\
+               \x20   Set i to i + 1.\n\
+               Let mutable total be 0.\n\
+               Set i to 0.\n\
+               While i is less than n:\n\
+               \x20   Set total to total + item (i + 1) of a.\n\
+               \x20   Set i to i + 1.\n\
+               Show total.\n";
+    let (out, err, _) = tiered_narrow(src);
+    assert_eq!(err, None);
+    let want: i64 = (0..2000i64).map(|i| -(i % 100)).sum();
+    assert_eq!(out, want.to_string());
 }

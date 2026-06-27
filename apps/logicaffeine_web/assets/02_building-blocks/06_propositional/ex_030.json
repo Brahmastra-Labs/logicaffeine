@@ -4,10 +4,10 @@
   "difficulty": 1,
   "prompt": "Either both R and L or N",
   "options": [
-    "$ (R \\\\cdot (L \\\\vee N)) $",
-    "$ (R \\\\cdot L) \\\\vee N $",
-    "$ R \\\\cdot L \\\\vee N $",
-    "$ ((R \\\\cdot L) \\\\vee N) $"
+    "$ (R \\cdot (L \\vee N)) $",
+    "$ (R \\cdot L) \\vee N $",
+    "$ R \\cdot L \\vee N $",
+    "$ ((R \\cdot L) \\vee N) $"
   ],
   "correct": 3,
   "hint": "What exactly is 'both' connecting? Are both parts the full consequence, or just the second one?",

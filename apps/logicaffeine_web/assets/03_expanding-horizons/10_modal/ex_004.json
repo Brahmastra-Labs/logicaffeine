@@ -4,10 +4,10 @@
   "difficulty": 1,
   "prompt": "Madonna couldn't be powerful",
   "options": [
-    "$ \\\\lozenge \\\\sim P $",
-    "$ \\\\sim \\\\lozenge P $",
-    "$ \\\\sim (\\\\lozenge P) $",
-    "$ \\\\sim \\\\lozenge (P) $"
+    "$ \\lozenge \\sim P $",
+    "$ \\sim \\lozenge P $",
+    "$ \\sim (\\lozenge P) $",
+    "$ \\sim \\lozenge (P) $"
   ],
   "correct": 1,
   "hint": "Does 'couldn't' mean 'not possible' or 'not necessary'? Think about what's being ruled out.",

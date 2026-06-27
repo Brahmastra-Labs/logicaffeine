@@ -250,15 +250,21 @@ fn group2_fails_closed_for_int_operands() {
 /// Group 3: `x * 2^n → x << n` is unconditional over wrapping ints.
 #[test]
 fn mul_pow2_becomes_shl() {
+    // `x * 2^k → x << k` is now ORACLE-GATED (exact `*` promotes on overflow, `<<`
+    // wraps), so the rewrite fires only when the proven interval of `x` makes the
+    // product fit i64. Bounded `x ∈ [0, 1000]` ⇒ x*4 ≤ 4000 fits ⇒ the optimization
+    // still fires (we kept it for the sound case; only the unsound unbounded case
+    // is refused — there the backend keeps a checked multiply / LLVM shifts it).
     let mut eg = CompilerEGraph::new();
     let x = eg.add(CompilerENode::Var(0, 0));
     eg.set_scalar(x, ScalarKind::Int);
+    eg.set_int_range(x, 0, 1000);
     let four = eg.add(CompilerENode::Int(4));
     let mul = eg.add(CompilerENode::Mul(x, four));
     let two = eg.add(CompilerENode::Int(2));
     let shl = eg.add(CompilerENode::Shl(x, two));
     eg.saturate(&rules::all());
-    assert_eq!(eg.find(mul), eg.find(shl), "x * 4 must unify with x << 2");
+    assert_eq!(eg.find(mul), eg.find(shl), "proven-bounded x * 4 must unify with x << 2");
 }
 
 /// Group 3 CONDITIONAL: `x / 2^n → x >> n` requires an Oracle proof x ≥ 0.
@@ -366,7 +372,7 @@ fn rules_compose_through_classes() {
 /// Constant folding inside the e-graph: 2 + 3 lands in the class of 5,
 /// with kernel-exact wrapping semantics at the i64 rim.
 #[test]
-fn egraph_constant_folds_with_wrapping_semantics() {
+fn egraph_constant_folds_with_exact_overflow_semantics() {
     let mut eg = CompilerEGraph::new();
     let two = eg.add(CompilerENode::Int(2));
     let three = eg.add(CompilerENode::Int(3));
@@ -375,13 +381,20 @@ fn egraph_constant_folds_with_wrapping_semantics() {
     eg.saturate(&rules::all());
     assert_eq!(eg.find(sum), eg.find(five), "2 + 3 must fold to 5");
 
+    // Integer math is EXACT: `i64::MAX + 1` overflows i64, so its exact value is a
+    // BigInt the Int e-node cannot represent. The Architect must NOT fold it to the
+    // wrapped `i64::MIN` (that rewrite is unsound) — it stays an Add for the
+    // runtime/exact tier to promote.
     let mut eg = CompilerEGraph::new();
     let max = eg.add(CompilerENode::Int(i64::MAX));
     let one = eg.add(CompilerENode::Int(1));
     let sum = eg.add(CompilerENode::Add(max, one));
-    let min = eg.add(CompilerENode::Int(i64::MIN));
     eg.saturate(&rules::all());
-    assert_eq!(eg.find(sum), eg.find(min), "i64::MAX + 1 must fold to i64::MIN (wrapping)");
+    let class = eg.find(sum);
+    for k in [i64::MIN, i64::MAX, 0] {
+        let lit = eg.add(CompilerENode::Int(k));
+        assert_ne!(eg.find(lit), class, "i64::MAX + 1 must not fold to the wrapped {k}");
+    }
 }
 
 /// Division folding must NOT fold a divide-by-zero (the runtime error is
@@ -631,11 +644,14 @@ mod v2_pipeline {
         stmts.iter().any(|s| walk(s, pred))
     }
 
-    /// A dynamic `n * 8` in a hot loop must residualize as a SHIFT in the
-    /// v2 program (the e-graph fired through the real pipeline), and the
-    /// output must match the raw tree-walker exactly.
+    /// A dynamic `i * 8` whose multiplicand is bounded only by a RUNTIME `n`
+    /// must NOT residualize as a wrapping shift: integer `*` is EXACT (it
+    /// promotes to BigInt on overflow) while `<<` wraps, so without an Oracle
+    /// proof that `i * 8` stays within i64 the strength reduction is unsound.
+    /// The e-graph must keep the exact multiply (the backend still lowers it to
+    /// a checked native `imul`) and the output must match the tree-walker.
     #[test]
-    fn v2_residualizes_mul_pow2_as_shift() {
+    fn v2_refuses_unsound_mul_pow2_shift_when_overflow_possible() {
         let src = "## To native args () -> Seq of Text\n\
                    ## To native parseInt (s: Text) -> Int\n\
                    \n\
@@ -665,7 +681,11 @@ mod v2_pipeline {
         });
         assert_eq!(err, None);
         assert_eq!(norm(&out), "4004000");
-        assert!(saw_shl, "i * 8 must residualize as a shift under v2");
+        assert!(
+            !saw_shl,
+            "i * 8 with a runtime-bounded i must stay an EXACT multiply, not a wrapping shift \
+             (the gated `r_mul_pow2_shl` only fires when the Oracle proves the product fits i64)"
+        );
     }
 
     /// Mutation versioning: `x + 0` before and after `Set x` are DIFFERENT

@@ -4,10 +4,10 @@
   "difficulty": 1,
   "prompt": "Not either not B or N",
   "options": [
-    "$ (B \\\\vee N) $",
-    "$ B \\\\vee N $",
-    "$ \\\\sim\\\\sim B \\\\vee N $",
-    "$ \\\\sim(\\\\sim B \\\\vee N) $"
+    "$ (B \\vee N) $",
+    "$ B \\vee N $",
+    "$ \\sim\\sim B \\vee N $",
+    "$ \\sim(\\sim B \\vee N) $"
   ],
   "correct": 3,
   "hint": "Identify the main connective first. What's the primary structure of this sentence?",

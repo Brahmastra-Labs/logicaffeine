@@ -593,7 +593,20 @@ Show third."#,
 Let numbers be [1, 2, 3].
 Push 4 to numbers.
 Push 5 to numbers.
+Show numbers.
+
+Pop from numbers into last.
+Show last.
 Show numbers."#,
+            },
+            CodeExample {
+                id: "slicing",
+                label: "Slicing (inclusive, 1-based)",
+                mode: ExampleMode::Imperative,
+                code: r#"## Main
+Let fruits be ["apple", "banana", "cherry", "date"].
+Let middle be items 2 through 3 of fruits.
+Show middle."#,
             },
             CodeExample {
                 id: "list-iteration",
@@ -827,6 +840,29 @@ A Direction is either:
 ## Main
 Let heading be North.
 Show heading."#,
+            },
+            CodeExample {
+                id: "inspect-when",
+                label: "Pattern Matching (Inspect/When)",
+                mode: ExampleMode::Imperative,
+                code: r#"## Definition
+A Direction is either:
+    North.
+    South.
+    East.
+    West.
+
+## Main
+Let heading be East.
+Inspect heading:
+    When North:
+        Show "Heading north".
+    When South:
+        Show "Heading south".
+    When East:
+        Show "Heading east".
+    When West:
+        Show "Heading west"."#,
             },
         ],
     },
@@ -1878,6 +1914,35 @@ Show "Age 25 valid: " + valid.
 Let invalid be validate_age(-5).
 Show "Age -5 valid: " + invalid."#,
             },
+            CodeExample {
+                id: "result-pattern",
+                label: "Success/Failure with Pattern Matching",
+                mode: ExampleMode::Imperative,
+                code: r#"## Definition
+An Outcome is either:
+    Success (value: Int).
+    Failure (message: Text).
+
+## To checked_halve (n: Int) -> Outcome:
+    If n is less than 0:
+        Return a new Failure with message "cannot halve a negative".
+    Return a new Success with value (n / 2).
+
+## Main
+Let good be checked_halve(10).
+Inspect good:
+    When Success (v):
+        Show "Halved: " + v.
+    When Failure (m):
+        Show "Error: " + m.
+
+Let bad be checked_halve(-4).
+Inspect bad:
+    When Success (v):
+        Show "Halved: " + v.
+    When Failure (m):
+        Show "Error: " + m."#,
+            },
         ],
     },
 
@@ -1997,9 +2062,13 @@ This creates a `Largo.toml` manifest and `src/main.lg` entry point.
 | `largo build` | Compile the project to a native binary |
 | `largo build --release` | Compile with optimizations |
 | `largo run` | Build and run |
+| `largo run --interpret` | Run on the interpreter—no Rust build, sub-second feedback |
+| `largo run --release` | Build and run with optimizations |
 | `largo check` | Type-check without compiling |
 | `largo verify` | Run Z3 static verification (Pro+ license required) |
 | `largo build --verify` | Build with verification |
+| `largo build --target wasm` | Cross-compile to WebAssembly |
+| `largo opts <file>` | Report which optimizations actually fire |
 
 ### Package Registry
 
@@ -2181,7 +2250,7 @@ In development builds, `Trust` becomes a `debug_assert!`. In release builds, it 
 
 ### Auditing Trust Statements
 
-Find all trust statements in your codebase with `largo audit`.
+Every `Trust` stays a plain `Trust that ... because ...` line in your source—search for `Trust that` to review every assumption, each carrying the `because` justification that documents why it holds.
 
 ### Proof Blocks (Advanced)
 
@@ -2284,21 +2353,17 @@ Show "Bounded: " + bounded."#,
         content: r#"
 This section contains complete, runnable programs demonstrating various LOGOS features.
 
-### Mergesort
-
-A complete, recursive sorting algorithm.
-
 ### Factorial
 
-Classic recursive example.
+A classic recursive function.
 
-### Working with Structs
+### Fibonacci
 
-A complete example with custom types.
+Recursion combined with a `While` loop to print a sequence.
 
-### Collection Processing
+### Filtering a Collection
 
-Common patterns for working with collections.
+Iterating a list with `Repeat for`, guarding with `If`, and accumulating into a new `Seq`.
 "#,
         examples: &[
             CodeExample {

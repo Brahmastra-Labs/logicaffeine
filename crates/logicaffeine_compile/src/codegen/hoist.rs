@@ -67,7 +67,7 @@ pub fn force_disable_for_test(disabled: bool) {
 /// set, or the operational `LOGOS_HOIST=0` env var is present.
 pub fn hoisting_disabled() -> bool {
     FORCE_DISABLE.with(|c| c.get())
-        || std::env::var("LOGOS_HOIST").map(|v| v == "0").unwrap_or(false)
+        || !crate::optimize::active_config().is_on(crate::optimization::Opt::HoistBorrows)
 }
 
 /// Could a value of this tracked type share a Seq's `Rc<RefCell>` — i.e.
@@ -378,7 +378,7 @@ fn scan_stmts(stmts: &[Stmt], roles: &mut AccessRoles) {
                     scan_stmts(arm.body, roles);
                 }
             }
-            Stmt::RuntimeAssert { condition } => scan_value_expr(condition, roles),
+            Stmt::RuntimeAssert { condition, .. } => scan_value_expr(condition, roles),
             // Calls, concurrency, zones, escapes, IO — opaque: bail.
             _ => roles.bail = true,
         }
@@ -535,7 +535,7 @@ pub(crate) fn plan_borrow_hoist<'a>(
         hoisted.retain(|_| it.next().unwrap());
     }
 
-    derc_hoisted
+    let entries: Vec<HoistEntry> = derc_hoisted
         .into_iter()
         .map(|(sym, kind, elem_ty, old_type)| HoistEntry { sym, kind, elem_ty, old_type, is_vec: true })
         .chain(
@@ -543,7 +543,13 @@ pub(crate) fn plan_borrow_hoist<'a>(
                 .into_iter()
                 .map(|(sym, kind, elem_ty, old_type)| HoistEntry { sym, kind, elem_ty, old_type, is_vec: false }),
         )
-        .collect()
+        .collect();
+    // Reaching here with entries means the oracle is present, which (per the kill
+    // switch nulling it in codegen_program) means hoisting is enabled.
+    if !entries.is_empty() {
+        crate::optimize::mark_fired(crate::optimization::Opt::HoistBorrows);
+    }
+    entries
 }
 
 /// Open the hoist scope: guards, shadows, and the slice type flips.

@@ -4,10 +4,10 @@
   "difficulty": 1,
   "prompt": "If you aren't poor then you aren't beautiful",
   "options": [
-    "$ \\\\sim(P \\\\supset \\\\sim B) $",
-    "$ \\\\sim P \\\\supset \\\\sim B $",
-    "$ (\\\\sim P \\\\supset \\\\sim B) $",
-    "$ (\\\\sim P \\\\vee B) $"
+    "$ \\sim(P \\supset \\sim B) $",
+    "$ \\sim P \\supset \\sim B $",
+    "$ (\\sim P \\supset \\sim B) $",
+    "$ (\\sim P \\vee B) $"
   ],
   "correct": 2,
   "hint": "Identify the main connective first. What's the primary structure of this sentence?",

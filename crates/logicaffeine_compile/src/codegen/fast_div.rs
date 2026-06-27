@@ -135,7 +135,7 @@ impl<'a> Walk<'a> {
                     self.expr(a, sc);
                 }
             }
-            Stmt::RuntimeAssert { condition } => self.expr(condition, sc),
+            Stmt::RuntimeAssert { condition, .. } => self.expr(condition, sc),
             _ => {}
         }
     }

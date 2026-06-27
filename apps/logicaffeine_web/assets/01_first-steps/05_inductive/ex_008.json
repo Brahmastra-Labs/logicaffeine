@@ -1,5 +1,5 @@
 {
-  "id": "I_1.8",
+  "id": "I_5.8",
   "type": "multiple_choice",
   "difficulty": 2,
   "prompt": "A medical test is 95% accurate. If you test positive, what's the probability you have the disease?",

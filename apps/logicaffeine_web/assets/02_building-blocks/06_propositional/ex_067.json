@@ -1,13 +1,13 @@
 {
-  "id": "C_6.5",
+  "id": "C_6.67",
   "type": "multiple_choice",
   "difficulty": 1,
   "prompt": "Not both C and P",
   "options": [
-    "$ (\\\\sim C \\\\cdot \\\\sim P) $",
-    "$ \\\\sim C \\\\cdot P $",
-    "$ \\\\sim(C \\\\cdot P) $",
-    "$ (\\\\sim C \\\\cdot P) $"
+    "$ (\\sim C \\cdot \\sim P) $",
+    "$ \\sim C \\cdot P $",
+    "$ \\sim(C \\cdot P) $",
+    "$ (\\sim C \\cdot P) $"
   ],
   "correct": 2,
   "hint": "What exactly is 'both' connecting? Are both parts the full consequence, or just the second one?",

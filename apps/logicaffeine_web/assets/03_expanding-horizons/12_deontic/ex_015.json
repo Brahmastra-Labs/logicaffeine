@@ -4,12 +4,12 @@
   "difficulty": 1,
   "prompt": "If you're crying, then sing",
   "options": [
-    "$ (Cu\\\\supset OS\\\\underline{u} ) $",
-    "$ (Cu\\\\supset S\\\\underline{u} ) $",
-    "$ (C\\\\underline{u}\\\\supset S\\\\underline{u}  ) $",
-    "$ (Cu\\\\supset Su) $"
+    "$ (Cu\\supset OS\\underline{u} ) $",
+    "$ (Cu\\supset S\\underline{u} ) $",
+    "$ (C\\underline{u}\\supset S\\underline{u}  ) $",
+    "$ (Cu\\supset Su) $"
   ],
   "correct": 1,
   "hint": "Identify WHO is being commanded or permitted (the agent, marked with underline) and WHAT action they must/may do.",
-  "explanation": "In deontic logic: Deontic operators express moral or legal requirements."
+  "explanation": "'If A then B' is A ⊃ B. The antecedent Cu ('you're crying') is descriptive; the consequent S͟u ('sing') is the command: (Cu ⊃ S͟u)."
 }

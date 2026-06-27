@@ -4,10 +4,10 @@
   "difficulty": 1,
   "prompt": "It must be that you aren't cowardly",
   "options": [
-    "$ \\\\sim \\\\square (C) $",
-    "$ \\\\square \\\\sim C $",
-    "$ (\\\\square \\\\sim C) $",
-    "$ \\\\sim \\\\square C $"
+    "$ \\sim \\square (C) $",
+    "$ \\square \\sim C $",
+    "$ (\\square \\sim C) $",
+    "$ \\sim \\square C $"
   ],
   "correct": 1,
   "hint": "Does 'must' attach to the whole statement, or to part of it? What exactly is being required?",

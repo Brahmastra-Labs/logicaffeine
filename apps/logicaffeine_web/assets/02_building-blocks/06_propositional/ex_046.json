@@ -4,10 +4,10 @@
   "difficulty": 1,
   "prompt": "If you're strong then you're talented, or you're cautious",
   "options": [
-    "$ (S \\\\supset T) \\\\vee C $",
-    "$ (S \\\\supset (T \\\\vee C)) $",
-    "$ S \\\\supset T \\\\vee C $",
-    "$ ((S \\\\supset T) \\\\vee C) $"
+    "$ (S \\supset T) \\vee C $",
+    "$ (S \\supset (T \\vee C)) $",
+    "$ S \\supset T \\vee C $",
+    "$ ((S \\supset T) \\vee C) $"
   ],
   "correct": 3,
   "hint": "Identify the main connective first. What's the primary structure of this sentence?",

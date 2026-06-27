@@ -76,6 +76,15 @@ impl Showable for f64 {
     }
 }
 
+// Exact rationals show as `n/d` (or a bare integer when whole) — `Display` already
+// reduces, so `Let x: Rational be 7 / 2; Show x` prints `7/2`.
+impl Showable for logicaffeine_data::LogosRational {
+    #[inline(always)]
+    fn format_show(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        Display::fmt(self, f)
+    }
+}
+
 impl Showable for bool {
     #[inline(always)]
     fn format_show(&self, f: &mut fmt::Formatter) -> fmt::Result {

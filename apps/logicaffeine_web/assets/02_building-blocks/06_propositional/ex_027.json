@@ -4,10 +4,10 @@
   "difficulty": 1,
   "prompt": "Not either not W or C",
   "options": [
-    "$ \\\\sim\\\\sim W \\\\vee C $",
-    "$ W \\\\vee C $",
-    "$ (W \\\\vee C) $",
-    "$ \\\\sim(\\\\sim W \\\\vee C) $"
+    "$ \\sim\\sim W \\vee C $",
+    "$ W \\vee C $",
+    "$ (W \\vee C) $",
+    "$ \\sim(\\sim W \\vee C) $"
   ],
   "correct": 3,
   "hint": "Identify the main connective first. What's the primary structure of this sentence?",

@@ -900,7 +900,15 @@ fn fold_inside_function_call_args() {
 Show double(2 + 3).
 "#;
     let rust = compile_to_rust(source).unwrap();
-    assert!(rust.contains("double(5)"), "Should fold 2+3 inside call args to 5.\nGot:\n{}", rust);
+    // `2 + 3` folds to `5`, then the partial evaluator inlines `double(5)` and folds
+    // `5 + 5` (the sound `n * 2 → n + n`) all the way to the constant `10` — strictly
+    // MORE folding than the old `double(5)` call. The unfolded `2 + 3` must be gone.
+    assert!(!rust.contains("2 + 3"), "`2 + 3` must be folded.\nGot:\n{}", rust);
+    assert!(
+        rust.contains("double(5)") || rust.contains("show(&10)"),
+        "double(2+3) must fold (to the call double(5) or fully to show(&10)).\nGot:\n{}",
+        rust
+    );
 }
 
 #[test]
@@ -1431,8 +1439,15 @@ fn fold_algebraic_nested_in_call() {
 Show double(5 + 0).
 "#;
     let rust = compile_to_rust(source).unwrap();
-    // Deep recursion folds into call args, then algebraic simplifies 5+0 to 5
-    assert!(rust.contains("double(5)"), "Should fold 5+0 to 5 inside call args.\nGot:\n{}", rust);
+    // `5 + 0` algebraically simplifies to `5`, then the partial evaluator inlines
+    // `double(5)` and folds `5 + 5` (the sound `n * 2 → n + n`) all the way to `10`
+    // — strictly MORE folding than the old `double(5)` call. The `5 + 0` must be gone.
+    assert!(!rust.contains("5 + 0"), "`5 + 0` must be folded.\nGot:\n{}", rust);
+    assert!(
+        rust.contains("double(5)") || rust.contains("show(&10)"),
+        "double(5+0) must fold (to the call double(5) or fully to show(&10)).\nGot:\n{}",
+        rust
+    );
 }
 
 // =============================================================================
@@ -2651,7 +2666,12 @@ Show factorial(5).
 
 #[test]
 fn bit_strength_power_of_two_mul() {
-    // x * 8 → x << 3
+    // EXACT-ARITHMETIC CONTRACT: integer `*` promotes to BigInt on overflow while
+    // `<<` WRAPS, so `x * 8 → x << 3` is UNSOUND for an unbounded `x`. The IR
+    // strength reduction is now Oracle-gated (fires only when the product is
+    // PROVEN to fit i64 — see `mul_pow2_becomes_shl` / the gated `r_mul_pow2_shl`).
+    // No optimization is lost: for an unprovable parameter the emitted Rust keeps
+    // the sound `x * 8`, which rustc/LLVM strength-reduces to a shift itself.
     let source = r#"## To scale (x: Int) -> Int:
     Return x * 8.
 
@@ -2661,8 +2681,13 @@ Show scale(5).
     let rust = compile_to_rust(source).unwrap();
     let fn_body = rust.split("fn scale(").nth(1).unwrap_or("");
     assert!(
-        fn_body.contains("<< 3"),
-        "x * 8 should be strength-reduced to x << 3. Got:\n{}",
+        fn_body.contains("* 8") || fn_body.contains("8 *"),
+        "unbounded x * 8 must stay an exact multiply (not an unsound wrapping shift). Got:\n{}",
+        rust
+    );
+    assert!(
+        !fn_body.contains("<< 3"),
+        "x * 8 must NOT be lowered to a wrapping `<< 3` for an unbounded x. Got:\n{}",
         rust
     );
     common::assert_exact_output(source, "40");

@@ -1,0 +1,15 @@
+{
+  "id": "P_1.15",
+  "type": "multiple_choice",
+  "difficulty": 3,
+  "prompt": "From 'P → Q' and 'Q', what can you validly conclude?",
+  "options": [
+    "P",
+    "Nothing — this is the fallacy of affirming the consequent",
+    "¬P",
+    "Q → P"
+  ],
+  "correct": 1,
+  "hint": "P → Q says P is sufficient for Q, not that Q is sufficient for P. Could Q be true for some other reason?",
+  "explanation": "You cannot conclude P. 'P → Q' plus 'Q' is the fallacy of AFFIRMING THE CONSEQUENT — Q could be true even when P is false (Q might have another cause). Compare Modus Ponens, which is valid: from 'P → Q' and 'P', conclude Q."
+}

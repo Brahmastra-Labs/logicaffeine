@@ -313,7 +313,8 @@ fn parse_math_statements(code: &str) -> Vec<String> {
 fn examples_for_mode(mode: StudioMode) -> &'static [DemoExample] {
     match mode {
         StudioMode::Code => &CODE_DEMO_EXAMPLES,
-        StudioMode::Logic => &LOGIC_DEMO_EXAMPLES,
+        // The landing carousel surfaces Logic/Code/Math; Hardware lives in the Studio.
+        StudioMode::Logic | StudioMode::Hardware => &LOGIC_DEMO_EXAMPLES,
         StudioMode::Math => &MATH_DEMO_EXAMPLES,
     }
 }
@@ -1670,7 +1671,7 @@ pub fn Landing() -> Element {
                     output_error.set(result.error);
                 });
             }
-            StudioMode::Logic => {
+            StudioMode::Logic | StudioMode::Hardware => {
                 let mut lines: Vec<String> = Vec::new();
 
                 if content.contains("## Theorem:") {
@@ -1938,7 +1939,7 @@ pub fn Landing() -> Element {
                                                     is_running.set(false);
                                                 });
                                             }
-                                            StudioMode::Logic => {
+                                            StudioMode::Logic | StudioMode::Hardware => {
                                                 let mut lines: Vec<String> = Vec::new();
 
                                                 if code.contains("## Theorem:") {
@@ -2059,7 +2060,7 @@ pub fn Landing() -> Element {
                                                 on_change: move |v: String| code_content.set(v),
                                                 language: match mode {
                                                     StudioMode::Code => Language::Logos,
-                                                    StudioMode::Logic => Language::Logos,
+                                                    StudioMode::Logic | StudioMode::Hardware => Language::Logos,
                                                     StudioMode::Math => Language::Vernacular,
                                                 },
                                                 placeholder: "Enter code...".to_string(),

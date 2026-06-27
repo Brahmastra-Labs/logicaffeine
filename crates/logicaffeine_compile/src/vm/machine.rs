@@ -5,9 +5,10 @@
 //! register windowing — the callee's frame starts at the caller's `args_start`,
 //! so arguments are passed with zero copying.
 
-use super::instruction::{CompiledProgram, Constant, Op, Reg};
+use super::instruction::{CompiledProgram, Constant, FuncIdx, Op, Reg};
 use super::value::Value;
 use super::MAX_REGISTER_FILE;
+use logicaffeine_runtime::{ChanId, RtPayload, SelectArm, TaskId};
 
 /// LEVER B callee analysis — may a region CALL this function while passing a
 /// pinned list argument? Returns `(list_params_stable, returns_list_param)`,
@@ -107,6 +108,7 @@ enum NativeDisposition {
     },
 }
 
+#[derive(Clone, Copy)]
 struct CallFrame {
     return_pc: usize,
     return_reg: Reg,
@@ -118,6 +120,132 @@ struct CallFrame {
     /// The function whose body this frame runs — selects the per-frame
     /// named-register map for loop regions tiering up inside it.
     func: u16,
+}
+
+/// The outcome of one `run_until_block` slice (T11). A non-concurrent program
+/// always returns `Done` on the first slice, so `run()` behaves exactly as the
+/// old single-shot loop. A concurrent task returns `Blocked` at each scheduler
+/// op; the driver reads [`Vm::take_pending`] and re-enters after the block clears.
+pub(crate) enum VmStep {
+    /// The (sub)program ran to completion (`Halt` or code exhausted) with the
+    /// given result payload (the main/return value, `Nothing` if none).
+    Done(crate::interpreter::RuntimeValue),
+    /// Suspended at a concurrency op; [`Vm::take_pending`] carries the request.
+    Blocked,
+    /// Suspended by the debug stepper after exhausting its per-call op budget
+    /// (`STEPPED = true` only). Resumable on the next [`Vm::run_steps`]. The
+    /// production path (`run_until_block`, `STEPPED = false`) never yields this.
+    Paused,
+}
+
+/// A read-only view of the paused VM for the Studio debug drawer: the program
+/// counter, the live call frames (Main first, current last) with their register
+/// values, the named globals, and the output so far. Values are rendered with the
+/// same `to_display_string` the `Show` op uses.
+pub(crate) struct DebugView {
+    pub pc: usize,
+    pub current_func: Option<u16>,
+    pub frames: Vec<DebugFrameView>,
+    pub globals: Vec<(String, String)>,
+    pub output: Vec<String>,
+}
+
+/// One call frame's registers in a [`DebugView`]. `func` is `None` for Main; `base`
+/// is the frame's start offset in the linear register file (its stack address).
+pub(crate) struct DebugFrameView {
+    pub func: Option<u16>,
+    pub base: usize,
+    pub registers: Vec<(u16, String)>,
+}
+
+/// One heap-allocated object (list / map / set / tuple / text / struct) reachable
+/// from the current frame or the globals — the heap-viewer's unit. `id` is the live
+/// allocation address (so two roots sharing one object share an `id` → aliasing), and
+/// `rc` is its reference count.
+pub(crate) struct HeapObjView {
+    pub id: usize,
+    pub kind: String,
+    pub summary: String,
+    pub rc: usize,
+    pub referenced_by: Vec<String>,
+}
+
+/// The heap identity of a value — its allocation address, kind, and reference count.
+/// `None` for inline scalars (Int/Float/Bool/Char/…), which live in the register slot
+/// itself and are not heap objects.
+fn heap_identity(val: &Value) -> Option<(usize, String, usize)> {
+    use crate::interpreter::RuntimeValue as RV;
+    use std::rc::Rc;
+    match val.as_runtime_ref()? {
+        RV::List(rc) => Some((Rc::as_ptr(rc) as usize, "list".to_string(), Rc::strong_count(rc))),
+        RV::Map(rc) => Some((Rc::as_ptr(rc) as usize, "map".to_string(), Rc::strong_count(rc))),
+        RV::Set(rc) => Some((Rc::as_ptr(rc) as usize, "set".to_string(), Rc::strong_count(rc))),
+        RV::Tuple(rc) => Some((Rc::as_ptr(rc) as usize, "tuple".to_string(), Rc::strong_count(rc))),
+        RV::Text(rc) => Some((Rc::as_ptr(rc) as usize, "text".to_string(), Rc::strong_count(rc))),
+        RV::Struct(b) => Some((&**b as *const _ as usize, "struct".to_string(), 1)),
+        RV::Inductive(b) => Some((&**b as *const _ as usize, "enum".to_string(), 1)),
+        _ => None,
+    }
+}
+
+/// The resumable execution state of a single-task program — enough to pause it and
+/// resume in a freshly-built `tier: None` VM. The debugger owns the
+/// [`CompiledProgram`] and rebuilds the VM each step (it cannot hold a borrowing
+/// `Vm<'p>` across steps), threading this snapshot through. Concurrency request
+/// state is intentionally omitted (the debugger is single-task, bytecode-tier).
+#[derive(Clone)]
+pub(crate) struct DebugVmState {
+    registers: Vec<Value>,
+    base: usize,
+    globals: Vec<Option<Value>>,
+    lines: Vec<String>,
+    iter_stack: Vec<(Vec<Value>, usize)>,
+    sched_active: bool,
+    sched_pc: usize,
+    sched_call_stack: Vec<CallFrame>,
+}
+
+impl DebugVmState {
+    /// The pc the program is stopped at (the op about to execute).
+    pub(crate) fn pc(&self) -> usize {
+        self.sched_pc
+    }
+    /// Call-stack depth (0 = in Main), for step-over / step-out.
+    pub(crate) fn call_depth(&self) -> usize {
+        self.sched_call_stack.len()
+    }
+}
+
+/// A concurrency request a suspended [`Vm`] hands to the scheduler driver — the
+/// VM analog of the tree-walker's `BlockingRequest`. A spawned child travels as a
+/// fully-built `Vm` (sharing the parent's `&'p program`), which the driver wraps
+/// in its own task.
+pub(crate) enum VmBlock {
+    /// Create a channel (`None` = the scheduler's default capacity); resume with its id.
+    NewChan(Option<usize>),
+    /// Send a value into a channel (blocks if full).
+    Send(ChanId, RtPayload),
+    /// Receive from a channel (blocks if empty); resume with the value.
+    Recv(ChanId),
+    /// Non-blocking send; resume with `Bool(success)`.
+    TrySend(ChanId, RtPayload),
+    /// Non-blocking receive; resume with the value or `Nothing`.
+    TryRecv(ChanId),
+    /// Close a channel.
+    Close(ChanId),
+    /// Spawn a child *by descriptor* — function index + materialised args — so the
+    /// driver builds the child `Vm` (the cooperative driver inline, a work-stealing
+    /// worker locally over its own program). `want_handle` distinguishes a launch
+    /// that binds a task handle. Resume with the child's `TaskId`.
+    SpawnDesc { func: FuncIdx, args: Vec<RtPayload>, want_handle: bool },
+    /// Await a task's completion; resume with its result payload.
+    Await(TaskId),
+    /// Abort a task.
+    Abort(TaskId),
+    /// Block on the first ready select arm; resume with the winning arm index.
+    Select(Vec<SelectArm>),
+    /// Sleep for some logical ticks.
+    Sleep(u64),
 }
 
 pub struct Vm<'p> {
@@ -171,6 +299,56 @@ pub struct Vm<'p> {
     /// Per-program native-tier context: the EXODIA 4.7 entry table plus the
     /// shared deopt-status and live-depth cells every chain patches.
     native_ctx: super::native_tier::NativeCtx,
+    /// The off-thread native compiler (HOTSWAP §6), present only when the VM was
+    /// given the process-installed `&'static` tier via [`Vm::with_bg_native_tier`].
+    /// `None` ⇒ compile synchronously on this thread (the retained fallback, and the
+    /// only path for a borrowed `&'p` tier). Native-only: needs `std::thread`+forge.
+    #[cfg(not(target_arch = "wasm32"))]
+    bg: Option<super::bg_compile::BgCompiler>,
+    /// Axis-1 warm-bytecode side-table (HOTSWAP §7 / P11): re-optimized function
+    /// bodies appended here, in the same pc space *after* `program.code`. A `Call`
+    /// to a function with a `warm_entry` jumps into this buffer instead of the
+    /// baseline `entry_pc`. Pure bytecode — no forge, no `rustc` — so it is the
+    /// browser's hot-swap tier. Empty until a body is installed, and every read
+    /// path is gated on `pc >= program.code.len()`, so the baseline run loop is
+    /// byte-for-byte unchanged when nothing is warm.
+    warm_code: Vec<Op>,
+    /// Per-function warm entry (indexed by function index): the absolute pc of the
+    /// body in the unified `program.code ++ warm_code` space, and its register
+    /// window. `None` ⇒ the function runs its baseline body.
+    warm_entry: Vec<Option<WarmEntry>>,
+
+    /// Resumable-execution state for the scheduler driver (T11). When a task
+    /// suspends at a concurrency op, `run_until_block` saves its `pc` + call stack
+    /// here and restores them on the next slice. A non-concurrent run never sets
+    /// `sched_active`, so it starts fresh at pc 0 — byte-for-byte the old loop.
+    sched_active: bool,
+    sched_pc: usize,
+    sched_call_stack: Vec<CallFrame>,
+    /// The concurrency request produced by the last `Blocked` slice (taken by the
+    /// driver). `None` between slices and for a non-concurrent run.
+    pending: Option<VmBlock>,
+    /// The register the next resume value is delivered into (`None` for a block
+    /// that yields nothing, e.g. `Send`/`Close`).
+    resume_slot: Option<Reg>,
+    /// Accumulated `Select` arms awaiting a `SelectWait`: each runtime arm plus
+    /// the register a winning recv arm binds its value into. Persists across the
+    /// block so `deliver_select` can route the received value to the right arm.
+    select_pending: Vec<(SelectArm, Option<Reg>)>,
+    /// WS6 (Phase 13): the browser WASM-JIT tier. Consulted from `Op::Call` only under the
+    /// `wasm-jit` feature; entirely absent from the default build (and behind the native x86
+    /// forge tier on native, so it is the JIT tier specifically where forge cannot run —
+    /// wasm32).
+    #[cfg(feature = "wasm-jit")]
+    wasm_tier: super::wasm_jit::WasmTier,
+}
+
+/// A warm function body's location in the unified pc space (`program.code` then
+/// `warm_code`) plus the register window it executes in.
+#[derive(Clone, Copy, Debug)]
+struct WarmEntry {
+    entry_pc: usize,
+    register_count: usize,
 }
 
 impl<'p> Vm<'p> {
@@ -200,7 +378,51 @@ impl<'p> Vm<'p> {
                 status: std::sync::Arc::new(std::sync::atomic::AtomicI64::new(0)),
                 depth: std::sync::Arc::new(std::sync::atomic::AtomicI64::new(0)),
             },
+            #[cfg(not(target_arch = "wasm32"))]
+            bg: None,
+            warm_code: Vec::new(),
+            warm_entry: vec![None; program.functions.len()],
+            sched_active: false,
+            sched_pc: 0,
+            sched_call_stack: Vec::new(),
+            pending: None,
+            resume_slot: None,
+            select_pending: Vec::new(),
+            #[cfg(feature = "wasm-jit")]
+            wasm_tier: super::wasm_jit::WasmTier::new(50),
         }
+    }
+
+    /// Install a re-optimized body as function `fi`'s warm tier (HOTSWAP §7 / P11):
+    /// append it to `warm_code` after `program.code`, rebasing its 0-relative jumps
+    /// into that unified pc space, and point `warm_entry[fi]` at it. Subsequent calls
+    /// to `fi` run this body. The body shares the program's constant pool (a
+    /// [`FnBytecode`] preserves constant indices), so only jumps are relocated.
+    pub fn install_warm_bytecode(&mut self, fi: usize, fnbc: &super::fn_bytecode::FnBytecode) -> bool {
+        // Refuse a structurally-invalid body (out-of-range jump/call, missing terminal
+        // op) or one whose arity disagrees with the baseline function — a corrupt cache
+        // entry or a buggy producer then falls back to baseline instead of fetching past
+        // the warm buffer (panic) or reading the wrong registers (HOTSWAP §P12 robustness).
+        if !fnbc.is_well_formed(self.program.functions.len()) {
+            return false;
+        }
+        match self.program.functions.get(fi) {
+            Some(f) if f.param_count == fnbc.param_count => {}
+            _ => return false,
+        }
+        let abs_base = self.program.code.len() + self.warm_code.len();
+        self.warm_code
+            .extend(fnbc.code.iter().map(|&op| super::fn_bytecode::rebase(op, abs_base as isize)));
+        if fi >= self.warm_entry.len() {
+            self.warm_entry.resize(fi + 1, None);
+        }
+        self.warm_entry[fi] = Some(WarmEntry {
+            entry_pc: abs_base,
+            register_count: fnbc.register_count,
+        });
+        let name = self.fn_name(fi);
+        super::tier_trace::trace_transition(fi, &name, super::tier_trace::ExecTier::Warm);
+        true
     }
 
     /// Mark a loop head permanently `Failed` and record it in the per-pc
@@ -273,13 +495,24 @@ impl<'p> Vm<'p> {
                         let rt = self.registers.get(self.base + r).map(|v| v.as_runtime());
                         match rt.as_deref() {
                             Some(RuntimeValue::Int(_)) => ObservedKind::Int,
+                            // A BigInt is a promoted (overflowed) integer — still an
+                            // integer kind, so the region tiers the slot as Int. The
+                            // entry guard re-checks the representation: a real BigInt in
+                            // an Int-guarded slot fails the guard and stays in the exact
+                            // VM, so the native i64 fast path is never entered with a box.
+                            Some(RuntimeValue::BigInt(_)) => ObservedKind::Int,
                             Some(RuntimeValue::Float(_)) => ObservedKind::Float,
                             Some(RuntimeValue::Bool(_)) => ObservedKind::Bool,
                             Some(RuntimeValue::List(rc)) => match &*rc.borrow() {
                                 ListRepr::Ints(_) => ObservedKind::IntList,
+                                ListRepr::IntsI32(_) => ObservedKind::IntListI32,
                                 ListRepr::Floats(_) => ObservedKind::FloatList,
                                 ListRepr::Bools(_) => ObservedKind::BoolList,
-                                ListRepr::Boxed(_) => ObservedKind::Other,
+                                ListRepr::Boxed(_)
+                                | ListRepr::Strings { .. }
+                                | ListRepr::Structs { .. }
+                                | ListRepr::Inductives { .. }
+                                | ListRepr::WireStructs { .. } => ObservedKind::Other,
                             },
                             Some(RuntimeValue::Map(_)) => ObservedKind::Map,
                             // An ASCII Text rides the byte-pin lane (char index ==
@@ -570,6 +803,9 @@ impl<'p> Vm<'p> {
                     (ListRepr::Ints(v), PinElem::Int) => {
                         (v as *mut Vec<i64> as i64, v.as_mut_ptr() as *mut i64, v.len())
                     }
+                    (ListRepr::IntsI32(v), PinElem::IntI32) => {
+                        (v as *mut Vec<i32> as i64, v.as_mut_ptr() as *mut i64, v.len())
+                    }
                     // Maps never reach this arm (their pin path is below) —
                     // a list register observed as Map is a guard failure.
                     (_, PinElem::Map) => return None,
@@ -764,6 +1000,102 @@ impl<'p> Vm<'p> {
         self
     }
 
+    /// Pre-install an AOT-native function for `fi` (HOTSWAP §Axis-3): the VM dispatches
+    /// to it via the existing `NativeSlot::Ready` path from the first call (it is not
+    /// `Untried`, so it skips the hotness threshold and the forge compile). Requires a
+    /// native tier to be installed (the dispatch is gated on `self.tier`); on desktop
+    /// the forge tier is always present alongside. Absent ⇒ the function stays on
+    /// VM+JIT — the AOT artifact is strictly optional, no gap at the seam.
+    #[cfg(not(target_arch = "wasm32"))]
+    pub fn install_aot_native(&mut self, fi: usize, nf: Box<dyn super::native_tier::NativeFn>) {
+        if fi < self.native.len() {
+            let name = self.fn_name(fi);
+            super::tier_trace::trace_transition(fi, &name, super::tier_trace::ExecTier::NativeAot);
+            self.native[fi] = super::native_tier::NativeSlot::Ready(nf);
+        }
+    }
+
+    /// Resolve a function's source name for the tier trace; empty when no interner is
+    /// available (the trace then prints just the index).
+    fn fn_name(&self, fi: usize) -> String {
+        match (self.program.functions.get(fi), self.policy_ctx) {
+            (Some(f), Some((_, interner))) => interner.resolve(f.name).to_string(),
+            _ => String::new(),
+        }
+    }
+
+    /// Install the process tier AND a background compiler (HOTSWAP §6): hot functions
+    /// are compiled on a worker thread instead of stalling the interpreter. The tier
+    /// must be `&'static` (the process-installed forge backend) so it can cross to the
+    /// worker — `&'static dyn NativeTier` is `Send` because `NativeTier: Sync`. The
+    /// interpreter still runs the chains and is the sole `FnTable` writer; the worker
+    /// only compiles. Falls back to [`Vm::with_native_tier`] (synchronous) for a
+    /// borrowed `&'p` tier, which cannot be shared with a thread.
+    #[cfg(not(target_arch = "wasm32"))]
+    pub fn with_bg_native_tier(
+        mut self,
+        tier: &'static dyn super::native_tier::NativeTier,
+    ) -> Self {
+        self.tier = Some(tier);
+        self.bg = Some(super::bg_compile::BgCompiler::new(tier));
+        self
+    }
+
+    /// Apply every background-compiled result that has come back: publish the native
+    /// entry to the `FnTable` and flip the slot to `Ready` (or `Failed`). The
+    /// interpreter is the sole `FnTable` writer, so this only ever runs on this
+    /// thread, at the profiling points. No-op when there is no background compiler.
+    #[cfg(not(target_arch = "wasm32"))]
+    fn drain_bg_compiles(&mut self) {
+        use super::bg_compile::CompileResult;
+        use super::native_tier::NativeSlot;
+        loop {
+            let res = match self.bg.as_mut() {
+                Some(b) => b.try_drain(),
+                None => return,
+            };
+            let Some(res) = res else { return };
+            match res {
+                CompileResult::Function { fi, nf } => match nf {
+                    Some(nf) => {
+                        self.native_ctx.table.publish(fi, nf.entry_ptr(), nf.published_regc());
+                        let name = self.fn_name(fi);
+                        super::tier_trace::trace_transition(fi, &name, super::tier_trace::ExecTier::NativeForge);
+                        self.native[fi] = NativeSlot::Ready(nf);
+                    }
+                    None => self.native[fi] = NativeSlot::Failed,
+                },
+            }
+        }
+    }
+
+    /// Block until every outstanding background compile has come back and been
+    /// published — the determinism hook the differential tests use so the native tier
+    /// engages predictably regardless of thread scheduling. No-op without a background
+    /// compiler.
+    #[cfg(not(target_arch = "wasm32"))]
+    pub fn drain_pending_compiles(&mut self) {
+        use super::bg_compile::CompileResult;
+        use super::native_tier::NativeSlot;
+        let results = match self.bg.as_mut() {
+            Some(b) => b.drain_blocking(),
+            None => return,
+        };
+        for res in results {
+            match res {
+                CompileResult::Function { fi, nf } => match nf {
+                    Some(nf) => {
+                        self.native_ctx.table.publish(fi, nf.entry_ptr(), nf.published_regc());
+                        let name = self.fn_name(fi);
+                        super::tier_trace::trace_transition(fi, &name, super::tier_trace::ExecTier::NativeForge);
+                        self.native[fi] = NativeSlot::Ready(nf);
+                    }
+                    None => self.native[fi] = NativeSlot::Failed,
+                },
+            }
+        }
+    }
+
     /// Supply the program arguments read by the `args()` system native. The
     /// vector is the full argv (index 0 is the program name), matching the
     /// compiled binary's `env::args()`.
@@ -844,8 +1176,13 @@ impl<'p> Vm<'p> {
         use super::native_tier::{NativeSlot, ParamKind, NATIVE_TIER_THRESHOLD};
         let Some(tier) = self.tier else { return NativeDisposition::Interpret };
         let fi = func as usize;
+        // Publish any background-compiled chains that have come back (sole writer).
+        #[cfg(not(target_arch = "wasm32"))]
+        self.drain_bg_compiles();
         match self.native.get(fi) {
             None | Some(NativeSlot::Failed) => return NativeDisposition::Interpret,
+            // Background compile in flight — keep running bytecode until it lands.
+            Some(NativeSlot::Pending) => return NativeDisposition::Interpret,
             _ => {}
         }
         if matches!(self.native[fi], NativeSlot::Untried) {
@@ -901,6 +1238,30 @@ impl<'p> Vm<'p> {
                     })
                     .collect()
             };
+            // With a background compiler, ship the compile off-thread and keep
+            // running bytecode (HOTSWAP §6); the result is drained + published on a
+            // later call. Without one (a borrowed `&'p` tier, or wasm), compile
+            // synchronously — the retained fallback.
+            #[cfg(not(target_arch = "wasm32"))]
+            if self.bg.is_some() {
+                let req = super::bg_compile::CompileRequest::Function(
+                    super::bg_compile::FunctionRequest {
+                        fi,
+                        code: self.program.code[f.entry_pc..end].to_vec(),
+                        entry_pc: f.entry_pc,
+                        constants: std::sync::Arc::from(self.program.constants.clone()),
+                        param_count: f.param_count,
+                        register_count: f.register_count as u16,
+                        param_kinds: f.param_kinds.clone(),
+                        ret_kind: f.ret_kind,
+                        callees,
+                        ctx: self.native_ctx.clone(),
+                    },
+                );
+                self.bg.as_mut().unwrap().submit(req);
+                self.native[fi] = NativeSlot::Pending;
+                return NativeDisposition::Interpret;
+            }
             match tier.compile_function(
                 &self.program.code[f.entry_pc..end],
                 f.entry_pc,
@@ -915,6 +1276,8 @@ impl<'p> Vm<'p> {
             ) {
                 Some(nf) => {
                     self.native_ctx.table.publish(fi, nf.entry_ptr(), nf.published_regc());
+                    let name = self.fn_name(fi);
+                    super::tier_trace::trace_transition(fi, &name, super::tier_trace::ExecTier::NativeForge);
                     self.native[fi] = NativeSlot::Ready(nf);
                 }
                 None => {
@@ -995,6 +1358,7 @@ impl<'p> Vm<'p> {
                         match elem {
                             PinElem::Float => *b = ListRepr::Floats(Vec::new()),
                             PinElem::Bool => *b = ListRepr::Bools(Vec::new()),
+                            PinElem::IntI32 => *b = ListRepr::IntsI32(Vec::new()),
                             PinElem::Int => {}
                             // Function params never pin maps or texts (declared
                             // kinds only produce Int/Float/Bool list elems).
@@ -1010,6 +1374,9 @@ impl<'p> Vm<'p> {
                 let (vec_handle, ptr, len) = match (payload, elem) {
                     (ListRepr::Ints(v), PinElem::Int) => {
                         (v as *mut Vec<i64> as i64, v.as_mut_ptr() as i64, v.len())
+                    }
+                    (ListRepr::IntsI32(v), PinElem::IntI32) => {
+                        (v as *mut Vec<i32> as i64, v.as_mut_ptr() as i64, v.len())
                     }
                     (ListRepr::Floats(v), PinElem::Float) => {
                         (v as *mut Vec<f64> as i64, v.as_mut_ptr() as i64, v.len())
@@ -1130,12 +1497,83 @@ impl<'p> Vm<'p> {
         self.lines
     }
 
-    pub fn run(&mut self) -> Result<(), String> {
-        let mut pc = 0usize;
-        let mut call_stack: Vec<CallFrame> = Vec::new();
+    /// Take this slice's output lines (the scheduler driver merges each task's
+    /// output into a shared sink as it is produced, preserving per-task order).
+    pub(crate) fn drain_lines(&mut self) -> Vec<String> {
+        std::mem::take(&mut self.lines)
+    }
 
-        while pc < self.program.code.len() {
-            match self.program.code[pc] {
+    /// Run the whole program to completion (the non-concurrent entry). A
+    /// concurrent program never reaches here — it is driven through
+    /// [`Vm::run_until_block`] by the scheduler.
+    pub fn run(&mut self) -> Result<(), String> {
+        match self.run_until_block()? {
+            VmStep::Done(_) => Ok(()),
+            VmStep::Blocked => {
+                Err("vm: concurrency op requires the scheduler driver".to_string())
+            }
+            VmStep::Paused => unreachable!("run_until_block (STEPPED = false) never pauses"),
+        }
+    }
+
+    /// Run one slice: from a fresh start (or resumed from a prior block) until the
+    /// program completes ([`VmStep::Done`]) or a concurrency op suspends it
+    /// ([`VmStep::Blocked`], request in [`Vm::take_pending`]). Keeping `pc` and the
+    /// call stack as loop-locals (restored once on entry, saved once on a block)
+    /// leaves the hot dispatch path byte-for-byte identical to the old `run`.
+    pub(crate) fn run_until_block(&mut self) -> Result<VmStep, String> {
+        self.run_until_block_impl::<false>(u64::MAX)
+    }
+
+    /// Step the debug interpreter forward by at most `step_budget` ops, then pause
+    /// ([`VmStep::Paused`], resumable on the next call). Used only by the Studio
+    /// debug drawer; production callers use [`Vm::run_until_block`]
+    /// (`STEPPED = false`), whose monomorphization elides every budget check — the
+    /// hot dispatch path stays the byte-for-byte old loop.
+    pub(crate) fn run_steps(&mut self, step_budget: u64) -> Result<VmStep, String> {
+        self.run_until_block_impl::<true>(step_budget)
+    }
+
+    fn run_until_block_impl<const STEPPED: bool>(
+        &mut self,
+        step_budget: u64,
+    ) -> Result<VmStep, String> {
+        let mut pc;
+        let mut call_stack: Vec<CallFrame>;
+        if self.sched_active {
+            pc = self.sched_pc;
+            call_stack = std::mem::take(&mut self.sched_call_stack);
+            self.sched_active = false;
+        } else {
+            pc = 0usize;
+            call_stack = Vec::new();
+        }
+
+        // The loop ends when the top-level program code is exhausted. A warm body
+        // lives past `program.code.len()` but is only ever entered via a `Call` (which
+        // pushes a frame), so `!call_stack.is_empty()` keeps the loop alive while one
+        // is executing; without any warm body installed a live frame already implies
+        // `pc < program.code.len()`, so this disjunct is a no-op for the baseline path.
+        let mut executed: u64 = 0;
+        while pc < self.program.code.len() || !call_stack.is_empty() {
+            if STEPPED {
+                if executed >= step_budget {
+                    // Pause exactly as a concurrency block saves its slice (pc +
+                    // call stack into the scheduler slots), but with no pending
+                    // request — the debugger resumes on the next `run_steps`.
+                    self.sched_pc = pc;
+                    self.sched_call_stack = call_stack;
+                    self.sched_active = true;
+                    return Ok(VmStep::Paused);
+                }
+                executed += 1;
+            }
+            let op = if pc < self.program.code.len() {
+                self.program.code[pc]
+            } else {
+                self.warm_code[pc - self.program.code.len()]
+            };
+            match op {
                 Op::LoadConst { dst, idx } => {
                     let v = self.const_pool[idx as usize].clone();
                     self.set(dst, v);
@@ -1150,6 +1588,7 @@ impl<'p> Vm<'p> {
                 Op::Sub { dst, lhs, rhs } => { self.binop(dst, lhs, rhs, Value::sub)?; pc += 1; }
                 Op::Mul { dst, lhs, rhs } => { self.binop(dst, lhs, rhs, Value::mul)?; pc += 1; }
                 Op::Div { dst, lhs, rhs } => { self.binop(dst, lhs, rhs, Value::div)?; pc += 1; }
+                Op::ExactDiv { dst, lhs, rhs } => { self.binop(dst, lhs, rhs, Value::exact_div)?; pc += 1; }
                 Op::Mod { dst, lhs, rhs } => { self.binop(dst, lhs, rhs, Value::modulo)?; pc += 1; }
                 Op::DivPow2 { dst, lhs, k } => {
                     // `lhs / 2^k` (lhs is Oracle-proven Int) — identical result
@@ -1204,7 +1643,11 @@ impl<'p> Vm<'p> {
                     // head is blacklisted — an un-tierable / demoted region pays
                     // only this O(1) `Vec<bool>` index per back-edge instead of
                     // re-hashing every iteration.
+                    // `target < program.code.len()` keeps the region machinery
+                    // (blacklist indexed by program pc, `program.code[head..]` scans)
+                    // off warm-body back-edges; always true on the baseline path.
                     if target < pc
+                        && target < self.program.code.len()
                         && self.tier.is_some()
                         && !self.region_blacklist[target]
                     {
@@ -1299,6 +1742,7 @@ impl<'p> Vm<'p> {
                             body_index: func as usize,
                             captured_env,
                             param_names,
+                            generated: None,
                         }))),
                     );
                     pc += 1;
@@ -1402,13 +1846,46 @@ impl<'p> Vm<'p> {
                             continue;
                         }
                     }
-                    let (entry_pc, reg_count) = {
-                        let f = self
-                            .program
-                            .functions
-                            .get(func as usize)
-                            .ok_or("vm: call to undefined function index")?;
-                        (f.entry_pc, f.register_count)
+                    // WS6 (Phase 13): the WASM-JIT tier — the browser JIT path, consulted
+                    // here (behind the native forge tier above, which is absent on wasm32).
+                    // A hot pure-integer function runs its emitted WebAssembly module instead
+                    // of the bytecode; non-Int args or an ineligible body fall through.
+                    #[cfg(feature = "wasm-jit")]
+                    {
+                        let prog = self.program;
+                        let abase = self.base + args_start as usize;
+                        let mut ints: Vec<i64> = Vec::with_capacity(arg_count as usize);
+                        let mut all_int = true;
+                        for k in 0..arg_count as usize {
+                            match &*self.registers[abase + k].as_runtime() {
+                                crate::interpreter::RuntimeValue::Int(n) => ints.push(*n),
+                                _ => {
+                                    all_int = false;
+                                    break;
+                                }
+                            }
+                        }
+                        if all_int {
+                            if let Some(r) = self.wasm_tier.on_call(prog, func, &ints) {
+                                self.set(dst, Value::int(r));
+                                pc += 1;
+                                continue;
+                            }
+                        }
+                    }
+                    // Dispatch order (HOTSWAP §7): FnTable native (above) →
+                    // warm_bytecode → baseline. A warm body runs from the unified
+                    // pc space past `program.code`.
+                    let (entry_pc, reg_count) = match self.warm_entry.get(func as usize).and_then(|w| *w) {
+                        Some(w) => (w.entry_pc, w.register_count),
+                        None => {
+                            let f = self
+                                .program
+                                .functions
+                                .get(func as usize)
+                                .ok_or("vm: call to undefined function index")?;
+                            (f.entry_pc, f.register_count)
+                        }
                     };
                     let callee_base = self.base + args_start as usize;
                     let restore_len = self.registers.len();
@@ -1481,6 +1958,30 @@ impl<'p> Vm<'p> {
                         }
                     } else {
                         self.set(dst, Value::empty_list());
+                    }
+                    pc += 1;
+                }
+                Op::NewEmptyListI32 { dst } => {
+                    // Mirror NewEmptyList's allocation reuse, but for the
+                    // half-width `IntsI32` repr (the narrowing-proven buffer).
+                    use crate::interpreter::{ListRepr, RuntimeValue};
+                    use std::rc::Rc;
+                    let di = self.base + dst as usize;
+                    let reused = matches!(
+                        self.registers.get(di).map(|v| v.as_runtime()).as_deref(),
+                        Some(RuntimeValue::List(rc))
+                            if Rc::strong_count(rc) == 1
+                                && Rc::weak_count(rc) == 0
+                                && matches!(&*rc.borrow(), ListRepr::IntsI32(_))
+                    );
+                    if reused {
+                        if let RuntimeValue::List(rc) = &*self.registers[di].as_runtime() {
+                            if let ListRepr::IntsI32(buf) = &mut *rc.borrow_mut() {
+                                buf.clear();
+                            }
+                        }
+                    } else {
+                        self.set(dst, Value::empty_list_i32());
                     }
                     pc += 1;
                 }
@@ -1848,6 +2349,64 @@ impl<'p> Vm<'p> {
                     }
                     pc += 1;
                 }
+                Op::NewCrdt { dst, kind } => {
+                    use crate::interpreter::RuntimeValue;
+                    use crate::semantics::crdt::{next_replica_id, CrdtValue};
+                    let cv = match kind {
+                        0 => CrdtValue::new_set(next_replica_id()),
+                        1 => CrdtValue::new_seq(next_replica_id()),
+                        3 => CrdtValue::new_set_remove_wins(next_replica_id()),
+                        _ => CrdtValue::new_register(next_replica_id()),
+                    };
+                    self.set(
+                        dst,
+                        Value::from_runtime(RuntimeValue::Crdt(std::rc::Rc::new(
+                            std::cell::RefCell::new(cv),
+                        ))),
+                    );
+                    pc += 1;
+                }
+                Op::CrdtAppend { seq, value } => {
+                    use crate::interpreter::RuntimeValue;
+                    let v = self.reg(value).as_runtime().clone();
+                    let seq_rt = self.reg(seq).as_runtime();
+                    match &*seq_rt {
+                        RuntimeValue::Crdt(rc) => rc.borrow_mut().append(&v)?,
+                        RuntimeValue::List(_) => {
+                            crate::semantics::collections::list_push(&seq_rt, v)?
+                        }
+                        other => return Err(format!("Cannot append to {}", other.type_name())),
+                    }
+                    pc += 1;
+                }
+                Op::CrdtResolve { obj, field, value } => {
+                    use crate::interpreter::RuntimeValue;
+                    let v = self.reg(value).as_runtime().clone();
+                    let field_name = match &self.program.constants[field as usize] {
+                        Constant::Text(s) => s.clone(),
+                        other => return Err(format!("vm: field name is not Text: {:?}", other)),
+                    };
+                    match self.reg_mut(obj).as_runtime_mut() {
+                        RuntimeValue::Struct(s) => {
+                            // A real divergent register resolves in place via its shared
+                            // `Rc`; a plain field is overwritten — same fallback as the
+                            // tree-walker's `Resolve`.
+                            let is_register =
+                                matches!(s.fields.get(&field_name), Some(RuntimeValue::Crdt(_)));
+                            if is_register {
+                                if let Some(RuntimeValue::Crdt(rc)) = s.fields.get(&field_name) {
+                                    rc.borrow_mut().resolve(&v)?;
+                                }
+                            } else {
+                                s.fields.insert(field_name, v);
+                            }
+                        }
+                        other => {
+                            return Err(format!("Cannot resolve a field on {}", other.type_name()))
+                        }
+                    }
+                    pc += 1;
+                }
                 Op::IterPrepare { iterable } => {
                     let items = crate::semantics::collections::iteration_snapshot(
                         &self.reg(iterable).as_runtime(),
@@ -1880,22 +2439,15 @@ impl<'p> Vm<'p> {
                     pc += 1;
                 }
                 Op::Sleep { duration } => {
-                    use crate::interpreter::RuntimeValue;
-                    let nanos = match &*self.reg(duration).as_runtime() {
-                        RuntimeValue::Duration(nanos) => *nanos,
-                        RuntimeValue::Int(ms) => ms.wrapping_mul(1_000_000),
-                        other => {
-                            return Err(format!(
-                                "Sleep requires Duration or Int, got {}",
-                                other.type_name()
-                            ));
-                        }
-                    };
-                    if nanos > 0 {
-                        #[cfg(not(target_arch = "wasm32"))]
-                        std::thread::sleep(std::time::Duration::from_nanos(nanos as u64));
-                        #[cfg(target_arch = "wasm32")]
-                        return Err("Sleep requires async execution path".to_string());
+                    // A VM `Sleep` only ever runs inside a task (a non-concurrent program
+                    // with `Sleep` routes to the async tree-walker, never the VM). Route it
+                    // through the scheduler's virtual timer — the same logical-tick scale as
+                    // a `Select` `After` arm — by yielding `VmBlock::Sleep`. Blocking on a
+                    // real host timer here would stall the cooperative scheduler (and errors
+                    // outright on wasm).
+                    let ticks = self.as_ticks(duration)?;
+                    if ticks > 0 {
+                        return Ok(self.block(pc + 1, call_stack, VmBlock::Sleep(ticks), None));
                     }
                     pc += 1;
                 }
@@ -1940,6 +2492,68 @@ impl<'p> Vm<'p> {
                     self.set(dst, Value::from_runtime(list));
                     pc += 1;
                 }
+                // Go-like concurrency (T11). Each op materialises its operands,
+                // then suspends the slice — `self.block` saves the resume point
+                // and the request; the scheduler driver services it and re-enters.
+                Op::ChanNew { dst, cap } => {
+                    let capacity = if cap < 0 { None } else { Some(cap as usize) };
+                    return Ok(self.block(pc + 1, call_stack, VmBlock::NewChan(capacity), Some(dst)));
+                }
+                Op::ChanSend { chan, val } => {
+                    let ch = self.as_chan(chan)?;
+                    let payload = self.materialize_reg(val)?;
+                    return Ok(self.block(pc + 1, call_stack, VmBlock::Send(ch, payload), None));
+                }
+                Op::ChanRecv { dst, chan } => {
+                    let ch = self.as_chan(chan)?;
+                    return Ok(self.block(pc + 1, call_stack, VmBlock::Recv(ch), Some(dst)));
+                }
+                Op::ChanTrySend { dst, chan, val } => {
+                    let ch = self.as_chan(chan)?;
+                    let payload = self.materialize_reg(val)?;
+                    return Ok(self.block(pc + 1, call_stack, VmBlock::TrySend(ch, payload), Some(dst)));
+                }
+                Op::ChanTryRecv { dst, chan } => {
+                    let ch = self.as_chan(chan)?;
+                    return Ok(self.block(pc + 1, call_stack, VmBlock::TryRecv(ch), Some(dst)));
+                }
+                Op::ChanClose { chan } => {
+                    let ch = self.as_chan(chan)?;
+                    return Ok(self.block(pc + 1, call_stack, VmBlock::Close(ch), None));
+                }
+                Op::TaskAwait { dst, handle } => {
+                    let tid = self.as_task(handle)?;
+                    return Ok(self.block(pc + 1, call_stack, VmBlock::Await(tid), Some(dst)));
+                }
+                Op::TaskAbort { handle } => {
+                    let tid = self.as_task(handle)?;
+                    return Ok(self.block(pc + 1, call_stack, VmBlock::Abort(tid), None));
+                }
+                Op::Spawn { func, args_start, arg_count } => {
+                    let args = self.materialize_args(args_start, arg_count)?;
+                    let req = VmBlock::SpawnDesc { func, args, want_handle: false };
+                    return Ok(self.block(pc + 1, call_stack, req, None));
+                }
+                Op::SpawnHandle { dst, func, args_start, arg_count } => {
+                    let args = self.materialize_args(args_start, arg_count)?;
+                    let req = VmBlock::SpawnDesc { func, args, want_handle: true };
+                    return Ok(self.block(pc + 1, call_stack, req, Some(dst)));
+                }
+                Op::SelectArmRecv { chan, var } => {
+                    let ch = self.as_chan(chan)?;
+                    self.select_pending.push((SelectArm::Recv(ch), Some(var)));
+                    pc += 1;
+                }
+                Op::SelectArmTimeout { ticks } => {
+                    let t = self.as_ticks(ticks)?;
+                    self.select_pending.push((SelectArm::Timeout(t), None));
+                    pc += 1;
+                }
+                Op::SelectWait { dst_arm } => {
+                    let arms: Vec<SelectArm> =
+                        self.select_pending.iter().map(|(a, _)| a.clone()).collect();
+                    return Ok(self.block(pc + 1, call_stack, VmBlock::Select(arms), Some(dst_arm)));
+                }
                 Op::FailWith { msg } => {
                     return Err(match &self.program.constants[msg as usize] {
                         Constant::Text(s) => s.clone(),
@@ -1949,7 +2563,7 @@ impl<'p> Vm<'p> {
                 Op::Halt => break,
             }
         }
-        Ok(())
+        Ok(VmStep::Done(crate::interpreter::RuntimeValue::Nothing))
     }
 
     #[inline]
@@ -1967,6 +2581,270 @@ impl<'p> Vm<'p> {
     fn reg_mut(&mut self, r: Reg) -> &mut Value {
         let slot = self.base + r as usize;
         &mut self.registers[slot]
+    }
+
+    // ─── Scheduler-driver hooks (T11) ───────────────────────────────────────
+
+    /// Save the suspended `pc` + call stack and the request; the slice returns
+    /// [`VmStep::Blocked`]. `slot` is the register the resume value lands in.
+    fn block(
+        &mut self,
+        resume_pc: usize,
+        call_stack: Vec<CallFrame>,
+        req: VmBlock,
+        slot: Option<Reg>,
+    ) -> VmStep {
+        self.sched_pc = resume_pc;
+        self.sched_call_stack = call_stack;
+        self.sched_active = true;
+        self.pending = Some(req);
+        self.resume_slot = slot;
+        VmStep::Blocked
+    }
+
+    // ─── Debug-drawer hooks (single-task, bytecode tier) ─────────────────────
+
+    /// Build a [`DebugView`] of the paused VM: the call frames with their register
+    /// values, the globals, the output, and the program counter (the op about to
+    /// execute). Reconstructs each frame's register window from the saved call
+    /// stack — Main has base 0; frame `k`'s base is the next frame's `caller_base`
+    /// (the innermost is the live `self.base`).
+    pub(crate) fn debug_view(&self) -> DebugView {
+        let prog = self.program;
+        let cs = &self.sched_call_stack;
+        let mut frames = Vec::with_capacity(cs.len() + 1);
+        frames.push(self.frame_view(None, 0, prog.register_count));
+        for (k, fr) in cs.iter().enumerate() {
+            let base = cs.get(k + 1).map(|n| n.caller_base).unwrap_or(self.base);
+            let count = prog.functions.get(fr.func as usize).map(|f| f.register_count).unwrap_or(0);
+            frames.push(self.frame_view(Some(fr.func), base, count));
+        }
+        let globals = prog
+            .globals
+            .iter()
+            .enumerate()
+            .filter_map(|(i, name)| {
+                self.globals
+                    .get(i)
+                    .and_then(|o| o.as_ref())
+                    .map(|v| (name.clone(), v.to_display_string()))
+            })
+            .collect();
+        DebugView {
+            pc: self.sched_pc,
+            current_func: cs.last().map(|f| f.func),
+            frames,
+            globals,
+            output: self.lines.clone(),
+        }
+    }
+
+    fn frame_view(&self, func: Option<u16>, base: usize, count: usize) -> DebugFrameView {
+        let registers = (0..count)
+            .filter_map(|i| self.registers.get(base + i).map(|v| (i as u16, v.to_display_string())))
+            .collect();
+        DebugFrameView { func, base, registers }
+    }
+
+    /// Walk the roots (the current frame's registers + the globals) and collect the
+    /// distinct heap objects they reach, recording each object's reference count and
+    /// every root that points at it — so a shared list shows up once with two
+    /// referrers (the `let b be a` aliasing that trips up every beginner).
+    pub(crate) fn debug_heap(&self) -> Vec<HeapObjView> {
+        let prog = self.program;
+        let (count, is_main) = match self.sched_call_stack.last() {
+            Some(fr) => (
+                prog.functions.get(fr.func as usize).map(|f| f.register_count).unwrap_or(0),
+                false,
+            ),
+            None => (prog.register_count, true),
+        };
+        let name_of = |i: usize| -> String {
+            if is_main {
+                prog.reg_names
+                    .iter()
+                    .find(|(r, _)| *r as usize == i)
+                    .map(|(_, n)| n.clone())
+                    .unwrap_or_else(|| format!("R{i}"))
+            } else {
+                format!("R{i}")
+            }
+        };
+        let mut objs: Vec<HeapObjView> = Vec::new();
+        let mut add = |v: &Value, root: String, objs: &mut Vec<HeapObjView>| {
+            if let Some((id, kind, rc)) = heap_identity(v) {
+                match objs.iter_mut().find(|o| o.id == id) {
+                    Some(o) => {
+                        if !o.referenced_by.contains(&root) {
+                            o.referenced_by.push(root);
+                        }
+                    }
+                    None => objs.push(HeapObjView {
+                        id,
+                        kind,
+                        summary: v.to_display_string(),
+                        rc,
+                        referenced_by: vec![root],
+                    }),
+                }
+            }
+        };
+        for i in 0..count {
+            if let Some(v) = self.registers.get(self.base + i) {
+                add(v, name_of(i), &mut objs);
+            }
+        }
+        for (i, name) in prog.globals.iter().enumerate() {
+            if let Some(Some(v)) = self.globals.get(i) {
+                add(v, name.clone(), &mut objs);
+            }
+        }
+        objs
+    }
+
+    /// Clone the resumable execution state so the debugger can carry it between
+    /// steps (it rebuilds the VM each step — see [`DebugVmState`]).
+    pub(crate) fn save_debug_state(&self) -> DebugVmState {
+        DebugVmState {
+            registers: self.registers.clone(),
+            base: self.base,
+            globals: self.globals.clone(),
+            lines: self.lines.clone(),
+            iter_stack: self.iter_stack.clone(),
+            sched_active: self.sched_active,
+            sched_pc: self.sched_pc,
+            sched_call_stack: self.sched_call_stack.clone(),
+        }
+    }
+
+    /// Restore a snapshot taken by [`Vm::save_debug_state`].
+    pub(crate) fn restore_debug_state(&mut self, st: DebugVmState) {
+        self.registers = st.registers;
+        self.base = st.base;
+        self.globals = st.globals;
+        self.lines = st.lines;
+        self.iter_stack = st.iter_stack;
+        self.sched_active = st.sched_active;
+        self.sched_pc = st.sched_pc;
+        self.sched_call_stack = st.sched_call_stack;
+    }
+
+    /// Take the pending concurrency request (the driver services it).
+    pub(crate) fn take_pending(&mut self) -> Option<VmBlock> {
+        self.pending.take()
+    }
+
+    /// Deliver a resume value into the slot the last block reserved (if any).
+    pub(crate) fn deliver_resume(&mut self, value: Value) {
+        if let Some(slot) = self.resume_slot.take() {
+            self.set(slot, value);
+        }
+    }
+
+    /// Deliver a resolved `Select`: the received value (when a recv arm won) into
+    /// that arm's var register, and the winning arm index into the `SelectWait`'s
+    /// destination register.
+    pub(crate) fn deliver_select(&mut self, arm: usize, value: Value) {
+        let var = self.select_pending.get(arm).and_then(|(_, v)| *v);
+        if let Some(reg) = var {
+            self.set(reg, value);
+        }
+        if let Some(slot) = self.resume_slot.take() {
+            self.set(slot, Value::from_runtime(crate::interpreter::RuntimeValue::Int(arm as i64)));
+        }
+        self.select_pending.clear();
+    }
+
+    /// Read a select-timeout register as a non-negative logical tick count.
+    fn as_ticks(&self, r: Reg) -> Result<u64, String> {
+        use crate::interpreter::RuntimeValue;
+        Ok(match &*self.reg(r).as_runtime() {
+            RuntimeValue::Int(n) => (*n).max(0) as u64,
+            RuntimeValue::Duration(d) => (*d).max(0) as u64,
+            RuntimeValue::Span { months, days } => {
+                (((*months as i64) * 30 + *days as i64) * 86_400).max(0) as u64
+            }
+            other => {
+                return Err(format!(
+                    "select timeout must be a number or duration, found {}",
+                    other.type_name()
+                ))
+            }
+        })
+    }
+
+    /// Read a channel handle from register `r`.
+    fn as_chan(&self, r: Reg) -> Result<ChanId, String> {
+        match &*self.reg(r).as_runtime() {
+            crate::interpreter::RuntimeValue::Chan(id) => Ok(*id),
+            other => Err(format!("expected a channel, found {}", other.type_name())),
+        }
+    }
+
+    /// Read a task handle from register `r`.
+    fn as_task(&self, r: Reg) -> Result<TaskId, String> {
+        match &*self.reg(r).as_runtime() {
+            crate::interpreter::RuntimeValue::TaskHandle(id) => Ok(*id),
+            other => Err(format!("expected a task handle, found {}", other.type_name())),
+        }
+    }
+
+    /// Materialise register `r`'s value into a Send-able payload for a channel.
+    fn materialize_reg(&self, r: Reg) -> Result<RtPayload, String> {
+        let rt = self.reg(r).as_runtime();
+        crate::concurrency::marshal::materialize(&rt)
+            .map_err(|e| format!("cannot send value through a channel: {:?}", e))
+    }
+
+    /// Materialise a contiguous register window `[args_start, args_start+count)`
+    /// into `Send`-able payloads — the spawn arguments that cross to the child
+    /// task (and, under work-stealing, to its worker thread).
+    fn materialize_args(&self, args_start: Reg, arg_count: u16) -> Result<Vec<RtPayload>, String> {
+        (0..arg_count as Reg).map(|i| self.materialize_reg(args_start + i)).collect()
+    }
+
+    /// Install the spawn entry-state for `functions[func](args)` into THIS VM:
+    /// rebuild the payload args into a base-0 register window, push a sentinel
+    /// frame so the body's `Return` terminates the task cleanly (result in
+    /// register 0), and arm the scheduler `pc` at the function's `entry_pc`.
+    ///
+    /// Shared by both drivers: the cooperative one calls it on a freshly-cloned
+    /// child (see [`Vm::spawn_task_vm`]); a work-stealing worker calls it on a VM
+    /// built locally over its own borrow of the program.
+    pub(crate) fn setup_task(&mut self, func: FuncIdx, args: &[RtPayload]) {
+        let (entry_pc, reg_count) = {
+            let f = &self.program.functions[func as usize];
+            (f.entry_pc, f.register_count)
+        };
+        if self.registers.len() < reg_count {
+            self.registers.resize(reg_count, Value::nothing());
+        }
+        for (i, a) in args.iter().enumerate() {
+            self.registers[i] = Value::from_runtime(crate::concurrency::marshal::rebuild(a.clone()));
+        }
+        let restore_len = self.registers.len();
+        self.sched_call_stack = vec![CallFrame {
+            return_pc: self.program.code.len(),
+            return_reg: 0,
+            caller_base: 0,
+            restore_len,
+            iter_depth: 0,
+            func,
+        }];
+        self.sched_active = true;
+        self.sched_pc = entry_pc;
+    }
+
+    /// Build a fresh child VM that runs `functions[func](args)` — a spawned task —
+    /// sharing this VM's `&'p program` and run context (tier, policy, program
+    /// args). Used by the cooperative driver, which builds children inline.
+    pub(crate) fn spawn_task_vm(&self, func: FuncIdx, args: &[RtPayload]) -> Vm<'p> {
+        let mut child = Vm::new(self.program);
+        child.policy_ctx = self.policy_ctx;
+        child.tier = self.tier;
+        child.program_args = self.program_args.clone();
+        child.setup_task(func, args);
+        child
     }
 
     fn binop(
@@ -2178,5 +3056,90 @@ mod string_build_fastpath {
             Some(RuntimeValue::Text(rc)) => assert_eq!(&***rc, "seed-with-capacity-headroomzzz"),
             other => panic!("r0 not text: {other:?}"),
         }
+    }
+}
+
+#[cfg(test)]
+mod debug_stepping {
+    //! The debug stepper (`STEPPED = true`): `run_steps` advances exactly one op
+    //! per call, yields `Paused` between ops, exposes the paused state via
+    //! `debug_view`, and — the soundness invariant — produces output BYTE-IDENTICAL
+    //! to a single-shot `run()`. This is the contract the Studio debug drawer rides.
+    use super::*;
+
+    /// `Let x be 6. Let y be 7. Show x times y.` hand-lowered to bytecode.
+    fn mul_program() -> CompiledProgram {
+        CompiledProgram {
+            constants: vec![Constant::Int(6), Constant::Int(7)],
+            code: vec![
+                Op::LoadConst { dst: 0, idx: 0 },
+                Op::LoadConst { dst: 1, idx: 1 },
+                Op::Mul { dst: 2, lhs: 0, rhs: 1 },
+                Op::Show { src: 2 },
+                Op::Halt,
+            ],
+            register_count: 3,
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn run_steps_advances_one_op_and_pauses() {
+        let prog = mul_program();
+        let mut vm = Vm::new(&prog);
+        // First op (LoadConst R0 = 6) → paused at pc 1 with R0 visible.
+        assert!(matches!(vm.run_steps(1).unwrap(), VmStep::Paused));
+        let v = vm.debug_view();
+        assert_eq!(v.pc, 1, "stopped before the second instruction");
+        assert_eq!(v.frames.len(), 1, "single Main frame");
+        assert_eq!(v.frames[0].registers[0], (0u16, "6".to_string()));
+        // Second op (LoadConst R1 = 7).
+        assert!(matches!(vm.run_steps(1).unwrap(), VmStep::Paused));
+        let v = vm.debug_view();
+        assert_eq!(v.pc, 2);
+        assert_eq!(v.frames[0].registers[1], (1u16, "7".to_string()));
+        // Third op (Mul R2 = R0 * R1).
+        assert!(matches!(vm.run_steps(1).unwrap(), VmStep::Paused));
+        assert_eq!(vm.debug_view().frames[0].registers[2], (2u16, "42".to_string()));
+    }
+
+    #[test]
+    fn stepped_run_is_byte_identical_to_single_shot() {
+        let prog = mul_program();
+
+        // Stepped to completion, one op at a time.
+        let mut stepper = Vm::new(&prog);
+        let mut pauses = 0usize;
+        loop {
+            match stepper.run_steps(1).unwrap() {
+                VmStep::Paused => pauses += 1,
+                VmStep::Done(_) => break,
+                VmStep::Blocked => unreachable!("no concurrency op in this program"),
+            }
+        }
+        let stepped_out = stepper.into_lines();
+
+        // Single-shot run of the very same program.
+        let mut oneshot = Vm::new(&prog);
+        oneshot.run().unwrap();
+        let oneshot_out = oneshot.into_lines();
+
+        assert_eq!(stepped_out, oneshot_out, "stepping must not change observable output");
+        assert_eq!(stepped_out, vec!["42".to_string()]);
+        assert_eq!(pauses, 4, "one pause after each of the 4 ops before Halt");
+    }
+
+    #[test]
+    fn larger_budget_runs_several_ops_then_pauses() {
+        let prog = mul_program();
+        let mut vm = Vm::new(&prog);
+        // Budget of 3 runs the two loads + the Mul, then pauses at the Show (pc 3).
+        assert!(matches!(vm.run_steps(3).unwrap(), VmStep::Paused));
+        let v = vm.debug_view();
+        assert_eq!(v.pc, 3);
+        assert_eq!(v.frames[0].registers[2], (2u16, "42".to_string()));
+        // The rest completes.
+        assert!(matches!(vm.run_steps(u64::MAX).unwrap(), VmStep::Done(_)));
+        assert_eq!(vm.into_lines(), vec!["42".to_string()]);
     }
 }

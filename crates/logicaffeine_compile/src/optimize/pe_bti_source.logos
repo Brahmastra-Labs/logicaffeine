@@ -1243,6 +1243,14 @@
                 Push (a new CRepeatRange with var rrVar and start peStart and end peEnd and body peBody) to blockResult.
             When CBreak:
                 Push a new CBreak to blockResult.
+            When CForceDynamic (fdName):
+                Let sEnvFd be peStaticEnvB(state).
+                Let fdk be "{fdName}".
+                If sEnvFd contains fdk:
+                    Let fdPrev be item fdk of sEnvFd.
+                    Push (a new CLet with name fdName and expr fdPrev) to blockResult.
+                    Remove fdk from sEnvFd.
+                    Set item fdk of env to a new VNothing.
             When CAdd (addElem, addTarget):
                 Let sEnvAdd be peStaticEnvB(state).
                 Let adk1 be "{addTarget}".
@@ -1368,6 +1376,10 @@
                 Let peRaCond be peExprB(raCond, state).
                 Let peRaMsg be peExprB(raMsg, state).
                 Push (a new CRuntimeAssert with cond peRaCond and msg peRaMsg) to blockResult.
+            When CHardAssert (raCond, raMsg):
+                Let peRaCond be peExprB(raCond, state).
+                Let peRaMsg be peExprB(raMsg, state).
+                Push (a new CHardAssert with cond peRaCond and msg peRaMsg) to blockResult.
             When CGive (giveExpr, giveTarget):
                 Let peGiveExpr be peExprB(giveExpr, state).
                 Push (a new CGive with expr peGiveExpr and target giveTarget) to blockResult.

@@ -47,7 +47,7 @@ use logicaffeine_language::{
     token::TokenType,
     CompileOptions, OutputFormat, ParseError,
 };
-use logicaffeine_proof::{DerivationTree, ProofExpr};
+use logicaffeine_proof::{DerivationTree, ProofExpr, ProofTerm};
 
 // Re-export interpreter result from our interpreter module
 pub use crate::interpreter::InterpreterResult;
@@ -525,8 +525,39 @@ pub struct TheoremCompileResult {
     pub verified: bool,
     /// Where verification broke (certification or type-check), if it did.
     pub verification_error: Option<String>,
+    /// For a wh-question goal ("Who is in Florida?"), the certified witness(es); `None`
+    /// when the goal is a closed proposition.
+    pub answer: Option<Vec<String>>,
+    /// For a recognized finite-domain grid, the cells the certified prover could fill —
+    /// attached whenever the premises take the grid form, no flag required.
+    pub grid: Option<SolvedGrid>,
     /// Error message if compilation or proof failed.
     pub error: Option<String>,
+}
+
+/// A solved (or partially solved) logic grid: the row entities plus one column per
+/// declared category closure. Every filled cell is an entailment the no-Z3 certified
+/// prover (CDCL+RUP / kernel) closed, so the whole table is independently checkable.
+#[derive(Debug, Clone, PartialEq)]
+pub struct SolvedGrid {
+    /// Display header for the identity column — the row sort (e.g. "Trip").
+    pub row_label: String,
+    /// The row entities in declaration order (e.g. Alpha, Beta, Gamma, Delta).
+    pub rows: Vec<String>,
+    /// One column per category closure (year, state, friend, activity, …).
+    pub columns: Vec<GridColumn>,
+}
+
+/// One category column of a [`SolvedGrid`].
+#[derive(Debug, Clone, PartialEq)]
+pub struct GridColumn {
+    /// Category header (the value sort, e.g. "Year"), best-effort from the declarations.
+    pub label: String,
+    /// The category's domain values in closure order.
+    pub values: Vec<String>,
+    /// The determined value for each row (parallel to [`SolvedGrid::rows`]), or `None`
+    /// where the prover could not force a unique value.
+    pub cells: Vec<Option<String>>,
 }
 
 /// A parsed theorem block: premises and goal as owned (arena-free) `ProofExpr`s, the goal's
@@ -630,14 +661,37 @@ pub fn compile_theorem_for_ui(input: &str) -> TheoremCompileResult {
                 derivation: None,
                 verified: false,
                 verification_error: None,
+                answer: None,
+                grid: None,
                 error: Some(e),
             };
         }
     };
     let ParsedTheorem { name, premises, goal, goal_string, is_auto } = parsed;
 
-    let (derivation, verified, verification_error) =
+    // The easter egg: when the premises take the grid form (declared bijection +
+    // disjunctive closures), fill every cell the certified prover can force — no flag,
+    // the structure alone triggers it. Attached to every grid result so the studio can
+    // render the solved table alongside the headline goal.
+    let grid = if is_auto && looks_like_grid(&premises) {
+        solve_grid_from_premises(&premises, input)
+    } else {
+        None
+    };
+
+    let (derivation, verified, verification_error, answer) =
         if is_auto {
+            // A wh-question goal ("Who is in Florida?") is an open ∃-form; the closed-goal
+            // prover cannot discharge it and grinds a deep, futile search. Recognize the
+            // form and ANSWER it by enumerating witnesses through the same certified no-Z3
+            // path the puzzle uses — each candidate proved (or refuted) in ~1ms.
+            if let ProofExpr::Exists { variable, body } = &goal {
+                let witnesses = answer_wh(&premises, variable, body);
+                let verified = !witnesses.is_empty();
+                let verr = (!verified)
+                    .then(|| "no individual in the domain satisfies the question".to_string());
+                (None, verified, verr, Some(witnesses))
+            } else {
             // A finite-domain GRID (a declared closure / "exactly one") is proved over
             // its GROUNDED, quantifier-free form, so the certified kernel can close it
             // in the browser (no Z3). An OPEN syllogism (Socrates: "every man is
@@ -654,17 +708,17 @@ pub fn compile_theorem_for_ui(input: &str) -> TheoremCompileResult {
                 let solver_input = prepare_premises_opts(&premises, true);
                 let solve = || {
                     let trace = std::env::var("LOGOS_TRACE").is_ok();
-                    let t_solve = std::time::Instant::now();
+                    let t_solve = trace.then(std::time::Instant::now);
                     let tree = logicaffeine_proof::grid_solver::grid_prove(&solver_input, &g);
-                    if trace {
+                    if let Some(t_solve) = t_solve {
                         let n = tree.as_ref().map(count_tree_nodes).unwrap_or(0);
                         eprintln!("[grid] solve+emit {:.2?} ({} tree nodes)", t_solve.elapsed(), n);
                     }
-                    let t_cert = std::time::Instant::now();
+                    let t_cert = trace.then(std::time::Instant::now);
                     let solved = tree
                         .map(|tree| logicaffeine_proof::verify::check_derivation(&solver_input, &g, tree))
                         .filter(|vp| vp.verified);
-                    if trace {
+                    if let Some(t_cert) = t_cert {
                         eprintln!("[grid] kernel-certify {:.2?} (verified={})", t_cert.elapsed(), solved.is_some());
                     }
                     match solved {
@@ -716,9 +770,10 @@ pub fn compile_theorem_for_ui(input: &str) -> TheoremCompileResult {
             } else {
                 logicaffeine_proof::verify::prove_certify_check(&premises, &goal)
             };
-            (outcome.derivation, outcome.verified, outcome.verification_error)
+            (outcome.derivation, outcome.verified, outcome.verification_error, None)
+            }
         } else {
-            (None, false, None)
+            (None, false, None, None)
         };
 
     TheoremCompileResult {
@@ -729,6 +784,8 @@ pub fn compile_theorem_for_ui(input: &str) -> TheoremCompileResult {
         derivation,
         verified,
         verification_error,
+        answer,
+        grid,
         error: None,
     }
 }
@@ -741,9 +798,20 @@ fn count_tree_nodes(t: &logicaffeine_proof::DerivationTree) -> usize {
 // Code Generation
 // ═══════════════════════════════════════════════════════════════════
 
-/// Generate Rust code from LOGOS imperative source.
+/// Generate Rust code from LOGOS source — the Studio Code path. Mixed-document
+/// aware: a source interleaving imperative code with Coq-style math
+/// (`Definition`/`## Theorem:`/…) extracts the math into a bundled `mod proven` that
+/// the imperative half calls into. Pure imperative source is a no-op partition.
 #[cfg(feature = "codegen")]
 pub fn generate_rust_code(source: &str) -> Result<String, ParseError> {
+    let (imperative_src, math_src) = partition_mixed(source);
+    let proven = math_src.as_deref().and_then(mixed_proven_module);
+    generate_rust_code_with_proven(&imperative_src, proven.as_deref())
+}
+
+/// [`generate_rust_code`] with an already-extracted proven module bundled in.
+#[cfg(feature = "codegen")]
+pub fn generate_rust_code_with_proven(source: &str, proven: Option<&str>) -> Result<String, ParseError> {
     use logicaffeine_language::ast::stmt::{Stmt, Expr, TypeExpr};
 
     let mut interner = Interner::new();
@@ -788,7 +856,7 @@ pub fn generate_rust_code(source: &str) -> Result<String, ParseError> {
     let stmts = parser.parse_program()?;
 
     let type_env = crate::analysis::types::TypeEnv::infer_program(&stmts, &interner, &codegen_registry);
-    let rust_code = crate::codegen::codegen_program(&stmts, &codegen_registry, &codegen_policies, &interner, &type_env);
+    let rust_code = crate::codegen::codegen_program_with_proven(&stmts, &codegen_registry, &codegen_policies, &interner, &type_env, &crate::optimization::OptimizationConfig::from_env(), "proven", proven);
     Ok(rust_code)
 }
 
@@ -802,6 +870,17 @@ pub fn generate_rust_code(source: &str) -> Result<String, ParseError> {
 /// synchronous programs (with the tree-walker as the debug shadow oracle);
 /// programs needing async (file I/O, sleep, mount) run on the tree-walker's
 /// async executor.
+/// The first Send/escape-analysis violation in `stmts`, packaged as a ready
+/// rejection — or `None` if the program respects the message-passing + CRDT
+/// memory model. This is the static concurrency gate (Phase 4): a program whose
+/// concurrent branches share non-CRDT mutable state is refused *before* any tier
+/// runs, so neither the VM nor the tree-walker executes a data race.
+fn send_escape_rejection(stmts: &[logicaffeine_language::ast::stmt::Stmt]) -> Option<InterpreterResult> {
+    crate::concurrency::check_send_escape(stmts)
+        .first()
+        .map(|d| InterpreterResult { lines: Vec::new(), error: Some(d.message.clone()) })
+}
+
 pub async fn interpret_for_ui(input: &str) -> InterpreterResult {
     interpret_for_ui_with_args(input, &[]).await
 }
@@ -867,6 +946,28 @@ pub async fn interpret_for_ui_with_args(
 
     match parser.parse_program() {
         Ok(stmts) => {
+            if let Some(rejection) = send_escape_rejection(&stmts) {
+                return rejection;
+            }
+            // A program that uses channels/tasks AND needs async (e.g. networking) must run
+            // on the cooperative scheduler — `interp.run` alone installs none, so a channel op
+            // would panic "outside a scheduler context". The async drive loop services both
+            // the channel ops and the network awaits (the latter over the host reactor). A
+            // pure-channel program (no async) never reaches here; it takes the sync path.
+            if crate::concurrency::uses_scheduler(&stmts) {
+                return run_program_concurrent_streaming(
+                    &stmts,
+                    &type_registry_for_interp,
+                    policy_registry,
+                    &interner,
+                    program_args,
+                    None,
+                    None,
+                    None,
+                    0,
+                )
+                .await;
+            }
             let mut interp = crate::interpreter::Interpreter::new(&interner)
                 .with_type_registry(&type_registry_for_interp)
                 .with_policies(policy_registry)
@@ -917,6 +1018,11 @@ pub fn with_parsed_program<R>(
 ) -> R {
     use logicaffeine_language::ast::stmt::{Expr, Stmt, TypeExpr};
 
+    // Phase 10: auto-prepend the stdlib modules the program references (no-op when
+    // it uses no stdlib vocabulary, so such programs stay byte-identical).
+    let prelude_src = crate::loader::apply_prelude(input);
+    let input = prelude_src.as_ref();
+
     let mut interner = Interner::new();
     let mut lexer = Lexer::new(input, &mut interner);
     let tokens = lexer.tokenize();
@@ -954,9 +1060,11 @@ pub fn with_parsed_program<R>(
 
     let mut world_state = drs::WorldState::new();
     let type_registry_for_engines = type_registry.clone();
-    let parsed = {
+    let (parsed, opt_flags) = {
         let mut parser = Parser::new(tokens, &mut world_state, &mut interner, ctx, type_registry);
-        parser.parse_program()
+        let stmts = parser.parse_program();
+        let flags = parser.program_opt_flags();
+        (stmts, flags)
     };
 
     match parsed {
@@ -964,14 +1072,29 @@ pub fn with_parsed_program<R>(
             // Strength-reduce accumulator recursion to a constant-stack `while`
             // loop so the VM and tree-walker match the AOT (and never hit the
             // call-depth limit on `Return n + f(n-1)`-shaped recursion).
-            match crate::tail_call::rewrite_accumulators(
+            // Type-directed division: rewrite `Divide → ExactDivide` in Rational
+            // contexts (default stays floor), then accumulator-TCO the resolved AST.
+            // The constant Rational fold honors the `Opt::Comptime` toggle (env +
+            // in-source `## No comptime`), consistent with the AOT and tiered paths.
+            let mut run_cfg =
+                crate::optimization::OptimizationConfig::from_env().merged(&opt_flags);
+            run_cfg.normalize();
+            let resolved = crate::resolve_division::resolve_divisions(
                 &stmts,
+                &stmt_arena,
+                &imperative_expr_arena,
+                &interner,
+                run_cfg.is_on(crate::optimization::Opt::Comptime),
+            );
+            let pre = resolved.unwrap_or(stmts.as_slice());
+            match crate::tail_call::rewrite_accumulators(
+                pre,
                 &stmt_arena,
                 &imperative_expr_arena,
                 &mut interner,
             ) {
                 Some(rw) => f(Ok((rw, &type_registry_for_engines, policy_registry)), &interner),
-                None => f(Ok((&stmts, &type_registry_for_engines, policy_registry)), &interner),
+                None => f(Ok((pre, &type_registry_for_engines, policy_registry)), &interner),
             }
         }
         Err(e) => {
@@ -1001,7 +1124,40 @@ pub fn with_optimized_program<R>(
         &'a Interner,
     ) -> R,
 ) -> R {
+    // The run-path upfront tier is the env-configured mode (default Eager → T3, i.e.
+    // today's behavior, bit-for-bit). `LOGOS_TIER_PROFILE`/`LOGOS_FORCE_TIER` select
+    // Tiered/Baseline for the benchmark A/B and the T_optimize measurement (§12.1).
+    let tier = crate::optimization::HotswapConfig::from_env().run_tier();
+    with_optimized_program_tiered(input, tier, f)
+}
+
+/// [`with_optimized_program`] gated by an explicit hotness `tier` (HOTSWAP §4): the
+/// statements pass through [`crate::optimize::optimize_for_run_tiered`] at `tier`.
+/// `Tier::T3` reproduces `with_optimized_program` exactly; `Tier::T0` skips the
+/// optimizer (the baseline tier). The accumulator→loop TCO rewrite is a LANGUAGE
+/// SEMANTIC, not an optimization, so it runs at every tier — deep recursion stays
+/// constant-stack regardless of the optimization tier.
+pub fn with_optimized_program_tiered<R>(
+    input: &str,
+    tier: crate::optimization::Tier,
+    f: impl for<'a> FnOnce(
+        Result<
+            (
+                &'a [logicaffeine_language::ast::stmt::Stmt<'a>],
+                &'a logicaffeine_language::analysis::TypeRegistry,
+                logicaffeine_language::analysis::PolicyRegistry,
+            ),
+            String,
+        >,
+        &'a Interner,
+    ) -> R,
+) -> R {
     use logicaffeine_language::ast::stmt::{Expr, Stmt, TypeExpr};
+
+    // Phase 10: auto-prepend the stdlib modules the program references (no-op when
+    // it uses no stdlib vocabulary, so such programs stay byte-identical).
+    let prelude_src = crate::loader::apply_prelude(input);
+    let input = prelude_src.as_ref();
 
     let mut interner = Interner::new();
     let mut lexer = Lexer::new(input, &mut interner);
@@ -1040,18 +1196,47 @@ pub fn with_optimized_program<R>(
 
     let mut world_state = drs::WorldState::new();
     let type_registry_for_engines = type_registry.clone();
-    let parsed = {
+    let (parsed, opt_flags, tier_pins) = {
         let mut parser = Parser::new(tokens, &mut world_state, &mut interner, ctx, type_registry);
-        parser.parse_program()
+        let stmts = parser.parse_program();
+        let flags = parser.program_opt_flags();
+        let pins = parser.program_tier_pins();
+        (stmts, flags, pins)
     };
 
     match parsed {
         Ok(stmts) => {
-            let optimized = crate::optimize::optimize_for_run(
-                stmts,
+            // Respect file-level `## No <opt>` decorators on the run path too, so
+            // optimization toggles behave consistently with the AOT compile.
+            let mut run_cfg =
+                crate::optimization::OptimizationConfig::from_env().merged(&opt_flags);
+            run_cfg.normalize();
+            // Tiered-optimizer pins: ambient env (`LOGOS_TIER_PIN`) overlaid by the
+            // program's in-source `## Tier` decorators (the decorator wins).
+            let mut hotswap = crate::optimization::HotswapConfig::from_env();
+            hotswap.pins.overlay(&tier_pins);
+            // Type-directed division (Divide → ExactDivide in Rational contexts) runs
+            // BEFORE optimization so the optimizer sees ExactDivide (opaque, never
+            // floor-folded), not a bare `7 / 2` it would fold to `3`.
+            let resolved = crate::resolve_division::resolve_divisions(
+                &stmts,
+                &stmt_arena,
+                &imperative_expr_arena,
+                &interner,
+                run_cfg.is_on(crate::optimization::Opt::Comptime),
+            );
+            let pre: Vec<_> = match resolved {
+                Some(rw) => rw.to_vec(),
+                None => stmts,
+            };
+            let optimized = crate::optimize::optimize_for_run_tiered(
+                pre,
                 &imperative_expr_arena,
                 &stmt_arena,
                 &mut interner,
+                &run_cfg,
+                &hotswap,
+                tier,
             );
             // Accumulator recursion → constant-stack loop (matches the AOT and
             // the raw-parse engines).
@@ -1092,6 +1277,11 @@ pub fn with_v2_optimized_program<R>(
     ) -> R,
 ) -> R {
     use logicaffeine_language::ast::stmt::{Expr, Stmt, TypeExpr};
+
+    // Phase 10: auto-prepend the stdlib modules the program references (no-op when
+    // it uses no stdlib vocabulary, so such programs stay byte-identical).
+    let prelude_src = crate::loader::apply_prelude(input);
+    let input = prelude_src.as_ref();
 
     let mut interner = Interner::new();
     let mut lexer = Lexer::new(input, &mut interner);
@@ -1142,6 +1332,7 @@ pub fn with_v2_optimized_program<R>(
                 &imperative_expr_arena,
                 &stmt_arena,
                 &mut interner,
+                &crate::optimization::OptimizationConfig::from_env(),
             );
             f(Ok((&optimized, &type_registry_for_engines, policy_registry)), &interner)
         }
@@ -1161,6 +1352,48 @@ pub fn with_v2_optimized_program<R>(
 /// fallback for anything the VM compiler rejects.
 pub fn interpret_for_ui_sync(input: &str) -> InterpreterResult {
     interpret_for_ui_sync_with_args(input, &[])
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+thread_local! {
+    /// Compiled-native functions to install into the next VM run on this thread
+    /// (HOTSWAP §Axis-3). `largo run` loads a `.logos-native` bundle into this; the VM
+    /// seam below drains it and installs each via `install_aot_native`, so a `native`-
+    /// annotated function dispatches to `rustc -O3` machine code from its first call.
+    /// Empty for every other caller — no AOT, behavior unchanged.
+    static PENDING_AOT: std::cell::RefCell<Vec<(String, Box<dyn crate::vm::NativeFn>)>> =
+        const { std::cell::RefCell::new(Vec::new()) };
+}
+
+/// Queue compiled-native functions for the next VM run on this thread (HOTSWAP §Axis-3).
+/// Consumed by the next `interpret_for_ui_*` VM run.
+#[cfg(not(target_arch = "wasm32"))]
+pub fn set_pending_aot_natives(natives: Vec<(String, Box<dyn crate::vm::NativeFn>)>) {
+    PENDING_AOT.with(|p| *p.borrow_mut() = natives);
+}
+
+/// Drain the pending compiled-native functions and install them into `vm`, resolving
+/// each by name to its function index. No-op when none are queued.
+#[cfg(not(target_arch = "wasm32"))]
+fn install_pending_aot_natives(
+    vm: &mut crate::vm::Vm,
+    program: &crate::vm::CompiledProgram,
+    interner: &Interner,
+) {
+    let pending = PENDING_AOT.with(|p| std::mem::take(&mut *p.borrow_mut()));
+    for (name, nf) in pending {
+        if let Some(fi) = program
+            .fn_index
+            .iter()
+            .find(|(s, _)| interner.resolve(**s) == name)
+            .map(|(_, i)| *i as usize)
+        {
+            vm.install_aot_native(fi, nf);
+            if std::env::var_os("LOGOS_ENGINE_TRACE").is_some() {
+                eprintln!("logos-engine: aot-native installed for '{name}'");
+            }
+        }
+    }
 }
 
 /// Like [`interpret_for_ui_sync`], but supplies the program's argument vector
@@ -1183,7 +1416,10 @@ pub fn interpret_for_ui_sync_with_args(input: &str, program_args: &[String]) -> 
     // raw tree-walker).
     with_optimized_program(input, |parsed, interner| match parsed {
         Ok((stmts, type_registry, policies)) => {
-            if crate::interpreter::needs_async(stmts) {
+            if let Some(rejection) = send_escape_rejection(stmts) {
+                return rejection;
+            }
+            if crate::interpreter::needs_async(stmts) || crate::concurrency::uses_scheduler(stmts) {
                 trace("treewalker (async)");
                 return run_treewalker(stmts, type_registry, policies, interner, true, program_args);
             }
@@ -1204,6 +1440,10 @@ pub fn interpret_for_ui_sync_with_args(input: &str, program_args: &[String]) -> 
                     if let Some(tier) = crate::vm::installed_native_tier() {
                         vm = vm.with_native_tier(tier);
                     }
+                    // Compiled-native tier (HOTSWAP §Axis-3): install any AOT functions
+                    // the run was given, so they dispatch to rustc -O3 machine code.
+                    #[cfg(not(target_arch = "wasm32"))]
+                    install_pending_aot_natives(&mut vm, &program, interner);
                     let error = vm.run().err();
                     let result = InterpreterResult { lines: vm.into_lines(), error };
 
@@ -1241,8 +1481,453 @@ pub fn interpret_for_ui_sync_with_args(input: &str, program_args: &[String]) -> 
     })
 }
 
+/// Baseline-tier interpret for the interactive UI (the Studio) — the cold-start
+/// engine. Runs on the bytecode VM with NO run-path optimizer
+/// (`with_parsed_program`, not `with_optimized_program`) and NO oracle
+/// (`compile_with_types`, not `compile_with_oracle`), so there is no
+/// optimize/analysis latency before execution. `largo run` and the benchmarks
+/// keep [`interpret_for_ui`], which optimizes ahead of execution for peak
+/// throughput. Output is identical — the VM is differentially gated against the
+/// tree-walker on the SAME parsed statements (see the debug shadow-oracle assert
+/// in [`interpret_for_ui_baseline_sync_with_args`]); only the startup latency
+/// differs. This is the baseline half of the EXODIA tier split; promoting hot
+/// code to the optimized path is a later step.
+pub async fn interpret_for_ui_baseline(input: &str) -> InterpreterResult {
+    interpret_for_ui_baseline_with_args(input, &[]).await
+}
+
+/// Like [`interpret_for_ui_baseline`], but supplies the program's argument
+/// vector to the `args()` system native.
+pub async fn interpret_for_ui_baseline_with_args(
+    input: &str,
+    program_args: &[String],
+) -> InterpreterResult {
+    // Async programs (file I/O, sleep, mount) run on the tree-walker's async
+    // executor regardless of tier — the VM is sync-only — so that case is
+    // identical to the optimized entry (and must `await` rather than nest a
+    // `block_on`); delegate it.
+    let needs_async = with_parsed_program(input, |parsed, _| match parsed {
+        Ok((stmts, _, _)) => crate::interpreter::needs_async(stmts),
+        Err(_) => false,
+    });
+    if needs_async {
+        return interpret_for_ui_with_args(input, program_args).await;
+    }
+    interpret_for_ui_baseline_sync_with_args(input, program_args)
+}
+
+/// The synchronous baseline core: parse (UNoptimized) → bytecode VM (no oracle)
+/// → run. Mirrors [`interpret_for_ui_sync_with_args`] exactly, minus
+/// `optimize_for_run` and the oracle range analysis.
+pub fn interpret_for_ui_baseline_sync_with_args(
+    input: &str,
+    program_args: &[String],
+) -> InterpreterResult {
+    let trace = |engine: &str| {
+        if std::env::var_os("LOGOS_ENGINE_TRACE").is_some() {
+            eprintln!("logos-engine: {engine}");
+        }
+    };
+    with_parsed_program(input, |parsed, interner| match parsed {
+        Ok((stmts, type_registry, policies)) => {
+            if let Some(rejection) = send_escape_rejection(stmts) {
+                return rejection;
+            }
+            if crate::interpreter::needs_async(stmts) || crate::concurrency::uses_scheduler(stmts) {
+                trace("treewalker (async)");
+                return run_treewalker(stmts, type_registry, policies, interner, true, program_args);
+            }
+            match crate::vm::Compiler::compile_with_types(stmts, interner, Some(type_registry)) {
+                Ok(program) => {
+                    trace("vm (baseline)");
+                    let mut vm = crate::vm::Vm::new(&program)
+                        .with_policy_ctx(&policies, interner)
+                        .with_program_args(program_args.to_vec());
+                    if let Some(tier) = crate::vm::installed_native_tier() {
+                        vm = vm.with_native_tier(tier);
+                    }
+                    // Compiled-native tier (HOTSWAP §Axis-3): install any AOT functions
+                    // the run was given, so they dispatch to rustc -O3 machine code.
+                    #[cfg(not(target_arch = "wasm32"))]
+                    install_pending_aot_natives(&mut vm, &program, interner);
+                    let error = vm.run().err();
+                    let result = InterpreterResult { lines: vm.into_lines(), error };
+
+                    // The same debug differential net as the optimized path: the
+                    // baseline VM and the tree-walker must agree on the SAME
+                    // (unoptimized) statements. (Skipped on wasm to keep dev
+                    // builds light.)
+                    #[cfg(all(debug_assertions, not(target_arch = "wasm32")))]
+                    {
+                        let shadow = run_treewalker(
+                            stmts,
+                            type_registry,
+                            policies.clone(),
+                            interner,
+                            false,
+                            program_args,
+                        );
+                        assert_eq!(
+                            (&result.lines, &result.error),
+                            (&shadow.lines, &shadow.error),
+                            "baseline VM diverged from the tree-walker oracle for:\n{input}"
+                        );
+                    }
+                    result
+                }
+                // The VM compiler rejects only constructs outside the parser's
+                // reach; run them on the tree-walker rather than failing.
+                Err(_) => {
+                    trace("treewalker (vm-reject)");
+                    run_treewalker(stmts, type_registry, policies, interner, false, program_args)
+                }
+            }
+        }
+        Err(advice) => InterpreterResult { lines: vec![], error: Some(advice) },
+    })
+}
+
 /// Run a parsed program on the TREE-WALKER (the oracle engine). `force_async`
 /// selects the async executor; otherwise the sync path is used.
+/// Run a concurrent program on the deterministic scheduler: spawn the main block
+/// as a task (which may spawn more), drive the scheduler to quiescence, and
+/// collect the output merged through a shared callback.
+fn run_program_concurrent<'a>(
+    stmts: &'a [logicaffeine_language::ast::stmt::Stmt<'a>],
+    type_registry: &logicaffeine_language::analysis::TypeRegistry,
+    policies: logicaffeine_language::analysis::PolicyRegistry,
+    interner: &'a Interner,
+    program_args: &[String],
+    vfs: Option<std::sync::Arc<dyn logicaffeine_system::fs::Vfs>>,
+    stream: Option<crate::interpreter::OutputCallback>,
+    seed: u64,
+) -> InterpreterResult {
+    use crate::concurrency::bridge::YieldState;
+    use crate::concurrency::driver::InterpreterTask;
+    use logicaffeine_runtime::{run_with_seed, RunOutcome, SchedSeed, SchedulerConfig};
+    use std::cell::RefCell;
+    use std::rc::Rc;
+
+    let output_sink: Rc<RefCell<Vec<String>>> = Rc::new(RefCell::new(Vec::new()));
+    let sink = output_sink.clone();
+    // Collect every task's output for the final result, and — when streaming —
+    // forward each line to the live callback as it is produced (the Studio's
+    // real-time display).
+    let callback: crate::interpreter::OutputCallback =
+        Rc::new(RefCell::new(move |line: String| {
+            if let Some(s) = &stream {
+                (s.borrow_mut())(line.clone());
+            }
+            sink.borrow_mut().push(line);
+        }));
+    let err_sink: crate::concurrency::driver::ErrSink = Rc::new(RefCell::new(None));
+
+    let mut main = crate::interpreter::Interpreter::new(interner)
+        .with_type_registry(type_registry)
+        .with_policies(policies)
+        .with_program_args(program_args.to_vec())
+        .with_output_callback(callback);
+    if let Some(v) = vfs {
+        main = main.with_vfs(v);
+    }
+    let main_ys = Rc::new(RefCell::new(YieldState::new()));
+    main.install_yield_state(main_ys.clone());
+
+    let main_fut = Box::pin(async move { main.run(stmts).await });
+    let main_task = InterpreterTask::new(main_fut, main_ys, Some(err_sink.clone()));
+
+    let (outcome, _trace) =
+        run_with_seed(SchedulerConfig::default(), SchedSeed(seed), move |sched| {
+            sched.spawn_main(Box::new(main_task));
+        });
+
+    let mut error = err_sink.borrow().clone();
+    if error.is_none() {
+        match outcome {
+            RunOutcome::Deadlock => {
+                error = Some("deadlock: every task is blocked waiting".to_string());
+            }
+            // The synchronous scheduler has no reactor; a program that needs network I/O
+            // must run on the async drive loop (it routes there via `needs_async`). Reaching
+            // here means it was driven on the wrong tier — surface it instead of half-running.
+            RunOutcome::WaitingForIo => {
+                error = Some(
+                    "networking requires the async runtime; this program was run on the \
+                     synchronous scheduler"
+                        .to_string(),
+                );
+            }
+            RunOutcome::Done(_) => {}
+        }
+    }
+    let lines = output_sink.borrow().clone();
+    InterpreterResult { lines, error }
+}
+
+/// A snapshot sink for the Studio's Tasks/Channels strip — invoked between scheduler
+/// slices with the live task/channel state.
+pub type ObserverCallback = std::rc::Rc<std::cell::RefCell<dyn FnMut(logicaffeine_runtime::SchedSnapshot)>>;
+
+/// Yield a macrotask so the host event loop (Dioxus) can repaint between scheduler
+/// slices. On wasm this is a real `setTimeout(0)`; on native there is no event loop to
+/// yield to, so it returns immediately and the drive loop continues — the output is
+/// identical, only the interleaving with repaints differs.
+async fn yield_macrotask() {
+    #[cfg(target_arch = "wasm32")]
+    {
+        gloo_timers::future::TimeoutFuture::new(0).await;
+    }
+}
+
+/// Yield control back to the host async runtime once, so its reactor can advance a pending
+/// network future before the scheduler re-polls the task that awaits it. Runtime-agnostic
+/// (no tokio dependency): a future that wakes itself and returns `Pending` exactly once — the
+/// same shape as `tokio::task::yield_now`, which lets the current-thread runtime poll its I/O
+/// driver between turns. On wasm a `setTimeout(0)` lets the event loop fire the socket
+/// callbacks. This is how a [`logicaffeine_runtime::RunOutcome::WaitingForIo`] is serviced.
+async fn yield_to_reactor() {
+    #[cfg(target_arch = "wasm32")]
+    {
+        gloo_timers::future::TimeoutFuture::new(0).await;
+    }
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        use std::future::Future;
+        use std::pin::Pin;
+        use std::task::{Context, Poll};
+        struct YieldOnce(bool);
+        impl Future for YieldOnce {
+            type Output = ();
+            fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<()> {
+                if self.0 {
+                    Poll::Ready(())
+                } else {
+                    self.0 = true;
+                    cx.waker().wake_by_ref();
+                    Poll::Pending
+                }
+            }
+        }
+        YieldOnce(false).await;
+    }
+}
+
+/// The browser-facing async driver for concurrent programs. Identical semantics to
+/// [`run_program_concurrent`] (same deterministic scheduler, same seed, same output), but
+/// it advances the scheduler in bounded slices and yields a macrotask between them so the
+/// Studio repaints instead of freezing — and emits a [`logicaffeine_runtime::SchedSnapshot`]
+/// to `observer` after each slice to drive the Tasks/Channels strip.
+#[allow(clippy::too_many_arguments)]
+async fn run_program_concurrent_streaming<'a>(
+    stmts: &'a [logicaffeine_language::ast::stmt::Stmt<'a>],
+    type_registry: &logicaffeine_language::analysis::TypeRegistry,
+    policies: logicaffeine_language::analysis::PolicyRegistry,
+    interner: &'a Interner,
+    program_args: &[String],
+    vfs: Option<std::sync::Arc<dyn logicaffeine_system::fs::Vfs>>,
+    stream: Option<crate::interpreter::OutputCallback>,
+    observer: Option<ObserverCallback>,
+    seed: u64,
+) -> InterpreterResult {
+    use crate::concurrency::bridge::YieldState;
+    use crate::concurrency::driver::InterpreterTask;
+    use logicaffeine_runtime::{Chooser, RunOutcome, SchedSeed, Scheduler, SchedulerConfig};
+    use std::cell::RefCell;
+    use std::rc::Rc;
+
+    // The slice budget: how many scheduler steps to run before yielding a macrotask. Large
+    // enough that a quiescent program finishes in one slice; small enough that a busy one
+    // still repaints. It does not affect output (the scheduler is deterministic).
+    const SLICE_STEPS: usize = 256;
+
+    let output_sink: Rc<RefCell<Vec<String>>> = Rc::new(RefCell::new(Vec::new()));
+    let sink = output_sink.clone();
+    let callback: crate::interpreter::OutputCallback = Rc::new(RefCell::new(move |line: String| {
+        if let Some(s) = &stream {
+            (s.borrow_mut())(line.clone());
+        }
+        sink.borrow_mut().push(line);
+    }));
+    let err_sink: crate::concurrency::driver::ErrSink = Rc::new(RefCell::new(None));
+
+    let mut main = crate::interpreter::Interpreter::new(interner)
+        .with_type_registry(type_registry)
+        .with_policies(policies)
+        .with_program_args(program_args.to_vec())
+        .with_output_callback(callback);
+    if let Some(v) = vfs {
+        main = main.with_vfs(v);
+    }
+    let main_ys = Rc::new(RefCell::new(YieldState::new()));
+    main.install_yield_state(main_ys.clone());
+
+    let main_fut = Box::pin(async move { main.run(stmts).await });
+    let main_task = InterpreterTask::new(main_fut, main_ys, Some(err_sink.clone()));
+
+    let mut sched = Scheduler::new(SchedulerConfig::default(), Chooser::record(SchedSeed(seed)));
+    sched.spawn_main(Box::new(main_task));
+
+    let outcome = loop {
+        match sched.run_slice(SLICE_STEPS) {
+            Some(RunOutcome::WaitingForIo) => {
+                // A task is awaiting external I/O (a network op). Let the host reactor make
+                // progress, then re-poll the parked tasks — they re-drive their network
+                // futures, which now observe completion.
+                if let Some(ob) = &observer {
+                    (ob.borrow_mut())(sched.snapshot());
+                }
+                yield_to_reactor().await;
+                sched.wake_io();
+            }
+            Some(o) => break o,
+            None => {
+                if let Some(ob) = &observer {
+                    (ob.borrow_mut())(sched.snapshot());
+                }
+                yield_macrotask().await;
+            }
+        }
+    };
+
+    let mut error = err_sink.borrow().clone();
+    if error.is_none() {
+        if let RunOutcome::Deadlock = outcome {
+            error = Some("deadlock: every task is blocked waiting".to_string());
+        }
+    }
+    let lines = output_sink.borrow().clone();
+    InterpreterResult { lines, error }
+}
+
+/// Parse `input` and run its concurrent program on the **tree-walker** scheduler
+/// under an explicit `seed` — the seeded sibling of the default
+/// `run_program_concurrent` entry, used by the cross-tier seeded differential.
+pub fn run_treewalker_concurrent_seeded(input: &str, seed: u64) -> InterpreterResult {
+    with_parsed_program(input, |parsed, interner| match parsed {
+        Ok((stmts, type_registry, policies)) => {
+            run_program_concurrent(stmts, type_registry, policies, interner, &[], None, None, seed)
+        }
+        Err(advice) => InterpreterResult { lines: vec![], error: Some(advice) },
+    })
+}
+
+/// Run a concurrent program on the **bytecode VM** under the deterministic
+/// scheduler (T11): compile to opcodes, then drive the main [`Vm`] (and any
+/// spawned per-task VMs) through `run_until_block` via a `VmTask`. This is the
+/// VM analog of [`run_program_concurrent`]; the default routing still sends
+/// concurrent programs to the tree-walker, so this is the explicit VM entry used
+/// to exercise and (Phase 5c) differentially compare the VM concurrency tier.
+pub fn run_vm_concurrent(input: &str) -> InterpreterResult {
+    run_vm_concurrent_seeded(input, 0)
+}
+
+/// [`run_vm_concurrent`] under an explicit scheduler `seed` — the VM sibling of
+/// [`run_treewalker_concurrent_seeded`] for the cross-tier seeded differential.
+pub fn run_vm_concurrent_seeded(input: &str, seed: u64) -> InterpreterResult {
+    use crate::concurrency::vm_driver::VmTask;
+    use logicaffeine_runtime::{run_with_seed, RunOutcome, SchedSeed, SchedulerConfig};
+    use std::cell::RefCell;
+    use std::rc::Rc;
+
+    with_parsed_program(input, |parsed, interner| match parsed {
+        Ok((stmts, type_registry, policies)) => {
+            let program = match crate::vm::Compiler::compile_with_types(
+                stmts,
+                interner,
+                Some(type_registry),
+            ) {
+                Ok(p) => p,
+                Err(e) => return InterpreterResult { lines: vec![], error: Some(e) },
+            };
+            let output: Rc<RefCell<Vec<String>>> = Rc::new(RefCell::new(Vec::new()));
+            let err_sink: crate::concurrency::driver::ErrSink = Rc::new(RefCell::new(None));
+            let mut vm = crate::vm::Vm::new(&program).with_policy_ctx(&policies, interner);
+            // Task bodies tier exactly like the main program: a hot integer loop
+            // inside a task JIT-compiles. Concurrency ops are JIT-ineligible (not
+            // integer ops ⇒ never region-selected), so a tiered region is
+            // yield-free and a task only ever suspends on the bytecode path.
+            // Spawned children inherit this tier via `spawn_task_vm`.
+            #[cfg(not(target_arch = "wasm32"))]
+            if let Some(tier) = crate::vm::installed_native_tier() {
+                vm = vm.with_native_tier(tier);
+            }
+            let main_task = VmTask::new(vm, output.clone(), Some(err_sink.clone()));
+            let (outcome, _trace) =
+                run_with_seed(SchedulerConfig::default(), SchedSeed(seed), move |sched| {
+                    sched.spawn_main(Box::new(main_task));
+                });
+            let mut error = err_sink.borrow().clone();
+            if error.is_none() {
+                if let RunOutcome::Deadlock = outcome {
+                    error = Some("deadlock: every task is blocked waiting".to_string());
+                }
+            }
+            let lines = output.borrow().clone();
+            InterpreterResult { lines, error }
+        }
+        Err(advice) => InterpreterResult { lines: vec![], error: Some(advice) },
+    })
+}
+
+/// [`run_vm_concurrent_seeded`] under the **work-stealing M:N driver**: `workers`
+/// OS-thread workers poll task bodies in parallel while one coordinator owns the
+/// scheduler and applies channel ops + flushes output in deterministic pick
+/// order. The observable result is byte-identical to the cooperative driver at the
+/// same seed (`diff_cooperative_eq_workstealing_seeded`) — the difference is that
+/// task bodies genuinely run on multiple cores.
+///
+/// The executor uses scoped threads, so each worker *borrows* the one shared,
+/// immutable program (+ policies + interner) — no clone, no leak. Only a `Send`
+/// [`SpawnDesc`] crosses a worker boundary; the worker rebuilds the `!Send` task
+/// body locally from it.
+#[cfg(not(target_arch = "wasm32"))]
+pub fn run_vm_workstealing_seeded(input: &str, seed: u64, workers: usize) -> InterpreterResult {
+    use crate::concurrency::vm_driver::VmTask;
+    use logicaffeine_runtime::{
+        run_workstealing_seeded, RunOutcome, SchedSeed, SchedulerConfig, SpawnDesc, Task,
+    };
+
+    with_parsed_program(input, |parsed, interner| match parsed {
+        Ok((stmts, type_registry, policies)) => {
+            let program = match crate::vm::Compiler::compile_with_types(
+                stmts,
+                interner,
+                Some(type_registry),
+            ) {
+                Ok(p) => p,
+                Err(e) => return InterpreterResult { lines: vec![], error: Some(e) },
+            };
+            // Build a worker-local task body from a `Send` descriptor. Workers run
+            // the bytecode path: the native JIT tier is per-thread state (its code
+            // cache is `!Sync`), so no shared tier is installed across workers.
+            // Tiering is output-preserving, so this stays byte-identical to the
+            // cooperative (tiered) driver; per-worker JIT is a future optimization.
+            // The parallelism is the task bodies running on separate cores, which
+            // the bytecode interpreter already delivers. The main task runs the
+            // top-level program (`Vm::new` positions there); a spawned task is
+            // positioned at its function via `setup_task`.
+            let build = |desc: SpawnDesc| -> Box<dyn Task<'_> + '_> {
+                let mut vm = crate::vm::Vm::new(&program).with_policy_ctx(&policies, interner);
+                if !desc.is_main {
+                    vm.setup_task(desc.func, &desc.args);
+                }
+                Box::new(VmTask::work_stealing(vm, None))
+            };
+            let main = SpawnDesc { func: 0, args: vec![], priority: 0, is_main: true };
+            let config = SchedulerConfig::default().with_workers(workers.max(1));
+            let result = run_workstealing_seeded(config, SchedSeed(seed), main, build);
+            let error = match result.outcome {
+                RunOutcome::Deadlock => {
+                    Some("deadlock: every task is blocked waiting".to_string())
+                }
+                _ => None,
+            };
+            InterpreterResult { lines: result.output, error }
+        }
+        Err(advice) => InterpreterResult { lines: vec![], error: Some(advice) },
+    })
+}
+
 pub(crate) fn run_treewalker<'a>(
     stmts: &'a [logicaffeine_language::ast::stmt::Stmt<'a>],
     type_registry: &logicaffeine_language::analysis::TypeRegistry,
@@ -1251,6 +1936,11 @@ pub(crate) fn run_treewalker<'a>(
     force_async: bool,
     program_args: &[String],
 ) -> InterpreterResult {
+    if crate::concurrency::uses_scheduler(stmts) {
+        return run_program_concurrent(
+            stmts, type_registry, policies, interner, program_args, None, None, 0,
+        );
+    }
     let mut interp = crate::interpreter::Interpreter::new(interner)
         .with_type_registry(type_registry)
         .with_policies(policies)
@@ -1289,6 +1979,49 @@ pub(crate) fn run_treewalker<'a>(
 /// # }
 /// ```
 pub async fn interpret_streaming<F>(input: &str, on_output: std::rc::Rc<std::cell::RefCell<F>>) -> InterpreterResult
+where
+    F: FnMut(String) + 'static,
+{
+    interpret_streaming_with_vfs(input, on_output, None).await
+}
+
+/// Like [`interpret_streaming`], but routes the interpreter's file I/O
+/// (`Write`/`Read`/`Mount`) to `vfs`. The browser Studio passes its `WebVfs`
+/// here so the standard-library I/O vocabulary works against OPFS/IndexedDB; a
+/// `None` vfs leaves file I/O reporting "VFS not initialized" as before. The
+/// clone-per-task model means concurrent tasks inherit the same VFS handle.
+pub async fn interpret_streaming_with_vfs<F>(
+    input: &str,
+    on_output: std::rc::Rc<std::cell::RefCell<F>>,
+    vfs: Option<std::sync::Arc<dyn logicaffeine_system::fs::Vfs>>,
+) -> InterpreterResult
+where
+    F: FnMut(String) + 'static,
+{
+    interpret_streaming_impl(input, on_output, vfs, None).await
+}
+
+/// Like [`interpret_streaming_with_vfs`], but also emits a [`logicaffeine_runtime::SchedSnapshot`]
+/// to `observer` after each scheduler slice — the Studio's Tasks/Channels strip subscribes
+/// here to show a concurrent program's live task and channel state as it runs.
+pub async fn interpret_streaming_with_vfs_observer<F>(
+    input: &str,
+    on_output: std::rc::Rc<std::cell::RefCell<F>>,
+    vfs: Option<std::sync::Arc<dyn logicaffeine_system::fs::Vfs>>,
+    observer: ObserverCallback,
+) -> InterpreterResult
+where
+    F: FnMut(String) + 'static,
+{
+    interpret_streaming_impl(input, on_output, vfs, Some(observer)).await
+}
+
+async fn interpret_streaming_impl<F>(
+    input: &str,
+    on_output: std::rc::Rc<std::cell::RefCell<F>>,
+    vfs: Option<std::sync::Arc<dyn logicaffeine_system::fs::Vfs>>,
+    observer: Option<ObserverCallback>,
+) -> InterpreterResult
 where
     F: FnMut(String) + 'static,
 {
@@ -1336,15 +2069,41 @@ where
 
     match parser.parse_program() {
         Ok(stmts) => {
+            if let Some(rejection) = send_escape_rejection(&stmts) {
+                return rejection;
+            }
             // Create the callback wrapper that calls the user's callback
             let callback: OutputCallback = std::rc::Rc::new(std::cell::RefCell::new(move |line: String| {
                 (on_output.borrow_mut())(line);
             }));
 
+            // Concurrent programs run on the deterministic scheduler — the browser
+            // concurrency path — driven in slices that yield a macrotask between them so
+            // the UI repaints, streaming each line as it is produced and emitting a
+            // snapshot to the observer (if any). (Without this, a concurrency op would
+            // `yield_request` with no scheduler installed and panic.)
+            if crate::concurrency::uses_scheduler(&stmts) {
+                return run_program_concurrent_streaming(
+                    &stmts,
+                    &type_registry_for_interp,
+                    policy_registry,
+                    &interner,
+                    &[],
+                    vfs,
+                    Some(callback),
+                    observer,
+                    0,
+                )
+                .await;
+            }
+
             let mut interp = crate::interpreter::Interpreter::new(&interner)
                 .with_type_registry(&type_registry_for_interp)
                 .with_policies(policy_registry)
                 .with_output_callback(callback);
+            if let Some(v) = vfs {
+                interp = interp.with_vfs(v);
+            }
 
             match interp.run(&stmts).await {
                 Ok(()) => InterpreterResult {
@@ -1385,10 +2144,14 @@ use crate::kernel;
 /// 5. Type-check the term
 /// 6. Return (proof_term, context)
 pub fn verify_theorem(input: &str) -> Result<(kernel::Term, kernel::Context), ParseError> {
-    let (proof_exprs, goal_expr) = theorem_proof_exprs(input)?;
+    let (proof_exprs, goal_expr, definitions) = theorem_proof_exprs_with_defs(input)?;
 
     // === STEPS 3-6: Prove → certify → type-check (the one canonical pipeline) ===
-    let outcome = logicaffeine_proof::verify::prove_certify_check(&proof_exprs, &goal_expr);
+    let outcome = logicaffeine_proof::verify::prove_certify_check_with_defs(
+        &proof_exprs,
+        &goal_expr,
+        &definitions,
+    );
     if outcome.verified {
         Ok((
             outcome
@@ -1431,8 +2194,12 @@ pub struct TheoremTrace {
 /// TRACE. Unlike [`verify_theorem`] (which returns the raw kernel term), this
 /// surfaces the derivation tree so the proof steps are visible.
 pub fn prove_theorem_trace(input: &str) -> Result<TheoremTrace, ParseError> {
-    let (proof_exprs, goal_expr) = theorem_proof_exprs(input)?;
-    let outcome = logicaffeine_proof::verify::prove_certify_check(&proof_exprs, &goal_expr);
+    let (proof_exprs, goal_expr, definitions) = theorem_proof_exprs_with_defs(input)?;
+    let outcome = logicaffeine_proof::verify::prove_certify_check_with_defs(
+        &proof_exprs,
+        &goal_expr,
+        &definitions,
+    );
     Ok(TheoremTrace {
         verified: outcome.verified,
         premises: proof_exprs.iter().map(|p| p.to_string()).collect(),
@@ -1440,6 +2207,768 @@ pub fn prove_theorem_trace(input: &str) -> Result<TheoremTrace, ParseError> {
         trace: outcome.derivation.as_ref().map(|d| d.display_tree()),
         error: outcome.verification_error,
     })
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// Proof / Math → Rust extraction (the Curry-Howard "Forge", UI-facing)
+// ═══════════════════════════════════════════════════════════════════
+
+/// Names the user defined — present in `ctx` but absent from a fresh kernel
+/// context (i.e. excluding the StandardLibrary baseline). Inductives are listed
+/// before definitions so the extracted module reads top-down; StandardLibrary
+/// items are pulled in by [`extract_math_rust`] only when transitively needed.
+fn user_defined_entries(ctx: &kernel::Context) -> Vec<String> {
+    let baseline = kernel::interface::Repl::new();
+    let base = baseline.context();
+    let mut base_names: HashSet<String> = HashSet::new();
+    for (name, _) in base.iter_inductives() {
+        base_names.insert(name.to_string());
+    }
+    for (name, _, _) in base.iter_definitions() {
+        base_names.insert(name.to_string());
+    }
+
+    let mut entries = Vec::new();
+    for (name, _) in ctx.iter_inductives() {
+        // A user inductive extracts as an enum only if every constructor field is
+        // a concrete Rust type. Dependent/indexed families (e.g. `Eq<Nat,n,…>`,
+        // value-indexed proof types) and opaque/primitive types are skipped.
+        if !base_names.contains(name) && inductive_is_emittable(ctx, name) {
+            entries.push(name.to_string());
+        }
+    }
+    for (name, ty, _) in ctx.iter_definitions() {
+        // Only data-typed definitions whose body references nothing inextractable
+        // (no Prop proofs, no axioms/tactics like `syn_diag`/`try_auto`) extract to
+        // runnable Rust — so we never emit Rust that references undefined symbols.
+        if !base_names.contains(name)
+            && type_is_emittable(ctx, ty, &[])
+            && crate::extraction::is_extractable(ctx, name)
+        {
+            entries.push(name.to_string());
+        }
+    }
+    // Deterministic order (iter_* walk HashMaps with per-instance random seeds).
+    entries.sort();
+    entries.dedup();
+    entries
+}
+
+/// Whether a kernel type extracts to a concrete Rust type: a mapped primitive, a
+/// user inductive with emittable constructors (→ enum), a declared type parameter
+/// (`generics`), or a function/application built from those. `Sort` (Prop/Type),
+/// logical/opaque types, and undeclared type variables are not.
+fn type_is_emittable(ctx: &kernel::Context, ty: &kernel::Term, generics: &[String]) -> bool {
+    use kernel::Term;
+    match ty {
+        Term::Global(name) => {
+            crate::extraction::primitive_rust_type(name).is_some()
+                || (ctx.is_inductive(name)
+                    && !ctx.get_constructors(name).is_empty()
+                    && !crate::extraction::is_logical_type(name))
+        }
+        // A type variable is only a real Rust type if it's a declared generic of
+        // the enclosing inductive — never in a bare definition type.
+        Term::Var(v) => generics.iter().any(|g| g == v),
+        Term::Pi { param_type, body_type, .. } => {
+            type_is_emittable(ctx, param_type, generics) && type_is_emittable(ctx, body_type, generics)
+        }
+        Term::App(f, a) => {
+            type_is_emittable(ctx, f, generics) && type_is_emittable(ctx, a, generics)
+        }
+        _ => false,
+    }
+}
+
+/// The leading `: Type` parameters of an inductive (its Rust generics).
+fn inductive_generics(ctx: &kernel::Context, ind: &str) -> Vec<String> {
+    use kernel::Term;
+    let mut names = Vec::new();
+    let mut cur = match ctx.get_global(ind) {
+        Some(t) => t,
+        None => return names,
+    };
+    while let Term::Pi { param, param_type, body_type } = cur {
+        if matches!(param_type.as_ref(), Term::Sort(_)) {
+            names.push(param.clone());
+            cur = body_type;
+        } else {
+            break;
+        }
+    }
+    names
+}
+
+/// A user inductive is emittable iff it has constructors and every constructor
+/// *field* (after the leading type parameters) is itself an emittable type.
+fn inductive_is_emittable(ctx: &kernel::Context, ind: &str) -> bool {
+    use kernel::Term;
+    let ctors = ctx.get_constructors(ind);
+    if ctors.is_empty() || crate::extraction::is_logical_type(ind) {
+        return false;
+    }
+    let generics = inductive_generics(ctx, ind);
+    for (_, ty) in &ctors {
+        let mut cur = *ty;
+        for _ in 0..generics.len() {
+            if let Term::Pi { body_type, .. } = cur {
+                cur = body_type;
+            } else {
+                break;
+            }
+        }
+        while let Term::Pi { param_type, body_type, .. } = cur {
+            if !type_is_emittable(ctx, param_type, &generics) {
+                return false;
+            }
+            cur = body_type;
+        }
+    }
+    true
+}
+
+/// Extract every user-defined inductive and definition in `ctx` into one Rust
+/// module — the "compile my math to Rust" path for the Math studio. Shared and
+/// StandardLibrary dependencies are pulled in only when a user definition
+/// transitively needs them, and are emitted exactly once.
+pub fn extract_math_rust(ctx: &kernel::Context) -> Result<String, String> {
+    let entries = user_defined_entries(ctx);
+    if entries.is_empty() {
+        return Ok("// nothing defined yet — add a Definition or Inductive".to_string());
+    }
+    let module = extract_math_module(ctx)?;
+    let checks: Vec<(String, Vec<kernel::Term>)> =
+        property_checks(ctx).into_iter().map(|(n, _, p)| (n, p)).collect();
+    // The "compiled mathematical object" runs and proves itself.
+    Ok(format!("{module}{}", math_demo_main(ctx, &entries, &checks)))
+}
+
+/// Extract every user-defined inductive/definition in `ctx` into one Rust module —
+/// types, functions, and `check_*` property fns from proven theorems — WITHOUT a
+/// demo `main`. This is the linkable artifact bundled into an imperative program's
+/// `mod proven`; [`extract_math_rust`] wraps it with a self-verifying `main` for the
+/// standalone Math compile.
+pub fn extract_math_module(ctx: &kernel::Context) -> Result<String, String> {
+    let entries = user_defined_entries(ctx);
+    if entries.is_empty() {
+        return Ok("// nothing defined yet — add a Definition or Inductive".to_string());
+    }
+    let refs: Vec<&str> = entries.iter().map(|s| s.as_str()).collect();
+    let mut module = crate::extraction::extract_programs(ctx, &refs).map_err(|e| e.to_string())?;
+    // Proven theorems → runnable property checks over the extracted functions
+    // (e.g. `∀n. add Zero n = n` → `fn check_…(n) -> bool { add(Zero, n) == n }`).
+    // Appended in sorted order so the module is byte-identical across recompiles.
+    let mut check_names: std::collections::HashSet<String> = std::collections::HashSet::new();
+    for (name, check_fn, _) in property_checks(ctx) {
+        module.push_str(&check_fn);
+        check_names.insert(name);
+    }
+    // Honest notes for proof-irrelevant theorems (Gödel, consistency, `True`, …): a
+    // definition whose TYPE is a proposition is a *proof*, and by Curry-Howard a proof
+    // of a Prop has no computational content — so it has no runnable form. The
+    // constructive dependencies it uses are still extracted above; the note explains
+    // why the theorem itself isn't a function. Sorted for deterministic output.
+    let base = baseline_names();
+    let mut notes: Vec<String> = Vec::new();
+    for (name, ty, _) in ctx.iter_definitions() {
+        if base.contains(name) || check_names.contains(name) {
+            continue;
+        }
+        if def_type_is_proposition(ty) {
+            notes.push(format!(
+                "// note: `{name}` is a proof of a proposition — proof-irrelevant (no \
+                 computational content), so it has no runnable form; any constructive \
+                 definitions it relies on are extracted above.\n"
+            ));
+        }
+    }
+    notes.sort();
+    for n in notes {
+        module.push_str(&n);
+    }
+    Ok(module)
+}
+
+/// Whether a definition's type is a proposition — i.e. the definition is a *proof*
+/// (proof-irrelevant), not computational data. Peels any `∀` (Pi) binders, then
+/// checks whether the head of the result is a logical/proof type (`Eq`/`And`/`True`/
+/// `Syntax`/`Derivation`/…). Used to emit honest notes for theorems with no runnable form.
+fn def_type_is_proposition(ty: &kernel::Term) -> bool {
+    use kernel::Term;
+    let mut cur = ty;
+    while let Term::Pi { body_type, .. } = cur {
+        cur = body_type;
+    }
+    let mut head = cur;
+    while let Term::App(f, _) = head {
+        head = f;
+    }
+    matches!(head, Term::Global(n) if crate::extraction::is_logical_type(n))
+}
+
+/// Proven theorems → runnable property checks: `(name, check_fn_source, param_types)`,
+/// sorted by name for deterministic emission. A theorem yields a check iff
+/// [`crate::extraction::emit_property_check`] produces a runnable predicate over the
+/// extracted functions (it quantifies only over data types).
+fn property_checks(ctx: &kernel::Context) -> Vec<(String, String, Vec<kernel::Term>)> {
+    let base = baseline_names();
+    let mut checks: Vec<(String, String, Vec<kernel::Term>)> = Vec::new();
+    for (name, ty, _) in ctx.iter_definitions() {
+        if base.contains(name) {
+            continue;
+        }
+        if let Some(check_fn) = crate::extraction::emit_property_check(ctx, name, ty) {
+            checks.push((name.to_string(), check_fn, pi_param_types(ty)));
+        }
+    }
+    checks.sort_by(|a, b| a.0.cmp(&b.0));
+    checks
+}
+
+/// Names present in a fresh `Repl::new()` (the StandardLibrary baseline).
+fn baseline_names() -> std::collections::HashSet<String> {
+    let baseline = kernel::interface::Repl::new();
+    let base = baseline.context();
+    let mut names = std::collections::HashSet::new();
+    for (n, _) in base.iter_inductives() {
+        names.insert(n.to_string());
+    }
+    for (n, _, _) in base.iter_definitions() {
+        names.insert(n.to_string());
+    }
+    names
+}
+
+/// Whether a term applies the `div`/`mod` arithmetic builtins (whose extracted Rust
+/// `/`/`%` panics on a zero divisor) — used to skip them in the self-verifying demo.
+fn term_uses_div_or_mod(term: &kernel::Term) -> bool {
+    use kernel::Term;
+    match term {
+        Term::Global(n) => n == "div" || n == "mod",
+        Term::App(f, a) => term_uses_div_or_mod(f) || term_uses_div_or_mod(a),
+        Term::Lambda { param_type, body, .. } => {
+            term_uses_div_or_mod(param_type) || term_uses_div_or_mod(body)
+        }
+        Term::Pi { param_type, body_type, .. } => {
+            term_uses_div_or_mod(param_type) || term_uses_div_or_mod(body_type)
+        }
+        Term::Fix { body, .. } => term_uses_div_or_mod(body),
+        Term::Match { discriminant, motive, cases } => {
+            term_uses_div_or_mod(discriminant)
+                || term_uses_div_or_mod(motive)
+                || cases.iter().any(term_uses_div_or_mod)
+        }
+        _ => false,
+    }
+}
+
+/// A self-verifying demo `main`: each value/function result is `assert_eq!`d
+/// against `kernel::normalize` (the kernel's evaluator) and printed; each proven
+/// theorem's property check is run on a sample and asserted.
+fn math_demo_main(
+    ctx: &kernel::Context,
+    entries: &[String],
+    checks: &[(String, Vec<kernel::Term>)],
+) -> String {
+    use kernel::Term;
+    let mut lines = Vec::new();
+    for name in entries {
+        let Some(body) = ctx.get_definition_body(name) else {
+            continue; // an inductive, not a definition
+        };
+        // Skip exercising a def that uses `div`/`mod`: the demo samples Int as 0, and
+        // `n / n` / `n % n` at n=0 is a compile-time divide-by-zero panic (and the
+        // kernel leaves div-by-0 stuck, diverging from Rust's panic). The function is
+        // still EXTRACTED — just not run in the self-verifying demo.
+        if term_uses_div_or_mod(body) {
+            continue;
+        }
+        if matches!(body, Term::Lambda { .. } | Term::Fix { .. }) {
+            // A function: apply it to kernel-built sample arguments.
+            let Some(ty) = ctx.get_definition_type(name) else { continue };
+            let params = pi_param_types(ty);
+            let samples: Option<Vec<Term>> =
+                params.iter().map(|p| sample_value(ctx, p)).collect();
+            let Some(samples) = samples else { continue }; // can't sample → skip
+            if samples.is_empty() {
+                continue;
+            }
+            let args_rust: Vec<String> =
+                samples.iter().map(|s| crate::extraction::emit_value(ctx, s)).collect();
+            let mut app = Term::Global(name.clone());
+            for s in &samples {
+                app = Term::App(Box::new(app), Box::new(s.clone()));
+            }
+            let expected = crate::extraction::emit_value(ctx, &kernel::normalize(ctx, &app));
+            let call = format!("{}({})", name, args_rust.join(", "));
+            lines.push(format!("    assert_eq!({call}, {expected});"));
+            lines.push(format!("    println!(\"{name}(..) = {{:?}}\", {call});"));
+        } else {
+            // A value: evaluate and self-verify.
+            let expected = crate::extraction::emit_value(ctx, &kernel::normalize(ctx, body));
+            lines.push(format!("    assert_eq!({name}(), {expected});"));
+            lines.push(format!("    println!(\"{name} = {{:?}}\", {name}());"));
+        }
+    }
+    // Run each proven theorem's property check on a sample and assert it holds.
+    for (name, param_types) in checks {
+        let samples: Option<Vec<kernel::Term>> =
+            param_types.iter().map(|p| sample_value(ctx, p)).collect();
+        let Some(samples) = samples else { continue };
+        let args: Vec<String> =
+            samples.iter().map(|s| crate::extraction::emit_value(ctx, s)).collect();
+        let call = format!("check_{}({})", name, args.join(", "));
+        lines.push(format!("    assert!({call}, \"theorem {name} failed on sample\");"));
+        lines.push(format!("    println!(\"\\u{{2713}} {name} holds (checked on a sample)\");"));
+    }
+    if lines.is_empty() {
+        return "\nfn main() {}\n".to_string();
+    }
+    format!("\nfn main() {{\n{}\n}}\n", lines.join("\n"))
+}
+
+/// The parameter types of a (possibly curried) function type `A -> B -> C`.
+fn pi_param_types(ty: &kernel::Term) -> Vec<kernel::Term> {
+    use kernel::Term;
+    let mut params = Vec::new();
+    let mut cur = ty;
+    while let Term::Pi { param_type, body_type, .. } = cur {
+        params.push((**param_type).clone());
+        cur = body_type;
+    }
+    params
+}
+
+/// A small sample value of a type, for the demo (a primitive zero, or the first
+/// nullary constructor of an inductive). `None` if we can't build one cheaply.
+fn sample_value(ctx: &kernel::Context, ty: &kernel::Term) -> Option<kernel::Term> {
+    use kernel::{Literal, Term};
+    match ty {
+        Term::Global(name) => match name.as_str() {
+            "Int" => Some(Term::Lit(Literal::Int(0))),
+            "Float" => Some(Term::Lit(Literal::Float(0.0))),
+            "Text" => Some(Term::Lit(Literal::Text(String::new()))),
+            // First nullary constructor of a user inductive (Zero, Yes, MNil, …).
+            _ if ctx.is_inductive(name) => ctx
+                .get_constructors(name)
+                .into_iter()
+                .find(|(_, cty)| !matches!(cty, Term::Pi { .. }))
+                .map(|(cname, _)| Term::Global(cname.to_string())),
+            _ => None,
+        },
+        _ => None,
+    }
+}
+
+/// Compile a Math-mode SOURCE program (the editor text) to a Rust module: split
+/// it into vernacular statements, run them into a fresh kernel, then extract every
+/// user-defined inductive/definition. This is the exact pipeline the Studio's
+/// Math "🦀 Compile" button drives, exposed as one function so it is testable.
+pub fn extract_math_rust_from_source(input: &str) -> String {
+    let mut repl = kernel::interface::Repl::new();
+    for stmt in parse_math_statements(input) {
+        // Errors on individual statements (e.g. `Check`/`Eval`) are ignored — only
+        // the resulting definitions/inductives matter for extraction.
+        let _ = repl.execute(&stmt);
+    }
+    match extract_math_rust(repl.context()) {
+        Ok(rust) => rust,
+        Err(e) => format!("// extraction error: {e}"),
+    }
+}
+
+/// Like [`extract_math_rust_from_source`], but produces the main-less module (the
+/// linkable artifact bundled into an imperative program's `mod proven`).
+pub fn extract_math_module_from_source(input: &str) -> String {
+    let mut repl = kernel::interface::Repl::new();
+    for stmt in parse_math_statements(input) {
+        let _ = repl.execute(&stmt);
+    }
+    match extract_math_module(repl.context()) {
+        Ok(rust) => rust,
+        Err(e) => format!("// extraction error: {e}"),
+    }
+}
+
+/// Partition a possibly-MIXED document into its imperative and math streams.
+///
+/// A mixed document interleaves imperative LOGOS (`## To`/`## Main`/statements) with
+/// Coq-style math (`Definition`/`Inductive`/`Axiom`/`Theorem`/`Lemma`/`Fixpoint`) and
+/// literate `## Theorem:`/`## Lemma:` blocks. The math blocks feed the Forge (extracted
+/// into `mod proven`); the imperative blocks compile normally and call into it.
+///
+/// Returns `(imperative_src, Some(math_src))` when math is present, or
+/// `(source.to_string(), None)` for a pure imperative program — so that path is a
+/// guaranteed no-op (byte-identical compile). In `imperative_src` the math lines are
+/// BLANKED (kept as empty lines), not deleted, so imperative line numbers — and thus
+/// error spans — stay aligned with the original source.
+///
+/// `## To`/`## A X is one of` stay imperative (only the Coq keywords and `## Theorem:`/
+/// `## Lemma:` route to math), so this never steals an imperative function or enum.
+pub fn partition_mixed(source: &str) -> (String, Option<String>) {
+    let lines: Vec<&str> = source.lines().collect();
+    let mut is_math = vec![false; lines.len()];
+    let mut i = 0;
+    let mut any = false;
+    while i < lines.len() {
+        let t = lines[i].trim();
+        if !is_math_block_start(t) {
+            i += 1;
+            continue;
+        }
+        any = true;
+        if t.starts_with("## Theorem:") || t.starts_with("## Lemma:") {
+            // Literate theorem: header + indented / `Statement:` / `Proof:` lines.
+            is_math[i] = true;
+            i += 1;
+            while i < lines.len() {
+                let nt = lines[i].trim();
+                let indented = lines[i].starts_with(' ') || lines[i].starts_with('\t');
+                if nt.is_empty() {
+                    is_math[i] = true;
+                    i += 1;
+                    continue;
+                }
+                if indented || nt.starts_with("Statement:") || nt.starts_with("Proof:") {
+                    is_math[i] = true;
+                    i += 1;
+                    if nt.starts_with("Proof:") && nt.ends_with('.') {
+                        break;
+                    }
+                } else {
+                    break;
+                }
+            }
+        } else {
+            // Coq-style statement: accumulate until a line ending with `.`. Defensive:
+            // a `## ` block header (e.g. `## Main`, `## To`) ends the math block even
+            // if the terminating `.` is missing/unterminated, so a malformed Definition
+            // never swallows the imperative code that follows it.
+            let mut ended = t.ends_with('.');
+            is_math[i] = true;
+            i += 1;
+            while !ended && i < lines.len() {
+                if lines[i].trim_start().starts_with("## ") {
+                    break;
+                }
+                is_math[i] = true;
+                ended = lines[i].trim().ends_with('.');
+                i += 1;
+            }
+        }
+    }
+    if !any {
+        return (source.to_string(), None);
+    }
+    let imp: Vec<&str> = lines
+        .iter()
+        .enumerate()
+        .map(|(j, l)| if is_math[j] { "" } else { *l })
+        .collect();
+    let math: Vec<&str> = lines
+        .iter()
+        .enumerate()
+        .filter(|(j, _)| is_math[*j])
+        .map(|(_, l)| *l)
+        .collect();
+    (imp.join("\n"), Some(math.join("\n")))
+}
+
+fn is_math_block_start(trimmed: &str) -> bool {
+    const COQ: [&str; 6] = [
+        "Definition ", "Inductive ", "Axiom ", "Theorem ", "Lemma ", "Fixpoint ",
+    ];
+    COQ.iter().any(|k| trimmed.starts_with(k))
+        || trimmed.starts_with("## Theorem:")
+        || trimmed.starts_with("## Lemma:")
+}
+
+/// Extract a mixed document's math stream into a bundleable `mod proven` body, or
+/// `None` if it has no public items to call into (e.g. only vacuous proofs / parse
+/// errors) — so we never emit a `use proven::*;` over an empty module.
+///
+/// Unlike standalone math extraction, this ALSO emits a `Showable` impl for each
+/// non-generic proven enum, so imperative `Show <proven value>` works. `Showable`
+/// lives in `logicaffeine_system` (in scope inside `mod proven` via `use super::*;`),
+/// which is ONLY linked when bundled into an imperative program — hence it is added
+/// here, not in `extract_math_module` (whose output must also compile standalone, dep-free).
+pub(crate) fn mixed_proven_module(math_src: &str) -> Option<String> {
+    let mut repl = kernel::interface::Repl::new();
+    for stmt in parse_math_statements(math_src) {
+        let _ = repl.execute(&stmt);
+    }
+    let ctx = repl.context();
+    let mut rust = match extract_math_module(ctx) {
+        Ok(r) => r,
+        Err(_) => return None,
+    };
+    if !(rust.contains("pub fn") || rust.contains("pub enum") || rust.contains("pub struct")) {
+        return None;
+    }
+    // Show-verb integration: bridge each non-generic proven enum to the runtime
+    // `Showable` trait (via Debug). Sorted for deterministic output.
+    let base = baseline_names();
+    let mut inds: Vec<String> = Vec::new();
+    for (name, _) in ctx.iter_inductives() {
+        if !base.contains(name)
+            && inductive_is_emittable(ctx, name)
+            && inductive_generics(ctx, name).is_empty()
+        {
+            inds.push(name.to_string());
+        }
+    }
+    inds.sort();
+    for ind in inds {
+        rust.push_str(&format!(
+            "impl Showable for {ind} {{ fn format_show(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {{ write!(f, \"{{:?}}\", self) }} }}\n"
+        ));
+    }
+    Some(rust)
+}
+
+/// Split a Math-mode program into complete vernacular statements.
+///
+/// Handles both Coq-style (period-terminated) and the Literate forms
+/// (`## To …` functions, `## Theorem:` blocks, `A X is either …` inductives).
+pub fn parse_math_statements(code: &str) -> Vec<String> {
+    let mut statements = Vec::new();
+    let lines: Vec<&str> = code.lines().collect();
+    let mut i = 0;
+
+    while i < lines.len() {
+        let line = lines[i];
+        let trimmed = line.trim();
+
+        // Skip empty lines and comments
+        if trimmed.is_empty() || trimmed.starts_with("--") {
+            i += 1;
+            continue;
+        }
+
+        // Literate function definition: "## To ..."
+        if trimmed.starts_with("## To ") {
+            let mut block = String::new();
+            block.push_str(trimmed);
+            i += 1;
+
+            while i < lines.len() {
+                let next_line = lines[i];
+                let next_trimmed = next_line.trim();
+
+                if next_trimmed.is_empty() {
+                    i += 1;
+                    continue;
+                }
+                if next_trimmed.starts_with("--") {
+                    i += 1;
+                    continue;
+                }
+
+                let is_indented = next_line.starts_with(' ') || next_line.starts_with('\t');
+                let is_continuation = next_trimmed.starts_with("Consider ")
+                    || next_trimmed.starts_with("When ")
+                    || next_trimmed.starts_with("Yield ");
+
+                if is_indented || is_continuation {
+                    block.push(' ');
+                    block.push_str(next_trimmed);
+                    i += 1;
+                } else {
+                    break;
+                }
+            }
+
+            statements.push(block);
+            continue;
+        }
+
+        // Literate theorem: "## Theorem: ..." (header + Statement: + Proof:)
+        if trimmed.starts_with("## Theorem:") {
+            let mut block = String::new();
+            block.push_str(trimmed);
+            i += 1;
+
+            while i < lines.len() {
+                let next_line = lines[i];
+                let next_trimmed = next_line.trim();
+
+                if next_trimmed.is_empty() {
+                    i += 1;
+                    continue;
+                }
+                if next_trimmed.starts_with("--") {
+                    i += 1;
+                    continue;
+                }
+
+                let is_indented = next_line.starts_with(' ') || next_line.starts_with('\t');
+                let is_theorem_part = next_trimmed.starts_with("Statement:")
+                    || next_trimmed.starts_with("Proof:");
+
+                if is_indented || is_theorem_part {
+                    block.push('\n');
+                    block.push_str(next_line);
+                    i += 1;
+                    if next_trimmed.starts_with("Proof:") && next_trimmed.ends_with('.') {
+                        break;
+                    }
+                } else {
+                    break;
+                }
+            }
+
+            statements.push(block);
+            continue;
+        }
+
+        // Literate inductive: "A X is either..." / "An X is either..."
+        if (trimmed.starts_with("A ") || trimmed.starts_with("An ")) && trimmed.contains(" is either")
+        {
+            if trimmed.ends_with('.') && !trimmed.trim_end_matches('.').ends_with(':') {
+                statements.push(trimmed.to_string());
+                i += 1;
+                continue;
+            }
+
+            let mut block = String::new();
+            block.push_str(trimmed);
+            i += 1;
+
+            while i < lines.len() {
+                let next_line = lines[i];
+                let next_trimmed = next_line.trim();
+
+                if next_trimmed.is_empty() {
+                    i += 1;
+                    continue;
+                }
+                if next_trimmed.starts_with("--") {
+                    i += 1;
+                    continue;
+                }
+
+                let is_indented = next_line.starts_with(' ') || next_line.starts_with('\t');
+                let looks_like_variant = next_trimmed.starts_with("a ")
+                    || next_trimmed
+                        .chars()
+                        .next()
+                        .map(|c| c.is_uppercase())
+                        .unwrap_or(false);
+
+                if is_indented
+                    || (looks_like_variant
+                        && !next_trimmed.starts_with("A ")
+                        && !next_trimmed.starts_with("An "))
+                {
+                    if !block.ends_with(':') {
+                        block.push_str(" or ");
+                    } else {
+                        block.push(' ');
+                    }
+                    block.push_str(next_trimmed.trim_end_matches('.'));
+                    i += 1;
+                } else {
+                    break;
+                }
+            }
+
+            if !block.ends_with('.') {
+                block.push('.');
+            }
+            statements.push(block);
+            continue;
+        }
+
+        // Traditional Coq-style: accumulate until period
+        let mut current_stmt = String::new();
+        while i < lines.len() {
+            let line = lines[i];
+            let trimmed = line.trim();
+
+            if trimmed.is_empty() || trimmed.starts_with("--") {
+                i += 1;
+                continue;
+            }
+
+            if !current_stmt.is_empty() {
+                current_stmt.push(' ');
+            }
+            current_stmt.push_str(trimmed);
+            i += 1;
+
+            if trimmed.ends_with('.') {
+                break;
+            }
+        }
+
+        if !current_stmt.is_empty() {
+            statements.push(current_stmt);
+        }
+    }
+
+    statements
+}
+
+/// Compile a Logic-mode input to runnable Rust.
+///
+/// A `## Theorem:` block becomes a **model-checker** for `premises ⊨ goal`; a
+/// plain sentence becomes a model-checker for that formula — a self-contained
+/// `Model` + `holds(&Model) -> bool` + demo `main` you can compile and run
+/// ([`crate::extraction::fol_model`]). The finite-domain *puzzle* (Simon grid) is
+/// the exception: it would run the full solver synchronously and freeze the page,
+/// so it bails with a note (use Execute to solve it).
+pub fn extract_logic_rust(input: &str) -> Result<String, String> {
+    extract_logic_impl(input, true)
+}
+
+/// Like [`extract_logic_rust`], but emits NO demo `main` — the linkable form bundled
+/// into an imperative program's `mod proven` (which has its own `main`). Produces the
+/// `World` + `holds` (+ `Monitor`) library items only.
+pub fn extract_logic_module(input: &str) -> Result<String, String> {
+    extract_logic_impl(input, false)
+}
+
+fn extract_logic_impl(input: &str, emit_main: bool) -> Result<String, String> {
+    use crate::extraction::fol_model::{fol_to_model_checker, fol_to_model_checker_module};
+    let emit = |premises: &[logicaffeine_proof::ProofExpr],
+                goal: &logicaffeine_proof::ProofExpr,
+                english: &str,
+                fol: &str| {
+        if emit_main {
+            fol_to_model_checker(premises, goal, english, fol)
+        } else {
+            fol_to_model_checker_module(premises, goal, english, fol)
+        }
+    };
+
+    // A `## Theorem:` block: model-check `premises ⊨ goal` — unless it is a grid
+    // puzzle (bail before the solver runs, see above).
+    if let Ok((premises, goal)) = theorem_proof_exprs(input) {
+        if looks_like_grid(&premises) {
+            return Ok("// this is a finite-domain puzzle — run it with Execute. \
+                Compiling it to Rust would run the full solver synchronously."
+                .to_string());
+        }
+        let fol = if premises.is_empty() {
+            goal.to_string()
+        } else {
+            format!(
+                "{} ⊢ {}",
+                premises.iter().map(|p| p.to_string()).collect::<Vec<_>>().join(", "),
+                goal
+            )
+        };
+        return Ok(emit(&premises, &goal, input, &fol));
+    }
+
+    // A plain sentence: model-check the single formula.
+    let proof = compile_for_proof(input);
+    if let Some(expr) = proof.proof_expr {
+        let fol = proof.logic_string.clone().unwrap_or_else(|| expr.to_string());
+        return Ok(emit(&[], &expr, input, &fol));
+    }
+
+    Ok("// could not parse this input into a logical formula to compile".to_string())
 }
 
 /// Ask the Z3 oracle whether a theorem's premises semantically entail its goal.
@@ -1511,7 +3040,7 @@ pub fn check_theorem_premises_consistent(
 pub fn check_theorem_defeasible(
     input: &str,
 ) -> Result<logicaffeine_proof::oracle::SmtVerdict, ParseError> {
-    let (proof_exprs, goal, defaults) = theorem_problem(input, true)?;
+    let (proof_exprs, goal, defaults, _definitions) = theorem_problem(input, true)?;
     let theory = smt_theory_for(&proof_exprs, Some(&goal));
     Ok(crate::defeasible::defeasible_entails(
         &proof_exprs,
@@ -1527,7 +3056,7 @@ pub fn check_theorem_defeasible(
 pub fn check_theorem_defeasible_consistent(
     input: &str,
 ) -> Result<logicaffeine_proof::oracle::SmtConsistency, ParseError> {
-    let (proof_exprs, _goal, defaults) = theorem_problem(input, true)?;
+    let (proof_exprs, _goal, defaults, _definitions) = theorem_problem(input, true)?;
     let theory = smt_theory_for(&proof_exprs, None);
     Ok(crate::defeasible::defeasible_consistent(
         &proof_exprs,
@@ -1543,8 +3072,40 @@ pub fn check_theorem_defeasible_consistent(
 /// [`ProofExpr`]. Public so a puzzle solver can obtain the parsed-FOL premises
 /// (the Given clues/declarations) and feed them to the entailment oracle.
 pub fn theorem_proof_exprs(input: &str) -> Result<(Vec<ProofExpr>, ProofExpr), ParseError> {
-    let (premises, goal, _defaults) = theorem_problem(input, false)?;
+    let (premises, goal, _defaults, _definitions) = theorem_problem(input, false)?;
     Ok((premises, goal))
+}
+
+/// Like [`theorem_proof_exprs`] but also returns the document's `## Define`
+/// blocks (Rung 0a) lowered to proof-layer definitions, so the prover can
+/// δ-unfold them. This is the entry the kernel-certified theorem path uses.
+pub fn theorem_proof_exprs_with_defs(
+    input: &str,
+) -> Result<
+    (
+        Vec<ProofExpr>,
+        ProofExpr,
+        Vec<logicaffeine_proof::verify::Definition>,
+    ),
+    ParseError,
+> {
+    let (premises, goal, _defaults, definitions) = theorem_problem(input, false)?;
+    Ok((premises, goal, definitions))
+}
+
+/// The `uses` dependency graph (Rung 0b) for an English document: its `## Define`
+/// blocks plus the theorem's premises and goal, lowered and analyzed. Each node
+/// is a definition or the theorem; each edge is a `uses`. This is the structure
+/// a `mathscrapes` node/edge compiles into.
+pub fn theorem_dependency_graph(
+    input: &str,
+) -> Result<logicaffeine_proof::verify::DependencyGraph, ParseError> {
+    let (premises, goal, definitions) = theorem_proof_exprs_with_defs(input)?;
+    Ok(logicaffeine_proof::verify::dependency_graph(
+        &definitions,
+        &premises,
+        &goal,
+    ))
 }
 
 /// ANSWER a wh-question theorem ("Given: … Prove: Who is a lawyer?"). A wh-goal
@@ -1556,31 +3117,35 @@ pub fn theorem_proof_exprs(input: &str) -> Result<(Vec<ProofExpr>, ProofExpr), P
 /// the same `prove_certify_check` that proves Socrates.
 pub fn answer_question(input: &str) -> Result<Vec<String>, ParseError> {
     let (premises, goal) = theorem_proof_exprs(input)?;
-    let (var, body) = match &goal {
-        ProofExpr::Exists { variable, body } => (variable.clone(), (**body).clone()),
-        _ => {
-            return Err(ParseError {
-                kind: logicaffeine_language::error::ParseErrorKind::Custom(
-                    "Prove goal is not a question (expected a wh-question ∃-form)".to_string(),
-                ),
-                span: logicaffeine_language::token::Span::default(),
-            })
-        }
-    };
+    match &goal {
+        ProofExpr::Exists { variable, body } => Ok(answer_wh(&premises, variable, body)),
+        _ => Err(ParseError {
+            kind: logicaffeine_language::error::ParseErrorKind::Custom(
+                "Prove goal is not a question (expected a wh-question ∃-form)".to_string(),
+            ),
+            span: logicaffeine_language::token::Span::default(),
+        }),
+    }
+}
+
+/// The witnesses of a wh-question `∃var. body(var)`: enumerate the domain individuals
+/// named in the premises and keep those `c` for which `body(c)` is entailed by the
+/// certified no-Z3 path. Shared by [`answer_question`] and the studio entry
+/// [`compile_theorem_for_ui`], so a wh-goal never reaches the closed-goal search.
+fn answer_wh(premises: &[ProofExpr], var: &str, body: &ProofExpr) -> Vec<String> {
     let mut candidates: Vec<String> = Vec::new();
-    for p in &premises {
+    for p in premises {
         collect_constants(p, &mut candidates);
     }
     candidates.sort();
     candidates.dedup();
-    // Prepare the premise set ONCE (tense-erase + finite-domain grounding under
-    // verification) — it is identical for every candidate cell, so doing it per
-    // candidate would re-ground the whole grid N times. This is the optimization
-    // that keeps bigger puzzles tractable.
+    // Prepare the premise set ONCE (tense-erase + finite-domain grounding) — it is
+    // identical for every candidate cell, so doing it per candidate would re-ground the
+    // whole grid N times. This is the optimization that keeps bigger puzzles tractable.
     let trace = std::env::var("LOGOS_TRACE").is_ok();
-    let t0 = std::time::Instant::now();
-    let prepared = prepare_premises(&premises);
-    if trace {
+    let t0 = trace.then(std::time::Instant::now);
+    let prepared = prepare_premises(premises);
+    if let Some(t0) = t0 {
         eprintln!(
             "[answer] {} premises → prepared ({} clauses) in {:.2?}; {} candidates",
             premises.len(),
@@ -1591,21 +3156,237 @@ pub fn answer_question(input: &str) -> Result<Vec<String>, ParseError> {
     }
     let mut answers = Vec::new();
     for c in &candidates {
-        let tc = std::time::Instant::now();
+        let tc = trace.then(std::time::Instant::now);
         let candidate_goal =
-            logicaffeine_language::proof_convert::instantiate_var_with_constant(&body, &var, c);
+            logicaffeine_language::proof_convert::instantiate_var_with_constant(body, var, c);
         let ok = candidate_entailed_prepared(&prepared, &candidate_goal);
-        if trace {
+        if let Some(tc) = tc {
             eprintln!("[answer]   {:<14} {} ({:.2?})", c, ok, tc.elapsed());
         }
         if ok {
             answers.push(c.clone());
         }
     }
-    if trace {
+    if let Some(t0) = t0 {
         eprintln!("[answer] total {:.2?} → {:?}", t0.elapsed(), answers);
     }
-    Ok(answers)
+    answers
+}
+
+/// SOLVE the whole grid for the studio (the form-recognized easter egg): re-parse the
+/// theorem and, if it is a finite-domain grid, fill every cell the certified prover can
+/// force. `None` for a non-grid theorem.
+pub fn solve_grid(input: &str) -> Option<SolvedGrid> {
+    let parsed = parse_theorem(input).ok()?;
+    if !looks_like_grid(&parsed.premises) {
+        return None;
+    }
+    solve_grid_from_premises(&parsed.premises, input)
+}
+
+/// One category closure `∀x(RowSort(x) → d₁ ∨ … ∨ dₙ)`: the bound variable, its row
+/// sort, and each disjunct paired with the value it contributes.
+struct GridClosure {
+    var: String,
+    row_sort: String,
+    disjuncts: Vec<(String, ProofExpr)>,
+}
+
+/// Split a (possibly nested) disjunction into its leaf disjuncts.
+fn flatten_or<'a>(e: &'a ProofExpr, out: &mut Vec<&'a ProofExpr>) {
+    match e {
+        ProofExpr::Or(l, r) => {
+            flatten_or(l, out);
+            flatten_or(r, out);
+        }
+        other => out.push(other),
+    }
+}
+
+/// The unary SORT predicate guarding `var` (`Trip(x)` → "trip"), if the antecedent is
+/// one — possibly under conjunction.
+fn antecedent_sort(e: &ProofExpr, var: &str) -> Option<String> {
+    let is_var = |t: &ProofTerm| matches!(t, ProofTerm::Variable(v) | ProofTerm::BoundVarRef(v) if v == var);
+    match e {
+        ProofExpr::Predicate { name, args, .. } if args.len() == 1 && is_var(&args[0]) => {
+            Some(name.clone())
+        }
+        ProofExpr::And(l, r) => antecedent_sort(l, var).or_else(|| antecedent_sort(r, var)),
+        _ => None,
+    }
+}
+
+/// The value a disjunct contributes for `var`: the constant argument of a binary relation
+/// (`in(x, Florida)` → "Florida") or the predicate name of a unary one (`cycling(x)` →
+/// "cycling"). `None` if the disjunct is not a simple predicate over `var`.
+fn disjunct_value(d: &ProofExpr, var: &str) -> Option<String> {
+    let is_var = |t: &ProofTerm| matches!(t, ProofTerm::Variable(v) | ProofTerm::BoundVarRef(v) if v == var);
+    match d {
+        ProofExpr::Predicate { name, args, .. } => match args.as_slice() {
+            [a] if is_var(a) => Some(name.clone()),
+            [a, ProofTerm::Constant(c)] if is_var(a) => Some(c.clone()),
+            [ProofTerm::Constant(c), a] if is_var(a) => Some(c.clone()),
+            _ => None,
+        },
+        _ => None,
+    }
+}
+
+/// Extract one [`GridClosure`] per disjunctive-closure premise (`∀x(Trip(x) → A ∨ B ∨
+/// …)`). These closures ARE the grid's columns — the antecedent names the rows, the
+/// disjuncts name the cells.
+fn extract_grid_closures(premises: &[ProofExpr]) -> Vec<GridClosure> {
+    fn from_forall(e: &ProofExpr, out: &mut Vec<GridClosure>) {
+        if let ProofExpr::ForAll { variable, body } = e {
+            match body.as_ref() {
+                ProofExpr::Implies(ante, cons) => {
+                    let mut leaves = Vec::new();
+                    flatten_or(cons, &mut leaves);
+                    let disjuncts: Vec<(String, ProofExpr)> = leaves
+                        .iter()
+                        .filter_map(|d| disjunct_value(d, variable).map(|v| (v, (*d).clone())))
+                        .collect();
+                    if let Some(row_sort) = antecedent_sort(ante, variable) {
+                        // Only a closure whose every disjunct is a clean predicate over the
+                        // row var defines a column (guards against a stray non-grid ∀).
+                        if !disjuncts.is_empty() && disjuncts.len() == leaves.len() {
+                            out.push(GridClosure { var: variable.clone(), row_sort, disjuncts });
+                        }
+                    }
+                }
+                ProofExpr::ForAll { .. } => from_forall(body, out),
+                _ => {}
+            }
+        }
+    }
+    let mut out = Vec::new();
+    for p in premises {
+        from_forall(&erase_tense(p), &mut out);
+    }
+    out
+}
+
+/// Title-case a lowercased sort name for a column/row header ("trip" → "Trip").
+fn title_case(s: &str) -> String {
+    let mut chars = s.chars();
+    match chars.next() {
+        Some(first) => first.to_uppercase().collect::<String>() + chars.as_str(),
+        None => String::new(),
+    }
+}
+
+/// A human header for a category column: the declared sort whose domain covers the
+/// column's values (case-insensitive), else a positional fallback.
+fn grid_column_label(
+    values: &[String],
+    sorts: &std::collections::HashMap<String, Vec<ProofTerm>>,
+    idx: usize,
+) -> String {
+    let want: Vec<String> = values.iter().map(|v| v.to_lowercase()).collect();
+    let mut keys: Vec<&String> = sorts.keys().collect();
+    keys.sort();
+    for k in keys {
+        let dom: std::collections::HashSet<String> = sorts[k]
+            .iter()
+            .filter_map(|t| match t {
+                ProofTerm::Constant(c) => Some(c.to_lowercase()),
+                _ => None,
+            })
+            .collect();
+        if !dom.is_empty() && want.iter().all(|v| dom.contains(v)) {
+            return title_case(k);
+        }
+    }
+    format!("Category {}", idx + 1)
+}
+
+/// A coarse stem that bridges a gerund surface form and the base form it normalizes to
+/// (`"Cycling"` and `"Cycle"` → `"cycl"`), so a grid value can be matched back to the word
+/// the user actually wrote. Strips a trailing `-ing` then a trailing `-e`; leaves
+/// already-base words (constants, years, names) effectively unchanged.
+fn category_stem(s: &str) -> String {
+    let mut w = s.to_lowercase();
+    if w.len() > 5 && w.ends_with("ing") {
+        w.truncate(w.len() - 3);
+    }
+    if w.len() > 3 && w.ends_with('e') {
+        w.truncate(w.len() - 1);
+    }
+    w
+}
+
+/// Map each grid value back to the SURFACE word the user wrote. Category values
+/// normalize to a base form in the FOL (a relation's constant like `Florida` survives, but
+/// a gerund activity becomes `Cycle`); the original word ("cycling") lives only in the
+/// input text. Key the input words by stem and recover them. First occurrence wins, so the
+/// declaration's spelling is preferred.
+fn surface_form_map(input: &str) -> std::collections::HashMap<String, String> {
+    let mut map = std::collections::HashMap::new();
+    for word in input.split(|c: char| !c.is_alphanumeric()) {
+        if !word.is_empty() {
+            map.entry(category_stem(word)).or_insert_with(|| word.to_string());
+        }
+    }
+    map
+}
+
+/// Fill the grid from already-parsed premises: rows are the row sort's domain, columns
+/// are the disjunctive closures, and each cell is the disjunct value the certified no-Z3
+/// prover entails for that row (or `None` if undetermined). Same engine `answer_question`
+/// uses per cell, swept across the whole table.
+fn solve_grid_from_premises(premises: &[ProofExpr], input: &str) -> Option<SolvedGrid> {
+    let closures = extract_grid_closures(premises);
+    if closures.is_empty() {
+        return None;
+    }
+    let untensed: Vec<ProofExpr> = premises.iter().map(erase_tense).collect();
+    let sorts = logicaffeine_proof::grounding::sort_domains(&untensed);
+    let row_sort = closures[0].row_sort.clone();
+    let rows: Vec<String> = sorts
+        .get(&row_sort)
+        .map(|dom| {
+            dom.iter()
+                .filter_map(|t| match t {
+                    ProofTerm::Constant(c) => Some(c.clone()),
+                    _ => None,
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+    if rows.is_empty() {
+        return None;
+    }
+    // Ground ONCE, with functionality, exactly as the fast certified grid path does — the
+    // exclusion lemmas let RUP decide each non-entailed candidate in ~1ms.
+    let prepared = prepare_premises_opts(premises, true);
+    let surface = surface_form_map(input);
+    let display = |v: &str| surface.get(&category_stem(v)).cloned().unwrap_or_else(|| v.to_string());
+    let mut columns = Vec::new();
+    for clo in &closures {
+        if clo.row_sort != row_sort {
+            continue;
+        }
+        let values: Vec<String> = clo.disjuncts.iter().map(|(v, _)| display(v)).collect();
+        let mut cells = Vec::with_capacity(rows.len());
+        for r in &rows {
+            let mut found = None;
+            for (label, dj) in &clo.disjuncts {
+                let atom = erase_tense(
+                    &logicaffeine_language::proof_convert::instantiate_var_with_constant(
+                        dj, &clo.var, r,
+                    ),
+                );
+                if candidate_entailed_prepared(&prepared, &atom) {
+                    found = Some(display(label));
+                    break;
+                }
+            }
+            cells.push(found);
+        }
+        let label = grid_column_label(&values, &sorts, columns.len());
+        columns.push(GridColumn { label, values, cells });
+    }
+    Some(SolvedGrid { row_label: title_case(&row_sort), rows, columns })
 }
 
 /// Prepare the premise set for the per-candidate solve, ONCE.
@@ -1871,9 +3652,42 @@ fn collect_constants(e: &ProofExpr, out: &mut Vec<String>) {
     }
 }
 
+/// Lower a `## Define` block (Rung 0a) to a proof-layer definition: the LHS
+/// predicate supplies the (normalized) definiendum name and parameter symbols,
+/// the RHS is the definiens. Both sides pass through the SAME
+/// `logic_expr_to_proof_expr` + interner as theorem premises and goals, so the
+/// definiendum name and parameters match the predicate occurrences the prover
+/// sees. Returns `None` if the LHS is not a predicate application.
+fn lower_definition(
+    def: &logicaffeine_language::ast::DefinitionBlock,
+    interner: &Interner,
+) -> Option<logicaffeine_proof::verify::Definition> {
+    use logicaffeine_language::proof_convert::logic_expr_to_proof_expr;
+    let (name, params) = match logic_expr_to_proof_expr(def.definiendum, interner) {
+        ProofExpr::Predicate { name, args, .. } => {
+            let params = args
+                .iter()
+                .filter_map(|t| match t {
+                    ProofTerm::Constant(n) | ProofTerm::Variable(n) => Some(n.clone()),
+                    _ => None,
+                })
+                .collect();
+            (name, params)
+        }
+        _ => return None,
+    };
+    let definiens = logic_expr_to_proof_expr(def.definiens, interner);
+    Some(logicaffeine_proof::verify::Definition {
+        name,
+        params,
+        definiens,
+    })
+}
+
 /// [`theorem_proof_exprs`] with optional DEFEASIBLE conversion: premises keep
 /// their generics/implicatures as abnormality-guarded defaults (returned for
-/// the circumscription pass); the goal always converts strictly.
+/// the circumscription pass); the goal always converts strictly. Also returns
+/// the document's `## Define` blocks lowered to proof-layer definitions (Rung 0a).
 fn theorem_problem(
     input: &str,
     defeasible: bool,
@@ -1882,6 +3696,7 @@ fn theorem_problem(
         Vec<ProofExpr>,
         ProofExpr,
         Vec<logicaffeine_language::proof_convert::DefaultRule>,
+        Vec<logicaffeine_proof::verify::Definition>,
     ),
     ParseError,
 > {
@@ -1956,5 +3771,15 @@ fn theorem_problem(
         .collect();
     let goal_expr = logic_expr_to_proof_expr(theorem.goal, &interner);
 
-    Ok((proof_exprs, goal_expr, defaults))
+    // Rung 0a: collect every `## Define` block in the document, lowered to a
+    // proof-layer definition the prover can δ-unfold.
+    let definitions: Vec<logicaffeine_proof::verify::Definition> = statements
+        .iter()
+        .filter_map(|stmt| match stmt {
+            Stmt::Definition(d) => lower_definition(d, &interner),
+            _ => None,
+        })
+        .collect();
+
+    Ok((proof_exprs, goal_expr, defaults, definitions))
 }

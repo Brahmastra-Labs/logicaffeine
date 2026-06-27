@@ -4,12 +4,12 @@
   "difficulty": 1,
   "prompt": "Sleep, Donna",
   "options": [
-    "$ S\\\\underline{d} $",
-    "$ S\\\\underline{u} d $",
-    "$ OS\\\\underline{d} $",
+    "$ S\\underline{d} $",
+    "$ S\\underline{u} d $",
+    "$ OS\\underline{d} $",
     "$ Sd $"
   ],
   "correct": 0,
   "hint": "Identify WHO is being commanded or permitted (the agent, marked with underline) and WHAT action they must/may do.",
-  "explanation": "In deontic logic: Deontic operators express moral or legal requirements."
+  "explanation": "A command to Donna to sleep. Donna is the agent (underlined) and the verb is intransitive: S͟d."
 }

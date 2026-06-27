@@ -23,14 +23,51 @@ impl StandardLibrary {
         Self::register_true(ctx);
         Self::register_false(ctx);
         Self::register_not(ctx);
+        Self::register_classical(ctx);
         Self::register_eq(ctx);
         Self::register_and(ctx);
         Self::register_or(ctx);
         Self::register_ex(ctx);
         Self::register_primitives(ctx);
         Self::register_int_ring_axioms(ctx);
+        Self::register_int_order_axioms(ctx);
         Self::register_reflection(ctx);
         Self::register_hardware(ctx);
+    }
+
+    /// Classical logic: double-negation elimination `dne : Π(P:Prop). ¬¬P → P`,
+    /// i.e. `Π(P:Prop). ((P → False) → False) → P`. This makes the logic CLASSICAL —
+    /// exactly as Lean/Coq's Mathlib are classical via `Classical.em`/`choice` — which
+    /// ordinary mathematics (and proof by contradiction: Euclid I.6/I.7/I.27 …)
+    /// requires. It is an EXPLICIT, type-checked axiom in the trusted base, recorded
+    /// in the certificate's axiom-set version; the de Bruijn criterion is preserved
+    /// (every classical proof still elaborates to a kernel `Term` re-checked here).
+    fn register_classical(ctx: &mut Context) {
+        let false_t = || Term::Global("False".to_string());
+        let p = || Term::Var("P".to_string());
+        // ¬P = P → False
+        let not_p = Term::Pi {
+            param: "_".to_string(),
+            param_type: Box::new(p()),
+            body_type: Box::new(false_t()),
+        };
+        // ¬¬P = (P → False) → False
+        let not_not_p = Term::Pi {
+            param: "_".to_string(),
+            param_type: Box::new(not_p),
+            body_type: Box::new(false_t()),
+        };
+        // dne : Π(P:Prop). ¬¬P → P
+        let dne_type = Term::Pi {
+            param: "P".to_string(),
+            param_type: Box::new(Term::Sort(Universe::Prop)),
+            body_type: Box::new(Term::Pi {
+                param: "_".to_string(),
+                param_type: Box::new(not_not_p),
+                body_type: Box::new(p()),
+            }),
+        };
+        ctx.add_declaration("dne", dne_type);
     }
 
     /// The commutative-ring axioms for `Int` — the ENTIRE trusted arithmetic base.
@@ -125,6 +162,13 @@ impl StandardLibrary {
             "mul_one",
             forall_ints(&["a"], eq_int(bin("mul", v("a"), lit(1)), v("a"))),
         );
+        // mul_zero : Π a. Eq Int (mul a 0) 0. Not derivable from the others without
+        // an additive-inverse axiom; needed so the normalizer can drop a monomial
+        // whose coefficient cancels to zero (e.g. in a Farkas combination).
+        ctx.add_declaration(
+            "mul_zero",
+            forall_ints(&["a"], eq_int(bin("mul", v("a"), lit(0)), lit(0))),
+        );
         // mul_distrib_add : Π a b c. Eq Int (mul a (add b c)) (add (mul a b) (mul a c))
         ctx.add_declaration(
             "mul_distrib_add",
@@ -133,6 +177,105 @@ impl StandardLibrary {
                 eq_int(
                     bin("mul", v("a"), bin("add", v("b"), v("c"))),
                     bin("add", bin("mul", v("a"), v("b")), bin("mul", v("a"), v("c"))),
+                ),
+            ),
+        );
+    }
+
+    /// The standard order axioms for `Int`, completing the ordered-ring trusted
+    /// base. `Int` is opaque, so just as the ring laws are axioms here (Coq `Int63`
+    /// / Lean primitives), the order laws are too: reflexivity, transitivity,
+    /// monotone addition, and scaling by a non-negative factor — the primitives a
+    /// Farkas linear-arithmetic certificate is reconstructed from. `m ≤ n` is the
+    /// shallow `Eq Bool (le m n) true` (decidable by computation on literals, see
+    /// `reduction.rs`); these axioms extend it to the symbolic case. Replaceable
+    /// later (no downstream churn) by defining `≤` from `Nat` and proving them.
+    /// Locked by `phase98`'s TCB inventory.
+    fn register_int_order_axioms(ctx: &mut Context) {
+        let int = || Term::Global("Int".to_string());
+        let v = |s: &str| Term::Var(s.to_string());
+        let g = |s: &str| Term::Global(s.to_string());
+        let lit = |n: i64| Term::Lit(Literal::Int(n));
+        let bin = |op: &str, a: Term, b: Term| {
+            Term::App(
+                Box::new(Term::App(Box::new(Term::Global(op.to_string())), Box::new(a))),
+                Box::new(b),
+            )
+        };
+        // le_prop a b = Eq Bool (le a b) true  — the shallow `a ≤ b`.
+        let le_prop = |a: Term, b: Term| {
+            Term::App(
+                Box::new(Term::App(
+                    Box::new(Term::App(Box::new(g("Eq")), Box::new(g("Bool")))),
+                    Box::new(bin("le", a, b)),
+                )),
+                Box::new(g("true")),
+            )
+        };
+        let arrow = |dom: Term, cod: Term| Term::Pi {
+            param: "_".to_string(),
+            param_type: Box::new(dom),
+            body_type: Box::new(cod),
+        };
+        let forall_ints = |names: &[&str], body: Term| {
+            names.iter().rev().fold(body, |acc, name| Term::Pi {
+                param: name.to_string(),
+                param_type: Box::new(int()),
+                body_type: Box::new(acc),
+            })
+        };
+
+        // le_refl : Π a. a ≤ a
+        ctx.add_declaration("le_refl", forall_ints(&["a"], le_prop(v("a"), v("a"))));
+        // le_trans : Π a b c. a ≤ b → b ≤ c → a ≤ c
+        ctx.add_declaration(
+            "le_trans",
+            forall_ints(
+                &["a", "b", "c"],
+                arrow(
+                    le_prop(v("a"), v("b")),
+                    arrow(le_prop(v("b"), v("c")), le_prop(v("a"), v("c"))),
+                ),
+            ),
+        );
+        // le_add_mono : Π a b c d. a ≤ b → c ≤ d → (a + c) ≤ (b + d)
+        ctx.add_declaration(
+            "le_add_mono",
+            forall_ints(
+                &["a", "b", "c", "d"],
+                arrow(
+                    le_prop(v("a"), v("b")),
+                    arrow(
+                        le_prop(v("c"), v("d")),
+                        le_prop(bin("add", v("a"), v("c")), bin("add", v("b"), v("d"))),
+                    ),
+                ),
+            ),
+        );
+        // le_mul_nonneg : Π k a b. 0 ≤ k → a ≤ b → (k * a) ≤ (k * b)
+        ctx.add_declaration(
+            "le_mul_nonneg",
+            forall_ints(
+                &["k", "a", "b"],
+                arrow(
+                    le_prop(lit(0), v("k")),
+                    arrow(
+                        le_prop(v("a"), v("b")),
+                        le_prop(bin("mul", v("k"), v("a")), bin("mul", v("k"), v("b"))),
+                    ),
+                ),
+            ),
+        );
+        // le_sub : Π a b. a ≤ b → 0 ≤ b + (-1)·a   (the Farkas "move to one side").
+        // Written with add/mul (not sub) so the ring oracle, whose axioms are over
+        // add/mul, can prove the combined-term equalities during reconstruction.
+        ctx.add_declaration(
+            "le_sub",
+            forall_ints(
+                &["a", "b"],
+                arrow(
+                    le_prop(v("a"), v("b")),
+                    le_prop(lit(0), bin("add", v("b"), bin("mul", lit(-1), v("a")))),
                 ),
             ),
         );
@@ -178,6 +321,23 @@ impl StandardLibrary {
         ctx.add_declaration("mul", bin_int_type.clone());
         ctx.add_declaration("div", bin_int_type.clone());
         ctx.add_declaration("mod", bin_int_type);
+
+        // Comparison builtins: Int -> Int -> Bool, decided by computation on
+        // literals (see `reduction.rs`). `Eq Bool (le m n) true` is the shallow
+        // encoding of `m ≤ n`, provable by `refl` exactly when it holds.
+        let bin_int_bool_type = Term::Pi {
+            param: "_".to_string(),
+            param_type: Box::new(int.clone()),
+            body_type: Box::new(Term::Pi {
+                param: "_".to_string(),
+                param_type: Box::new(int.clone()),
+                body_type: Box::new(Term::Global("Bool".to_string())),
+            }),
+        };
+        ctx.add_declaration("le", bin_int_bool_type.clone());
+        ctx.add_declaration("lt", bin_int_bool_type.clone());
+        ctx.add_declaration("ge", bin_int_bool_type.clone());
+        ctx.add_declaration("gt", bin_int_bool_type);
 
         // Temporal operations
         let duration = Term::Global("Duration".to_string());

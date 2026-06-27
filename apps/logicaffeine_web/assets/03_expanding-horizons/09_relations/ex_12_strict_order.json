@@ -1,0 +1,15 @@
+{
+  "id": "R_1.12",
+  "type": "multiple_choice",
+  "difficulty": 4,
+  "prompt": "The relation 'is greater than' (>) on the numbers is:",
+  "options": [
+    "Reflexive and symmetric",
+    "Irreflexive and transitive",
+    "An equivalence relation",
+    "Symmetric but not transitive"
+  ],
+  "correct": 1,
+  "hint": "Is anything greater than itself? If x > y, is y > x?",
+  "explanation": "'>' is irreflexive (no number is greater than itself, so ¬(x > x)) and transitive (if x > y and y > z then x > z). It is also asymmetric. Together these make it a STRICT order — the opposite profile from an equivalence relation."
+}

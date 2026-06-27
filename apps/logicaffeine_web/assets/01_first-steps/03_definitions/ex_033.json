@@ -14,5 +14,5 @@
   ],
   "correct": 4,
   "hint": "Is the original term vague while the definition is precise, or vice versa?",
-  "explanation": "This violates 5."
+  "explanation": "Adulthood is gradual and context-dependent, not a switch that flips at exactly 17. A sharp numeric cutoff is more precise than the word 'adult', so it fails to MATCH THE VAGUENESS. (Legal age limits are stipulated, not what 'adult' actually means.)"
 }

@@ -7,5 +7,5 @@
   "constraints": {
     "Verb": ["Intransitive"]
   },
-  "hint": "Negation of an action: ¬V(subject)."
+  "hint": "Same shape as before: the verb is an event, ∃e(Verb(e) ∧ Agent(e, subject)), and 'does not' negates the entire event: ¬∃e(Verb(e) ∧ Agent(e, subject))."
 }

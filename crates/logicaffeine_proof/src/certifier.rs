@@ -18,14 +18,16 @@ use crate::{DerivationTree, InferenceRule, ProofExpr, ProofTerm};
 // =============================================================================
 
 /// State for tracking induction during certification.
-/// When certifying the step case, IH references become recursive calls.
+/// When certifying a recursive case, IH references become recursive calls.
+/// A single case may bind several recursive arguments (e.g. `Node(l, r)`), so it
+/// carries one (recursive-argument variable, IH conclusion) entry per hypothesis.
 struct InductionState {
     /// Name for self-reference in the fixpoint (e.g., "rec_n")
     fix_name: String,
-    /// The predecessor variable in the step case (e.g., "k")
-    step_var: String,
-    /// What the IH looks like in the derivation tree
-    ih_conclusion: ProofExpr,
+    /// One entry per recursive argument: the bound variable and the IH it proves.
+    /// A `PremiseMatch` whose conclusion matches an entry's IH resolves to
+    /// `rec_name <var>` — the recursive call on that argument.
+    ihs: Vec<(String, ProofExpr)>,
 }
 
 // =============================================================================
@@ -137,16 +139,21 @@ impl<'a> CertificationContext<'a> {
             .map(|h| h.1.clone())
     }
 
-    /// Create a new context with induction state for step case certification.
+    /// Create a new context with single-IH induction state (the Nat/List step case).
     fn with_induction(&self, fix_name: &str, step_var: &str, ih: ProofExpr) -> Self {
+        self.with_induction_multi(fix_name, vec![(step_var.to_string(), ih)])
+    }
+
+    /// Create a new context whose induction hypotheses are `ihs` — one entry per
+    /// recursive argument of the constructor case being certified.
+    fn with_induction_multi(&self, fix_name: &str, ihs: Vec<(String, ProofExpr)>) -> Self {
         Self {
             kernel_ctx: self.kernel_ctx,
             locals: self.locals.clone(),
             local_hyps: self.local_hyps.clone(),
             induction_state: Some(InductionState {
                 fix_name: fix_name.to_string(),
-                step_var: step_var.to_string(),
-                ih_conclusion: ih,
+                ihs,
             }),
         }
     }
@@ -156,15 +163,16 @@ impl<'a> CertificationContext<'a> {
         self.locals.iter().any(|n| n == name)
     }
 
-    /// Check if this conclusion matches the IH in current induction context.
-    /// Returns the recursive call term if it matches.
+    /// Check if this conclusion matches one of the IHs in the current induction
+    /// context. Returns the corresponding recursive call `rec <var>` if it matches.
     fn get_ih_term(&self, conclusion: &ProofExpr) -> Option<Term> {
-        if let Some(state) = &self.induction_state {
-            if conclusions_match(conclusion, &state.ih_conclusion) {
-                // IH becomes: rec k (recursive call)
+        let state = self.induction_state.as_ref()?;
+        for (var, ih) in &state.ihs {
+            if conclusions_match(conclusion, ih) {
+                // IH becomes a recursive call on that argument: rec <var>
                 return Some(Term::App(
                     Box::new(Term::Var(state.fix_name.clone())),
-                    Box::new(Term::Var(state.step_var.clone())),
+                    Box::new(Term::Var(var.clone())),
                 ));
             }
         }
@@ -176,8 +184,7 @@ impl Clone for InductionState {
     fn clone(&self) -> Self {
         Self {
             fix_name: self.fix_name.clone(),
-            step_var: self.step_var.clone(),
-            ih_conclusion: self.ih_conclusion.clone(),
+            ihs: self.ihs.clone(),
         }
     }
 }
@@ -247,6 +254,88 @@ pub fn certify(tree: &DerivationTree, ctx: &CertificationContext) -> KernelResul
             Ok(Term::App(Box::new(impl_term), Box::new(arg_term)))
         }
 
+        // Modus Tollens: P → Q, ¬Q ⊢ ¬P.  Since ¬P unfolds to P → False, the
+        // proof is λ(hp:P). neg_q (impl hp) — feed a hypothetical P through the
+        // implication to get Q, then through ¬Q (= Q → False) to get False.
+        InferenceRule::ModusTollens => {
+            if tree.premises.len() != 2 {
+                return Err(KernelError::CertificationError(
+                    "ModusTollens requires exactly 2 premises (implication, negated consequent)"
+                        .to_string(),
+                ));
+            }
+            let p = match &tree.conclusion {
+                ProofExpr::Not(p) => p.as_ref().clone(),
+                _ => {
+                    return Err(KernelError::CertificationError(
+                        "ModusTollens conclusion must be a negation".to_string(),
+                    ))
+                }
+            };
+            let p_type = proof_expr_to_type(&p)?;
+            let impl_proof = certify(&tree.premises[0], ctx)?;
+            let neg_q_proof = certify(&tree.premises[1], ctx)?;
+            let hp = "__mt_hp".to_string();
+            // λ(hp:P). neg_q_proof (impl_proof hp)  :  P → False  =  ¬P
+            Ok(Term::Lambda {
+                param: hp.clone(),
+                param_type: Box::new(p_type),
+                body: Box::new(Term::App(
+                    Box::new(neg_q_proof),
+                    Box::new(Term::App(
+                        Box::new(impl_proof),
+                        Box::new(Term::Var(hp)),
+                    )),
+                )),
+            })
+        }
+
+        // Reflexivity of equality: a = a.  Curry-Howard: `refl T a`, where
+        // `refl : Π(A:Type). Π(x:A). Eq A x x`. The two sides are definitionally
+        // equal, so `refl T l : Eq T l l` reconciles with `Eq T l r`. The domain `T`
+        // is inferred from the operands (so a ground `le 2 5 = true`, where both
+        // sides reduce to `true : Bool`, certifies as `refl Bool (le 2 5)`).
+        InferenceRule::Reflexivity => {
+            let (l, r) = match &tree.conclusion {
+                ProofExpr::Identity(l, r) => (l, r),
+                _ => {
+                    return Err(KernelError::CertificationError(
+                        "Reflexivity conclusion must be an Identity".to_string(),
+                    ))
+                }
+            };
+            let domain = Term::Global(identity_domain(l, r).to_string());
+            let term = proof_term_to_kernel_term(l)?;
+            Ok(Term::App(
+                Box::new(Term::App(
+                    Box::new(Term::Global("refl".to_string())),
+                    Box::new(domain),
+                )),
+                Box::new(term),
+            ))
+        }
+
+        // Ex falso quodlibet: ⊥ ⊢ G.  False has no constructors, so its eliminator
+        // is a `match` with zero cases — `match false_proof return (λ_:False. G) {}`.
+        InferenceRule::ExFalso => {
+            if tree.premises.len() != 1 {
+                return Err(KernelError::CertificationError(
+                    "ExFalso requires exactly 1 premise (a proof of False)".to_string(),
+                ));
+            }
+            let false_proof = certify(&tree.premises[0], ctx)?;
+            let goal_type = proof_expr_to_type(&tree.conclusion)?;
+            Ok(Term::Match {
+                discriminant: Box::new(false_proof),
+                motive: Box::new(Term::Lambda {
+                    param: "_".to_string(),
+                    param_type: Box::new(Term::Global("False".to_string())),
+                    body: Box::new(goal_type),
+                }),
+                cases: vec![],
+            })
+        }
+
         // Conjunction Introduction: conj P Q p_proof q_proof
         // P, Q ⊢ P ∧ Q becomes (conj P Q p q) : And P Q
         InferenceRule::ConjunctionIntro => {
@@ -270,6 +359,51 @@ pub fn certify(tree: &DerivationTree, ctx: &CertificationContext) -> KernelResul
                     Box::new(p_term),
                 )),
                 Box::new(q_term),
+            );
+            Ok(applied)
+        }
+
+        // Disjunction Introduction: P ⊢ P ∨ Q  (or Q ⊢ P ∨ Q)
+        // Curry-Howard: `left P Q p` or `right P Q q`. The rule is side-agnostic;
+        // we recover the side by matching the proved premise against the disjuncts.
+        InferenceRule::DisjunctionIntro => {
+            if tree.premises.len() != 1 {
+                return Err(KernelError::CertificationError(
+                    "DisjunctionIntro requires exactly 1 premise".to_string(),
+                ));
+            }
+            let (p, q) = match &tree.conclusion {
+                ProofExpr::Or(p, q) => (p.as_ref().clone(), q.as_ref().clone()),
+                _ => {
+                    return Err(KernelError::CertificationError(
+                        "DisjunctionIntro conclusion must be Or".to_string(),
+                    ))
+                }
+            };
+            let proved = &tree.premises[0].conclusion;
+            let ctor = if proved == &p {
+                "left"
+            } else if proved == &q {
+                "right"
+            } else {
+                return Err(KernelError::CertificationError(
+                    "DisjunctionIntro premise proves neither disjunct".to_string(),
+                ));
+            };
+            let p_type = proof_expr_to_type(&p)?;
+            let q_type = proof_expr_to_type(&q)?;
+            let proof_term = certify(&tree.premises[0], ctx)?;
+
+            // left/right : Π(P:Prop). Π(Q:Prop). (P|Q) → Or P Q
+            let applied = Term::App(
+                Box::new(Term::App(
+                    Box::new(Term::App(
+                        Box::new(Term::Global(ctor.to_string())),
+                        Box::new(p_type),
+                    )),
+                    Box::new(q_type),
+                )),
+                Box::new(proof_term),
             );
             Ok(applied)
         }
@@ -384,6 +518,91 @@ pub fn certify(tree: &DerivationTree, ctx: &CertificationContext) -> KernelResul
             })
         }
 
+        // Generic structural induction over an arbitrary inductive type: one case
+        // per constructor (in registration order), each recursive argument carrying
+        // its own induction hypothesis. Certifies to `fix rec. λx. match x { … }`,
+        // the dependent eliminator — the kernel re-checks coverage, case types, and
+        // the termination guard, so an ill-formed scheme is rejected here.
+        InferenceRule::InductionScheme {
+            variable,
+            ind_type,
+            cases,
+        } => {
+            if tree.premises.len() != cases.len() {
+                return Err(KernelError::CertificationError(format!(
+                    "InductionScheme requires one premise per constructor: {} cases, {} premises",
+                    cases.len(),
+                    tree.premises.len()
+                )));
+            }
+
+            let motive_body = extract_motive_body(&tree.conclusion, variable)?;
+            let fix_name = format!("rec_{}", variable);
+
+            let mut case_terms = Vec::with_capacity(cases.len());
+            for (case, premise) in cases.iter().zip(tree.premises.iter()) {
+                // Argument kernel types, peeled from the constructor's signature.
+                let arg_types = constructor_arg_types(ctx.kernel_ctx, &case.constructor)?;
+                if arg_types.len() != case.args.len() {
+                    return Err(KernelError::CertificationError(format!(
+                        "constructor {} takes {} arguments, case binds {}",
+                        case.constructor,
+                        arg_types.len(),
+                        case.args.len()
+                    )));
+                }
+
+                // Each recursive argument contributes an IH: the motive at that
+                // argument (the induction variable substituted by the argument name).
+                let mut ihs = Vec::new();
+                for arg in &case.args {
+                    if arg.recursive {
+                        let ih = compute_ih_conclusion(&tree.conclusion, variable, &arg.name)?;
+                        ihs.push((arg.name.clone(), ih));
+                    }
+                }
+
+                // Certify the case under a context binding every argument as a local
+                // and exposing the recursive IHs (so IH references become `rec <arg>`).
+                let mut case_ctx = ctx.with_induction_multi(&fix_name, ihs);
+                for arg in &case.args {
+                    case_ctx = case_ctx.with_local(&arg.name);
+                }
+                let case_body = certify(premise, &case_ctx)?;
+
+                // Wrap the body in one lambda per constructor argument:
+                // λ(a0:T0). … λ(aN:TN). body  (nullary constructors stay bare).
+                let mut term = case_body;
+                for (arg, ty) in case.args.iter().zip(arg_types.iter()).rev() {
+                    term = Term::Lambda {
+                        param: arg.name.clone(),
+                        param_type: Box::new(ty.clone()),
+                        body: Box::new(term),
+                    };
+                }
+                case_terms.push(term);
+            }
+
+            // match x return (λx:Ind. P(x)) with { case₀, …, caseₙ }
+            let match_term = Term::Match {
+                discriminant: Box::new(Term::Var(variable.clone())),
+                motive: Box::new(build_motive(ind_type, &motive_body, variable)),
+                cases: case_terms,
+            };
+
+            // fix rec_x. λx:Ind. match x { … }
+            let lambda_term = Term::Lambda {
+                param: variable.clone(),
+                param_type: Box::new(Term::Global(ind_type.clone())),
+                body: Box::new(match_term),
+            };
+
+            Ok(Term::Fix {
+                name: fix_name,
+                body: Box::new(lambda_term),
+            })
+        }
+
         // Existential Introduction: P(w) ⊢ ∃x.P(x)
         // Curry-Howard: witness A P w proof
         InferenceRule::ExistentialIntro {
@@ -419,26 +638,14 @@ pub fn certify(tree: &DerivationTree, ctx: &CertificationContext) -> KernelResul
             // The type A comes from the InferenceRule (EXPLICIT INTENT)
             let type_a = Term::Global(witness_type.clone());
 
-            // Build predicate P
-            // If body is just "P(x)" where x is the bound variable, use P directly
-            // Otherwise, build λvar. body_type
-            let predicate = match &body {
-                // Simple case: P(x) where x is the existential variable
-                ProofExpr::Predicate { name, args, .. }
-                    if args.len() == 1
-                        && matches!(&args[0], ProofTerm::Variable(v) if v == &variable) =>
-                {
-                    Term::Global(name.clone())
-                }
-                // General case: wrap in lambda
-                _ => {
-                    let body_type = proof_expr_to_type(&body)?;
-                    Term::Lambda {
-                        param: variable.clone(),
-                        param_type: Box::new(type_a.clone()),
-                        body: Box::new(body_type),
-                    }
-                }
+            // Build predicate P = λvar:A. body_type — matching `proof_expr_to_type`'s
+            // encoding of `Exists` EXACTLY (no eta-contracted `P`-direct shortcut for
+            // the `∃y.P(y)` case), so the certified term's type and the goal type
+            // agree structurally without relying on eta-conversion in the kernel.
+            let predicate = Term::Lambda {
+                param: variable.clone(),
+                param_type: Box::new(type_a.clone()),
+                body: Box::new(proof_expr_to_type(&body)?),
             };
 
             // Build: witness A P w proof
@@ -563,16 +770,17 @@ pub fn certify(tree: &DerivationTree, ctx: &CertificationContext) -> KernelResul
             let predicate = build_equality_predicate(&tree.conclusion, to)?;
 
             // Eq_rec : Π(A:Type). Π(x:A). Π(P:A→Prop). P x → Π(y:A). Eq A x y → P y
-            // Build: Eq_rec Entity from P source_proof to eq_proof
+            // Build: Eq_rec D from P source_proof to eq_proof, where D is the domain
+            // of the rewritten terms (Int for arithmetic, else Entity).
             let eq_rec = Term::Global("Eq_rec".to_string());
-            let entity = Term::Global("Entity".to_string());
+            let domain = Term::Global(term_domain(from).to_string());
 
             let applied = Term::App(
                 Box::new(Term::App(
                     Box::new(Term::App(
                         Box::new(Term::App(
                             Box::new(Term::App(
-                                Box::new(Term::App(Box::new(eq_rec), Box::new(entity))),
+                                Box::new(Term::App(Box::new(eq_rec), Box::new(domain))),
                                 Box::new(from_term),
                             )),
                             Box::new(predicate),
@@ -682,6 +890,122 @@ pub fn certify(tree: &DerivationTree, ctx: &CertificationContext) -> KernelResul
                 )),
                 Box::new(proof2),
             ))
+        }
+
+        // `a ≤ b`, `b ≤ c` ⊢ `a ≤ c`:  le_trans a b c p₀ p₁.  Inequalities are the
+        // Prop `Eq Bool (le a b) true`; the middle term comes from the first premise.
+        InferenceRule::LeTrans => {
+            if tree.premises.len() != 2 {
+                return Err(KernelError::CertificationError(
+                    "LeTrans requires exactly 2 premises".to_string(),
+                ));
+            }
+            let (a, b) = le_terms(&tree.conclusion)?;
+            let (_, mid) = le_terms(&tree.premises[0].conclusion)?;
+            let p0 = certify(&tree.premises[0], ctx)?;
+            let p1 = certify(&tree.premises[1], ctx)?;
+            let mut t = Term::Global("le_trans".to_string());
+            for arg in [
+                proof_term_to_kernel_term(&a)?,
+                proof_term_to_kernel_term(&mid)?,
+                proof_term_to_kernel_term(&b)?,
+                p0,
+                p1,
+            ] {
+                t = Term::App(Box::new(t), Box::new(arg));
+            }
+            Ok(t)
+        }
+
+        // `⊢ a ≤ a`:  le_refl a.
+        InferenceRule::LeRefl => {
+            let (a, _) = le_terms(&tree.conclusion)?;
+            Ok(Term::App(
+                Box::new(Term::Global("le_refl".to_string())),
+                Box::new(proof_term_to_kernel_term(&a)?),
+            ))
+        }
+
+        // `a ≤ b`, `c ≤ d` ⊢ `a + c ≤ b + d`:  le_add_mono a b c d p₀ p₁.
+        InferenceRule::LeAddMono => {
+            if tree.premises.len() != 2 {
+                return Err(KernelError::CertificationError(
+                    "LeAddMono requires exactly 2 premises".to_string(),
+                ));
+            }
+            let (lhs, rhs) = le_terms(&tree.conclusion)?;
+            let (a, c) = add_terms(&lhs)?;
+            let (b, d) = add_terms(&rhs)?;
+            let p0 = certify(&tree.premises[0], ctx)?;
+            let p1 = certify(&tree.premises[1], ctx)?;
+            let mut t = Term::Global("le_add_mono".to_string());
+            for arg in [
+                proof_term_to_kernel_term(&a)?,
+                proof_term_to_kernel_term(&b)?,
+                proof_term_to_kernel_term(&c)?,
+                proof_term_to_kernel_term(&d)?,
+                p0,
+                p1,
+            ] {
+                t = Term::App(Box::new(t), Box::new(arg));
+            }
+            Ok(t)
+        }
+
+        // Linear contradiction → ⊥: `premise[0] : le(m,n) = true` with `m > n` is, by
+        // computation, a proof of `Eq Bool false true`; the Bool no-confusion
+        // discriminator turns it into `False`.
+        InferenceRule::LinFalse => {
+            if tree.premises.len() != 1 {
+                return Err(KernelError::CertificationError(
+                    "LinFalse requires exactly 1 premise".to_string(),
+                ));
+            }
+            let le_proof = certify(&tree.premises[0], ctx)?;
+            Ok(build_bool_discriminator(le_proof))
+        }
+
+        // `0 ≤ k`, `a ≤ b` ⊢ `k·a ≤ k·b`:  le_mul_nonneg k a b p₀ p₁.
+        InferenceRule::LeMulNonneg => {
+            if tree.premises.len() != 2 {
+                return Err(KernelError::CertificationError(
+                    "LeMulNonneg requires exactly 2 premises".to_string(),
+                ));
+            }
+            let (lhs, rhs) = le_terms(&tree.conclusion)?;
+            let (k, a) = binop_terms("mul", &lhs)?;
+            let (_, b) = binop_terms("mul", &rhs)?;
+            let p0 = certify(&tree.premises[0], ctx)?;
+            let p1 = certify(&tree.premises[1], ctx)?;
+            let mut t = Term::Global("le_mul_nonneg".to_string());
+            for arg in [
+                proof_term_to_kernel_term(&k)?,
+                proof_term_to_kernel_term(&a)?,
+                proof_term_to_kernel_term(&b)?,
+                p0,
+                p1,
+            ] {
+                t = Term::App(Box::new(t), Box::new(arg));
+            }
+            Ok(t)
+        }
+
+        // `a ≤ b` ⊢ `0 ≤ b + (-1)·a`:  le_sub a b p₀.
+        InferenceRule::LeSub => {
+            if tree.premises.len() != 1 {
+                return Err(KernelError::CertificationError(
+                    "LeSub requires exactly 1 premise".to_string(),
+                ));
+            }
+            let (_zero, diff) = le_terms(&tree.conclusion)?;
+            let (b, neg_a) = binop_terms("add", &diff)?;
+            let (_neg_one, a) = binop_terms("mul", &neg_a)?;
+            let p0 = certify(&tree.premises[0], ctx)?;
+            let mut t = Term::Global("le_sub".to_string());
+            for arg in [proof_term_to_kernel_term(&a)?, proof_term_to_kernel_term(&b)?, p0] {
+                t = Term::App(Box::new(t), Box::new(arg));
+            }
+            Ok(t)
         }
 
         // Arithmetic decision: discharge an Int equality with the proof-producing
@@ -956,6 +1280,145 @@ pub fn certify(tree: &DerivationTree, ctx: &CertificationContext) -> KernelResul
             })
         }
 
+        // Biconditional introduction (↔I): `conj (P→Q) (Q→P) <pq> <qp>` — the pair of
+        // direction proofs combined, matching the `Iff ≡ And (P→Q) (Q→P)` encoding.
+        InferenceRule::BicondIntro => {
+            if tree.premises.len() != 2 {
+                return Err(KernelError::CertificationError(
+                    "BicondIntro requires exactly 2 premises (P→Q, Q→P)".to_string(),
+                ));
+            }
+            let (p, q) = match &tree.conclusion {
+                ProofExpr::Iff(p, q) => (p.as_ref().clone(), q.as_ref().clone()),
+                other => {
+                    return Err(KernelError::CertificationError(format!(
+                        "BicondIntro conclusion must be a biconditional, got {:?}",
+                        other
+                    )))
+                }
+            };
+            let pq_type =
+                proof_expr_to_type(&ProofExpr::Implies(Box::new(p.clone()), Box::new(q.clone())))?;
+            let qp_type =
+                proof_expr_to_type(&ProofExpr::Implies(Box::new(q), Box::new(p)))?;
+            let pq_proof = certify(&tree.premises[0], ctx)?;
+            let qp_proof = certify(&tree.premises[1], ctx)?;
+            Ok(Term::App(
+                Box::new(Term::App(
+                    Box::new(Term::App(
+                        Box::new(Term::App(
+                            Box::new(Term::Global("conj".to_string())),
+                            Box::new(pq_type),
+                        )),
+                        Box::new(qp_type),
+                    )),
+                    Box::new(pq_proof),
+                )),
+                Box::new(qp_proof),
+            ))
+        }
+
+        // Double-negation introduction (constructive): P ⊢ ¬¬P. With `¬X ≡ X→False`,
+        // `¬¬P = (P→False)→False`, proved by `λ(hnp:¬P). hnp p`.
+        InferenceRule::DoubleNegation => {
+            if tree.premises.len() != 1 {
+                return Err(KernelError::CertificationError(
+                    "DoubleNegation requires exactly 1 premise (a proof of P)".to_string(),
+                ));
+            }
+            let p = match &tree.conclusion {
+                ProofExpr::Not(inner) => match inner.as_ref() {
+                    ProofExpr::Not(core) => core.as_ref().clone(),
+                    other => {
+                        return Err(KernelError::CertificationError(format!(
+                            "DoubleNegation conclusion must be ¬¬P, got ¬{:?}",
+                            other
+                        )))
+                    }
+                },
+                other => {
+                    return Err(KernelError::CertificationError(format!(
+                        "DoubleNegation conclusion must be ¬¬P, got {:?}",
+                        other
+                    )))
+                }
+            };
+            let p_type = proof_expr_to_type(&p)?;
+            let p_proof = certify(&tree.premises[0], ctx)?;
+            let not_p_type = Term::Pi {
+                param: "_".to_string(),
+                param_type: Box::new(p_type),
+                body_type: Box::new(Term::Global("False".to_string())),
+            };
+            let hnp = "__dn_hnp".to_string();
+            Ok(Term::Lambda {
+                param: hnp.clone(),
+                param_type: Box::new(not_p_type),
+                body: Box::new(Term::App(Box::new(Term::Var(hnp)), Box::new(p_proof))),
+            })
+        }
+
+        // Classical reductio: assume ¬G, derive ⊥, conclude G via the `dne` axiom.
+        // Build `dne G (λ(hng:¬G). <⊥-proof>)`, where `λ(hng:¬G). ⊥ : ¬¬G`.
+        InferenceRule::ClassicalReductio => {
+            if tree.premises.len() != 1 {
+                return Err(KernelError::CertificationError(
+                    "ClassicalReductio requires exactly 1 premise (a proof of False)".to_string(),
+                ));
+            }
+            let g = tree.conclusion.clone();
+            let g_type = proof_expr_to_type(&g)?;
+            let neg_g = ProofExpr::Not(Box::new(g));
+            let neg_g_type = proof_expr_to_type(&neg_g)?; // G → False
+            let binder = ctx.fresh_hyp_name();
+            let bctx = ctx.with_local_hyp_term(&neg_g, Term::Var(binder.clone()));
+            let false_proof = certify(&tree.premises[0], &bctx)?;
+            let nn_g = Term::Lambda {
+                param: binder,
+                param_type: Box::new(neg_g_type),
+                body: Box::new(false_proof),
+            };
+            Ok(Term::App(
+                Box::new(Term::App(
+                    Box::new(Term::Global("dne".to_string())),
+                    Box::new(g_type),
+                )),
+                Box::new(nn_g),
+            ))
+        }
+
+        // Implication introduction (→I): `λ(hp:P). <Q-proof>`, binding the antecedent
+        // P as a local hypothesis the consequent proof may cite — and, when P is a
+        // conjunction, each conjunct by ∧-elimination (same as DisjunctionCases).
+        InferenceRule::ImpliesIntro => {
+            if tree.premises.len() != 1 {
+                return Err(KernelError::CertificationError(
+                    "ImpliesIntro requires exactly 1 premise (the consequent proof)".to_string(),
+                ));
+            }
+            let ant = match &tree.conclusion {
+                ProofExpr::Implies(a, _) => a.as_ref().clone(),
+                other => {
+                    return Err(KernelError::CertificationError(format!(
+                        "ImpliesIntro conclusion must be an implication, got {:?}",
+                        other
+                    )))
+                }
+            };
+            let binder = ctx.fresh_hyp_name();
+            let h_var = Term::Var(binder.clone());
+            let mut bctx = ctx.with_local_hyp_term(&ant, h_var.clone());
+            for (conjunct, proj) in collect_conjunct_hyps(&ant, &h_var)? {
+                bctx = bctx.with_local_hyp_term(&conjunct, proj);
+            }
+            let body = certify(&tree.premises[0], &bctx)?;
+            Ok(Term::Lambda {
+                param: binder,
+                param_type: Box::new(proof_expr_to_type(&ant)?),
+                body: Box::new(body),
+            })
+        }
+
         // Conjunction elimination: from a proof of `A ∧ B`, recover the conjunct
         // (`A` or `B`, whichever the conclusion names) by `∧`-elimination.
         InferenceRule::ConjunctionElim => {
@@ -1049,7 +1512,9 @@ fn build_equality_predicate(goal: &ProofExpr, replace_term: &ProofTerm) -> Kerne
 
     Ok(Term::Lambda {
         param: param_name,
-        param_type: Box::new(Term::Global("Entity".to_string())),
+        // The bound variable replaces `replace_term`, so it has that term's domain
+        // (Int when rewriting arithmetic, else Entity).
+        param_type: Box::new(Term::Global(term_domain(replace_term).to_string())),
         body: Box::new(substituted),
     })
 }
@@ -1264,6 +1729,7 @@ fn types_alpha_equiv(a: &Term, b: &Term, bindings: &mut Vec<(String, String)>) -
             v1 == v2
         }
         (Term::Global(g1), Term::Global(g2)) => g1 == g2,
+        (Term::Lit(l1), Term::Lit(l2)) => l1 == l2,
         (Term::App(f1, a1), Term::App(f2, a2)) => {
             types_alpha_equiv(f1, f2, bindings) && types_alpha_equiv(a1, a2, bindings)
         }
@@ -1367,6 +1833,26 @@ pub(crate) fn proof_expr_to_type(expr: &ProofExpr) -> KernelResult<Term> {
             param_type: Box::new(proof_expr_to_type(p)?),
             body_type: Box::new(proof_expr_to_type(q)?),
         }),
+        // Iff P Q ≡ And (P → Q) (Q → P) — the same encoding `verify.rs:expand_iff`
+        // uses for Iff premises, so Iff goals and Iff hypotheses agree.
+        ProofExpr::Iff(p, q) => {
+            let pt = proof_expr_to_type(p)?;
+            let qt = proof_expr_to_type(q)?;
+            let pq = Term::Pi {
+                param: "_".to_string(),
+                param_type: Box::new(pt.clone()),
+                body_type: Box::new(qt.clone()),
+            };
+            let qp = Term::Pi {
+                param: "_".to_string(),
+                param_type: Box::new(qt),
+                body_type: Box::new(pt),
+            };
+            Ok(Term::App(
+                Box::new(Term::App(Box::new(Term::Global("And".to_string())), Box::new(pq))),
+                Box::new(qp),
+            ))
+        }
         // ForAll ∀x.P(x) becomes Π(x:Entity). P(x)
         ProofExpr::ForAll { variable, body } => {
             let body_type = proof_expr_to_type(body)?;
@@ -1385,15 +1871,19 @@ pub(crate) fn proof_expr_to_type(expr: &ProofExpr) -> KernelResult<Term> {
             }
             Ok(result)
         }
-        // Identity t1 = t2 becomes (Eq Entity t1 t2)
+        // Identity t1 = t2 becomes (Eq T t1 t2). The domain T is inferred from the
+        // operands: a comparison (`le`/`lt`/…) or a Bool literal makes it `Eq Bool`
+        // (the encoding `le a b = true` for `a ≤ b`); an arithmetic operator or
+        // integer literal makes it `Eq Int`; otherwise the FOL default `Eq Entity`.
         ProofExpr::Identity(l, r) => {
             let l_term = proof_term_to_kernel_term(l)?;
             let r_term = proof_term_to_kernel_term(r)?;
+            let domain = Term::Global(identity_domain(l, r).to_string());
             Ok(Term::App(
                 Box::new(Term::App(
                     Box::new(Term::App(
                         Box::new(Term::Global("Eq".to_string())),
-                        Box::new(Term::Global("Entity".to_string())),
+                        Box::new(domain),
                     )),
                     Box::new(l_term),
                 )),
@@ -1450,7 +1940,13 @@ fn kernel_arith_name(name: &str) -> &str {
 
 pub(crate) fn proof_term_to_kernel_term(term: &ProofTerm) -> KernelResult<Term> {
     match term {
-        ProofTerm::Constant(name) => Ok(Term::Global(name.clone())),
+        // A numeric constant is an integer literal — it must be `Lit(Int)` (not an
+        // opaque `Global`) so the kernel's arithmetic/comparison delta rules fire
+        // (`add 2 3 ⇝ 5`, `le 2 5 ⇝ true`), deciding ground facts by computation.
+        ProofTerm::Constant(name) => match name.parse::<i64>() {
+            Ok(n) => Ok(Term::Lit(logicaffeine_kernel::Literal::Int(n))),
+            Err(_) => Ok(Term::Global(name.clone())),
+        },
         ProofTerm::Variable(name) => Ok(Term::Var(name.clone())),
         ProofTerm::BoundVarRef(name) => Ok(Term::Var(name.clone())),
         ProofTerm::Function(name, args) => {
@@ -1467,6 +1963,96 @@ pub(crate) fn proof_term_to_kernel_term(term: &ProofTerm) -> KernelResult<Term> 
             "Cannot convert Group to kernel term".to_string(),
         )),
     }
+}
+
+/// Infer the `Eq` domain for an `Identity` from its operands (see the `Identity`
+/// arm of [`proof_expr_to_type`]). A comparison (`le`/`lt`/…) or a Bool literal →
+/// `Bool`; an arithmetic operator or integer literal → `Int`; otherwise the
+/// first-order default `Entity`.
+fn identity_domain(l: &ProofTerm, r: &ProofTerm) -> &'static str {
+    match (term_domain(l), term_domain(r)) {
+        ("Bool", _) | (_, "Bool") => "Bool",
+        ("Int", _) | (_, "Int") => "Int",
+        _ => "Entity",
+    }
+}
+
+/// The kernel domain a single term belongs to: a comparison / Bool literal → `Bool`;
+/// an arithmetic operator or integer literal → `Int`; otherwise `Entity`.
+fn term_domain(t: &ProofTerm) -> &'static str {
+    match t {
+        ProofTerm::Function(n, _) if matches!(n.as_str(), "le" | "lt" | "ge" | "gt") => "Bool",
+        ProofTerm::Function(n, _)
+            if matches!(
+                n.as_str(),
+                "add" | "sub" | "mul" | "div" | "mod" | "Add" | "Sub" | "Mul" | "Div"
+            ) =>
+        {
+            "Int"
+        }
+        ProofTerm::Constant(s) if s == "true" || s == "false" => "Bool",
+        ProofTerm::Constant(s) if s.parse::<i64>().is_ok() => "Int",
+        _ => "Entity",
+    }
+}
+
+/// Extract `(a, b)` from an inequality conclusion `le(a, b) = true`, encoded in the
+/// proof layer as `Identity(Function("le", [a, b]), Constant("true"))`.
+fn le_terms(expr: &ProofExpr) -> KernelResult<(ProofTerm, ProofTerm)> {
+    if let ProofExpr::Identity(lhs, _) = expr {
+        if let ProofTerm::Function(name, args) = lhs {
+            if name == "le" && args.len() == 2 {
+                return Ok((args[0].clone(), args[1].clone()));
+            }
+        }
+    }
+    Err(KernelError::CertificationError(format!(
+        "expected an `le(a, b) = true` inequality, got {:?}",
+        expr
+    )))
+}
+
+/// Extract `(x, y)` from a sum `add(x, y)`.
+fn add_terms(t: &ProofTerm) -> KernelResult<(ProofTerm, ProofTerm)> {
+    binop_terms("add", t)
+}
+
+/// Extract `(x, y)` from a binary application `op(x, y)`.
+fn binop_terms(op: &str, t: &ProofTerm) -> KernelResult<(ProofTerm, ProofTerm)> {
+    if let ProofTerm::Function(name, args) = t {
+        if name == op && args.len() == 2 {
+            return Ok((args[0].clone(), args[1].clone()));
+        }
+    }
+    Err(KernelError::CertificationError(format!(
+        "expected `{}(x, y)`, got {:?}",
+        op, t
+    )))
+}
+
+/// `Eq_rec Bool false P I true h : False`, where `h : Eq Bool false true` (or, by
+/// computation, any `Eq Bool (le m n) true` with `m > n`). The motive
+/// `P b = match b with true ⇒ False | false ⇒ True` is the Bool no-confusion
+/// discriminator — turning a derived ground-false inequality into `⊥`.
+fn build_bool_discriminator(h: Term) -> Term {
+    let g = |s: &str| Term::Global(s.to_string());
+    // P = λb:Bool. match b return (λ_:Bool. Prop) with | true ⇒ False | false ⇒ True
+    let motive = Term::Lambda {
+        param: "b".to_string(),
+        param_type: Box::new(g("Bool")),
+        body: Box::new(Term::Match {
+            discriminant: Box::new(Term::Var("b".to_string())),
+            motive: Box::new(Term::Lambda {
+                param: "_".to_string(),
+                param_type: Box::new(g("Bool")),
+                body: Box::new(Term::Sort(logicaffeine_kernel::Universe::Prop)),
+            }),
+            cases: vec![g("False"), g("True")],
+        }),
+    };
+    [g("Bool"), g("false"), motive, g("I"), g("true"), h]
+        .into_iter()
+        .fold(g("Eq_rec"), |acc, arg| Term::App(Box::new(acc), Box::new(arg)))
 }
 
 // =============================================================================
@@ -1501,6 +2087,31 @@ fn compute_ih_conclusion(
             "Expected ForAll for IH computation".to_string(),
         )),
     }
+}
+
+/// Peel a constructor's argument types from its signature. A monomorphic
+/// inductive's constructor has type `Π(a₀:T₀). … Π(aₙ:Tₙ). Ind`, so the argument
+/// types are exactly the `Pi` parameter types in order (a nullary constructor
+/// yields an empty list). Used to type the case lambdas of a generic
+/// [`InferenceRule::InductionScheme`] eliminator.
+fn constructor_arg_types(ctx: &Context, constructor: &str) -> KernelResult<Vec<Term>> {
+    let mut ty = ctx
+        .get_global(constructor)
+        .ok_or_else(|| {
+            KernelError::CertificationError(format!("unknown constructor {}", constructor))
+        })?
+        .clone();
+    let mut args = Vec::new();
+    while let Term::Pi {
+        param_type,
+        body_type,
+        ..
+    } = ty
+    {
+        args.push(*param_type);
+        ty = *body_type;
+    }
+    Ok(args)
 }
 
 /// Build the match motive: λn:IndType. ResultType

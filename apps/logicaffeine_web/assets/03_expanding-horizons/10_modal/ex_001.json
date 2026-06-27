@@ -4,10 +4,10 @@
   "difficulty": 1,
   "prompt": "It isn't possible that you're careful",
   "options": [
-    "$ \\\\sim \\\\lozenge (C) $",
-    "$ \\\\sim (\\\\lozenge C) $",
-    "$ \\\\sim \\\\lozenge C $",
-    "$ \\\\lozenge \\\\sim C $"
+    "$ \\sim \\lozenge (C) $",
+    "$ \\sim (\\lozenge C) $",
+    "$ \\sim \\lozenge C $",
+    "$ \\lozenge \\sim C $"
   ],
   "correct": 2,
   "hint": "Think of possibility like doorways to other worlds. Is this sentence saying 'There is NO doorway to a world where you are careful' or 'There IS a doorway to a world where you are NOT careful'?",

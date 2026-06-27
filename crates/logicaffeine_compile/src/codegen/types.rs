@@ -111,6 +111,7 @@ pub(super) fn map_type_to_rust(ty: &str) -> String {
         "Char" => "char".to_string(),
         "Byte" => "u8".to_string(),
         "Unit" | "()" => "()".to_string(),
+        "Rational" => "LogosRational".to_string(),
         "Duration" => "std::time::Duration".to_string(),
         other => other.to_string(),
     }

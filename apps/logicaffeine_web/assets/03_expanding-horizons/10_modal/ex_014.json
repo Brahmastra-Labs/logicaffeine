@@ -4,10 +4,10 @@
   "difficulty": 1,
   "prompt": "'You're smart' is consistent with 'You're gloomy'",
   "options": [
-    "$ (S \\\\cdot G) $",
-    "$ \\\\lozenge (S \\\\cdot G) $",
-    "$ (\\\\lozenge S \\\\cdot \\\\lozenge G) $",
-    "$ (\\\\lozenge S \\\\cdot G) $"
+    "$ (S \\cdot G) $",
+    "$ \\lozenge (S \\cdot G) $",
+    "$ (\\lozenge S \\cdot \\lozenge G) $",
+    "$ (\\lozenge S \\cdot G) $"
   ],
   "correct": 1,
   "hint": "When two things are 'consistent', does that mean they ARE both true, or they COULD be true together?",

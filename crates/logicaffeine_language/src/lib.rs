@@ -118,6 +118,9 @@ pub mod visitor;
 pub mod debug;
 pub mod style;
 
+// The single source of truth for compiler optimization toggles.
+pub mod optimization;
+
 // Proof conversion: bridges language AST to proof engine
 pub mod proof_convert;
 pub use proof_convert::{logic_expr_to_proof_expr, term_to_proof_term};

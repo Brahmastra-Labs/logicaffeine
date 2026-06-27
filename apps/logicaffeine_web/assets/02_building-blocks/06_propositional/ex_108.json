@@ -1,13 +1,13 @@
 {
-  "id": "C_6.46",
+  "id": "C_6.108",
   "type": "multiple_choice",
   "difficulty": 1,
   "prompt": "You aren't either smart or realistic",
   "options": [
-    "$ (\\\\sim S \\\\vee \\\\, \\\\sim R) $",
-    "$ (\\\\sim S \\\\vee R) $",
-    "$ \\\\sim (S \\\\vee R) $",
-    "$ \\\\sim S \\\\vee R $"
+    "$ (\\sim S \\vee \\, \\sim R) $",
+    "$ (\\sim S \\vee R) $",
+    "$ \\sim (S \\vee R) $",
+    "$ \\sim S \\vee R $"
   ],
   "correct": 2,
   "hint": "Identify the main connective first. What's the primary structure of this sentence?",

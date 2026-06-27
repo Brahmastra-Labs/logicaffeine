@@ -36,6 +36,33 @@
 pub mod io;
 pub mod temporal;
 
+// The thin-relay wire protocol — shared by the native relay server (under
+// `networking`) and the browser relay client (wasm). Target-agnostic (serde
+// only), so it compiles into both the native binary and the wasm bundle without
+// dragging in libp2p.
+pub mod relay_proto;
+
+// Address normalization (libp2p multiaddr → ws:// URL) so the interpreter accepts
+// the same peer-address surface as the compiled path. Pure string logic, no
+// libp2p, no target gating — identical on native and wasm.
+pub mod addr;
+
+// The native WebSocket relay server + client. A LIGHT capability behind its own
+// `relay` feature (tokio-tungstenite, NO libp2p) so the interpreter can network
+// over the relay without the mesh stack. `networking` implies `relay`.
+#[cfg(all(not(target_arch = "wasm32"), feature = "relay"))]
+pub mod relay;
+
+// Browser relay client — a `web-sys` WebSocket speaking `relay_proto`, the
+// browser's door into a native node's relay. wasm-only; no libp2p.
+#[cfg(target_arch = "wasm32")]
+pub mod relay_browser;
+
+// The cross-target `Net` handle the interpreter holds — native RelayClient or
+// browser WebSocket behind one API. Available wherever a relay client is.
+#[cfg(any(all(not(target_arch = "wasm32"), feature = "relay"), target_arch = "wasm32"))]
+pub mod net;
+
 // Native-only core modules
 #[cfg(not(target_arch = "wasm32"))]
 pub mod time;

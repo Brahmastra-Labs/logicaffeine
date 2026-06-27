@@ -14,5 +14,5 @@
   ],
   "correct": 4,
   "hint": "Is the original term vague while the definition is precise, or vice versa?",
-  "explanation": "This violates 5."
+  "explanation": "'Old' is vague and gradual — there is no precise instant at which someone becomes old. Drawing a hard line at seventy is far more exact than the word itself, so it fails to MATCH THE VAGUENESS of the term."
 }

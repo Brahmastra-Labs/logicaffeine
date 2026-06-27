@@ -25,9 +25,26 @@
 pub mod arith;
 pub mod cdcl;
 pub mod cnf;
+pub mod dimacs;
+pub mod proof;
+pub mod pr;
+pub mod families;
 pub mod rup;
+pub mod sat;
+pub mod bmc;
+pub mod cardinality;
+pub mod matching;
+pub mod pigeonhole;
+pub mod symmetry;
+pub mod symmetry_detect;
+pub mod sym_certify;
+pub mod xorsat;
+pub mod hornsat;
+pub mod twosat;
+pub mod optimize;
 pub mod certifier;
 pub mod engine;
+pub mod linarith_solve;
 pub mod grounding;
 pub mod grid_solver;
 pub mod error;
@@ -395,6 +412,28 @@ impl fmt::Display for ProofExpr {
 /// * [`certifier::certify`] - Maps inference rules to kernel terms
 /// * [`hints::suggest_hint`] - Suggests applicable rules when stuck
 /// * [`BackwardChainer`] - The engine that selects and applies rules
+///
+/// One constructor's case in a generic induction scheme
+/// ([`InferenceRule::InductionScheme`]). The derivation's premises align 1:1 with
+/// the cases, in the inductive's constructor-registration order.
+#[derive(Debug, Clone, PartialEq)]
+pub struct InductionCase {
+    /// The constructor this case eliminates (e.g. `"Succ"`, `"Node"`).
+    pub constructor: String,
+    /// The constructor's arguments, in order — each bound in the case body.
+    pub args: Vec<InductionArg>,
+}
+
+/// One argument of a constructor in an [`InductionCase`].
+#[derive(Debug, Clone, PartialEq)]
+pub struct InductionArg {
+    /// The name bound for this argument in the case body.
+    pub name: String,
+    /// Whether this argument is itself of the inductive type — a recursive
+    /// position, which therefore carries an induction hypothesis.
+    pub recursive: bool,
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub enum InferenceRule {
     // --- Basic FOL ---
@@ -421,8 +460,23 @@ pub enum InferenceRule {
     /// Logic: P ∨ Q, P → R, Q → R ⊢ R
     DisjunctionElim,
 
+    /// Logic: ⊥ ⊢ anything (ex falso quodlibet). The single premise concludes `False`.
+    ExFalso,
+
+    /// Logic: assume P, derive Q ⊢ P → Q (implication introduction / →I). The
+    /// single premise proves Q with P bound as a local hypothesis.
+    ImpliesIntro,
+
+    /// Logic: prove P → Q and Q → P ⊢ P ↔ Q (biconditional introduction / ↔I).
+    BicondIntro,
+
     /// Logic: ¬¬P ⊢ P (and P ⊢ ¬¬P)
     DoubleNegation,
+
+    /// Logic: classical reductio (proof by contradiction) — assume ¬G, derive ⊥ ⊢ G,
+    /// discharged through the `dne` axiom. The single premise concludes `False` with
+    /// ¬G bound as a local hypothesis.
+    ClassicalReductio,
 
     // --- Quantifiers ---
 
@@ -480,6 +534,49 @@ pub enum InferenceRule {
         ind_type: String,  // "Nat" - the inductive type
         step_var: String,  // "k" - the predecessor variable (for IH matching)
     },
+
+    /// Logic: generic structural induction over ANY inductive type. Generalizes
+    /// [`InferenceRule::StructuralInduction`] (fixed to the nullary-base + unary-step
+    /// Nat shape) to an arbitrary constructor set — one premise per constructor, in
+    /// registration order, each recursive argument carrying its own induction
+    /// hypothesis. Certifies to a `Fix` over an N-ary `Match`: the dependent
+    /// eliminator the kernel re-checks for coverage, case types, and termination.
+    InductionScheme {
+        variable: String,          // the induction variable, e.g. "t"
+        ind_type: String,          // the inductive type, e.g. "Tree"
+        cases: Vec<InductionCase>, // one per constructor, in registration order
+    },
+
+    // --- Linear arithmetic (order) ---
+
+    /// `a ≤ b`, `b ≤ c` ⊢ `a ≤ c` over `Int`. The middle term is recovered from
+    /// the first premise's conclusion. Certifies to `le_trans a b c p₀ p₁`.
+    /// Inequalities are encoded as the Prop `Eq Bool (le a b) true`.
+    LeTrans,
+
+    /// `⊢ a ≤ a` over `Int`. Certifies to `le_refl a`.
+    LeRefl,
+
+    /// `a ≤ b`, `c ≤ d` ⊢ `a + c ≤ b + d` over `Int`. The four operands are read
+    /// from the conclusion `le(add a c, add b d) = true`; `premise[0]` proves
+    /// `a ≤ b`, `premise[1]` proves `c ≤ d`. Certifies to `le_add_mono a b c d p₀ p₁`.
+    LeAddMono,
+
+    /// Linear contradiction: `premise[0]` proves `le(m, n) = true` for ground `m > n`
+    /// (so `le m n ⇝ false`, the Prop is `Eq Bool false true`). Concludes `⊥` via the
+    /// `Bool` no-confusion discriminator. Lets contradictory bounds prove anything.
+    LinFalse,
+
+    /// `0 ≤ k`, `a ≤ b` ⊢ `k·a ≤ k·b` — scale an inequality by a non-negative `k`.
+    /// Operands from the conclusion `le(mul k a, mul k b) = true`; `premise[0]` proves
+    /// `0 ≤ k`, `premise[1]` proves `a ≤ b`. Certifies to `le_mul_nonneg k a b p₀ p₁`.
+    /// A Farkas-reconstruction primitive.
+    LeMulNonneg,
+
+    /// `a ≤ b` ⊢ `0 ≤ b - a` — move an inequality to one side. Operands from the
+    /// conclusion `le(0, sub b a) = true`; `premise[0]` proves `a ≤ b`. Certifies to
+    /// `le_sub a b p₀`. The Farkas "collect to a single side" primitive.
+    LeSub,
 
     // --- Equality ---
 

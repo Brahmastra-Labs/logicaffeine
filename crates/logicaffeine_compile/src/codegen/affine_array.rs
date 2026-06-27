@@ -50,7 +50,7 @@ pub(crate) fn detect_affine_arrays(
 ) -> HashMap<Symbol, AffineArrayInfo> {
     let mut out = HashMap::new();
     // Kill-switch (A/B and attribution), matching `LOGOS_NO_NARROW`.
-    if std::env::var_os("LOGOS_NO_AFFINE").is_some() {
+    if !crate::optimize::active_config().is_on(crate::optimization::Opt::Affine) {
         return out;
     }
     for (di, stmt) in body.iter().enumerate() {
@@ -67,6 +67,9 @@ pub(crate) fn detect_affine_arrays(
         if let Some(info) = analyze(a, di, body, interner) {
             out.insert(a, info);
         }
+    }
+    if !out.is_empty() {
+        crate::optimize::mark_fired(crate::optimization::Opt::Affine);
     }
     out
 }
@@ -455,7 +458,7 @@ fn read_only_stmt(s: &Stmt, a: Symbol) -> bool {
             ok_read_only(object, a) && ok_read_only(recipient, a)
         }
         Stmt::Call { args, .. } => args.iter().all(|x| ok_read_only(x, a)),
-        Stmt::RuntimeAssert { condition } => ok_read_only(condition, a),
+        Stmt::RuntimeAssert { condition, .. } => ok_read_only(condition, a),
         Stmt::Inspect { target, .. } => ok_read_only(target, a),
         _ => !mentions_anywhere(s, a),
     }

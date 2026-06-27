@@ -1786,7 +1786,11 @@ pub fn bounded_to_verify(expr: &BoundedExpr) -> logicaffeine_verify::VerifyExpr 
 
         // ---- Multi-sorted extensions ----
         BoundedExpr::BitVecConst { width, value } => VerifyExpr::bv_const(*width, *value),
-        BoundedExpr::BitVecVar(name, _width) => VerifyExpr::Var(name.clone()),
+        // Encode the bitvector width into the variable name (`name_bv<width>`), the convention
+        // the Z3 equivalence encoder uses to recover a var's width. Dropping the width let the
+        // encoder default to 8 — silently checking the wrong width for non-8-bit obligations,
+        // and crashing (null AST) when a sized constant forced a width mismatch.
+        BoundedExpr::BitVecVar(name, width) => VerifyExpr::Var(format!("{name}_bv{width}")),
         BoundedExpr::BitVecBinary { op, left, right } => {
             use logicaffeine_verify::BitVecOp;
             let vop = match op {

@@ -1,13 +1,13 @@
 {
-  "id": "C_6.35",
+  "id": "C_6.97",
   "type": "multiple_choice",
   "difficulty": 1,
   "prompt": "Either not W or not P",
   "options": [
-    "$ \\\\sim(W \\\\vee \\\\, \\\\sim P) $",
-    "$ (\\\\sim W \\\\vee \\\\, \\\\sim P) $",
-    "$ \\\\sim W \\\\vee \\\\, \\\\sim P $",
-    "$ (\\\\sim W \\\\vee P) $"
+    "$ \\sim(W \\vee \\, \\sim P) $",
+    "$ (\\sim W \\vee \\, \\sim P) $",
+    "$ \\sim W \\vee \\, \\sim P $",
+    "$ (\\sim W \\vee P) $"
   ],
   "correct": 1,
   "hint": "How many negations do you see? Does each thing get its own 'not', or is the whole statement negated?",

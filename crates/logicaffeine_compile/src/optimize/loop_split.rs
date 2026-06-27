@@ -58,6 +58,7 @@
 use crate::arena::Arena;
 use crate::ast::stmt::{BinaryOpKind, Block, Expr, Literal, Stmt};
 use crate::intern::{Interner, Symbol};
+use crate::optimization::{Opt, OptimizationConfig};
 use crate::codegen::peephole::is_simple_expr;
 use super::abstract_interp::{count_writes_of, self_increment};
 use super::licm::{collect_loop_writes, is_loop_invariant};
@@ -79,8 +80,9 @@ pub fn loop_split_stmts<'a>(
     expr_arena: &'a Arena<Expr<'a>>,
     stmt_arena: &'a Arena<Stmt<'a>>,
     interner: &mut Interner,
+    cfg: &OptimizationConfig,
 ) -> Vec<Stmt<'a>> {
-    if std::env::var_os("LOGOS_LOOP_SPLIT").is_some_and(|v| v == "0") {
+    if !cfg.is_on(Opt::LoopSplit) {
         return stmts;
     }
     split_block(stmts, expr_arena, stmt_arena, interner)
@@ -577,7 +579,7 @@ mod tests {
         sa: &'a Arena<Stmt<'a>>,
         it: &mut Interner,
     ) -> Vec<Stmt<'a>> {
-        loop_split_stmts(input, ea, sa, it)
+        loop_split_stmts(input, ea, sa, it, &OptimizationConfig::all_on())
     }
 
     /// A `Stmt::If` whose condition is `iv >= sym` (the outer guard), at any depth.
@@ -771,7 +773,7 @@ mod tests {
     }
 
     #[test]
-    fn kill_switch_disables_split() {
+    fn disabling_loop_split_leaves_loop_intact() {
         let ea = Arena::new();
         let sa = Arena::new();
         let mut it = Interner::new();
@@ -779,9 +781,8 @@ mod tests {
         let b = B { ea: &ea, sa: &sa };
         let guard = b.bin(BinaryOpKind::GtEq, b.id(n.w), b.id(n.wi));
         let input = knapsack_loop(&b, &n, guard, 1, false, true);
-        std::env::set_var("LOGOS_LOOP_SPLIT", "0");
-        let out = run(input, &ea, &sa, &mut it);
-        std::env::remove_var("LOGOS_LOOP_SPLIT");
-        assert!(matches!(out[1], Stmt::While { .. }), "kill switch leaves loop intact");
+        let cfg = OptimizationConfig::all_on().disable(Opt::LoopSplit);
+        let out = loop_split_stmts(input, &ea, &sa, &mut it, &cfg);
+        assert!(matches!(out[1], Stmt::While { .. }), "disabling LoopSplit leaves loop intact");
     }
 }

@@ -59,7 +59,8 @@ pub(super) fn codegen_expr(expr: &Expr, ctx: &CContext) -> String {
                 BinaryOpKind::Add => "+",
                 BinaryOpKind::Subtract => "-",
                 BinaryOpKind::Multiply => "*",
-                BinaryOpKind::Divide => "/",
+                // ExactDivide is not yet specialized in the C backend; lowers like Divide.
+                BinaryOpKind::Divide | BinaryOpKind::ExactDivide => "/",
                 BinaryOpKind::Modulo => "%",
                 BinaryOpKind::Eq => "==",
                 BinaryOpKind::NotEq => "!=",

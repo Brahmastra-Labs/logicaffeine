@@ -4,12 +4,12 @@
   "difficulty": 1,
   "prompt": "You're tall and naive, or else dangerous",
   "options": [
-    "$ ((T \\\\vee N) \\\\vee D) $",
-    "$ T \\\\cdot N \\\\vee D $",
-    "$ (T \\\\cdot N) \\\\vee D $",
-    "$ (T \\\\cdot (N \\\\vee D)) $"
+    "$ ((T \\vee N) \\vee D) $",
+    "$ T \\cdot N \\vee D $",
+    "$ (T \\cdot N) \\vee D $",
+    "$ (T \\cdot (N \\vee D)) $"
   ],
-  "correct": 0,
+  "correct": 2,
   "hint": "Identify the main connective first. What's the primary structure of this sentence?",
   "explanation": "In propositional logic: 'or' is represented by \u2228 (disjunction). Pay attention to the scope of operators - parentheses matter!"
 }

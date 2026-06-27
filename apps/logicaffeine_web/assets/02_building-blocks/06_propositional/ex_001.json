@@ -4,10 +4,10 @@
   "difficulty": 1,
   "prompt": "Both P and either L or D",
   "options": [
-    "$ (P \\\\cdot (L \\\\vee D)) $",
-    "$ (P \\\\cdot L) \\\\vee D $",
-    "$ P \\\\cdot L \\\\vee D $",
-    "$ ((P \\\\cdot L) \\\\vee D) $"
+    "$ (P \\cdot (L \\vee D)) $",
+    "$ (P \\cdot L) \\vee D $",
+    "$ P \\cdot L \\vee D $",
+    "$ ((P \\cdot L) \\vee D) $"
   ],
   "correct": 0,
   "hint": "Imagine P is 'Pass the exam', L is 'Learn the material', and D is 'Do extra practice'. To pass, you need to (Learn OR Do extra practice). Where do the parentheses go to group your path to success?",

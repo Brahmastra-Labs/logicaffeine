@@ -12,7 +12,7 @@
     "Poor match in emotional tone",
     "Has non-essential properties"
   ],
-  "correct": 1,
+  "correct": 0,
   "hint": "Can you think of a genuine this that this definition would wrongly EXCLUDE?",
-  "explanation": "This violates 2 (consider liars who don"
+  "explanation": "Not stealing is only one sliver of honesty: a fluent liar who never steals still isn't honest, yet this definition would count them as honest. Because the definiens ('doesn't steal') is satisfied by people who aren't honest, the definition is TOO BROAD."
 }

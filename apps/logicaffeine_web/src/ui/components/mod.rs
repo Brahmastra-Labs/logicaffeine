@@ -74,3 +74,4 @@ pub mod symbol_palette;
 pub mod formula_editor;
 pub mod code_editor;
 pub mod proof_panel;
+pub mod debug_drawer;

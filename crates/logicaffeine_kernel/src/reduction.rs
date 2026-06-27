@@ -321,15 +321,34 @@ fn try_primitive_reduce(func: &Term, arg: &Term) -> Option<Term> {
             if let (Term::Lit(Literal::Int(x_val)), Term::Lit(Literal::Int(y_val))) =
                 (x.as_ref(), arg)
             {
-                let result = match op_name.as_str() {
-                    "add" => x_val.checked_add(*y_val)?,
-                    "sub" => x_val.checked_sub(*y_val)?,
-                    "mul" => x_val.checked_mul(*y_val)?,
-                    "div" => x_val.checked_div(*y_val)?,
-                    "mod" => x_val.checked_rem(*y_val)?,
-                    _ => return None,
+                // Integer-valued primitives.
+                let int_result = match op_name.as_str() {
+                    "add" => Some(x_val.checked_add(*y_val)?),
+                    "sub" => Some(x_val.checked_sub(*y_val)?),
+                    "mul" => Some(x_val.checked_mul(*y_val)?),
+                    "div" => Some(x_val.checked_div(*y_val)?),
+                    "mod" => Some(x_val.checked_rem(*y_val)?),
+                    _ => None,
                 };
-                return Some(Term::Lit(Literal::Int(result)));
+                if let Some(r) = int_result {
+                    return Some(Term::Lit(Literal::Int(r)));
+                }
+                // Bool-valued comparison primitives: ground order decided by
+                // computation, so `Eq Bool (le m n) true` holds by `refl` exactly
+                // when `m ≤ n` and is unprovable otherwise — the sound substrate for
+                // linear-arithmetic certificates.
+                let bool_result = match op_name.as_str() {
+                    "le" => Some(x_val <= y_val),
+                    "lt" => Some(x_val < y_val),
+                    "ge" => Some(x_val >= y_val),
+                    "gt" => Some(x_val > y_val),
+                    _ => None,
+                };
+                if let Some(b) = bool_result {
+                    return Some(Term::Global(
+                        if b { "true" } else { "false" }.to_string(),
+                    ));
+                }
             }
         }
     }

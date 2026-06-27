@@ -4,10 +4,10 @@
   "difficulty": 1,
   "prompt": "Peter could be forgetful",
   "options": [
-    "$ (\\\\lozenge (F)) $",
-    "$ \\\\lozenge F $",
-    "$ \\\\lozenge (F) $",
-    "$ (\\\\lozenge F) $"
+    "$ (\\lozenge (F)) $",
+    "$ \\lozenge F $",
+    "$ \\lozenge (F) $",
+    "$ (\\lozenge F) $"
   ],
   "correct": 1,
   "hint": "Does 'could' or 'might' suggest certainty, or just an open possibility?",

@@ -4,10 +4,10 @@
   "difficulty": 1,
   "prompt": "You're either tough and cautious or else frivolous",
   "options": [
-    "$ (T \\\\cdot C) \\\\vee F $",
-    "$ (T \\\\cdot (C \\\\vee F)) $",
-    "$ T \\\\cdot C \\\\vee F $",
-    "$ ((T \\\\cdot C) \\\\vee F) $"
+    "$ (T \\cdot C) \\vee F $",
+    "$ (T \\cdot (C \\vee F)) $",
+    "$ T \\cdot C \\vee F $",
+    "$ ((T \\cdot C) \\vee F) $"
   ],
   "correct": 3,
   "hint": "Identify the main connective first. What's the primary structure of this sentence?",

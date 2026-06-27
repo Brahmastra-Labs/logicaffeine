@@ -116,6 +116,7 @@ fn classify_token_inner(kind: &TokenType, depth: usize) -> (Option<u32>, u32) {
         TokenType::Let | TokenType::Set | TokenType::Return | TokenType::Break | TokenType::Be
         | TokenType::While | TokenType::Repeat | TokenType::For | TokenType::In
         | TokenType::From | TokenType::Assert | TokenType::Trust
+        | TokenType::Require | TokenType::Requires | TokenType::Ensures
         | TokenType::Otherwise | TokenType::Else | TokenType::Elif
         | TokenType::Call | TokenType::New | TokenType::Either | TokenType::Inspect
         | TokenType::Native | TokenType::Escape | TokenType::Given | TokenType::Prove

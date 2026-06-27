@@ -14,5 +14,5 @@
   ],
   "correct": 4,
   "hint": "Is the original term vague while the definition is precise, or vice versa?",
-  "explanation": "This violates 5."
+  "explanation": "'Cold' is relative and vague — a 25-degree day is plainly cold too. An exact 20 degree boundary is sharper than the word, so the definition fails to MATCH THE VAGUENESS of 'cold'."
 }

@@ -4,10 +4,10 @@
   "difficulty": 1,
   "prompt": "If F is necessary then P is necessary",
   "options": [
-    "$ (\\\\square F \\\\supset \\\\square P) $",
-    "$ \\\\square (F \\\\supset \\\\square P) $",
-    "$ \\\\square F \\\\supset \\\\square P $",
-    "$ \\\\square (F \\\\supset P) $"
+    "$ (\\square F \\supset \\square P) $",
+    "$ \\square (F \\supset \\square P) $",
+    "$ \\square F \\supset \\square P $",
+    "$ \\square (F \\supset P) $"
   ],
   "correct": 0,
   "hint": "Is the 'if...then' itself necessary, or is it a regular conditional connecting two necessary things?",

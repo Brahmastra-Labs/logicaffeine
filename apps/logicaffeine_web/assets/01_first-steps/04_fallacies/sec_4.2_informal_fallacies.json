@@ -17,7 +17,7 @@
       "title": "Ad Hominem Fallacy",
       "premises": [
         "Dr. Smith argues that smoking causes cancer.",
-        "But Dr. Smith is funded by a health organization."
+        "But Dr. Smith is funded by anti-smoking advocacy groups."
       ],
       "conclusion": "Therefore, smoking probably doesn't cause cancer.",
       "note": "The funding source doesn't refute the scientific evidence. Attack the argument, not the arguer."

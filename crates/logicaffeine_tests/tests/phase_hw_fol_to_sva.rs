@@ -197,6 +197,53 @@ fn synthesize_mutex_spec() {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
+// SECTION 7b: ASSERTION KIND must come from STRUCTURE, not a string search
+// ═══════════════════════════════════════════════════════════════════════════
+
+#[test]
+fn liveness_implication_is_asserted_not_covered() {
+    // "request eventually granted" is a LIVENESS ASSERTION: req |-> s_eventually(grant).
+    // The old code classified anything whose body merely *contained* "s_eventually" as a
+    // `cover` (a reachability witness) — which is wrong for an implication. It must `assert`.
+    let result = synthesize_sva_from_spec(
+        "Always, if every request holds, then eventually every grant holds.",
+        "clk",
+    )
+    .unwrap();
+    assert!(
+        result.body.contains("|->"),
+        "should synthesize an implication, got body: '{}'",
+        result.body
+    );
+    assert!(
+        result.body.contains("s_eventually"),
+        "the consequent should be a liveness (s_eventually), got body: '{}'",
+        result.body
+    );
+    assert_eq!(
+        result.kind, "assert",
+        "a liveness implication must be ASSERTED, not covered — kind={}, body='{}'",
+        result.kind, result.body
+    );
+    assert!(
+        result.sva_text.starts_with("assert property"),
+        "sva_text should be an assert property, got: '{}'",
+        result.sva_text
+    );
+}
+
+#[test]
+fn bare_eventually_is_still_a_cover() {
+    // A top-level reachability claim with no implication stays a `cover` (witness it can happen).
+    let result = synthesize_sva_from_spec("Eventually, every signal is active.", "clk").unwrap();
+    assert_eq!(
+        result.kind, "cover",
+        "a bare eventually is a reachability cover — kind={}, body='{}'",
+        result.kind, result.body
+    );
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
 // SECTION 8: ERROR HANDLING
 // ═══════════════════════════════════════════════════════════════════════════
 
@@ -210,6 +257,26 @@ fn synthesize_empty_spec_returns_error() {
 fn synthesize_gibberish_does_not_panic() {
     // Just verify no panic — Ok or Err both acceptable
     let _ = synthesize_sva_from_spec("asdf qwerty zxcv", "clk");
+}
+
+#[test]
+fn synthesis_errors_are_clean_never_debug_dumps() {
+    // Hardware mode shows the synthesis error string verbatim. Feeding non-hardware content
+    // (a theorem block, a stray block header) must yield a plain, actionable message — never a
+    // raw `ParseError { kind: ExpectedContentWord { found: BlockHeader { … } } }` Debug dump.
+    for spec in [
+        "## Theorem\nSocrates is a man.",
+        "Foo ## Theorem bar baz.",
+        "## Define x as y.",
+        "the the the",
+    ] {
+        if let Err(e) = synthesize_sva_from_spec(spec, "clk") {
+            assert!(!e.contains("ParseError"), "spec {spec:?} leaked ParseError struct: {e}");
+            assert!(!e.contains("ExpectedContentWord"), "spec {spec:?} leaked error-kind name: {e}");
+            assert!(!e.contains("BlockHeader"), "spec {spec:?} leaked token name: {e}");
+            assert!(!e.contains("Span {"), "spec {spec:?} leaked span struct: {e}");
+        }
+    }
 }
 
 #[test]
@@ -521,4 +588,103 @@ fn regression_sva_eventually_produces_cover_or_s_eventually() {
         "F(P) regression: should produce s_eventually or cover. Got: {}",
         result.sva_text
     );
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// SECTION 10: WIDER ENGLISH SHAPES (#10) — goal/spec tests beyond the single
+// "Always, if X is high, then Y is high." template. Some may start RED; each
+// defines the intended synthesis for a natural hardware-spec phrasing.
+// ═══════════════════════════════════════════════════════════════════════════
+
+/// "not both A and B" → mutual exclusion: the SVA must NEGATE a conjunction.
+#[test]
+fn shape_mutual_exclusion_not_both() {
+    let r = synthesize_sva_from_spec(
+        "Always, not both request is high and grant is high.",
+        "clk",
+    )
+    .expect("mutual-exclusion spec should synthesize");
+    assert_ne!(r.body.trim(), "0", "must not be degenerate. Got: '{}'", r.body);
+    assert!(
+        r.body.contains('!'),
+        "mutual exclusion must negate the conjunction. Got: '{}'",
+        r.body
+    );
+}
+
+/// "Y is high within N cycles" → a bounded-response delay window.
+#[test]
+fn shape_bounded_response_within_n_cycles() {
+    let r = synthesize_sva_from_spec(
+        "Always, if request is high, then grant is high within three cycles.",
+        "clk",
+    )
+    .expect("bounded-response spec should synthesize");
+    assert!(
+        r.body.contains("##"),
+        "bounded response should use a delay window (##[..]). Got: '{}'",
+        r.body
+    );
+}
+
+/// Bare sentence-final "next cycle" (not just "in the next cycle") → a `nexttime(...)` response.
+#[test]
+fn shape_next_cycle_response() {
+    let r = synthesize_sva_from_spec(
+        "Always, if request is high, then grant is high next cycle.",
+        "clk",
+    )
+    .expect("bare next-cycle spec should synthesize");
+    assert!(
+        r.body.contains("nexttime"),
+        "bare 'next cycle' should produce nexttime(...). Got: '{}'",
+        r.body
+    );
+}
+
+/// "the bare and the prepositional 'next cycle' agree" — both phrasings synthesize the same body.
+#[test]
+fn shape_bare_and_prepositional_next_cycle_agree() {
+    let bare = synthesize_sva_from_spec(
+        "Always, if request is high, then grant is high next cycle.",
+        "clk",
+    )
+    .unwrap();
+    let prep = synthesize_sva_from_spec(
+        "Always, if request is high, then grant is high in the next cycle.",
+        "clk",
+    )
+    .unwrap();
+    assert_eq!(bare.body, prep.body, "bare and 'in the' next cycle must agree");
+}
+
+/// "X is never high" is a safety invariant: G(¬X), so it must synthesize a negation.
+#[test]
+fn shape_never_is_a_negated_invariant() {
+    let r = synthesize_sva_from_spec("Always, the error is never high.", "clk")
+        .expect("'never' spec should synthesize");
+    assert!(
+        r.body.contains('!'),
+        "'never high' must synthesize a negation. Got: '{}'",
+        r.body
+    );
+    assert_ne!(r.body.trim(), "0", "must not be degenerate. Got: '{}'", r.body);
+}
+
+/// "Y only when X" / "Y only if X" is a NECESSARY condition: Y → X (the converse of sufficient
+/// "Y when X"), so it must synthesize an implication.
+#[test]
+fn shape_necessary_condition_only_when() {
+    for spec in [
+        "Always, grant is high only when request is high.",
+        "Always, grant is high only if request is high.",
+    ] {
+        let r = synthesize_sva_from_spec(spec, "clk")
+            .unwrap_or_else(|e| panic!("only-when/if spec should synthesize: {spec:?}: {e}"));
+        assert!(
+            r.body.contains("|->"),
+            "necessary condition must be an implication for {spec:?}. Got: '{}'",
+            r.body
+        );
+    }
 }

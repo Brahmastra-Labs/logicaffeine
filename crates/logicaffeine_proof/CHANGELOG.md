@@ -6,6 +6,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.9.17] - 2026-06-11
+
+### Added
+- Modal translation and independent verification.
+- CDCL core with an incremental grid solver, grounding, and trust-tiers; label/PP convergence.
+
+See the root CHANGELOG for the cross-crate history.
+
 ## [0.8.12] - 2026-02-14
 
 Synced to workspace version 0.8.12. See root CHANGELOG for full history.

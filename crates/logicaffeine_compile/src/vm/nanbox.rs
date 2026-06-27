@@ -344,10 +344,18 @@ impl Narrow {
     // through `Narrow::int`, so a wrap past the inline range stays lossless.
     // Non-inline-Int operands return `None` — route through `crate::semantics`.
 
+    // Integer arithmetic is EXACT: the inline-i64 fast path uses `checked_*` and, only
+    // on overflow, BOXES the promoted BigInt (via the kernel) behind the Heap tag — so
+    // the narrow VM stays bit-identical to the tree-walker at the boundary.
     #[inline]
     pub fn int_add(&self, rhs: &Narrow) -> Option<Narrow> {
         match (self.as_inline_int(), rhs.as_inline_int()) {
-            (Some(a), Some(b)) => Some(Narrow::int(a.wrapping_add(b))),
+            (Some(a), Some(b)) => Some(match a.checked_add(b) {
+                Some(s) => Narrow::int(s),
+                None => Narrow::from_runtime(
+                    crate::semantics::arith::add(RuntimeValue::Int(a), RuntimeValue::Int(b)).unwrap(),
+                ),
+            }),
             _ => None,
         }
     }
@@ -355,7 +363,12 @@ impl Narrow {
     #[inline]
     pub fn int_sub(&self, rhs: &Narrow) -> Option<Narrow> {
         match (self.as_inline_int(), rhs.as_inline_int()) {
-            (Some(a), Some(b)) => Some(Narrow::int(a.wrapping_sub(b))),
+            (Some(a), Some(b)) => Some(match a.checked_sub(b) {
+                Some(s) => Narrow::int(s),
+                None => Narrow::from_runtime(
+                    crate::semantics::arith::subtract(RuntimeValue::Int(a), RuntimeValue::Int(b)).unwrap(),
+                ),
+            }),
             _ => None,
         }
     }
@@ -363,7 +376,12 @@ impl Narrow {
     #[inline]
     pub fn int_mul(&self, rhs: &Narrow) -> Option<Narrow> {
         match (self.as_inline_int(), rhs.as_inline_int()) {
-            (Some(a), Some(b)) => Some(Narrow::int(a.wrapping_mul(b))),
+            (Some(a), Some(b)) => Some(match a.checked_mul(b) {
+                Some(p) => Narrow::int(p),
+                None => Narrow::from_runtime(
+                    crate::semantics::arith::multiply(RuntimeValue::Int(a), RuntimeValue::Int(b)).unwrap(),
+                ),
+            }),
             _ => None,
         }
     }

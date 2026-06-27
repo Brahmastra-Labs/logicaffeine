@@ -4,10 +4,10 @@
   "difficulty": 1,
   "prompt": "You're both not sarcastic and not bashful",
   "options": [
-    "$ (\\\\sim S \\\\cdot B) $",
-    "$ (\\\\sim S \\\\cdot \\\\sim B) $",
-    "$ \\\\sim(S \\\\cdot \\\\sim B) $",
-    "$ \\\\sim S \\\\cdot \\\\sim B $"
+    "$ (\\sim S \\cdot B) $",
+    "$ (\\sim S \\cdot \\sim B) $",
+    "$ \\sim(S \\cdot \\sim B) $",
+    "$ \\sim S \\cdot \\sim B $"
   ],
   "correct": 1,
   "hint": "What exactly is 'both' connecting? Are both parts the full consequence, or just the second one?",

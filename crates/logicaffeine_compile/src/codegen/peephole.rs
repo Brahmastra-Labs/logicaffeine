@@ -2195,7 +2195,7 @@ fn classify_counter_accesses(
             Stmt::If { cond, .. } => {
                 classify_expr_accesses(cond, counter_sym, &mut order, &mut kinds);
             }
-            Stmt::RuntimeAssert { condition } => {
+            Stmt::RuntimeAssert { condition, .. } => {
                 classify_expr_accesses(condition, counter_sym, &mut order, &mut kinds);
             }
             _ => {}
@@ -2747,7 +2747,7 @@ pub(crate) fn try_emit_naive_search(
     indent: usize,
     ctx: &mut RefinementContext,
 ) -> Option<(String, usize)> {
-    if std::env::var("LOGOS_SIMD_SEARCH").map(|v| v == "0").unwrap_or(false) {
+    if !crate::optimize::active_config().is_on(crate::optimization::Opt::Simd) {
         return None;
     }
     let m = match_naive_search(stmts, idx, interner)?;
@@ -2778,6 +2778,7 @@ pub(crate) fn try_emit_naive_search(
     )
     .unwrap();
     ctx.register_variable_type(m.count, "i64".to_string());
+    crate::optimize::mark_fired(crate::optimization::Opt::Simd);
     Some((out, 2))
 }
 
@@ -2828,6 +2829,10 @@ pub(crate) fn try_block_peepholes<'a>(
     registry: &TypeRegistry,
     type_env: &crate::analysis::types::TypeEnv,
 ) -> Option<(String, usize)> {
+    // Mark Peephole as fired iff some pattern in the dispatch chain below actually
+    // emitted (the `Some` is the proof). Dedicated peephole opts (Simd, Cascade,
+    // IndexString, CapScale) additionally mark themselves at their own emission.
+    let __peephole_result = (|| -> Option<(String, usize)> {
     if let r @ Some(_) = try_emit_naive_search(stmts, idx, interner, indent, ctx) {
         return r;
     }
@@ -2874,6 +2879,18 @@ pub(crate) fn try_block_peepholes<'a>(
         return r;
     }
     None
+    })();
+    // Several call sites invoke this dispatcher WITHOUT the `no_peephole` guard,
+    // and the generic patterns have no internal gate — so mark Peephole only when
+    // it actually emitted AND is enabled, keeping `fired ⊆ enabled`. (Dedicated
+    // peephole opts — Simd/Cascade/IndexString/CapScale — mark themselves under
+    // their own gates.)
+    if __peephole_result.is_some()
+        && crate::optimize::active_config().is_on(crate::optimization::Opt::Peephole)
+    {
+        crate::optimize::mark_fired(crate::optimization::Opt::Peephole);
+    }
+    __peephole_result
 }
 
 /// The byte value of a single-byte constant: a one-char text literal or a small
@@ -2940,7 +2957,7 @@ pub(crate) fn try_emit_affine_cascade(
     indent: usize,
     ctx: &mut RefinementContext,
 ) -> Option<(String, usize)> {
-    if std::env::var("LOGOS_CASCADE_FOLD").map(|v| v == "0").unwrap_or(false) {
+    if !crate::optimize::active_config().is_on(crate::optimization::Opt::Cascade) {
         return None;
     }
     // The cascade target must be a single-byte variable so the result type and
@@ -3016,6 +3033,7 @@ pub(crate) fn try_emit_affine_cascade(
     let mut_kw = if *mutable { "mut " } else { "" };
     let rhs = affine_rhs(a, b, &e_src.unwrap());
     let code = format!("{}let {}{}: u8 = ({}) as u8;\n", "    ".repeat(indent), mut_kw, vn, rhs);
+    crate::optimize::mark_fired(crate::optimization::Opt::Cascade);
     Some((code, n))
 }
 
@@ -3207,7 +3225,7 @@ pub(crate) fn try_emit_indexed_string_build<'a>(
     registry: &TypeRegistry,
     type_env: &crate::analysis::types::TypeEnv,
 ) -> Option<(String, usize)> {
-    if std::env::var("LOGOS_INDEXED_STRING").map(|v| v == "0").unwrap_or(false) {
+    if !crate::optimize::active_config().is_on(crate::optimization::Opt::IndexString) {
         return None;
     }
     if idx + 2 >= stmts.len() {
@@ -3267,6 +3285,7 @@ pub(crate) fn try_emit_indexed_string_build<'a>(
         var_caps, async_functions, pipe_vars, boxed_fields, registry, type_env,
     ));
     writeln!(out, "{ind}unsafe {{ {text_n}.as_mut_vec().set_len(({c_n}) as usize); }}").unwrap();
+    crate::optimize::mark_fired(crate::optimization::Opt::IndexString);
     Some((out, 2))
 }
 
@@ -3357,7 +3376,7 @@ fn presize_reads_in_stmt(stmt: &Stmt, counter: Symbol, out: &mut HashSet<Symbol>
             presize_reads_in_expr(index, counter, out);
             presize_reads_in_expr(value, counter, out);
         }
-        Stmt::RuntimeAssert { condition } => presize_reads_in_expr(condition, counter, out),
+        Stmt::RuntimeAssert { condition, .. } => presize_reads_in_expr(condition, counter, out),
         Stmt::Return { value: Some(v) } => presize_reads_in_expr(v, counter, out),
         Stmt::If { cond, then_block, else_block } => {
             presize_reads_in_expr(cond, counter, out);
@@ -4354,7 +4373,7 @@ pub(crate) fn try_emit_seq_from_slice_pattern<'a>(
 fn pushes_per_iter(body: &[Stmt], sym: Symbol) -> usize {
     // Kill-switch for the Phase-2 capacity scaling (attribution / A/B); returns 1
     // so `scale_capacity` is a no-op.
-    if std::env::var_os("LOGOS_NO_CAPSCALE").is_some() {
+    if !crate::optimize::active_config().is_on(crate::optimization::Opt::CapScale) {
         return 1;
     }
     body.iter()
@@ -4368,6 +4387,7 @@ fn scale_capacity(cap: &str, pushes: usize) -> String {
     if pushes <= 1 {
         cap.to_string()
     } else {
+        crate::optimize::mark_fired(crate::optimization::Opt::CapScale);
         format!("({}) * {}", cap, pushes)
     }
 }
@@ -4984,9 +5004,12 @@ pub(crate) fn try_emit_merge_capacity_pattern<'a>(
     let vec_name = names.ident(vec_sym);
     let indent_str = "    ".repeat(indent);
 
-    let capacity_parts: Vec<String> = source_syms.iter().map(|sym| {
+    let mut capacity_parts: Vec<String> = source_syms.iter().map(|sym| {
         format!("{}.len()", names.ident(*sym))
     }).collect();
+    // `source_syms` is a `HashSet`, whose iteration order changes between compiles;
+    // sort the (commutative) capacity terms so the emitted sum is reproducible.
+    capacity_parts.sort();
     let capacity_expr = capacity_parts.join(" + ");
 
     let mut output = String::new();

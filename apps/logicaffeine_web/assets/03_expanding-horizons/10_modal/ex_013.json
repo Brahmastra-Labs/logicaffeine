@@ -4,10 +4,10 @@
   "difficulty": 1,
   "prompt": "F is self-contradictory",
   "options": [
-    "$ \\\\sim \\\\lozenge F $",
-    "$ \\\\lozenge \\\\sim F $",
-    "$ \\\\sim \\\\lozenge (F) $",
-    "$ \\\\sim (\\\\lozenge F) $"
+    "$ \\sim \\lozenge F $",
+    "$ \\lozenge \\sim F $",
+    "$ \\sim \\lozenge (F) $",
+    "$ \\sim (\\lozenge F) $"
   ],
   "correct": 0,
   "hint": "If something 'contradicts itself', can it be true in ANY possible world?",

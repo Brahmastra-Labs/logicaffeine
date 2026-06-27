@@ -1,13 +1,13 @@
 {
-  "id": "C_6.23",
+  "id": "C_6.85",
   "type": "multiple_choice",
   "difficulty": 1,
   "prompt": "M is sufficient for F",
   "options": [
-    "$ M \\\\supset F $",
-    "$ (M \\\\supset F) $",
-    "$ (M \\\\equiv F) $",
-    "$ (\\\\sim M \\\\supset \\\\, \\\\sim F) $"
+    "$ M \\supset F $",
+    "$ (M \\supset F) $",
+    "$ (M \\equiv F) $",
+    "$ (\\sim M \\supset \\, \\sim F) $"
   ],
   "correct": 1,
   "hint": "If A is 'sufficient' for B, does that mean A guarantees B, or B guarantees A?",

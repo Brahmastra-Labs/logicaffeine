@@ -4,10 +4,10 @@
   "difficulty": 1,
   "prompt": "Necessarily, if you're a customer then you're strong",
   "options": [
-    "$ \\\\square (C \\\\supset S) $",
-    "$ \\\\square C \\\\supset S $",
+    "$ \\square (C \\supset S) $",
+    "$ \\square C \\supset S $",
     "Ambiguous between 1 & 4",
-    "$ (C \\\\supset \\\\square S) $"
+    "$ (C \\supset \\square S) $"
   ],
   "correct": 0,
   "hint": "Is the necessity wrapping the ENTIRE if-then, or just part of it?",

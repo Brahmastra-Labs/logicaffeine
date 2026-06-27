@@ -34,6 +34,7 @@ pub mod patch;
 #[cfg(target_arch = "x86_64")]
 pub mod regalloc;
 pub mod segv_trace;
+pub mod vectorize;
 #[cfg(target_arch = "x86_64")]
 pub mod x64asm;
 mod stencil_model;

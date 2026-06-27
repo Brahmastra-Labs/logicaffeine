@@ -9,8 +9,32 @@
 
 use logicaffeine_compile::compile::tw_outcome_with_args;
 use logicaffeine_compile::ui_bridge::with_optimized_program;
+use logicaffeine_compile::optimization::REGISTRY;
 use logicaffeine_compile::vm::NativeTier;
 use logicaffeine_jit::ForgeTier;
+
+/// Deterministic LCG (no `rand` dependency) so the fuzz's random config subsets
+/// reproduce exactly from the logged seed.
+fn lcg(state: &mut u64) -> u64 {
+    *state = state
+        .wrapping_mul(6364136223846793005)
+        .wrapping_add(1442695040888963407);
+    *state >> 33
+}
+
+/// The optimized-VM outcome with a given `LOGOS_OPT_OFF` keyword list (empty =
+/// all-on). Set/clear is race-free: nextest isolates the test in its own process
+/// and the fuzz loop is single-threaded.
+fn outcome_with_opts_off(src: &str, argv: &[String], off: &str) -> (String, Option<String>) {
+    if off.is_empty() {
+        std::env::remove_var("LOGOS_OPT_OFF");
+    } else {
+        std::env::set_var("LOGOS_OPT_OFF", off);
+    }
+    let r = optimized_vm_outcome(src, argv);
+    std::env::remove_var("LOGOS_OPT_OFF");
+    r
+}
 
 fn norm(s: &str) -> String {
     s.lines()
@@ -110,6 +134,92 @@ fn corpus_optimized_vm_matches_raw_treewalker() {
         .expect("spawn")
         .join()
         .expect("corpus thread panicked");
+}
+
+/// PHASE D — clean-disable differential fuzz. The user's #1 worry: disabling a
+/// toggle while OTHER optimizations stay on must never break or change codegen.
+///
+/// Property: for ANY subset of optimizations disabled (driven by `LOGOS_OPT_OFF`
+/// / `LOGOS_OPT_PROFILE` / `LOGOS_OPT=off`), the OPTIMIZED VM+JIT must produce the
+/// SAME (normalized stdout, error) as the config-independent raw tree-walker —
+/// optimizations change speed, never observable output. Config classes: all-on,
+/// all-off, leave-one-out (each opt removed alone — the user's exact scenario),
+/// the named profiles, and seeded-random subsets. Programs run at tiny sizes
+/// (output is deterministic regardless of size) so the ~1000 evaluations stay
+/// fast enough for the every-CI fast tier.
+#[test]
+fn clean_disable_paths_preserve_output() {
+    const FUZZ_CORPUS: &[(&str, &str)] = &[
+        ("fib", "8"), ("ackermann", "2"), ("binary_trees", "4"), ("bubble_sort", "20"),
+        ("mergesort", "30"), ("quicksort", "30"), ("nbody", "3"), ("mandelbrot", "5"),
+        ("knapsack", "10"), ("two_sum", "30"), ("graph_bfs", "20"), ("histogram", "50"),
+        ("nqueens", "5"), ("collatz", "30"), ("primes", "50"), ("gcd", "20"),
+        ("matrix_mult", "4"), ("string_search", "20"), ("collect", "30"), ("pi_leibniz", "200"),
+    ];
+    const SEED: u64 = 0x5EED_C0FFEE;
+    std::thread::Builder::new()
+        .stack_size(256 * 1024 * 1024)
+        .spawn(|| {
+            let mut rng = SEED;
+            for &(name, size) in FUZZ_CORPUS {
+                let path = format!(
+                    "{}/../../benchmarks/programs/{}/main.lg",
+                    env!("CARGO_MANIFEST_DIR"),
+                    name
+                );
+                let src = std::fs::read_to_string(&path)
+                    .unwrap_or_else(|e| panic!("cannot read {path}: {e}"));
+                let argv = vec!["bench".to_string(), size.to_string()];
+
+                // Config-independent oracle (the tree-walker ignores the optimizer).
+                let tw = tw_outcome_with_args(&src, &argv);
+                let oracle = (norm(&tw.output), tw.error.clone());
+
+                let check = |off: &str, label: &str| {
+                    let (out, err) = outcome_with_opts_off(&src, &argv, off);
+                    assert_eq!(
+                        &(norm(&out), err),
+                        &oracle,
+                        "CLEAN-DISABLE VIOLATION on '{name}' (size {size}), config [{label}] \
+                         (LOGOS_OPT_OFF=\"{off}\", seed={SEED:#x}): the optimized VM diverged \
+                         from the tree-walker. Disabling optimizations must never change output."
+                    );
+                };
+
+                // (a) control: all-on, and master all-off.
+                check("", "all-on");
+                {
+                    std::env::set_var("LOGOS_OPT", "off");
+                    let (out, err) = optimized_vm_outcome(&src, &argv);
+                    std::env::remove_var("LOGOS_OPT");
+                    assert_eq!(&(norm(&out), err), &oracle, "all-off (LOGOS_OPT=off) changed output for '{name}'");
+                }
+                // (b) leave-one-out: disable exactly ONE optimization, the rest ON.
+                for m in REGISTRY {
+                    check(m.keyword, m.keyword);
+                }
+                // (c) named profiles (Memory / Safety).
+                for prof in ["memory", "safety"] {
+                    std::env::set_var("LOGOS_OPT_PROFILE", prof);
+                    let (out, err) = optimized_vm_outcome(&src, &argv);
+                    std::env::remove_var("LOGOS_OPT_PROFILE");
+                    assert_eq!(&(norm(&out), err), &oracle, "profile '{prof}' changed output for '{name}'");
+                }
+                // (d) seeded-random subsets: disable a random ~half, the rest ON.
+                for _ in 0..6 {
+                    let off = REGISTRY
+                        .iter()
+                        .filter(|_| lcg(&mut rng) & 1 == 0)
+                        .map(|m| m.keyword)
+                        .collect::<Vec<_>>()
+                        .join(",");
+                    check(&off, "random");
+                }
+            }
+        })
+        .expect("spawn")
+        .join()
+        .expect("fuzz thread panicked");
 }
 
 /// Error-outcome parity through the optimizer: partial output + exact error.
@@ -295,13 +405,13 @@ fn optimizer_keeps_argv_dynamic() {
     assert_eq!(norm(&out), "42");
 }
 
-/// The kill switch: LOGOS_RUN_OPT=0 must bypass the optimizer entirely (the
+/// The kill switch: `LOGOS_OPT=off` must bypass the optimizer entirely (the
 /// program still runs, identically).
 #[test]
 fn run_opt_kill_switch() {
-    std::env::set_var("LOGOS_RUN_OPT", "0");
+    std::env::set_var("LOGOS_OPT", "off");
     let (out, err) = optimized_vm_outcome("## Main\nShow 6 * 7.\n", &[]);
-    std::env::remove_var("LOGOS_RUN_OPT");
+    std::env::remove_var("LOGOS_OPT");
     assert_eq!(err, None);
     assert_eq!(norm(&out), "42");
 }
@@ -326,7 +436,7 @@ fn run_opt_kill_switch() {
 ///      reloads only its `j`-varying operands. The structural check proves the
 ///      lifted read no longer appears inside the inner `While j` body.
 #[test]
-fn nbody_force_loop_shape_hoists_invariant_load_and_stays_bit_exact() {
+fn nbody_force_loop_scalarizes_and_stays_bit_exact() {
     // A self-contained nbody kernel: 3 bodies, position array `bx`, mass array
     // `bm`, velocity array `bv`. The inner loop reads `item i of bx`/`item i of
     // bm` (invariant in j) and `item j of bx`/`item j of bm` (variant), and
@@ -355,10 +465,15 @@ fn nbody_force_loop_shape_hoists_invariant_load_and_stays_bit_exact() {
     // Property 1: bit-exact through the optimizer + tiered VM.
     assert_optimized_matches_raw(src, &[]);
 
-    // Property 2: the invariant `item i of bx` read is hoisted out of the inner
-    // `While j` loop by the run-path LICM. We scan the optimized residual: no
-    // inner `While` body may still contain an `item i of bx` read (it became a
-    // hoisted preheader binding), while `item j of bx` MUST remain in it.
+    // Property 2: run-path SCALARIZATION (the interpreter's SROA, default-ON)
+    // supersedes the old LICM invariant-hoist for this fixed-size-array force loop.
+    // It unrolls the constant inner `While j` loop and replaces bx/bm/bv with
+    // scalar locals, so NO inner force loop and NO `item _ of bx` array read survive
+    // in the optimized residual — a strictly stronger result than hoisting one
+    // invariant load out (it eliminates every bounds-checked array read). Property 1
+    // above already guarantees the rewrite stays bit-exact. (LICM still hoists
+    // invariants out of loops over RUNTIME-sized arrays, which scalarization leaves
+    // untouched.)
     use logicaffeine_compile::ast::stmt::{Expr, Stmt};
     use logicaffeine_compile::intern::{Interner, Symbol};
 
@@ -439,24 +554,24 @@ fn nbody_force_loop_shape_hoists_invariant_load_and_stays_bit_exact() {
         None
     }
 
-    let (i_read, j_read) = with_optimized_program(src, |parsed, interner: &Interner| {
+    let inner = with_optimized_program(src, |parsed, interner: &Interner| {
         let (stmts, _t, _p) = parsed.expect("parse");
-        let coll = interner
-            .lookup("bx")
-            .expect("array symbol `bx` must exist in the optimized program");
         let i_sym = interner.lookup("i").expect("loop var `i`");
         let j_sym = interner.lookup("j").expect("loop var `j`");
-        inner_loop_reads(stmts, coll, i_sym, j_sym)
-            .expect("the optimized program must still contain the inner force loop")
+        // `bx` is scalarized away; its symbol stays interned but no statement uses
+        // it, so the inner force loop reading it no longer exists. If for some
+        // reason the array survives, fall through to the inner-loop scan so a
+        // regression (loop NOT unrolled) is still caught.
+        match interner.lookup("bx") {
+            Some(coll) => inner_loop_reads(stmts, coll, i_sym, j_sym),
+            None => None,
+        }
     });
 
     assert!(
-        !i_read,
-        "the invariant `item i of bx` read must be HOISTED out of the inner force loop \
-         (the W16 run-path LICM lift); it must not survive inside the inner `While j` body"
-    );
-    assert!(
-        j_read,
-        "the variant `item j of bx` read MUST remain inside the inner force loop body"
+        inner.is_none(),
+        "scalarization must unroll the constant inner force loop and replace the \
+         fixed-size arrays with scalars — no inner `While j` loop reading `item _ of bx` \
+         may survive in the optimized residual"
     );
 }

@@ -81,10 +81,14 @@ impl<'a> ExprCtx<'a> {
 /// entry precondition guard; a `debug_assert!` (emitted by the statement-level
 /// hint pass) traps an unsound proof in debug builds.
 fn oracle_proves_index(ecx: &ExprCtx, collection: &Expr, index: &Expr) -> bool {
-    if std::env::var("LOGOS_ORACLE_UNCHECKED").map(|v| v == "0").unwrap_or(false) {
+    if !crate::optimize::active_config().is_on(crate::optimization::Opt::Unchecked) {
         return false;
     }
-    ecx.oracle.map_or(false, |o| o.index_provably_in_bounds(collection, index))
+    let proven = ecx.oracle.map_or(false, |o| o.index_provably_in_bounds(collection, index));
+    if proven {
+        crate::optimize::mark_fired(crate::optimization::Opt::Unchecked);
+    }
+    proven
 }
 
 /// [`codegen_expr_with_async`] plus the bounds-elision oracle, so proven indexed
@@ -363,6 +367,36 @@ fn affine_array_trip(ty: Option<&String>) -> Option<String> {
     Some(parts.next()?.to_string())
 }
 
+/// Does `expr` evaluate to a `LogosRational` at runtime? True for an `ExactDivide`, for
+/// `+ − ×` over a Rational operand, and for an identifier bound to a `LogosRational`.
+/// Mirrors `resolve_division::Cx::is_rat_expr` at the codegen level so operand coercion
+/// matches the resolve pass that produced the `ExactDivide` in the first place.
+pub(super) fn is_rational_expr(expr: &Expr, variable_types: &HashMap<Symbol, String>) -> bool {
+    match expr {
+        Expr::BinaryOp { op: BinaryOpKind::ExactDivide, .. } => true,
+        Expr::BinaryOp {
+            op: BinaryOpKind::Add | BinaryOpKind::Subtract | BinaryOpKind::Multiply,
+            left,
+            right,
+        } => is_rational_expr(left, variable_types) || is_rational_expr(right, variable_types),
+        Expr::Identifier(sym) => {
+            variable_types.get(sym).map_or(false, |t| t == "LogosRational")
+        }
+        _ => false,
+    }
+}
+
+/// A `LogosRational`-producing Rust string for an operand of exact arithmetic: a value
+/// that is already Rational is used verbatim; an integer operand is wrapped as
+/// `LogosRational::from_i64(..)` so the exact methods type-check.
+fn rational_operand(expr: &Expr, code: &str, variable_types: &HashMap<Symbol, String>) -> String {
+    if is_rational_expr(expr, variable_types) {
+        code.to_string()
+    } else {
+        format!("LogosRational::from_i64(({}) as i64)", code)
+    }
+}
+
 fn codegen_expr_ctx(expr: &Expr, ecx: &ExprCtx) -> String {
     // Bind the fields the match arms read directly; `registry` rides along in
     // `ecx` and reaches recursion via the `recurse!` macro.
@@ -623,11 +657,35 @@ fn codegen_expr_ctx(expr: &Expr, ecx: &ExprCtx) -> String {
                 return format!("({} {} {})", left_str, op_str, right_str);
             }
 
+            // Exact Rational arithmetic. `ExactDivide` only ever appears in a Rational
+            // context (the `resolve_divisions` invariant), and `+ − ×` become Rational the
+            // moment one operand is. Coerce each operand to `LogosRational` and call the
+            // exact method, so `Let x: Rational be 7 / 2` compiles to `7/2`, not floored `3`.
+            if matches!(op, BinaryOpKind::ExactDivide)
+                || (matches!(
+                    op,
+                    BinaryOpKind::Add | BinaryOpKind::Subtract | BinaryOpKind::Multiply
+                ) && (is_rational_expr(left, variable_types)
+                    || is_rational_expr(right, variable_types)))
+            {
+                let l = rational_operand(left, &left_str, variable_types);
+                let r = rational_operand(right, &right_str, variable_types);
+                let method = match op {
+                    BinaryOpKind::Add => "add",
+                    BinaryOpKind::Subtract => "sub",
+                    BinaryOpKind::Multiply => "mul",
+                    BinaryOpKind::ExactDivide => "div_exact",
+                    _ => unreachable!(),
+                };
+                return format!("{}.{}(&{})", l, method, r);
+            }
+
             let op_str = match op {
                 BinaryOpKind::Add => "+",
                 BinaryOpKind::Subtract => "-",
                 BinaryOpKind::Multiply => "*",
-                BinaryOpKind::Divide => "/",
+                // Floor division (the integer default); `ExactDivide` is handled above.
+                BinaryOpKind::Divide | BinaryOpKind::ExactDivide => "/",
                 BinaryOpKind::Modulo => "%",
                 BinaryOpKind::Eq => "==",
                 BinaryOpKind::NotEq => "!=",
@@ -716,6 +774,20 @@ fn codegen_expr_ctx(expr: &Expr, ecx: &ExprCtx) -> String {
             match raw_name {
                 "sqrt" if args_str.len() == 1 => {
                     format!("(({}) as f64).sqrt()", args_str[0])
+                }
+                // A Rational argument takes the EXACT path (BigInt num/den), never a
+                // lossy `as f64`: `|·|` stays rational; floor/ceil/round give the exact Int.
+                "abs" if args_str.len() == 1 && is_rational_expr(&args[0], variable_types) => {
+                    format!("({}).abs()", args_str[0])
+                }
+                "floor" if args_str.len() == 1 && is_rational_expr(&args[0], variable_types) => {
+                    format!("({}).floor()", args_str[0])
+                }
+                "ceil" if args_str.len() == 1 && is_rational_expr(&args[0], variable_types) => {
+                    format!("({}).ceil()", args_str[0])
+                }
+                "round" if args_str.len() == 1 && is_rational_expr(&args[0], variable_types) => {
+                    format!("({}).round()", args_str[0])
                 }
                 "abs" if args_str.len() == 1 => {
                     let arg_type = infer_numeric_type(&args[0], interner, variable_types);

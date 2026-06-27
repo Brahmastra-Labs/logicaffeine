@@ -159,26 +159,37 @@ mod repr {
             matches!(self.0, RuntimeValue::Int(_))
         }
 
-        // ---- Arithmetic (Int×Int inlined per the locked wrapping-i64 spec) ---
+        // ---- Arithmetic (Int×Int inlined; EXACT — overflow promotes to BigInt) ---
+        //
+        // The fast path uses `checked_*` and, only on i64 overflow, falls through to
+        // the shared `arith` operators (which promote to BigInt). This keeps the VM
+        // byte-identical to the tree-walker at the overflow boundary — integer math
+        // is exact on every tier, never silently wrapping.
 
         #[inline]
         pub fn add(&self, rhs: &Value) -> Result<Value, String> {
             if let (RuntimeValue::Int(a), RuntimeValue::Int(b)) = (&self.0, &rhs.0) {
-                return Ok(Value::int(a.wrapping_add(*b)));
+                if let Some(s) = a.checked_add(*b) {
+                    return Ok(Value::int(s));
+                }
             }
             arith::add(self.0.clone(), rhs.0.clone()).map(Value)
         }
         #[inline]
         pub fn sub(&self, rhs: &Value) -> Result<Value, String> {
             if let (RuntimeValue::Int(a), RuntimeValue::Int(b)) = (&self.0, &rhs.0) {
-                return Ok(Value::int(a.wrapping_sub(*b)));
+                if let Some(s) = a.checked_sub(*b) {
+                    return Ok(Value::int(s));
+                }
             }
             arith::subtract(self.0.clone(), rhs.0.clone()).map(Value)
         }
         #[inline]
         pub fn mul(&self, rhs: &Value) -> Result<Value, String> {
             if let (RuntimeValue::Int(a), RuntimeValue::Int(b)) = (&self.0, &rhs.0) {
-                return Ok(Value::int(a.wrapping_mul(*b)));
+                if let Some(p) = a.checked_mul(*b) {
+                    return Ok(Value::int(p));
+                }
             }
             arith::multiply(self.0.clone(), rhs.0.clone()).map(Value)
         }
@@ -477,6 +488,13 @@ impl Value {
             crate::interpreter::ListRepr::Ints(Vec::new()),
         ))))
     }
+    /// A fresh empty half-width Int sequence (`ListRepr::IntsI32`), backing a
+    /// narrowing-proven `new Seq of Int` under `LOGOS_NARROW_VM`.
+    pub fn empty_list_i32() -> Self {
+        Value::from_runtime(RuntimeValue::List(Rc::new(RefCell::new(
+            crate::interpreter::ListRepr::IntsI32(Vec::new()),
+        ))))
+    }
     pub fn empty_set() -> Self {
         Value::from_runtime(RuntimeValue::Set(Rc::new(RefCell::new(Vec::new()))))
     }
@@ -529,6 +547,13 @@ impl Value {
 
     pub fn div(&self, rhs: &Value) -> Result<Value, String> {
         arith::divide(self.runtime_owned(), rhs.runtime_owned()).map(Value::from_runtime)
+    }
+
+    /// EXACT division (`Op::ExactDiv`) — the type-directed sibling of [`Value::div`]:
+    /// `7 / 2 → 7/2` (a Rational), never the floored `3`. Routes through the shared
+    /// kernel exactly like `div`, so the VM stays bit-identical to the tree-walker.
+    pub fn exact_div(&self, rhs: &Value) -> Result<Value, String> {
+        arith::exact_divide(self.runtime_owned(), rhs.runtime_owned()).map(Value::from_runtime)
     }
 
     pub fn modulo(&self, rhs: &Value) -> Result<Value, String> {

@@ -14,5 +14,5 @@
   ],
   "correct": 0,
   "hint": "Can you think of something that fits this definition but ISN'T actually a Knowledge?",
-  "explanation": "This violates 1 (a true belief might be a lucky guess)."
+  "explanation": "A lucky guess that happens to be correct is a true belief but not knowledge. Because 'true belief' admits such cases, the definition is TOO BROAD — the famous gap Gettier exploited."
 }

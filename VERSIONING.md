@@ -58,6 +58,7 @@ Tier 4 (depends on Tier 0-3):
   logicaffeine-compile
 
 Tier 4.5 (depends on Tier 0-4):
+  logicaffeine-jit
   logicaffeine-lsp
 
 Tier 5 (applications + validation):
@@ -137,6 +138,8 @@ For each crate with changes:
 ### 3. Update Root CHANGELOG
 
 The root `CHANGELOG.md` provides a high-level summary across all crates. Update it with the most significant changes.
+
+Then regenerate the website roadmap history from the changelog with `./scripts/generate-roadmap.sh` (writes `apps/logicaffeine_web/src/ui/pages/roadmap_history.json`; commit the result). It also prints a staging report of releases and commits not yet reflected on the roadmap.
 
 ### 4. Commit and Tag
 
