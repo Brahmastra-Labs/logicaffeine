@@ -1,0 +1,201 @@
+{
+  "schema_version": 1,
+  "metadata": {
+    "date": "2026-07-08T21:25:25Z",
+    "commit": "8421ae9",
+    "logos_version": "version.workspace = true",
+    "cpu": "Intel(R) Core(TM) i9-14900K",
+    "os": "Ubuntu 24.04.2 LTS x86_64",
+    "warmup": 5,
+    "runs": 25,
+    "versions": {
+      "c": "gcc (Ubuntu 13.3.0-6ubuntu2~24.04.1) 13.3.0"
+    }
+  },
+  "languages": [
+    {
+      "id": "c",
+      "label": "C",
+      "color": "#555555",
+      "tier": "systems"
+    },
+    {
+      "id": "logos_release",
+      "label": "LOGOS",
+      "color": "#00d4ff",
+      "tier": "systems"
+    }
+  ],
+  "benchmarks": [
+    {
+      "id": "knapsack",
+      "name": "0/1 Knapsack",
+      "description": "0/1 knapsack DP. Measures 2D table fills and conditional max.",
+      "reference_size": "18284",
+      "sizes": [
+        "2000",
+        "5000",
+        "9000"
+      ],
+      "logos_source": "## To native args () -> Seq of Text\n## To native parseInt (s: Text) -> Int\n\n## Main\nLet arguments be args().\nLet n be parseInt(item 2 of arguments).\nLet capacity be n * 5.\nLet mutable weights be a new Seq of Int.\nLet mutable vals be a new Seq of Int.\nLet mutable i be 0.\nWhile i is less than n:\n    Push (i * 17 + 3) % 50 + 1 to weights.\n    Push (i * 31 + 7) % 100 + 1 to vals.\n    Set i to i + 1.\nLet cols be capacity + 1.\nLet mutable prev be a new Seq of Int.\nSet i to 0.\nWhile i is less than cols:\n    Push 0 to prev.\n    Set i to i + 1.\nSet i to 0.\nWhile i is less than n:\n    Let mutable curr be a new Seq of Int.\n    Let wi be item (i + 1) of weights.\n    Let vi be item (i + 1) of vals.\n    Let mutable w be 0.\n    While w is at most capacity:\n        Let mutable best be item (w + 1) of prev.\n        If w is at least wi:\n            Let take be item (w - wi + 1) of prev + vi.\n            If take is greater than best:\n                Set best to take.\n        Push best to curr.\n        Set w to w + 1.\n    Set prev to curr.\n    Set i to i + 1.\nShow item (capacity + 1) of prev.",
+      "generated_rust": "#[allow(unused_imports)]\nuse std::fmt::Write as _;\nuse logicaffeine_data::*;\nuse logicaffeine_system::*;\n\nfn args() -> LogosSeq<String> {\n    logicaffeine_system::env::args()\n}\n\nfn parseInt(s: String) -> i64 {\n    logicaffeine_system::text::parseInt(s)\n}\n\nfn main() {\n    std::thread::Builder::new()\n        .stack_size(67_108_864)\n        .spawn(_logos_main)\n        .unwrap().join().unwrap();\n}\nfn _logos_main() {\n    let arguments = args();\n    let n = parseInt(arguments.borrow()[1].clone());\n    let capacity = logos_mul_i64(n, 5);\n    let mut weights: Vec<i64> = Vec::new();\n    let mut vals: Vec<i64> = Vec::new();\n    if (n <= 4611686018427387904_i64) {\n        {\n            let mut weights = &mut weights;\n            let mut vals = &mut vals;\n        for i in 0..n {\n            weights.push(((((i * 17) + 3) % 50) + 1));\n            vals.push(((((i * 31) + 7) % 100) + 1));\n        }\n        }\n    } else {\n        {\n            let mut weights = &mut weights;\n            let mut vals = &mut vals;\n        for i in 0..n {\n            weights.push((({ if (i >= -288230376151711744i64 && i <= 288230376151711744i64) { ((i * 17i64) + 3i64) } else { logos_add_exact(logos_mul_exact(i, 17i64), 3i64).expect_i64(\"Int\") } } % 50) + 1));\n            vals.push((({ if (i >= -288230376151711744i64 && i <= 288230376151711744i64) { ((i * 31i64) + 7i64) } else { logos_add_exact(logos_mul_exact(i, 31i64), 7i64).expect_i64(\"Int\") } } % 100) + 1));\n        }\n        }\n    }\n    let cols = logos_add_i64(capacity, 1);\n    let mut prev: Vec<i64> = Vec::new();\n    if (cols <= 4611686018427387904_i64) {\n        {\n            let mut prev = &mut prev;\n        for i in 0..cols {\n            prev.push(0);\n        }\n        }\n    } else {\n        {\n            let mut prev = &mut prev;\n        for i in 0..cols {\n            prev.push(0);\n        }\n        }\n    }\n    let __weights_bhl = weights.len() as i64;\n    let __vals_bhl = vals.len() as i64;\n    let mut curr: Vec<i64> = Vec::new();\n    for i in 0..n {\n        debug_assert!(n <= __weights_bhl, \"LOGOS bounds hint violated: loop indexes `weights` past its length\");\n        unsafe { std::hint::assert_unchecked(n <= __weights_bhl); }\n        debug_assert!(n <= __vals_bhl, \"LOGOS bounds hint violated: loop indexes `vals` past its length\");\n        unsafe { std::hint::assert_unchecked(n <= __vals_bhl); }\n        curr.resize(((capacity + 1)) as usize, 0);\n        debug_assert!((i) >= 0 && (i) < (weights.len() as i64), \"LOGOS oracle bounds hint violated: indexing `weights` out of range\");\n        unsafe { std::hint::assert_unchecked((i) >= 0 && (i) < (weights.len() as i64)); }\n        let wi = unsafe { *weights.get_unchecked(i as usize) };\n        debug_assert!((i) >= 0 && (i) < (vals.len() as i64), \"LOGOS oracle bounds hint violated: indexing `vals` out of range\");\n        unsafe { std::hint::assert_unchecked((i) >= 0 && (i) < (vals.len() as i64)); }\n        let vi = unsafe { *vals.get_unchecked(i as usize) };\n        let mut w = 0;\n        if ((0 <= wi) && (wi <= logos_add_i64(capacity, 1))) {\n            if (wi <= 4611686018427387904_i64) {\n                let __prev_bhl = prev.len() as i64;\n                {\n                    let prev = &prev[..];\n                    let mut curr = &mut curr;\n                for w in 0..wi {\n                    debug_assert!(wi <= __prev_bhl, \"LOGOS bounds hint violated: loop indexes `prev` past its length\");\n                    unsafe { std::hint::assert_unchecked(wi <= __prev_bhl); }\n                    debug_assert!((w) >= 0 && (w) < (prev.len() as i64), \"LOGOS oracle bounds hint violated: indexing `prev` out of range\");\n                    unsafe { std::hint::assert_unchecked((w) >= 0 && (w) < (prev.len() as i64)); }\n                    let mut best = unsafe { *prev.get_unchecked(w as usize) };\n                    debug_assert!((w as usize) < curr.len(), \"LOGOS fill-loop store out of range\");\n                    unsafe { std::hint::assert_unchecked((w as usize) < curr.len()); }\n                    curr[w as usize] = best;\n                }\n                }\n            } else {\n                let __prev_bhl = prev.len() as i64;\n                {\n                    let prev = &prev[..];\n                    let mut curr = &mut curr;\n                for w in 0..wi {\n                    debug_assert!(wi <= __prev_bhl, \"LOGOS bounds hint violated: loop indexes `prev` past its length\");\n                    unsafe { std::hint::assert_unchecked(wi <= __prev_bhl); }\n                    debug_assert!((w) >= 0 && (w) < (prev.len() as i64), \"LOGOS oracle bounds hint violated: indexing `prev` out of range\");\n                    unsafe { std::hint::assert_unchecked((w) >= 0 && (w) < (prev.len() as i64)); }\n                    let mut best = unsafe { *prev.get_unchecked(w as usize) };\n                    debug_assert!((w as usize) < curr.len(), \"LOGOS fill-loop store out of range\");\n                    unsafe { std::hint::assert_unchecked((w as usize) < curr.len()); }\n                    curr[w as usize] = best;\n                }\n                }\n            }\n            let __prev_bhl = prev.len() as i64;\n            {\n                let prev = &prev[..];\n                let mut curr = &mut curr;\n            for w in wi..(capacity + 1) {\n                debug_assert!(capacity < __prev_bhl, \"LOGOS bounds hint violated: loop indexes `prev` past its length\");\n                unsafe { std::hint::assert_unchecked(capacity < __prev_bhl); }\n                debug_assert!((w) >= 0 && (w) < (prev.len() as i64), \"LOGOS oracle bounds hint violated: indexing `prev` out of range\");\n                unsafe { std::hint::assert_unchecked((w) >= 0 && (w) < (prev.len() as i64)); }\n                let mut best = unsafe { *prev.get_unchecked(w as usize) };\n                debug_assert!(((w - wi)) >= 0 && ((w - wi)) < (prev.len() as i64), \"LOGOS oracle bounds hint violated: indexing `prev` out of range\");\n                unsafe { std::hint::assert_unchecked(((w - wi)) >= 0 && ((w - wi)) < (prev.len() as i64)); }\n                let take = (unsafe { *prev.get_unchecked(((w - wi)) as usize) } + vi);\n                if (take > best) {\n                    best = take;\n                }\n                debug_assert!((w as usize) < curr.len(), \"LOGOS fill-loop store out of range\");\n                unsafe { std::hint::assert_unchecked((w as usize) < curr.len()); }\n                curr[w as usize] = best;\n            }\n            }\n        } else {\n            if (capacity <= 4611686018427387904_i64) {\n                let __prev_bhl = prev.len() as i64;\n                {\n                    let prev = &prev[..];\n                    let mut curr = &mut curr;\n                for w in 0..(capacity + 1) {\n                    debug_assert!(capacity < __prev_bhl, \"LOGOS bounds hint violated: loop indexes `prev` past its length\");\n                    unsafe { std::hint::assert_unchecked(capacity < __prev_bhl); }\n                    debug_assert!((w) >= 0 && (w) < (prev.len() as i64), \"LOGOS oracle bounds hint violated: indexing `prev` out of range\");\n                    unsafe { std::hint::assert_unchecked((w) >= 0 && (w) < (prev.len() as i64)); }\n                    let mut best = unsafe { *prev.get_unchecked(w as usize) };\n                    if (w >= wi) {\n                        debug_assert!(((w - wi)) >= 0 && ((w - wi)) < (prev.len() as i64), \"LOGOS oracle bounds hint violated: indexing `prev` out of range\");\n                        unsafe { std::hint::assert_unchecked(((w - wi)) >= 0 && ((w - wi)) < (prev.len() as i64)); }\n                        let take = (unsafe { *prev.get_unchecked(((w - wi)) as usize) } + vi);\n                        if (take > best) {\n                            best = take;\n                        }\n                    }\n                    debug_assert!((w as usize) < curr.len(), \"LOGOS fill-loop store out of range\");\n                    unsafe { std::hint::assert_unchecked((w as usize) < curr.len()); }\n                    curr[w as usize] = best;\n                }\n                }\n            } else {\n                let __prev_bhl = prev.len() as i64;\n                {\n                    let prev = &prev[..];\n                    let mut curr = &mut curr;\n                for w in 0..(capacity + 1) {\n                    debug_assert!(capacity < __prev_bhl, \"LOGOS bounds hint violated: loop indexes `prev` past its length\");\n                    unsafe { std::hint::assert_unchecked(capacity < __prev_bhl); }\n                    debug_assert!((w) >= 0 && (w) < (prev.len() as i64), \"LOGOS oracle bounds hint violated: indexing `prev` out of range\");\n                    unsafe { std::hint::assert_unchecked((w) >= 0 && (w) < (prev.len() as i64)); }\n                    let mut best = unsafe { *prev.get_unchecked(w as usize) };\n                    if (w >= wi) {\n                        debug_assert!(((w - wi)) >= 0 && ((w - wi)) < (prev.len() as i64), \"LOGOS oracle bounds hint violated: indexing `prev` out of range\");\n                        unsafe { std::hint::assert_unchecked(((w - wi)) >= 0 && ((w - wi)) < (prev.len() as i64)); }\n                        let take = (unsafe { *prev.get_unchecked(((w - wi)) as usize) } + vi);\n                        if (take > best) {\n                            best = take;\n                        }\n                    }\n                    debug_assert!((w as usize) < curr.len(), \"LOGOS fill-loop store out of range\");\n                    unsafe { std::hint::assert_unchecked((w as usize) < curr.len()); }\n                    curr[w as usize] = best;\n                }\n                }\n            }\n        }\n        std::mem::swap(&mut prev, &mut curr);\n    }\n    show(&prev[capacity as usize]);\n}",
+      "scaling": {
+        "18284": {
+          "c": {
+            "mean_ms": 479.3285453799999000,
+            "median_ms": 473.90568078000,
+            "stddev_ms": 34.434224676651526000,
+            "min_ms": 448.33814178000,
+            "max_ms": 567.55497178000,
+            "cv": 0.07183846029731636005,
+            "runs": 25,
+            "user_ms": 478.11393999999996000,
+            "system_ms": 0.8868179999999999000
+          },
+          "logos_release": {
+            "mean_ms": 295.72679444000,
+            "median_ms": 292.70225236000,
+            "stddev_ms": 10.635431043521307000,
+            "min_ms": 282.12083136000005000,
+            "max_ms": 330.09893036000004000,
+            "cv": 0.03596370448494862128,
+            "runs": 25,
+            "user_ms": 294.1058000,
+            "system_ms": 1.3829664000000004000
+          }
+        }
+      },
+      "compilation": {},
+      "timeouts": {}
+    },
+    {
+      "id": "coins",
+      "name": "Coin Change",
+      "description": "Coin change DP. Measures 1D DP with inner-loop additions.",
+      "reference_size": "50214796",
+      "sizes": [
+        "50000",
+        "100000",
+        "10000000"
+      ],
+      "logos_source": "## To native args () -> Seq of Text\n## To native parseInt (s: Text) -> Int\n\n## Main\nLet arguments be args().\nLet n be parseInt(item 2 of arguments).\nLet mutable coinList be a new Seq of Int.\nPush 1 to coinList.\nPush 5 to coinList.\nPush 10 to coinList.\nPush 25 to coinList.\nPush 50 to coinList.\nPush 100 to coinList.\nLet mutable dp be a new Seq of Int.\nPush 1 to dp.\nLet mutable i be 1.\nWhile i is at most n:\n    Push 0 to dp.\n    Set i to i + 1.\nLet mutable c be 1.\nWhile c is at most 6:\n    Let coin be item c of coinList.\n    Let mutable j be coin.\n    While j is at most n:\n        Set item (j + 1) of dp to (item (j + 1) of dp + item (j - coin + 1) of dp) % 1000000007.\n        Set j to j + 1.\n    Set c to c + 1.\nShow item (n + 1) of dp.",
+      "generated_rust": "#[allow(unused_imports)]\nuse std::fmt::Write as _;\nuse logicaffeine_data::*;\nuse logicaffeine_system::*;\n\nfn args() -> LogosSeq<String> {\n    logicaffeine_system::env::args()\n}\n\nfn parseInt(s: String) -> i64 {\n    logicaffeine_system::text::parseInt(s)\n}\n\nfn main() {\n    std::thread::Builder::new()\n        .stack_size(67_108_864)\n        .spawn(_logos_main)\n        .unwrap().join().unwrap();\n}\nfn _logos_main() {\n    let arguments = args();\n    let n = parseInt(arguments.borrow()[1].clone());\n    let mut coinList: [i64; 6] = [0i64; 6];\n    coinList[0] = 1;\n    coinList[1] = 5;\n    coinList[2] = 10;\n    coinList[3] = 25;\n    coinList[4] = 50;\n    coinList[5] = 100;\n    let mut dp: Vec<i32> = Vec::new();\n    dp.push((1) as i32);\n    if (n <= 4611686018427387904_i64) {\n        {\n            let mut dp = &mut dp;\n        for i in 1..(n + 1) {\n            dp.push((0) as i32);\n        }\n        }\n    } else {\n        {\n            let mut dp = &mut dp;\n        for i in 1..(n + 1) {\n            dp.push((0) as i32);\n        }\n        }\n    }\n    if (6 <= 4611686018427387904_i64) {\n        {\n            let dp = &mut dp[..];\n        for c in 0..6 {\n            debug_assert!((c) >= 0 && (c) < (coinList.len() as i64), \"LOGOS oracle bounds hint violated: indexing `coinList` out of range\");\n            unsafe { std::hint::assert_unchecked((c) >= 0 && (c) < (coinList.len() as i64)); }\n            let coin = unsafe { *coinList.get_unchecked(c as usize) };\n            let __dp_bhl = dp.len() as i64;\n            for j in coin..(n + 1) {\n                debug_assert!(n < __dp_bhl, \"LOGOS bounds hint violated: loop indexes `dp` past its length\");\n                unsafe { std::hint::assert_unchecked(n < __dp_bhl); }\n                debug_assert!(((j - coin)) >= 0 && ((j - coin)) < (dp.len() as i64), \"LOGOS oracle bounds hint violated: indexing `dp` out of range\");\n                unsafe { std::hint::assert_unchecked(((j - coin)) >= 0 && ((j - coin)) < (dp.len() as i64)); }\n                dp[(j) as usize] = ((((((dp[j as usize].clone()) as i64) + ((unsafe { dp.get_unchecked(((j - coin)) as usize).clone() }) as i64)) % 1000000007)) as i32);\n            }\n        }\n        }\n    } else {\n        {\n            let dp = &mut dp[..];\n        for c in 0..6 {\n            debug_assert!((c) >= 0 && (c) < (coinList.len() as i64), \"LOGOS oracle bounds hint violated: indexing `coinList` out of range\");\n            unsafe { std::hint::assert_unchecked((c) >= 0 && (c) < (coinList.len() as i64)); }\n            let coin = unsafe { *coinList.get_unchecked(c as usize) };\n            let __dp_bhl = dp.len() as i64;\n            for j in coin..(n + 1) {\n                debug_assert!(n < __dp_bhl, \"LOGOS bounds hint violated: loop indexes `dp` past its length\");\n                unsafe { std::hint::assert_unchecked(n < __dp_bhl); }\n                dp[(j) as usize] = ((((((dp[j as usize].clone()) as i64) + ((dp[((j - coin)) as usize].clone()) as i64)) % 1000000007)) as i32);\n            }\n        }\n        }\n    }\n    show(&((dp[n as usize].clone()) as i64));\n}",
+      "scaling": {
+        "50214796": {
+          "c": {
+            "mean_ms": 475.71610466000,
+            "median_ms": 471.27351716000,
+            "stddev_ms": 10.934994545210242000,
+            "min_ms": 468.74521266000,
+            "max_ms": 504.8258896600001000,
+            "cv": 0.02298638712899075305,
+            "runs": 25,
+            "user_ms": 354.57997999999996000,
+            "system_ms": 120.92778000
+          },
+          "logos_release": {
+            "mean_ms": 398.02052444000,
+            "median_ms": 391.24448156000,
+            "stddev_ms": 16.292652652205697000,
+            "min_ms": 375.14911256000,
+            "max_ms": 426.20681556000,
+            "cv": 0.04093420226288292611,
+            "runs": 25,
+            "user_ms": 349.99079999999994000,
+            "system_ms": 47.7523000
+          }
+        }
+      },
+      "compilation": {},
+      "timeouts": {}
+    },
+    {
+      "id": "prefix_sum",
+      "name": "Prefix Sum",
+      "description": "Sequential prefix sum scan. Measures read-modify-write bandwidth.",
+      "reference_size": "86573063",
+      "sizes": [
+        "5000000",
+        "10000000",
+        "50000000"
+      ],
+      "logos_source": "## To native args () -> Seq of Text\n## To native parseInt (s: Text) -> Int\n\n## Main\nLet arguments be args().\nLet n be parseInt(item 2 of arguments).\nLet mutable arr be a new Seq of Int.\nLet mutable seed be 42.\nLet mutable i be 0.\nWhile i is less than n:\n    Set seed to (seed * 1103515245 + 12345) % 2147483648.\n    Push ((seed / 65536) % 32768) % 1000 to arr.\n    Set i to i + 1.\nSet i to 2.\nWhile i is at most n:\n    Set item i of arr to (item i of arr + item (i - 1) of arr) % 1000000007.\n    Set i to i + 1.\nShow item n of arr.",
+      "generated_rust": "#[allow(unused_imports)]\nuse std::fmt::Write as _;\nuse logicaffeine_data::*;\nuse logicaffeine_system::*;\n\nfn args() -> LogosSeq<String> {\n    logicaffeine_system::env::args()\n}\n\nfn parseInt(s: String) -> i64 {\n    logicaffeine_system::text::parseInt(s)\n}\n\nfn main() {\n    std::thread::Builder::new()\n        .stack_size(67_108_864)\n        .spawn(_logos_main)\n        .unwrap().join().unwrap();\n}\nfn _logos_main() {\n    let arguments = args();\n    let n = parseInt(arguments.borrow()[1].clone());\n    let mut arr: Vec<i32> = Vec::new();\n    let mut seed = 42;\n    if (n <= 4611686018427387904_i64) {\n        {\n            let mut arr = &mut arr;\n        for i in 0..n {\n            seed = ({ if (seed >= -4294967296i64 && seed <= 4294967296i64) { ((seed * 1103515245i64) + 12345i64) } else { logos_add_exact(logos_mul_exact(seed, 1103515245i64), 12345i64).expect_i64(\"Int\") } } % 2147483648_i64);\n            arr.push(((((seed / 65536) % 32768) % 1000)) as i32);\n        }\n        }\n    } else {\n        {\n            let mut arr = &mut arr;\n        for i in 0..n {\n            seed = ({ if (seed >= -4294967296i64 && seed <= 4294967296i64) { ((seed * 1103515245i64) + 12345i64) } else { logos_add_exact(logos_mul_exact(seed, 1103515245i64), 12345i64).expect_i64(\"Int\") } } % 2147483648_i64);\n            arr.push(((((seed / 65536) % 32768) % 1000)) as i32);\n        }\n        }\n    }\n    if (n <= 4611686018427387904_i64) {\n        let __arr_bhl = arr.len() as i64;\n        {\n            let arr = &mut arr[..];\n        for i in 2..(n + 1) {\n            debug_assert!(n <= __arr_bhl, \"LOGOS bounds hint violated: loop indexes `arr` past its length\");\n            unsafe { std::hint::assert_unchecked(n <= __arr_bhl); }\n            debug_assert!(((i - 1)) >= 0 && ((i - 1)) < (arr.len() as i64), \"LOGOS oracle bounds hint violated: indexing `arr` out of range\");\n            unsafe { std::hint::assert_unchecked(((i - 1)) >= 0 && ((i - 1)) < (arr.len() as i64)); }\n            debug_assert!(((i - 1)) >= 0 && ((i - 1)) < (arr.len() as i64), \"LOGOS oracle bounds hint violated: indexing `arr` out of range\");\n            unsafe { std::hint::assert_unchecked(((i - 1)) >= 0 && ((i - 1)) < (arr.len() as i64)); }\n            debug_assert!((((i - 1) - 1)) >= 0 && (((i - 1) - 1)) < (arr.len() as i64), \"LOGOS oracle bounds hint violated: indexing `arr` out of range\");\n            unsafe { std::hint::assert_unchecked((((i - 1) - 1)) >= 0 && (((i - 1) - 1)) < (arr.len() as i64)); }\n            debug_assert!(((i - 1)) >= 0 && ((i - 1)) < (arr.len() as i64), \"LOGOS oracle BCE: store out of range\");\n            let __set_val = ((((((unsafe { arr.get_unchecked((i - 1) as usize).clone() }) as i64) + ((unsafe { arr.get_unchecked(((i - 1) - 1) as usize).clone() }) as i64)) % 1000000007)) as i32);\n            unsafe { *arr.get_unchecked_mut((i - 1) as usize) = __set_val; }\n        }\n        }\n    } else {\n        let __arr_bhl = arr.len() as i64;\n        {\n            let arr = &mut arr[..];\n        for i in 2..(n + 1) {\n            debug_assert!(n <= __arr_bhl, \"LOGOS bounds hint violated: loop indexes `arr` past its length\");\n            unsafe { std::hint::assert_unchecked(n <= __arr_bhl); }\n            debug_assert!(((i - 1)) >= 0 && ((i - 1)) < (arr.len() as i64), \"LOGOS oracle bounds hint violated: indexing `arr` out of range\");\n            unsafe { std::hint::assert_unchecked(((i - 1)) >= 0 && ((i - 1)) < (arr.len() as i64)); }\n            debug_assert!(((i - 1)) >= 0 && ((i - 1)) < (arr.len() as i64), \"LOGOS oracle bounds hint violated: indexing `arr` out of range\");\n            unsafe { std::hint::assert_unchecked(((i - 1)) >= 0 && ((i - 1)) < (arr.len() as i64)); }\n            debug_assert!((((i - 1) - 1)) >= 0 && (((i - 1) - 1)) < (arr.len() as i64), \"LOGOS oracle bounds hint violated: indexing `arr` out of range\");\n            unsafe { std::hint::assert_unchecked((((i - 1) - 1)) >= 0 && (((i - 1) - 1)) < (arr.len() as i64)); }\n            debug_assert!(((i - 1)) >= 0 && ((i - 1)) < (arr.len() as i64), \"LOGOS oracle BCE: store out of range\");\n            let __set_val = ((((((unsafe { arr.get_unchecked((i - 1) as usize).clone() }) as i64) + ((unsafe { arr.get_unchecked(((i - 1) - 1) as usize).clone() }) as i64)) % 1000000007)) as i32);\n            unsafe { *arr.get_unchecked_mut((i - 1) as usize) = __set_val; }\n        }\n        }\n    }\n    show(&((arr[(n - 1) as usize].clone()) as i64));\n}",
+      "scaling": {
+        "86573063": {
+          "c": {
+            "mean_ms": 483.05132046000,
+            "median_ms": 484.51960106000,
+            "stddev_ms": 5.069811936880453000,
+            "min_ms": 474.65023056000,
+            "max_ms": 489.32947656000003000,
+            "cv": 0.01049538987296955043,
+            "runs": 25,
+            "user_ms": 332.94674000,
+            "system_ms": 149.91617999999998000
+          },
+          "logos_release": {
+            "mean_ms": 361.3595686400001000,
+            "median_ms": 361.19742128000004000,
+            "stddev_ms": 5.771269503081585000,
+            "min_ms": 352.54313428000006000,
+            "max_ms": 374.48360928000,
+            "cv": 0.01597098846670126300,
+            "runs": 25,
+            "user_ms": 286.91806000,
+            "system_ms": 74.1524000
+          }
+        }
+      },
+      "compilation": {},
+      "timeouts": {}
+    },
+    {
+      "id": "collect",
+      "name": "Collection Operations",
+      "description": "Hash map insert and lookup. Measures hash computation and cache behavior.",
+      "reference_size": "11903710",
+      "sizes": [
+        "500000",
+        "5000000",
+        "30000000"
+      ],
+      "logos_source": "## To native args () -> Seq of Text\n## To native parseInt (s: Text) -> Int\n\n## Main\nLet arguments be args().\nLet n be parseInt(item 2 of arguments).\nLet mutable m be a new Map of Int to Int with capacity n.\nLet mutable i be 1.\nWhile i is less than n + 1:\n    Set item i of m to i * 2.\n    Set i to i + 1.\nLet mutable found be 0.\nSet i to 1.\nWhile i is less than n + 1:\n    If item i of m equals i * 2:\n        Set found to found + 1.\n    Set i to i + 1.\nShow found.",
+      "generated_rust": "#[allow(unused_imports)]\nuse std::fmt::Write as _;\nuse logicaffeine_data::*;\nuse logicaffeine_system::*;\n\nfn args() -> LogosSeq<String> {\n    logicaffeine_system::env::args()\n}\n\nfn parseInt(s: String) -> i64 {\n    logicaffeine_system::text::parseInt(s)\n}\n\nfn main() {\n    std::thread::Builder::new()\n        .stack_size(67_108_864)\n        .spawn(_logos_main)\n        .unwrap().join().unwrap();\n}\nfn _logos_main() {\n    let arguments = args();\n    let n = parseInt(arguments.borrow()[1].clone());\n    let mut m = LogosDenseI64MapNoPresence::with_bounds(0, ((n) + 1) as usize);\n    for i in 1..(n + 1) {\n        m.insert(i, logos_mul_i64(i, 2));\n    }\n    let mut i = (1_i64).max((n + 1));\n    let mut found = 0;\n    for i in 1..(n + 1) {\n        if (m.get(&(i)) == Some(logos_mul_i64(i, 2))) {\n            found = logos_add_i64(found, 1);\n        }\n    }\n    show(&found);\n}",
+      "scaling": {
+        "11903710": {
+          "c": {
+            "mean_ms": 513.16575174000,
+            "median_ms": 512.69205424000,
+            "stddev_ms": 7.1982946729404395000,
+            "min_ms": 499.14833074000003000,
+            "max_ms": 523.11753374000,
+            "cv": 0.01402723125721671236,
+            "runs": 25,
+            "user_ms": 393.61942000,
+            "system_ms": 119.2947000
+          },
+          "logos_release": {
+            "mean_ms": 31.672448699999994000,
+            "median_ms": 31.5662305000,
+            "stddev_ms": 0.910616558579772000,
+            "min_ms": 29.884615500000003000,
+            "max_ms": 34.2333505000,
+            "cv": 0.02875106270453197300,
+            "runs": 25,
+            "user_ms": 9.96988000,
+            "system_ms": 21.549780000000004000
+          }
+        }
+      },
+      "compilation": {},
+      "timeouts": {}
+    }
+  ],
+  "summary": {
+    "geometric_mean_speedup_vs_c": {
+      "c": 1.000,
+      "logos_release": 2.545
+    }
+  }
+}

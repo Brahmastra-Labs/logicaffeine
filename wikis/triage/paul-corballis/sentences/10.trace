@@ -1,0 +1,37 @@
+CLASSIFICATION: ActionableLexiconGap | subsystem Lexicon | gate Auto | confidence 0.75
+
+═══ Sentence 10 ═══
+INPUT: Early in his career he co-authored work demonstrating noninvasive optical imaging of human brain responses during visual stimulation.
+
+TOKENS:
+    0..5   "Early"      Proper
+    6..8   "in"         Preposition
+    9..12  "his"        Pronoun
+   13..19  "career"     Noun
+   20..22  "he"         Pronoun
+   23..25  "co"         Adjective
+   25..26  "-"          Other
+   26..34  "authored"   Adjective
+   35..39  "work"       Other
+   40..53  "demonstrating" Verb
+   54..65  "noninvasive" Adjective
+   66..73  "optical"    Adjective
+   74..81  "imaging"    Verb
+   82..84  "of"         Preposition
+   85..90  "human"      Adjective
+   91..96  "brain"      Noun
+   97..106 "responses"  Adjective
+  107..113 "during"     Preposition
+  114..120 "visual"     Adjective
+  121..132 "stimulation" Adjective
+  132..133 "."          Punctuation
+  133..133 ""           Other
+
+FOL:
+  unicode: Early
+  simple : Early
+  kripke : Early
+
+AST (1 nodes, 1 unhandled):
+  └─ Atom(Symbol(1)) [other]
+

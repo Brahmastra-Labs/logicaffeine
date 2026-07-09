@@ -179,6 +179,7 @@ impl<'a> Term<'a> {
             }
             Term::Sigma(predicate) => write!(w, "σ({})", interner.resolve(*predicate)),
             Term::Intension(predicate) => write!(w, "^{}", interner.resolve(*predicate)),
+            Term::Kind(kind) => write!(w, "^{}", interner.resolve(*kind)),
             Term::Proposition(expr) => write!(w, "[proposition]"),
         }
     }
@@ -244,6 +245,14 @@ impl<'a> Term<'a> {
             Term::Intension(predicate) => {
                 // Use full word for intensional terms, not abbreviated symbol
                 let word = interner.resolve(*predicate);
+                let capitalized = word.chars().next()
+                    .map(|c| c.to_uppercase().collect::<String>() + &word[1..])
+                    .unwrap_or_default();
+                write!(w, "^{}", capitalized)
+            }
+            Term::Kind(kind) => {
+                // Kind terms render with the full word, like intensions: ^Tooth.
+                let word = interner.resolve(*kind);
                 let capitalized = word.chars().next()
                     .map(|c| c.to_uppercase().collect::<String>() + &word[1..])
                     .unwrap_or_default();
@@ -449,6 +458,19 @@ impl<'a> LogicExpr<'a> {
             LogicExpr::Modal { vector, operand } => {
                 let mut o = String::new();
                 operand.write_logic(&mut o, registry, interner, fmt)?;
+                // An evidential renders by its evidence source (the Kratzer
+                // modal base): Seem(⟨Happy(John)⟩) — never as a bare □/◇,
+                // since the complement is unasserted in every notation.
+                if vector.flavor == crate::ast::ModalFlavor::Evidential {
+                    let source = match vector.modal_base {
+                        Some(base) if fmt.use_full_names() => {
+                            registry.get_symbol_full(base, interner)
+                        }
+                        Some(base) => registry.get_symbol(base, interner),
+                        None => "Seem".to_string(),
+                    };
+                    return write!(w, "{}([{}])", source, o);
+                }
                 write!(w, "{}", fmt.modal(vector.domain, vector.force, &o))
             }
 
@@ -567,6 +589,7 @@ impl<'a> LogicExpr<'a> {
                     write!(w, "{}", registry.get_symbol_full(data.verb, interner))?;
                     write!(w, "(")?;
                     let mut first = true;
+                    let mut subject_term = None;
                     for (role, term) in data.roles.iter() {
                         // Include core thematic roles in SimpleFOL output
                         if matches!(role, ThematicRole::Agent | ThematicRole::Patient | ThematicRole::Theme | ThematicRole::Goal | ThematicRole::Location) {
@@ -575,9 +598,27 @@ impl<'a> LogicExpr<'a> {
                             }
                             first = false;
                             term.write_to_full(w, registry, interner)?;
+                            // The adverb reattaches to the agent (or the first core
+                            // participant when there is no agent).
+                            if subject_term.is_none() || matches!(role, ThematicRole::Agent) {
+                                subject_term = Some(term);
+                            }
                         }
                     }
-                    write!(w, ")")
+                    write!(w, ")")?;
+                    // Flattening the event drops the ∃e binder, so an adverbial
+                    // modifier `Loudly(e)` must reattach to the participant, or it is
+                    // silently lost: ∃e(Bark(e) ∧ Agent(e,y) ∧ Loudly(e)) ⇒ Bark(y) ∧ Loudly(y).
+                    for mod_sym in data.modifiers.iter() {
+                        write!(w, " {} ", fmt.and())?;
+                        write_capitalized(w, interner.resolve(*mod_sym))?;
+                        write!(w, "(")?;
+                        if let Some(term) = subject_term {
+                            term.write_to_full(w, registry, interner)?;
+                        }
+                        write!(w, ")")?;
+                    }
+                    Ok(())
                 } else {
                     let e = interner.resolve(data.event_var);
                     let mut body = String::new();
@@ -603,6 +644,8 @@ impl<'a> LogicExpr<'a> {
                             ThematicRole::Location => "Location",
                             ThematicRole::Time => "Time",
                             ThematicRole::Manner => "Manner",
+                            ThematicRole::Result => "Result",
+                            ThematicRole::Depictive => "Depictive",
                         };
                         write!(body, " {} {}({}, ", fmt.and(), role_str, e)?;
                         if fmt.use_full_names() {
@@ -628,12 +671,65 @@ impl<'a> LogicExpr<'a> {
             }
 
             LogicExpr::Imperative { action } => {
-                write!(w, "!")?;
-                action.write_logic(w, registry, interner, fmt)
+                // Directive(hearer, ⟨action⟩) — the commanded action is the
+                // content of an obligation on the addressee (§1.4), not an
+                // asserted event. The addressee is the action's Agent role
+                // (Addressee, or Us for hortative "let's").
+                use crate::ast::ThematicRole;
+                fn directive_agent<'b>(e: &'b LogicExpr<'b>) -> Option<&'b Term<'b>> {
+                    match e {
+                        LogicExpr::NeoEvent(data) => data
+                            .roles
+                            .iter()
+                            .find(|(role, _)| matches!(role, ThematicRole::Agent))
+                            .map(|(_, term)| term),
+                        LogicExpr::UnaryOp { operand, .. } => directive_agent(operand),
+                        LogicExpr::Quantifier { body, .. } => directive_agent(body),
+                        LogicExpr::BinaryOp { left, .. } => directive_agent(left),
+                        _ => None,
+                    }
+                }
+                let mut addressee = String::new();
+                match directive_agent(action) {
+                    Some(t) if fmt.use_full_names() => {
+                        t.write_to_full(&mut addressee, registry, interner)?
+                    }
+                    Some(t) => t.write_to(&mut addressee, registry, interner)?,
+                    None => addressee.push_str("Addressee"),
+                }
+                let mut a = String::new();
+                action.write_logic(&mut a, registry, interner, fmt)?;
+                write!(w, "Directive({}, [{}])", addressee, a)
+            }
+
+            LogicExpr::Exclamative { degree_var, body } => {
+                // Exclaim(∃d(body ∧ d ≫ θ)): a surprisingly-high degree.
+                let d = interner.resolve(*degree_var);
+                write!(w, "Exclaim(∃{}(", d)?;
+                body.write_logic(w, registry, interner, fmt)?;
+                write!(w, " {} {} ≫ θ))", fmt.and(), d)
+            }
+
+            LogicExpr::Optative { wish } => {
+                // Wish(Speaker, ⟨wish⟩): the complement is not asserted.
+                write!(w, "Wish(Speaker, ⟨")?;
+                wish.write_logic(w, registry, interner, fmt)?;
+                write!(w, "⟩)")
+            }
+
+            LogicExpr::Implicature { assertion, implicature } => {
+                // assertion +> Implicature(…): literal meaning, then the cancellable
+                // scalar implicature (the defeasible part).
+                assertion.write_logic(w, registry, interner, fmt)?;
+                write!(w, " +> Implicature(")?;
+                implicature.write_logic(w, registry, interner, fmt)?;
+                write!(w, ")")
             }
 
             LogicExpr::SpeechAct { performer, act_type, content } => {
-                write!(w, "SpeechAct({}, {}, ", interner.resolve(*act_type), fmt.sanitize(&registry.get_symbol(*performer, interner)))?;
+                // Render the performer with its full name (e.g. Speaker), matching the
+                // role constants used inside the content, rather than an abbreviation.
+                write!(w, "SpeechAct({}, {}, ", interner.resolve(*act_type), fmt.sanitize(&registry.get_symbol_full(*performer, interner)))?;
                 content.write_logic(w, registry, interner, fmt)?;
                 write!(w, ")")
             }
@@ -654,17 +750,44 @@ impl<'a> LogicExpr<'a> {
                 write!(w, ")")
             }
 
-            LogicExpr::Comparative { adjective, subject, object, difference } => {
+            LogicExpr::Concessive { main, concession } => {
+                // main ∧ Concessive(concession): the main holds despite the concession.
+                main.write_logic(w, registry, interner, fmt)?;
+                write!(w, " {} Concessive(", fmt.and())?;
+                concession.write_logic(w, registry, interner, fmt)?;
+                write!(w, ")")
+            }
+
+            LogicExpr::Comparative { adjective, subject, object, difference, relation } => {
+                use crate::ast::ComparisonRelation;
+                // Equatives render as a max-degree at-least/equality comparison:
+                // "John is as tall as Mary." → max{d:Tall(John,d)} ≥ max{d:Tall(Mary,d)}.
+                if !matches!(relation, ComparisonRelation::Greater) {
+                    let rel = if matches!(relation, ComparisonRelation::Equal) { "=" } else { "≥" };
+                    let adj = interner.resolve(*adjective);
+                    let mut s = String::new();
+                    subject.write_to(&mut s, registry, interner)?;
+                    let mut o = String::new();
+                    object.write_to(&mut o, registry, interner)?;
+                    let cap = adj.chars().next()
+                        .map(|c| c.to_uppercase().collect::<String>() + &adj[1..])
+                        .unwrap_or_default();
+                    return write!(w, "max{{d:{}({},d)}} {} max{{d:{}({},d)}}", cap, s, rel, cap, o);
+                }
                 let adj = interner.resolve(*adjective);
                 let mut subj_buf = String::new();
                 if fmt.preserve_case() {
                     subject.write_to_raw(&mut subj_buf, interner)?;
+                } else if fmt.use_full_names() {
+                    subject.write_to_full(&mut subj_buf, registry, interner)?;
                 } else {
                     subject.write_to(&mut subj_buf, registry, interner)?;
                 }
                 let mut obj_buf = String::new();
                 if fmt.preserve_case() {
                     object.write_to_raw(&mut obj_buf, interner)?;
+                } else if fmt.use_full_names() {
+                    object.write_to_full(&mut obj_buf, registry, interner)?;
                 } else {
                     object.write_to(&mut obj_buf, registry, interner)?;
                 }
@@ -672,6 +795,8 @@ impl<'a> LogicExpr<'a> {
                     let mut diff_buf = String::new();
                     if fmt.preserve_case() {
                         diff.write_to_raw(&mut diff_buf, interner)?;
+                    } else if fmt.use_full_names() {
+                        diff.write_to_full(&mut diff_buf, registry, interner)?;
                     } else {
                         diff.write_to(&mut diff_buf, registry, interner)?;
                     }
@@ -728,6 +853,7 @@ impl<'a> LogicExpr<'a> {
                     FocusKind::Only => "Only",
                     FocusKind::Even => "Even",
                     FocusKind::Just => "Just",
+                    FocusKind::Cleft => "Cleft",
                 };
                 write!(w, "{}(", prefix)?;
                 focused.write_to(w, registry, interner)?;

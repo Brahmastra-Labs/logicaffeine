@@ -80,7 +80,7 @@ pub trait LogicFormatter {
     // Modal operators
     fn modal(&self, domain: ModalDomain, force: f32, body: &str) -> String {
         let sym = match domain {
-            ModalDomain::Alethic if force > 0.0 && force <= 0.5 => self.possibility(),
+            ModalDomain::Alethic if force <= 0.5 => self.possibility(),
             ModalDomain::Alethic => self.necessity(),
             ModalDomain::Deontic if force <= 0.5 => "P",
             ModalDomain::Deontic => "O",

@@ -1,0 +1,15 @@
+{
+  "id": "R_1.13",
+  "type": "multiple_choice",
+  "difficulty": 4,
+  "prompt": "What does it mean for a relation R to be antisymmetric?",
+  "options": [
+    "If R(x,y) then R(y,x)",
+    "If R(x,y) and R(y,x), then x = y",
+    "R(x,x) never holds",
+    "R(x,y) holds for every x and y"
+  ],
+  "correct": 1,
+  "hint": "Antisymmetry forbids two DISTINCT things from relating both ways.",
+  "explanation": "Antisymmetry: ∀x∀y((Rxy ∧ Ryx) → x = y). The only way both Rxy and Ryx can hold is if x and y are the same thing. '≤' is antisymmetric: if a ≤ b and b ≤ a, then a = b. (Option 1 describes symmetry, the opposite idea.)"
+}

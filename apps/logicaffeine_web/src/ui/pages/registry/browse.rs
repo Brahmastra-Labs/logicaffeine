@@ -17,6 +17,8 @@
 //! Accessed via [`Route::Registry`].
 
 use dioxus::prelude::*;
+#[cfg(all(feature = "split", target_arch = "wasm32"))]
+use dioxus::wasm_split;
 use crate::ui::router::Route;
 use crate::ui::state::{RegistryAuthState, RegistryPackage, GitHubUser};
 use crate::ui::components::main_nav::{MainNav, ActivePage};
@@ -296,58 +298,57 @@ const REGISTRY_STYLE: &str = r#"
 }
 "#;
 
-#[component]
-pub fn Registry() -> Element {
+#[component(lazy)]
+pub fn Registry(
+    token: Option<String>,
+    login: Option<String>,
+    error: Option<String>,
+    q: Option<String>,
+) -> Element {
     let mut auth_state = use_context::<RegistryAuthState>();
     let auth_state_for_check = auth_state.clone();
     let mut packages = use_signal(Vec::<RegistryPackage>::new);
-    let mut search_query = use_signal(String::new);
+    #[cfg(target_arch = "wasm32")]
+    let q_for_bar = q.clone();
+    let mut search_query = use_signal(move || q.clone().unwrap_or_default());
     let mut is_loading = use_signal(|| true);
+    #[cfg(target_arch = "wasm32")]
+    let oauth_error = error;
     let mut error = use_signal(|| None::<String>);
 
-    // Check for OAuth callback params in URL
+    // Consume OAuth callback params from the route
     use_effect(move || {
         #[cfg(target_arch = "wasm32")]
         {
-            if let Some(window) = web_sys::window() {
-                if let Ok(search) = window.location().search() {
-                    if let Ok(params) = web_sys::UrlSearchParams::new_with_str(&search) {
-                        if let Some(token) = params.get("token") {
-                            if let Some(login) = params.get("login") {
-                                // Login successful
-                                let user = GitHubUser {
-                                    id: String::new(),
-                                    login: login.clone(),
-                                    name: None,
-                                    avatar_url: None,
-                                };
-                                auth_state.login(token, user);
-
-                                // Clear URL params
-                                if let Ok(history) = window.history() {
-                                    let _ = history.replace_state_with_url(
-                                        &wasm_bindgen::JsValue::NULL,
-                                        "",
-                                        Some("/registry"),
-                                    );
-                                }
-                            }
-                        }
-
-                        if let Some(err) = params.get("error") {
-                            error.set(Some(err));
-                            // Clear URL params
-                            if let Ok(history) = window.history() {
-                                let _ = history.replace_state_with_url(
-                                    &wasm_bindgen::JsValue::NULL,
-                                    "",
-                                    Some("/registry"),
-                                );
-                            }
-                        }
-                    }
-                }
+            if let (Some(token), Some(login)) = (token.clone(), login.clone()) {
+                // Login successful
+                let user = GitHubUser {
+                    id: String::new(),
+                    login,
+                    name: None,
+                    avatar_url: None,
+                };
+                auth_state.login(token, user);
             }
+
+            if let Some(err) = oauth_error.clone() {
+                error.set(Some(err));
+            }
+
+            // One-shot OAuth params consumed (or none present): keep the bar
+            // canonical, preserving a shareable ?q= search deep link.
+            let canonical = if q_for_bar.is_some() {
+                crate::ui::router::Route::Registry {
+                    token: None,
+                    login: None,
+                    error: None,
+                    q: q_for_bar.clone(),
+                }
+                .to_string()
+            } else {
+                "/registry".to_string()
+            };
+            crate::ui::router::replace_bar_url(&canonical);
         }
     });
 

@@ -1,0 +1,1602 @@
+{
+  "schema_version": 2,
+  "metadata": {
+    "date": "2026-07-09T03:44:14Z",
+    "commit": "8421ae9",
+    "logos_version": "0.10.0",
+    "cpu": "Intel(R) Core(TM) i9-14900K",
+    "os": "Ubuntu 24.04.2 LTS x86_64",
+    "versions": {
+      "messagepack": "1.3.1",
+      "cbor": "0.2.2",
+      "arrow (ipc)": "53.4.1",
+      "json": "1.0.150",
+      "capnproto": "0.20.6",
+      "postcard": "1.1.3",
+      "protobuf/grpc": "0.13.5",
+      "bincode": "1.3.3"
+    },
+    "features": [
+      "arrow-bench",
+      "protobuf",
+      "capnproto"
+    ]
+  },
+  "iters": 20000,
+  "scenarios": [
+    {
+      "id": "ints",
+      "title": "Int array (random)",
+      "n": 1000,
+      "kind": "fair",
+      "rows": [
+        {
+          "codec": "logos (varint)",
+          "size": 3231,
+          "enc_ns": 1600.0,
+          "dec_ns": 1944.0,
+          "read_one_ns": null,
+          "chosen": null,
+          "fair_size": null
+        },
+        {
+          "codec": "logos (BEST: all knobs)",
+          "size": 3111,
+          "enc_ns": 28900.0,
+          "dec_ns": 9252.0,
+          "read_one_ns": null,
+          "chosen": {
+            "numerics": "varint",
+            "floats": "memcpy",
+            "compression": "deflate",
+            "columns": [
+              "varint"
+            ],
+            "summary": "varint · deflate-compressed"
+          },
+          "fair_size": null
+        },
+        {
+          "codec": "logos (fixed)",
+          "size": 8005,
+          "enc_ns": 135.0,
+          "dec_ns": 82.0,
+          "read_one_ns": null,
+          "chosen": null,
+          "fair_size": null
+        },
+        {
+          "codec": "logos (gv/simd)",
+          "size": 4011,
+          "enc_ns": 2363.0,
+          "dec_ns": 1174.0,
+          "read_one_ns": null,
+          "chosen": null,
+          "fair_size": null
+        },
+        {
+          "codec": "logos (affine)",
+          "size": 3231,
+          "enc_ns": 1562.0,
+          "dec_ns": 1891.0,
+          "read_one_ns": null,
+          "chosen": null,
+          "fair_size": null
+        },
+        {
+          "codec": "logos (zero-copy)",
+          "size": 8008,
+          "enc_ns": 137.0,
+          "dec_ns": 58.0,
+          "read_one_ns": null,
+          "chosen": null,
+          "fair_size": null
+        },
+        {
+          "codec": "bincode",
+          "size": 8008,
+          "enc_ns": 341.0,
+          "dec_ns": 676.0,
+          "read_one_ns": null,
+          "chosen": null,
+          "fair_size": 4042
+        },
+        {
+          "codec": "postcard",
+          "size": 3338,
+          "enc_ns": 3536.0,
+          "dec_ns": 1613.0,
+          "read_one_ns": null,
+          "chosen": null,
+          "fair_size": 3203
+        },
+        {
+          "codec": "messagepack",
+          "size": 4409,
+          "enc_ns": 3655.0,
+          "dec_ns": 3025.0,
+          "read_one_ns": null,
+          "chosen": null,
+          "fair_size": 3640
+        },
+        {
+          "codec": "json",
+          "size": 7192,
+          "enc_ns": 4036.0,
+          "dec_ns": 7109.0,
+          "read_one_ns": null,
+          "chosen": null,
+          "fair_size": 3292
+        },
+        {
+          "codec": "arrow (ipc)",
+          "size": 8456,
+          "enc_ns": 863.0,
+          "dec_ns": 703.0,
+          "read_one_ns": null,
+          "chosen": null,
+          "fair_size": 4170
+        },
+        {
+          "codec": "protobuf/grpc",
+          "size": 3229,
+          "enc_ns": 2728.0,
+          "dec_ns": 2046.0,
+          "read_one_ns": null,
+          "chosen": null,
+          "fair_size": 3111
+        },
+        {
+          "codec": "capnproto",
+          "size": 8024,
+          "enc_ns": 393.0,
+          "dec_ns": 211.0,
+          "read_one_ns": null,
+          "chosen": null,
+          "fair_size": 4051
+        }
+      ]
+    },
+    {
+      "id": "floats",
+      "title": "Float array (random f64)",
+      "n": 1000,
+      "kind": "fair",
+      "rows": [
+        {
+          "codec": "logos (varint)",
+          "size": 8005,
+          "enc_ns": 141.0,
+          "dec_ns": 84.0,
+          "read_one_ns": null,
+          "chosen": null,
+          "fair_size": null
+        },
+        {
+          "codec": "logos (BEST: all knobs)",
+          "size": 4775,
+          "enc_ns": 78322.0,
+          "dec_ns": 11836.0,
+          "read_one_ns": null,
+          "chosen": {
+            "numerics": "varint",
+            "floats": "memcpy",
+            "compression": "deflate",
+            "columns": [
+              "memcpy floats"
+            ],
+            "summary": "memcpy floats · deflate-compressed"
+          },
+          "fair_size": null
+        },
+        {
+          "codec": "logos (fixed)",
+          "size": 8005,
+          "enc_ns": 141.0,
+          "dec_ns": 84.0,
+          "read_one_ns": null,
+          "chosen": null,
+          "fair_size": null
+        },
+        {
+          "codec": "logos (zero-copy)",
+          "size": 8008,
+          "enc_ns": 138.0,
+          "dec_ns": 311.0,
+          "read_one_ns": null,
+          "chosen": null,
+          "fair_size": null
+        },
+        {
+          "codec": "bincode",
+          "size": 8008,
+          "enc_ns": 508.0,
+          "dec_ns": 678.0,
+          "read_one_ns": null,
+          "chosen": null,
+          "fair_size": 4774
+        },
+        {
+          "codec": "postcard",
+          "size": 8002,
+          "enc_ns": 537.0,
+          "dec_ns": 688.0,
+          "read_one_ns": null,
+          "chosen": null,
+          "fair_size": 4772
+        },
+        {
+          "codec": "messagepack",
+          "size": 9003,
+          "enc_ns": 2044.0,
+          "dec_ns": 2183.0,
+          "read_one_ns": null,
+          "chosen": null,
+          "fair_size": 4958
+        },
+        {
+          "codec": "json",
+          "size": 14072,
+          "enc_ns": 11329.0,
+          "dec_ns": 12278.0,
+          "read_one_ns": null,
+          "chosen": null,
+          "fair_size": 4778
+        },
+        {
+          "codec": "arrow (ipc)",
+          "size": 8456,
+          "enc_ns": 887.0,
+          "dec_ns": 950.0,
+          "read_one_ns": null,
+          "chosen": null,
+          "fair_size": 4930
+        }
+      ]
+    },
+    {
+      "id": "timeseries",
+      "title": "Float time-series (sensor random walk — Gorilla XOR)",
+      "n": 1000,
+      "kind": "fair",
+      "rows": [
+        {
+          "codec": "logos (varint)",
+          "size": 8005,
+          "enc_ns": 132.0,
+          "dec_ns": 82.0,
+          "read_one_ns": null,
+          "chosen": null,
+          "fair_size": null
+        },
+        {
+          "codec": "logos (BEST: all knobs)",
+          "size": 3080,
+          "enc_ns": 66123.0,
+          "dec_ns": 9121.0,
+          "read_one_ns": null,
+          "chosen": {
+            "numerics": "varint",
+            "floats": "memcpy",
+            "compression": "deflate",
+            "columns": [
+              "memcpy floats"
+            ],
+            "summary": "memcpy floats · deflate-compressed"
+          },
+          "fair_size": null
+        },
+        {
+          "codec": "logos (fixed)",
+          "size": 8005,
+          "enc_ns": 143.0,
+          "dec_ns": 85.0,
+          "read_one_ns": null,
+          "chosen": null,
+          "fair_size": null
+        },
+        {
+          "codec": "logos (zero-copy)",
+          "size": 8008,
+          "enc_ns": 139.0,
+          "dec_ns": 311.0,
+          "read_one_ns": null,
+          "chosen": null,
+          "fair_size": null
+        },
+        {
+          "codec": "bincode",
+          "size": 8008,
+          "enc_ns": 351.0,
+          "dec_ns": 520.0,
+          "read_one_ns": null,
+          "chosen": null,
+          "fair_size": 3076
+        },
+        {
+          "codec": "postcard",
+          "size": 8002,
+          "enc_ns": 595.0,
+          "dec_ns": 688.0,
+          "read_one_ns": null,
+          "chosen": null,
+          "fair_size": 3074
+        },
+        {
+          "codec": "messagepack",
+          "size": 9003,
+          "enc_ns": 2141.0,
+          "dec_ns": 2170.0,
+          "read_one_ns": null,
+          "chosen": null,
+          "fair_size": 3027
+        },
+        {
+          "codec": "json",
+          "size": 6911,
+          "enc_ns": 11141.0,
+          "dec_ns": 7813.0,
+          "read_one_ns": null,
+          "chosen": null,
+          "fair_size": 1964
+        },
+        {
+          "codec": "arrow (ipc)",
+          "size": 8456,
+          "enc_ns": 867.0,
+          "dec_ns": 978.0,
+          "read_one_ns": null,
+          "chosen": null,
+          "fair_size": 3227
+        }
+      ]
+    },
+    {
+      "id": "points",
+      "title": "Point list {x:i64,y:i64}",
+      "n": 1000,
+      "kind": "fair",
+      "rows": [
+        {
+          "codec": "logos (varint)",
+          "size": 5853,
+          "enc_ns": 3397.0,
+          "dec_ns": 3768.0,
+          "read_one_ns": null,
+          "chosen": null,
+          "fair_size": null
+        },
+        {
+          "codec": "logos (BEST: all knobs)",
+          "size": 4530,
+          "enc_ns": 89077.0,
+          "dec_ns": 7870.0,
+          "read_one_ns": null,
+          "chosen": {
+            "numerics": "varint",
+            "floats": "memcpy",
+            "compression": "none",
+            "columns": [
+              "x: FOR bit-pack",
+              "y: FOR bit-pack"
+            ],
+            "summary": "x: FOR bit-pack, y: FOR bit-pack · no compression"
+          },
+          "fair_size": null
+        },
+        {
+          "codec": "logos (fixed)",
+          "size": 16022,
+          "enc_ns": 408.0,
+          "dec_ns": 265.0,
+          "read_one_ns": null,
+          "chosen": null,
+          "fair_size": null
+        },
+        {
+          "codec": "logos (gv/simd)",
+          "size": 7239,
+          "enc_ns": 7159.0,
+          "dec_ns": 2438.0,
+          "read_one_ns": null,
+          "chosen": null,
+          "fair_size": null
+        },
+        {
+          "codec": "logos (affine)",
+          "size": 5853,
+          "enc_ns": 3410.0,
+          "dec_ns": 3759.0,
+          "read_one_ns": null,
+          "chosen": null,
+          "fair_size": null
+        },
+        {
+          "codec": "logos (zero-copy)",
+          "size": 16022,
+          "enc_ns": 419.0,
+          "dec_ns": 133.0,
+          "read_one_ns": null,
+          "chosen": null,
+          "fair_size": null
+        },
+        {
+          "codec": "bincode",
+          "size": 16008,
+          "enc_ns": 708.0,
+          "dec_ns": 5034.0,
+          "read_one_ns": null,
+          "chosen": null,
+          "fair_size": 6188
+        },
+        {
+          "codec": "postcard",
+          "size": 5833,
+          "enc_ns": 8382.0,
+          "dec_ns": 3811.0,
+          "read_one_ns": null,
+          "chosen": null,
+          "fair_size": 5164
+        },
+        {
+          "codec": "messagepack",
+          "size": 9027,
+          "enc_ns": 9056.0,
+          "dec_ns": 12962.0,
+          "read_one_ns": null,
+          "chosen": null,
+          "fair_size": 6382
+        },
+        {
+          "codec": "cbor",
+          "size": 12386,
+          "enc_ns": 23894.0,
+          "dec_ns": 61139.0,
+          "read_one_ns": null,
+          "chosen": null,
+          "fair_size": 7015
+        },
+        {
+          "codec": "json",
+          "size": 22821,
+          "enc_ns": 16721.0,
+          "dec_ns": 37492.0,
+          "read_one_ns": null,
+          "chosen": null,
+          "fair_size": 6692
+        },
+        {
+          "codec": "arrow (ipc)",
+          "size": 16648,
+          "enc_ns": 1284.0,
+          "dec_ns": 1307.0,
+          "read_one_ns": null,
+          "chosen": null,
+          "fair_size": 6425
+        },
+        {
+          "codec": "protobuf/grpc",
+          "size": 17137,
+          "enc_ns": 17633.0,
+          "dec_ns": 13942.0,
+          "read_one_ns": null,
+          "chosen": null,
+          "fair_size": 7447
+        },
+        {
+          "codec": "capnproto",
+          "size": 16048,
+          "enc_ns": 765.0,
+          "dec_ns": 373.0,
+          "read_one_ns": null,
+          "chosen": null,
+          "fair_size": 6221
+        }
+      ]
+    },
+    {
+      "id": "records",
+      "title": "Record list {id,name,active}",
+      "n": 200,
+      "kind": "fair",
+      "rows": [
+        {
+          "codec": "logos (varint)",
+          "size": 2484,
+          "enc_ns": 598.0,
+          "dec_ns": 977.0,
+          "read_one_ns": null,
+          "chosen": null,
+          "fair_size": null
+        },
+        {
+          "codec": "logos (BEST: all knobs)",
+          "size": 2085,
+          "enc_ns": 22689.0,
+          "dec_ns": 6966.0,
+          "read_one_ns": null,
+          "chosen": {
+            "numerics": "varint",
+            "floats": "memcpy",
+            "compression": "deflate",
+            "columns": [
+              "active: bit-packed bools",
+              "id: varint",
+              "name: flat strings"
+            ],
+            "summary": "active: bit-packed bools, id: varint, name: flat strings · deflate-compressed"
+          },
+          "fair_size": null
+        },
+        {
+          "codec": "logos (fixed)",
+          "size": 3448,
+          "enc_ns": 320.0,
+          "dec_ns": 566.0,
+          "read_one_ns": null,
+          "chosen": null,
+          "fair_size": null
+        },
+        {
+          "codec": "bincode",
+          "size": 4994,
+          "enc_ns": 502.0,
+          "dec_ns": 4858.0,
+          "read_one_ns": null,
+          "chosen": null,
+          "fair_size": 2410
+        },
+        {
+          "codec": "postcard",
+          "size": 2640,
+          "enc_ns": 1506.0,
+          "dec_ns": 4970.0,
+          "read_one_ns": null,
+          "chosen": null,
+          "fair_size": 2200
+        },
+        {
+          "codec": "messagepack",
+          "size": 3044,
+          "enc_ns": 2494.0,
+          "dec_ns": 6088.0,
+          "read_one_ns": null,
+          "chosen": null,
+          "fair_size": 2333
+        },
+        {
+          "codec": "cbor",
+          "size": 6061,
+          "enc_ns": 5194.0,
+          "dec_ns": 25021.0,
+          "read_one_ns": null,
+          "chosen": null,
+          "fair_size": 2560
+        },
+        {
+          "codec": "json",
+          "size": 9304,
+          "enc_ns": 4205.0,
+          "dec_ns": 12293.0,
+          "read_one_ns": null,
+          "chosen": null,
+          "fair_size": 2478
+        },
+        {
+          "codec": "arrow (ipc)",
+          "size": 4808,
+          "enc_ns": 1345.0,
+          "dec_ns": 1614.0,
+          "read_one_ns": null,
+          "chosen": null,
+          "fair_size": 2698
+        },
+        {
+          "codec": "protobuf/grpc",
+          "size": 3420,
+          "enc_ns": 1448.0,
+          "dec_ns": 5873.0,
+          "read_one_ns": null,
+          "chosen": null,
+          "fair_size": 2562
+        },
+        {
+          "codec": "capnproto",
+          "size": 7312,
+          "enc_ns": 1157.0,
+          "dec_ns": 1259.0,
+          "read_one_ns": null,
+          "chosen": null,
+          "fair_size": 3110
+        }
+      ]
+    },
+    {
+      "id": "strings",
+      "title": "String list",
+      "n": 200,
+      "kind": "fair",
+      "rows": [
+        {
+          "codec": "logos (varint)",
+          "size": 3390,
+          "enc_ns": 206.0,
+          "dec_ns": 297.0,
+          "read_one_ns": null,
+          "chosen": null,
+          "fair_size": null
+        },
+        {
+          "codec": "logos (BEST: all knobs)",
+          "size": 2192,
+          "enc_ns": 188338.0,
+          "dec_ns": 3697.0,
+          "read_one_ns": null,
+          "chosen": {
+            "numerics": "varint",
+            "floats": "memcpy",
+            "compression": "zstd",
+            "columns": [
+              "flat strings"
+            ],
+            "summary": "flat strings · zstd-compressed"
+          },
+          "fair_size": null
+        },
+        {
+          "codec": "bincode",
+          "size": 4793,
+          "enc_ns": 370.0,
+          "dec_ns": 4331.0,
+          "read_one_ns": null,
+          "chosen": null,
+          "fair_size": 2397
+        },
+        {
+          "codec": "postcard",
+          "size": 3387,
+          "enc_ns": 968.0,
+          "dec_ns": 4539.0,
+          "read_one_ns": null,
+          "chosen": null,
+          "fair_size": 2187
+        },
+        {
+          "codec": "messagepack",
+          "size": 3388,
+          "enc_ns": 881.0,
+          "dec_ns": 4970.0,
+          "read_one_ns": null,
+          "chosen": null,
+          "fair_size": 2190
+        },
+        {
+          "codec": "json",
+          "size": 3786,
+          "enc_ns": 1207.0,
+          "dec_ns": 4774.0,
+          "read_one_ns": null,
+          "chosen": null,
+          "fair_size": 2255
+        },
+        {
+          "codec": "arrow (ipc)",
+          "size": 4424,
+          "enc_ns": 953.0,
+          "dec_ns": 960.0,
+          "read_one_ns": null,
+          "chosen": null,
+          "fair_size": 2665
+        },
+        {
+          "codec": "protobuf/grpc",
+          "size": 3585,
+          "enc_ns": 565.0,
+          "dec_ns": 3935.0,
+          "read_one_ns": null,
+          "chosen": null,
+          "fair_size": 2298
+        },
+        {
+          "codec": "capnproto",
+          "size": 5784,
+          "enc_ns": 1102.0,
+          "dec_ns": 1351.0,
+          "read_one_ns": null,
+          "chosen": null,
+          "fair_size": 3090
+        }
+      ]
+    },
+    {
+      "id": "bools",
+      "title": "Boolean column (bit-packed — 1 bit/bool vs a byte each)",
+      "n": 1000,
+      "kind": "structural",
+      "rows": [
+        {
+          "codec": "logos (varint)",
+          "size": 130,
+          "enc_ns": 236.0,
+          "dec_ns": 535.0,
+          "read_one_ns": null,
+          "chosen": null,
+          "fair_size": null
+        },
+        {
+          "codec": "logos (BEST: all knobs)",
+          "size": 130,
+          "enc_ns": 236.0,
+          "dec_ns": 534.0,
+          "read_one_ns": null,
+          "chosen": {
+            "numerics": "varint",
+            "floats": "memcpy",
+            "compression": "none",
+            "columns": [
+              "bit-packed bools"
+            ],
+            "summary": "bit-packed bools · no compression"
+          },
+          "fair_size": null
+        },
+        {
+          "codec": "bincode",
+          "size": 1008,
+          "enc_ns": 338.0,
+          "dec_ns": 1259.0,
+          "read_one_ns": null,
+          "chosen": null,
+          "fair_size": 202
+        },
+        {
+          "codec": "postcard",
+          "size": 1002,
+          "enc_ns": 472.0,
+          "dec_ns": 518.0,
+          "read_one_ns": null,
+          "chosen": null,
+          "fair_size": 201
+        },
+        {
+          "codec": "messagepack",
+          "size": 1003,
+          "enc_ns": 1247.0,
+          "dec_ns": 2355.0,
+          "read_one_ns": null,
+          "chosen": null,
+          "fair_size": 205
+        },
+        {
+          "codec": "cbor",
+          "size": 1003,
+          "enc_ns": 2530.0,
+          "dec_ns": 6407.0,
+          "read_one_ns": null,
+          "chosen": null,
+          "fair_size": 205
+        },
+        {
+          "codec": "json",
+          "size": 5509,
+          "enc_ns": 821.0,
+          "dec_ns": 5656.0,
+          "read_one_ns": null,
+          "chosen": null,
+          "fair_size": 302
+        }
+      ]
+    },
+    {
+      "id": "adv_negative",
+      "title": "Int array — ALL NEGATIVE (protobuf int64 = 10B/elem)",
+      "n": 1000,
+      "kind": "adversarial",
+      "rows": [
+        {
+          "codec": "logos (varint)",
+          "size": 3427,
+          "enc_ns": 1938.0,
+          "dec_ns": 1913.0,
+          "read_one_ns": null,
+          "chosen": null,
+          "fair_size": null
+        },
+        {
+          "codec": "logos (BEST: all knobs)",
+          "size": 3278,
+          "enc_ns": 29579.0,
+          "dec_ns": 9486.0,
+          "read_one_ns": null,
+          "chosen": {
+            "numerics": "varint",
+            "floats": "memcpy",
+            "compression": "deflate",
+            "columns": [
+              "varint"
+            ],
+            "summary": "varint · deflate-compressed"
+          },
+          "fair_size": null
+        },
+        {
+          "codec": "logos (fixed)",
+          "size": 8005,
+          "enc_ns": 127.0,
+          "dec_ns": 81.0,
+          "read_one_ns": null,
+          "chosen": null,
+          "fair_size": null
+        },
+        {
+          "codec": "logos (gv/simd)",
+          "size": 4107,
+          "enc_ns": 2233.0,
+          "dec_ns": 1159.0,
+          "read_one_ns": null,
+          "chosen": null,
+          "fair_size": null
+        },
+        {
+          "codec": "logos (affine)",
+          "size": 3427,
+          "enc_ns": 1930.0,
+          "dec_ns": 1911.0,
+          "read_one_ns": null,
+          "chosen": null,
+          "fair_size": null
+        },
+        {
+          "codec": "logos (zero-copy)",
+          "size": 8008,
+          "enc_ns": 129.0,
+          "dec_ns": 59.0,
+          "read_one_ns": null,
+          "chosen": null,
+          "fair_size": null
+        },
+        {
+          "codec": "bincode",
+          "size": 8008,
+          "enc_ns": 340.0,
+          "dec_ns": 676.0,
+          "read_one_ns": null,
+          "chosen": null,
+          "fair_size": 4114
+        },
+        {
+          "codec": "postcard",
+          "size": 3424,
+          "enc_ns": 3597.0,
+          "dec_ns": 1646.0,
+          "read_one_ns": null,
+          "chosen": null,
+          "fair_size": 3275
+        },
+        {
+          "codec": "messagepack",
+          "size": 4702,
+          "enc_ns": 2649.0,
+          "dec_ns": 4301.0,
+          "read_one_ns": null,
+          "chosen": null,
+          "fair_size": 3809
+        },
+        {
+          "codec": "json",
+          "size": 8362,
+          "enc_ns": 4229.0,
+          "dec_ns": 8415.0,
+          "read_one_ns": null,
+          "chosen": null,
+          "fair_size": 3752
+        },
+        {
+          "codec": "arrow (ipc)",
+          "size": 8456,
+          "enc_ns": 850.0,
+          "dec_ns": 717.0,
+          "read_one_ns": null,
+          "chosen": null,
+          "fair_size": 4259
+        },
+        {
+          "codec": "protobuf/grpc",
+          "size": 10003,
+          "enc_ns": 12240.0,
+          "dec_ns": 2675.0,
+          "read_one_ns": null,
+          "chosen": null,
+          "fair_size": 4129
+        },
+        {
+          "codec": "capnproto",
+          "size": 8024,
+          "enc_ns": 396.0,
+          "dec_ns": 210.0,
+          "read_one_ns": null,
+          "chosen": null,
+          "fair_size": 4133
+        }
+      ]
+    },
+    {
+      "id": "adv_repetitive",
+      "title": "Int array — REPETITIVE (compression shines; fixed codecs can't)",
+      "n": 2000,
+      "kind": "adversarial",
+      "rows": [
+        {
+          "codec": "logos (varint)",
+          "size": 6755,
+          "enc_ns": 3249.0,
+          "dec_ns": 4764.0,
+          "read_one_ns": null,
+          "chosen": null,
+          "fair_size": null
+        },
+        {
+          "codec": "logos (BEST: all knobs)",
+          "size": 11,
+          "enc_ns": 53089.0,
+          "dec_ns": 2060.0,
+          "read_one_ns": null,
+          "chosen": {
+            "numerics": "varint",
+            "floats": "memcpy",
+            "compression": "none",
+            "columns": [
+              "periodic"
+            ],
+            "summary": "periodic · no compression"
+          },
+          "fair_size": null
+        },
+        {
+          "codec": "logos (fixed)",
+          "size": 16005,
+          "enc_ns": 238.0,
+          "dec_ns": 130.0,
+          "read_one_ns": null,
+          "chosen": null,
+          "fair_size": null
+        },
+        {
+          "codec": "logos (gv/simd)",
+          "size": 7755,
+          "enc_ns": 3734.0,
+          "dec_ns": 2291.0,
+          "read_one_ns": null,
+          "chosen": null,
+          "fair_size": null
+        },
+        {
+          "codec": "logos (affine)",
+          "size": 6755,
+          "enc_ns": 3255.0,
+          "dec_ns": 4537.0,
+          "read_one_ns": null,
+          "chosen": null,
+          "fair_size": null
+        },
+        {
+          "codec": "logos (zero-copy)",
+          "size": 16008,
+          "enc_ns": 239.0,
+          "dec_ns": 113.0,
+          "read_one_ns": null,
+          "chosen": null,
+          "fair_size": null
+        },
+        {
+          "codec": "bincode",
+          "size": 16008,
+          "enc_ns": 675.0,
+          "dec_ns": 1345.0,
+          "read_one_ns": null,
+          "chosen": null,
+          "fair_size": 55
+        },
+        {
+          "codec": "postcard",
+          "size": 7002,
+          "enc_ns": 7459.0,
+          "dec_ns": 3053.0,
+          "read_one_ns": null,
+          "chosen": null,
+          "fair_size": 47
+        },
+        {
+          "codec": "messagepack",
+          "size": 9003,
+          "enc_ns": 7556.0,
+          "dec_ns": 5156.0,
+          "read_one_ns": null,
+          "chosen": null,
+          "fair_size": 57
+        },
+        {
+          "codec": "json",
+          "size": 14501,
+          "enc_ns": 7718.0,
+          "dec_ns": 12707.0,
+          "read_one_ns": null,
+          "chosen": null,
+          "fair_size": 42
+        },
+        {
+          "codec": "arrow (ipc)",
+          "size": 16584,
+          "enc_ns": 1047.0,
+          "dec_ns": 870.0,
+          "read_one_ns": null,
+          "chosen": null,
+          "fair_size": 193
+        },
+        {
+          "codec": "protobuf/grpc",
+          "size": 6753,
+          "enc_ns": 5458.0,
+          "dec_ns": 5364.0,
+          "read_one_ns": null,
+          "chosen": null,
+          "fair_size": 47
+        },
+        {
+          "codec": "capnproto",
+          "size": 16040,
+          "enc_ns": 886.0,
+          "dec_ns": 399.0,
+          "read_one_ns": null,
+          "chosen": null,
+          "fair_size": 77
+        }
+      ]
+    },
+    {
+      "id": "adv_huge",
+      "title": "Int array — HUGE MAGNITUDE (fixed/memcpy beats varint)",
+      "n": 1000,
+      "kind": "adversarial",
+      "rows": [
+        {
+          "codec": "logos (varint)",
+          "size": 9508,
+          "enc_ns": 5225.0,
+          "dec_ns": 3902.0,
+          "read_one_ns": null,
+          "chosen": null,
+          "fair_size": null
+        },
+        {
+          "codec": "logos (BEST: all knobs)",
+          "size": 8005,
+          "enc_ns": 133.0,
+          "dec_ns": 80.0,
+          "read_one_ns": null,
+          "chosen": {
+            "numerics": "fixed (memcpy)",
+            "floats": "memcpy",
+            "compression": "none",
+            "columns": [
+              "fixed (memcpy)"
+            ],
+            "summary": "fixed (memcpy) · no compression"
+          },
+          "fair_size": null
+        },
+        {
+          "codec": "logos (fixed)",
+          "size": 8005,
+          "enc_ns": 132.0,
+          "dec_ns": 80.0,
+          "read_one_ns": null,
+          "chosen": null,
+          "fair_size": null
+        },
+        {
+          "codec": "logos (gv/simd)",
+          "size": 8255,
+          "enc_ns": 2006.0,
+          "dec_ns": 1169.0,
+          "read_one_ns": null,
+          "chosen": null,
+          "fair_size": null
+        },
+        {
+          "codec": "logos (affine)",
+          "size": 9508,
+          "enc_ns": 5178.0,
+          "dec_ns": 4046.0,
+          "read_one_ns": null,
+          "chosen": null,
+          "fair_size": null
+        },
+        {
+          "codec": "logos (zero-copy)",
+          "size": 8008,
+          "enc_ns": 134.0,
+          "dec_ns": 58.0,
+          "read_one_ns": null,
+          "chosen": null,
+          "fair_size": null
+        },
+        {
+          "codec": "bincode",
+          "size": 8008,
+          "enc_ns": 347.0,
+          "dec_ns": 683.0,
+          "read_one_ns": null,
+          "chosen": null,
+          "fair_size": 8008
+        },
+        {
+          "codec": "postcard",
+          "size": 9505,
+          "enc_ns": 5055.0,
+          "dec_ns": 3072.0,
+          "read_one_ns": null,
+          "chosen": null,
+          "fair_size": 8684
+        },
+        {
+          "codec": "messagepack",
+          "size": 9003,
+          "enc_ns": 4111.0,
+          "dec_ns": 4091.0,
+          "read_one_ns": null,
+          "chosen": null,
+          "fair_size": 8702
+        },
+        {
+          "codec": "json",
+          "size": 20358,
+          "enc_ns": 6462.0,
+          "dec_ns": 14474.0,
+          "read_one_ns": null,
+          "chosen": null,
+          "fair_size": 9408
+        },
+        {
+          "codec": "arrow (ipc)",
+          "size": 8456,
+          "enc_ns": 903.0,
+          "dec_ns": 715.0,
+          "read_one_ns": null,
+          "chosen": null,
+          "fair_size": 8183
+        },
+        {
+          "codec": "protobuf/grpc",
+          "size": 9485,
+          "enc_ns": 12366.0,
+          "dec_ns": 4022.0,
+          "read_one_ns": null,
+          "chosen": null,
+          "fair_size": 8682
+        },
+        {
+          "codec": "capnproto",
+          "size": 8024,
+          "enc_ns": 402.0,
+          "dec_ns": 212.0,
+          "read_one_ns": null,
+          "chosen": null,
+          "fair_size": 8024
+        }
+      ]
+    },
+    {
+      "id": "random_access",
+      "title": "Open + read one field — random access (Cap'n Proto's home turf)",
+      "n": 2000,
+      "kind": "random_access",
+      "rows": [
+        {
+          "codec": "logos (struct-view)",
+          "size": 55156,
+          "enc_ns": 31880.0,
+          "dec_ns": 546086.0,
+          "read_one_ns": 15.0,
+          "chosen": null,
+          "fair_size": null
+        },
+        {
+          "codec": "logos (struct-view fixed)",
+          "size": 42433,
+          "enc_ns": 11697.0,
+          "dec_ns": 6684.0,
+          "read_one_ns": 23.0,
+          "chosen": null,
+          "fair_size": null
+        },
+        {
+          "codec": "bincode",
+          "size": 42408,
+          "enc_ns": 6670.0,
+          "dec_ns": 44462.0,
+          "read_one_ns": 44542.0,
+          "chosen": null,
+          "fair_size": null
+        },
+        {
+          "codec": "postcard",
+          "size": 19130,
+          "enc_ns": 14733.0,
+          "dec_ns": 52659.0,
+          "read_one_ns": 53018.0,
+          "chosen": null,
+          "fair_size": null
+        },
+        {
+          "codec": "messagepack",
+          "size": 23252,
+          "enc_ns": 25172.0,
+          "dec_ns": 65635.0,
+          "read_one_ns": 65462.0,
+          "chosen": null,
+          "fair_size": null
+        },
+        {
+          "codec": "cbor",
+          "size": 53381,
+          "enc_ns": 53168.0,
+          "dec_ns": 243375.0,
+          "read_one_ns": 240890.0,
+          "chosen": null,
+          "fair_size": null
+        },
+        {
+          "codec": "json",
+          "size": 85905,
+          "enc_ns": 56072.0,
+          "dec_ns": 141415.0,
+          "read_one_ns": 140697.0,
+          "chosen": null,
+          "fair_size": null
+        },
+        {
+          "codec": "arrow (ipc)",
+          "size": 34056,
+          "enc_ns": 7990.0,
+          "dec_ns": 3541.0,
+          "read_one_ns": 3487.0,
+          "chosen": null,
+          "fair_size": null
+        },
+        {
+          "codec": "protobuf/grpc",
+          "size": 26780,
+          "enc_ns": 15046.0,
+          "dec_ns": 77656.0,
+          "read_one_ns": 77822.0,
+          "chosen": null,
+          "fair_size": null
+        },
+        {
+          "codec": "capnproto",
+          "size": 80048,
+          "enc_ns": 13110.0,
+          "dec_ns": 402.0,
+          "read_one_ns": 44.0,
+          "chosen": null,
+          "fair_size": null
+        }
+      ]
+    },
+    {
+      "id": "affine_showcase",
+      "title": "Structured/affine column (sequential ids — best case for the math-hack)",
+      "n": 1000,
+      "kind": "showcase",
+      "rows": [
+        {
+          "codec": "logos (varint)",
+          "size": 3005,
+          "enc_ns": 1274.0,
+          "dec_ns": 1718.0,
+          "read_one_ns": null,
+          "chosen": null,
+          "fair_size": null
+        },
+        {
+          "codec": "logos (BEST: all knobs)",
+          "size": 9,
+          "enc_ns": 236.0,
+          "dec_ns": 380.0,
+          "read_one_ns": null,
+          "chosen": {
+            "numerics": "varint",
+            "floats": "memcpy",
+            "compression": "none",
+            "columns": [
+              "affine (base,stride,n)"
+            ],
+            "summary": "affine (base,stride,n) · no compression"
+          },
+          "fair_size": null
+        },
+        {
+          "codec": "logos (affine)",
+          "size": 9,
+          "enc_ns": 237.0,
+          "dec_ns": 380.0,
+          "read_one_ns": null,
+          "chosen": null,
+          "fair_size": null
+        },
+        {
+          "codec": "postcard",
+          "size": 3002,
+          "enc_ns": 4003.0,
+          "dec_ns": 1446.0,
+          "read_one_ns": null,
+          "chosen": null,
+          "fair_size": 2095
+        },
+        {
+          "codec": "messagepack",
+          "size": 5003,
+          "enc_ns": 2691.0,
+          "dec_ns": 2529.0,
+          "read_one_ns": null,
+          "chosen": null,
+          "fair_size": 2096
+        },
+        {
+          "codec": "json",
+          "size": 8001,
+          "enc_ns": 4186.0,
+          "dec_ns": 6747.0,
+          "read_one_ns": null,
+          "chosen": null,
+          "fair_size": 1016
+        }
+      ]
+    },
+    {
+      "id": "poly_showcase",
+      "title": "Structured/polynomial column (3i²−5i+7 — ships the generator, not the data)",
+      "n": 1000,
+      "kind": "showcase",
+      "rows": [
+        {
+          "codec": "logos (varint)",
+          "size": 3085,
+          "enc_ns": 1430.0,
+          "dec_ns": 1680.0,
+          "read_one_ns": null,
+          "chosen": null,
+          "fair_size": null
+        },
+        {
+          "codec": "logos (BEST: all knobs)",
+          "size": 9,
+          "enc_ns": 42656.0,
+          "dec_ns": 1235.0,
+          "read_one_ns": null,
+          "chosen": {
+            "numerics": "varint",
+            "floats": "memcpy",
+            "compression": "none",
+            "columns": [
+              "polynomial"
+            ],
+            "summary": "polynomial · no compression"
+          },
+          "fair_size": null
+        },
+        {
+          "codec": "postcard",
+          "size": 3349,
+          "enc_ns": 4071.0,
+          "dec_ns": 1554.0,
+          "read_one_ns": null,
+          "chosen": null,
+          "fair_size": 3070
+        },
+        {
+          "codec": "messagepack",
+          "size": 4687,
+          "enc_ns": 2732.0,
+          "dec_ns": 2555.0,
+          "read_one_ns": null,
+          "chosen": null,
+          "fair_size": 3402
+        },
+        {
+          "codec": "json",
+          "size": 7149,
+          "enc_ns": 4020.0,
+          "dec_ns": 6461.0,
+          "read_one_ns": null,
+          "chosen": null,
+          "fair_size": 3139
+        }
+      ]
+    },
+    {
+      "id": "categorical",
+      "title": "Categorical strings (low-cardinality labels — dictionary)",
+      "n": 1000,
+      "kind": "structural",
+      "rows": [
+        {
+          "codec": "logos (varint)",
+          "size": 5489,
+          "enc_ns": 540.0,
+          "dec_ns": 1067.0,
+          "read_one_ns": null,
+          "chosen": null,
+          "fair_size": null
+        },
+        {
+          "codec": "logos (BEST: all knobs)",
+          "size": 421,
+          "enc_ns": 18587.0,
+          "dec_ns": 4041.0,
+          "read_one_ns": null,
+          "chosen": {
+            "numerics": "varint",
+            "floats": "memcpy",
+            "compression": "none",
+            "columns": [
+              "dictionary strings"
+            ],
+            "summary": "dictionary strings · no compression"
+          },
+          "fair_size": null
+        },
+        {
+          "codec": "postcard",
+          "size": 5486,
+          "enc_ns": 4224.0,
+          "dec_ns": 20839.0,
+          "read_one_ns": null,
+          "chosen": null,
+          "fair_size": 783
+        },
+        {
+          "codec": "messagepack",
+          "size": 5487,
+          "enc_ns": 3837.0,
+          "dec_ns": 23354.0,
+          "read_one_ns": null,
+          "chosen": null,
+          "fair_size": 787
+        },
+        {
+          "codec": "json",
+          "size": 7485,
+          "enc_ns": 3564.0,
+          "dec_ns": 26255.0,
+          "read_one_ns": null,
+          "chosen": null,
+          "fair_size": 821
+        }
+      ]
+    },
+    {
+      "id": "int_set",
+      "title": "Integer SET {0..n} (consecutive — ships base+stride+count)",
+      "n": 1000,
+      "kind": "showcase",
+      "rows": [
+        {
+          "codec": "logos (varint)",
+          "size": 8,
+          "enc_ns": 38506.0,
+          "dec_ns": 1517.0,
+          "read_one_ns": null,
+          "chosen": null,
+          "fair_size": null
+        },
+        {
+          "codec": "logos (BEST: all knobs)",
+          "size": 8,
+          "enc_ns": 38495.0,
+          "dec_ns": 1517.0,
+          "read_one_ns": null,
+          "chosen": {
+            "numerics": "varint",
+            "floats": "memcpy",
+            "compression": "none",
+            "columns": [
+              "int set (column menu)"
+            ],
+            "summary": "int set (column menu) · no compression"
+          },
+          "fair_size": null
+        },
+        {
+          "codec": "postcard",
+          "size": 1938,
+          "enc_ns": 4484.0,
+          "dec_ns": 22491.0,
+          "read_one_ns": null,
+          "chosen": null,
+          "fair_size": 1553
+        },
+        {
+          "codec": "messagepack",
+          "size": 2619,
+          "enc_ns": 4378.0,
+          "dec_ns": 20852.0,
+          "read_one_ns": null,
+          "chosen": null,
+          "fair_size": 1759
+        },
+        {
+          "codec": "json",
+          "size": 3891,
+          "enc_ns": 3937.0,
+          "dec_ns": 23883.0,
+          "read_one_ns": null,
+          "chosen": null,
+          "fair_size": 1685
+        }
+      ]
+    },
+    {
+      "id": "int_map",
+      "title": "Integer MAP {i↦2i} (affine — ships both columns as base+stride+count)",
+      "n": 1000,
+      "kind": "showcase",
+      "rows": [
+        {
+          "codec": "logos (varint)",
+          "size": 14,
+          "enc_ns": 86663.0,
+          "dec_ns": 24055.0,
+          "read_one_ns": null,
+          "chosen": null,
+          "fair_size": null
+        },
+        {
+          "codec": "logos (BEST: all knobs)",
+          "size": 14,
+          "enc_ns": 86064.0,
+          "dec_ns": 24015.0,
+          "read_one_ns": null,
+          "chosen": {
+            "numerics": "varint",
+            "floats": "memcpy",
+            "compression": "none",
+            "columns": [
+              "int-keyed map (columnar)"
+            ],
+            "summary": "int-keyed map (columnar) · no compression"
+          },
+          "fair_size": null
+        },
+        {
+          "codec": "postcard",
+          "size": 3906,
+          "enc_ns": 7385.0,
+          "dec_ns": 25190.0,
+          "read_one_ns": null,
+          "chosen": null,
+          "fair_size": 3234
+        },
+        {
+          "codec": "messagepack",
+          "size": 5427,
+          "enc_ns": 7829.0,
+          "dec_ns": 25329.0,
+          "read_one_ns": null,
+          "chosen": null,
+          "fair_size": 3717
+        },
+        {
+          "codec": "json",
+          "size": 10336,
+          "enc_ns": 6762.0,
+          "dec_ns": 34528.0,
+          "read_one_ns": null,
+          "chosen": null,
+          "fair_size": 2581
+        }
+      ]
+    }
+  ]
+}

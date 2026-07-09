@@ -900,7 +900,15 @@ fn fold_inside_function_call_args() {
 Show double(2 + 3).
 "#;
     let rust = compile_to_rust(source).unwrap();
-    assert!(rust.contains("double(5)"), "Should fold 2+3 inside call args to 5.\nGot:\n{}", rust);
+    // `2 + 3` folds to `5`, then the partial evaluator inlines `double(5)` and folds
+    // `5 + 5` (the sound `n * 2 → n + n`) all the way to the constant `10` — strictly
+    // MORE folding than the old `double(5)` call. The unfolded `2 + 3` must be gone.
+    assert!(!rust.contains("2 + 3"), "`2 + 3` must be folded.\nGot:\n{}", rust);
+    assert!(
+        rust.contains("double(5)") || rust.contains("show(&10)"),
+        "double(2+3) must fold (to the call double(5) or fully to show(&10)).\nGot:\n{}",
+        rust
+    );
 }
 
 #[test]
@@ -1279,7 +1287,11 @@ While i is at most 3:
 "#;
     let rust = compile_to_rust(source).unwrap();
     assert!(rust.contains("for i in 0..3"), "Should emit 0-based for-range with indexing, got:\n{}", rust);
-    assert!(rust.contains("items.borrow()[i as usize]"), "Should emit direct index (no -1 subtract), got:\n{}", rust);
+    // Direct 0-based index, no `(i - 1)` subtract. Borrow hoisting (O1)
+    // extracts the borrow once into a slice, so the hot access is the plain
+    // slice form `items[i as usize]` rather than per-access `.borrow()`.
+    assert!(rust.contains("items[i as usize]"), "Should emit direct slice index (no -1 subtract), got:\n{}", rust);
+    assert!(!rust.contains("(i - 1) as usize"), "Should not emit a -1 index subtract, got:\n{}", rust);
 }
 
 #[test]
@@ -1427,8 +1439,15 @@ fn fold_algebraic_nested_in_call() {
 Show double(5 + 0).
 "#;
     let rust = compile_to_rust(source).unwrap();
-    // Deep recursion folds into call args, then algebraic simplifies 5+0 to 5
-    assert!(rust.contains("double(5)"), "Should fold 5+0 to 5 inside call args.\nGot:\n{}", rust);
+    // `5 + 0` algebraically simplifies to `5`, then the partial evaluator inlines
+    // `double(5)` and folds `5 + 5` (the sound `n * 2 → n + n`) all the way to `10`
+    // — strictly MORE folding than the old `double(5)` call. The `5 + 0` must be gone.
+    assert!(!rust.contains("5 + 0"), "`5 + 0` must be folded.\nGot:\n{}", rust);
+    assert!(
+        rust.contains("double(5)") || rust.contains("show(&10)"),
+        "double(5+0) must fold (to the call double(5) or fully to show(&10)).\nGot:\n{}",
+        rust
+    );
 }
 
 // =============================================================================
@@ -1499,9 +1518,16 @@ Show length of flags.
 
 #[test]
 fn tier2_index_plus_one_simplifies() {
-    let source = r#"## Main
+    // FIXTURE STRENGTHENED (plan-approved): j comes from argv so the
+    // +1/−1 cancellation is exercised on a genuinely DYNAMIC index — a
+    // constant j lets stronger pipelines (exodia's point-interval folding)
+    // legitimately emit a constant index and starve the assertion.
+    let source = r#"## To native args () -> Seq of Text
+## To native parseInt (s: Text) -> Int
+
+## Main
 Let items: Seq of Int be [10, 20, 30].
-Let j be 1.
+Let j be parseInt(item 2 of args()).
 Show item (j + 1) of items.
 "#;
     let rust = compile_to_rust(source).unwrap();
@@ -1512,9 +1538,12 @@ Show item (j + 1) of items.
 
 #[test]
 fn tier2_index_one_plus_j_simplifies() {
-    let source = r#"## Main
+    let source = r#"## To native args () -> Seq of Text
+## To native parseInt (s: Text) -> Int
+
+## Main
 Let items: Seq of Int be [10, 20, 30].
-Let j be 1.
+Let j be parseInt(item 2 of args()).
 Show item (1 + j) of items.
 "#;
     let rust = compile_to_rust(source).unwrap();
@@ -1604,8 +1633,10 @@ Let y be x + 5.
 Show y.
 "#;
     let rust = compile_to_rust(source).unwrap();
-    // x is declared mutable, so we don't propagate it
-    assert!(!rust.contains("15"), "Should not propagate mutable variable, got:\n{}", rust);
+    // The Oracle PROVES x ∈ [10,10] at the use site (no mutation precedes it),
+    // so the e-graph pipeline folds `x + 5 → 15` — sound, and strictly better
+    // than the old v1 propagate pass, which refused mutable bindings.
+    assert!(rust.contains("15"), "the Oracle proves x=10 at the use; folding is sound, got:\n{}", rust);
 }
 
 #[test]
@@ -1737,19 +1768,20 @@ Show text.
 
 #[test]
 fn opt_single_char_var_conditional_assignment() {
+    // NOTE: a non-affine value map {0→a, 1→z, 2→c} — the cascade→affine fold
+    // (peephole::try_emit_affine_cascade) correctly declines (no line fits these
+    // points), so the per-branch single-char assignments remain and this test
+    // still covers the `__single_char_u8` path. (An affine cascade like 'a'+pos%5
+    // folds to arithmetic; that case is covered by phase_construction_opts.)
     let source = r#"## Main
 Let mutable text be "".
 Let mutable pos be 0.
 While pos is less than 5:
     Let mutable ch be "a".
     If pos % 5 equals 1:
-        Set ch to "b".
+        Set ch to "z".
     If pos % 5 equals 2:
         Set ch to "c".
-    If pos % 5 equals 3:
-        Set ch to "d".
-    If pos % 5 equals 4:
-        Set ch to "e".
     Set text to text + ch.
     Set pos to pos + 1.
 Show text.
@@ -1761,7 +1793,7 @@ Show text.
         rust
     );
     assert!(
-        !rust.contains("String::from(\"a\")") && !rust.contains("String::from(\"b\")"),
+        !rust.contains("String::from(\"a\")") && !rust.contains("String::from(\"z\")"),
         "Should NOT emit String::from for single-char vars, got:\n{}",
         rust
     );
@@ -1989,8 +2021,11 @@ Show x.
 Show y.
 "#;
     let rust = compile_to_rust(source).unwrap();
+    // Unproven Int arithmetic emits the checked-exact helpers — still two
+    // DISTINCT expressions, which is what this lock is about.
     assert!(
-        rust.contains("(a + b)") && rust.contains("(a * b)"),
+        (rust.contains("logos_add_exact(a, b)") || rust.contains("logos_add_i64(a, b)"))
+            && (rust.contains("logos_mul_exact(a, b)") || rust.contains("logos_mul_i64(a, b)")),
         "Different operators should not be CSE'd, got:\n{}",
         rust
     );
@@ -2227,6 +2262,81 @@ fn licm_e2e_arithmetic_correct() {
 Show compute(3, 7, 5).
 "#;
     common::assert_exact_output(source, "115");
+}
+
+// =============================================================================
+// Task C — indexed-load LICM: hoist a loop-invariant `item i of arr` read out
+// of an inner loop into a guarded preheader. The collection + index must both
+// be loop-invariant, and the collection must never be mutated in the loop. The
+// differential gate (compiled ≡ interpreted) is the soundness net.
+// =============================================================================
+
+/// The nbody force-loop shape: an inner `While j` reads `item i of arr` (i is
+/// the OUTER counter, invariant w.r.t. j) mixed with `item j of arr`. The
+/// invariant read should hoist; the answer must be unchanged.
+#[test]
+fn licm_indexed_load_nbody_shape_correct() {
+    let source = r#"## Main
+Let arr be [10, 20, 30, 40, 50].
+Let mutable acc be 0.
+Let mutable i be 1.
+While i is at most 5:
+    Let mutable j be 1.
+    While j is at most 5:
+        Let d be item i of arr - item j of arr.
+        Set acc to acc + d * d.
+        Set j to j + 1.
+    Set i to i + 1.
+Show acc.
+"#;
+    // Sum over all i,j of (arr[i]-arr[j])^2.
+    common::assert_compiled_equals_interpreted_eq(source, "10000");
+}
+
+/// SOUNDNESS: when the inner loop MUTATES the collection it indexes, the
+/// `item i of arr` read is not invariant and must not be hoisted — the answer
+/// must still match the reference engines.
+#[test]
+fn licm_indexed_load_mutated_collection_correct() {
+    let source = r#"## Main
+Let mutable arr be [1, 2, 3, 4, 5].
+Let mutable acc be 0.
+Let mutable i be 1.
+While i is at most 5:
+    Let mutable j be 1.
+    While j is at most 5:
+        Set acc to acc + item i of arr.
+        Set item i of arr to item i of arr + 1.
+        Set j to j + 1.
+    Set i to i + 1.
+Show acc.
+"#;
+    common::assert_compiled_equals_interpreted_eq(source, "125");
+}
+
+/// SOUNDNESS: the hoist preserves WHEN the invariant read runs, so on a deeper
+/// nest (three loops, the invariant read carried two levels in) compiled and
+/// interpreted agree and both match the closed-form answer.
+#[test]
+fn licm_indexed_load_triple_nest_correct() {
+    let source = r#"## Main
+Let arr be [2, 3, 5, 7].
+Let mutable acc be 0.
+Let mutable i be 1.
+While i is at most 4:
+    Let mutable k be 1.
+    While k is at most 4:
+        Let mutable j be 1.
+        While j is at most 4:
+            Let d be item i of arr * item j of arr.
+            Set acc to acc + d.
+            Set j to j + 1.
+        Set k to k + 1.
+    Set i to i + 1.
+Show acc.
+"#;
+    // acc = 4 * (sum arr) * (sum arr) = 4 * 17 * 17 = 1156.
+    common::assert_compiled_equals_interpreted_eq(source, "1156");
 }
 
 // =============================================================================
@@ -2559,7 +2669,12 @@ Show factorial(5).
 
 #[test]
 fn bit_strength_power_of_two_mul() {
-    // x * 8 → x << 3
+    // EXACT-ARITHMETIC CONTRACT: integer `*` promotes to BigInt on overflow while
+    // `<<` WRAPS, so `x * 8 → x << 3` is UNSOUND for an unbounded `x`. The IR
+    // strength reduction is now Oracle-gated (fires only when the product is
+    // PROVEN to fit i64 — see `mul_pow2_becomes_shl` / the gated `r_mul_pow2_shl`).
+    // No optimization is lost: for an unprovable parameter the emitted Rust keeps
+    // the sound `x * 8`, which rustc/LLVM strength-reduces to a shift itself.
     let source = r#"## To scale (x: Int) -> Int:
     Return x * 8.
 
@@ -2569,30 +2684,44 @@ Show scale(5).
     let rust = compile_to_rust(source).unwrap();
     let fn_body = rust.split("fn scale(").nth(1).unwrap_or("");
     assert!(
-        fn_body.contains("<< 3"),
-        "x * 8 should be strength-reduced to x << 3. Got:\n{}",
+        fn_body.contains("* 8")
+            || fn_body.contains("8 *")
+            || fn_body.contains("logos_mul_exact(x, 8)")
+            || fn_body.contains("logos_mul_i64(x, 8)"),
+        "unbounded x * 8 must stay an exact multiply (not an unsound wrapping shift). Got:\n{}",
+        rust
+    );
+    assert!(
+        !fn_body.contains("<< 3"),
+        "x * 8 must NOT be lowered to a wrapping `<< 3` for an unbounded x. Got:\n{}",
         rust
     );
     common::assert_exact_output(source, "40");
 }
 
 #[test]
-fn bit_strength_power_of_two_mod() {
-    // x % 16 → x & 15
+fn bit_strength_power_of_two_mod_respects_dividend_sign() {
+    // CONTRACT UPDATE (plan-approved, EXODIA D9/D11b): kernel modulo takes
+    // the sign of the dividend (-50 % 16 == -2, like Rust i64), so
+    // `x % 16 → x & 15` is UNSOUND for an arbitrary Int parameter — the
+    // mask is never negative. The sound rewrite lives in the Architect's
+    // mod-pow2-and rule, gated on an Oracle non-negativity proof; the
+    // unguarded fold rewrite was a real miscompile and is gone.
     let source = r#"## To mask (x: Int) -> Int:
     Return x % 16.
 
 ## Main
 Show mask(50).
+Show mask(0 - 50).
 "#;
     let rust = compile_to_rust(source).unwrap();
     let fn_body = rust.split("fn mask(").nth(1).unwrap_or("");
     assert!(
-        fn_body.contains("& 15"),
-        "x % 16 should be strength-reduced to x & 15. Got:\n{}",
+        !fn_body.contains("& 15"),
+        "x % 16 must NOT be masked without a sign proof. Got:\n{}",
         rust
     );
-    common::assert_exact_output(source, "2");
+    common::assert_exact_output(source, "2\n-2");
 }
 
 #[test]
@@ -3015,10 +3144,11 @@ Show item 2 of counts.
         "Vec index in histogram pattern should use direct indexing. Got:\n{}",
         rust
     );
-    // Also verify the index offset optimization: v+1 in index → v as usize
+    // The Oracle proves v = 1, so the residual indexes by the CONSTANT —
+    // strictly better than the old v1 offset cancellation (v+1 → v as usize).
     assert!(
-        rust.contains("v as usize"),
-        "Index (v+1) should optimize to v as usize for direct indexing. Got:\n{}",
+        rust.contains("counts[1") || rust.contains("[1usize]") || rust.contains("[1]"),
+        "the pipeline must fold the histogram index to a constant. Got:\n{}",
         rust
     );
     common::assert_exact_output(source, "1");
@@ -3059,13 +3189,18 @@ Show total.
 
 #[test]
 fn bounds_elim_assert_unchecked() {
-    // For-range loop indexing array → emit assert_unchecked hint for LLVM
-    let source = r#"## Main
+    // For-range loop indexing a runtime-sized Seq → emit assert_unchecked
+    // hint for LLVM. (A fixed-size Seq would scalarize to an array with no
+    // bounds checks at all; the hint is the runtime-Seq case.)
+    let source = r#"## To native parseInt (s: Text) -> Int
+
+## Main
+Let n be parseInt("3").
 Let mutable items be a new Seq of Int.
-Push 10 to items.
-Push 20 to items.
-Push 30 to items.
-Let n be 3.
+Let mutable k be 1.
+While k is at most n:
+    Push k * 10 to items.
+    Set k to k + 1.
 Let mutable total be 0.
 Let mutable i be 1.
 While i is at most n:
@@ -3211,4 +3346,470 @@ Show result.
         rust
     );
     common::assert_exact_output(source, "81");
+}
+// =============================================================================
+// Camp 0c: OPT-4/OPT-9 Bounds-Hint Soundness (O5a)
+// =============================================================================
+//
+// Every emitted `assert_unchecked` bounds hint must be TRUE in any program
+// that does not panic. The hint strength must match the maximum emitted index:
+//   - inclusive loop + direct counter index (`item (w + 1) of a`) → strict `<`
+//   - exclusive loop + 1-based index (`item i of a`) → `(limit - 1) <=`
+//   - hints derive only from UNCONDITIONAL accesses, in loops with unit
+//     increments, invariant bounds, no early exits, and un-resized arrays
+// Hints hoist the length once (`__{arr}_bhl`) and assert inside the loop
+// header (never executes for empty loops), paired with a debug_assert!.
+
+#[test]
+fn o5a_inclusive_direct_hint_is_strict() {
+    // Inclusive loop indexing `item (w + 1)` reaches index = limit, so the
+    // hint must be `limit < len`, not `limit <= len` (off-by-one: knapsack).
+    let source = r#"## To native parseInt (s: Text) -> Int
+
+## Main
+Let n be parseInt("8").
+Let mutable dp be a new Seq of Int.
+Let mutable k be 0.
+While k is less than n + 1:
+    Push 0 to dp.
+    Set k to k + 1.
+Let mutable w be 0.
+While w is at most n:
+    Set item (w + 1) of dp to w * 2.
+    Set w to w + 1.
+Let mutable total be 0.
+Set w to 0.
+While w is at most n:
+    Set total to total + item (w + 1) of dp.
+    Set w to w + 1.
+Show total.
+"#;
+    let rust = compile_to_rust(source).unwrap();
+    assert!(
+        rust.contains(" < __dp_bhl"),
+        "Inclusive direct-indexed loop should emit a strict `<` bounds hint on the hoisted length. Got:\n{}",
+        rust
+    );
+    assert!(
+        !rust.contains(" as usize) <= "),
+        "The unsound usize-cast hint form should be gone. Got:\n{}",
+        rust
+    );
+    common::assert_exact_output(source, "72");
+}
+
+#[test]
+fn o5a_write_only_loop_gets_hint() {
+    // A loop that only WRITES through the counter (`Set item (w+1) of dp`)
+    // must also receive a bounds hint (SetIndex targets count as accesses).
+    let source = r#"## To native parseInt (s: Text) -> Int
+
+## Main
+Let n be parseInt("8").
+Let mutable dp be a new Seq of Int.
+Let mutable k be 0.
+While k is less than n + 1:
+    Push 0 to dp.
+    Set k to k + 1.
+Let mutable w be 0.
+While w is at most n:
+    Set item (w + 1) of dp to w.
+    Set w to w + 1.
+Show item 3 of dp.
+"#;
+    let rust = compile_to_rust(source).unwrap();
+    assert!(
+        rust.contains(" < __dp_bhl"),
+        "Write-only direct-indexed loop should emit a strict bounds hint. Got:\n{}",
+        rust
+    );
+    common::assert_exact_output(source, "2");
+}
+
+#[test]
+fn o5a_negative_limit_loop_never_runs_clean() {
+    // A loop whose limit is negative at runtime never executes. The hint must
+    // not execute either: today's preheader hint casts the negative limit to
+    // usize (wraps huge) and asserts false → UB / debug abort in a CORRECT
+    // program.
+    let source = r#"## To native parseInt (s: Text) -> Int
+
+## Main
+Let n be parseInt("0") - 5.
+Let mutable arr be a new Seq of Int.
+Let mutable total be 0.
+Let mutable w be 0.
+While w is at most n:
+    Set total to total + item (w + 1) of arr.
+    Set w to w + 1.
+Show total.
+"#;
+    common::assert_exact_output(source, "0");
+}
+
+#[test]
+fn o5a_guarded_access_emits_no_hint() {
+    // The only access is under `If w is at most 3`, so the LOOP guard `w <= n`
+    // does NOT imply `w <= length(arr)` — O5a must NOT emit its loop-level
+    // hint (it would assert the false `w_max <= arr.len()` → UB). O5a's hint is
+    // identified by its `__arr_bhl` length snapshot in the preheader.
+    //
+    // The bounds-elision ORACLE, however, MAY emit a SOUND statement-level hint
+    // INSIDE the guard: there `w <= 3` and `arr.len() == 3` are both known, so
+    // `arr[w-1]` is provably in range — a real check O5a/LLVM cannot drop. The
+    // soundness contract is therefore: O5a's loop snapshot is absent AND the
+    // program runs correctly (the paired `debug_assert!` on every emitted hint
+    // would panic here in debug if any hint were false).
+    let source = r#"## To native parseInt (s: Text) -> Int
+
+## Main
+Let n be parseInt("10").
+Let mutable arr be a new Seq of Int.
+Push 5 to arr.
+Push 6 to arr.
+Push 7 to arr.
+Let mutable total be 0.
+Let mutable w be 1.
+While w is at most n:
+    If w is at most 3:
+        Set total to total + item w of arr.
+    Set w to w + 1.
+Show total.
+"#;
+    let rust = compile_to_rust(source).unwrap();
+    assert!(
+        !rust.contains("__arr_bhl"),
+        "O5a must not emit its loop-level length snapshot/hint for a guarded \
+         access (the loop guard does not bound the index). Got:\n{}",
+        rust
+    );
+    common::assert_exact_output(source, "18");
+}
+
+#[test]
+fn o5a_exclusive_minus_one_exact_fit() {
+    // Exclusive loop `i < n` with `item i of arr`: max index is n-2, so a
+    // correct program may have len == n-1 exactly. Today's `n <= len` hint is
+    // false for it (over-assertion). The fixed hint is `(n - 1) <= len`.
+    let source = r#"## To native parseInt (s: Text) -> Int
+
+## Main
+Let n be parseInt("5").
+Let mutable arr be a new Seq of Int.
+Let mutable k be 1.
+While k is less than n:
+    Push k * 10 to arr.
+    Set k to k + 1.
+Let mutable total be 0.
+Let mutable i be 1.
+While i is less than n:
+    Set total to total + item i of arr.
+    Set i to i + 1.
+Show total.
+"#;
+    let rust = compile_to_rust(source).unwrap();
+    assert!(
+        rust.contains("(n - 1) <= __arr_bhl"),
+        "Exclusive 1-based-indexed loop should hint `(limit - 1) <= len`. Got:\n{}",
+        rust
+    );
+    common::assert_exact_output(source, "100");
+}
+
+#[test]
+fn o5a_inclusive_minus_one_exact_fit_keeps_le() {
+    // Inclusive loop `i <= n` with `item i of arr` (counter also used
+    // arithmetically, so zero-basing does not apply): max index is n-1 and
+    // len == n exactly is fine — hint stays `n <= len`.
+    let source = r#"## To native parseInt (s: Text) -> Int
+
+## Main
+Let n be parseInt("5").
+Let mutable arr be a new Seq of Int.
+Let mutable k be 1.
+While k is at most n:
+    Push k to arr.
+    Set k to k + 1.
+Let mutable total be 0.
+Let mutable i be 1.
+While i is at most n:
+    Set total to total + i + item i of arr.
+    Set i to i + 1.
+Show total.
+"#;
+    let rust = compile_to_rust(source).unwrap();
+    assert!(
+        rust.contains("assert_unchecked(n <= __arr_bhl)"),
+        "Inclusive 1-based-indexed loop should keep the `<=` hint. Got:\n{}",
+        rust
+    );
+    common::assert_exact_output(source, "30");
+}
+
+#[test]
+fn o5a_oob_program_fails_cleanly_in_debug() {
+    // An actually-out-of-bounds program must keep a DEFINED failure in debug
+    // builds: the paired debug_assert! fires with a diagnostic message
+    // (slightly earlier than the access would have panicked).
+    let source = r#"## To native parseInt (s: Text) -> Int
+
+## Main
+Let n be parseInt("5").
+Let mutable arr be a new Seq of Int.
+Let mutable k be 1.
+While k is at most n:
+    Push k to arr.
+    Set k to k + 1.
+Let mutable w be 0.
+While w is at most n:
+    Set item (w + 1) of arr to 9.
+    Set w to w + 1.
+Show item 1 of arr.
+"#;
+    common::assert_panics(source, "LOGOS bounds hint violated");
+}
+
+#[test]
+fn o5a_while_site_direct_is_strict() {
+    // The residual-While hint site (OPT-9) has the same off-by-one for
+    // direct counter indexing: `item (i + 1)` with `i <= n` reaches index n.
+    let source = r#"## To native parseInt (s: Text) -> Int
+
+## To probe (arr: Seq of Int, n: Int) -> Int:
+    Let mutable total be 0.
+    Let mutable i be 0.
+    Set total to 0.
+    While i is at most n:
+        Set total to total + item (i + 1) of arr.
+        Set i to i + 1.
+    Return total.
+
+## Main
+Let mutable arr be a new Seq of Int.
+Push 1 to arr.
+Push 2 to arr.
+Push 3 to arr.
+Push 4 to arr.
+Push 5 to arr.
+Push 6 to arr.
+Show probe(arr, parseInt("5")).
+"#;
+    let rust = compile_to_rust(source).unwrap();
+    assert!(
+        rust.contains(" < __arr_bhl"),
+        "While-site direct-indexed loop should emit a strict `<` hint. Got:\n{}",
+        rust
+    );
+    common::assert_exact_output(source, "21");
+}
+
+#[test]
+fn o5a_while_site_mutated_bound_no_hint() {
+    // The while-loop bound shrinks inside the body, so the bound value at
+    // hint time exceeds what the counter ever reaches — no hint may be
+    // emitted (today one is, and it is false in this correct program).
+    let source = r#"## To native parseInt (s: Text) -> Int
+
+## To probe (arr: Seq of Int, start: Int) -> Int:
+    Let mutable total be 0.
+    Let mutable n be start.
+    Let mutable i be 1.
+    Set total to 0.
+    While i is at most n:
+        Set total to total + item i of arr.
+        Set n to n - 1.
+        Set i to i + 1.
+    Return total.
+
+## Main
+Let mutable arr be a new Seq of Int.
+Push 1 to arr.
+Push 2 to arr.
+Push 3 to arr.
+Push 4 to arr.
+Push 5 to arr.
+Show probe(arr, parseInt("10")).
+"#;
+    let rust = compile_to_rust(source).unwrap();
+    assert!(
+        !rust.contains("assert_unchecked"),
+        "Loop with body-mutated bound must not produce a bounds hint. Got:\n{}",
+        rust
+    );
+    common::assert_exact_output(source, "15");
+}
+
+#[test]
+fn o5a_while_site_step_two_no_hint() {
+    // Non-unit counter steps mean the counter may never attain the bound, so
+    // the bound-strength hint is not implied by correctness — no hint.
+    let source = r#"## To native parseInt (s: Text) -> Int
+
+## To probe (arr: Seq of Int, n: Int) -> Int:
+    Let mutable total be 0.
+    Let mutable i be 1.
+    Set total to 0.
+    While i is at most n:
+        Set total to total + item i of arr.
+        Set i to i + 2.
+    Return total.
+
+## Main
+Let mutable arr be a new Seq of Int.
+Push 1 to arr.
+Push 2 to arr.
+Push 3 to arr.
+Push 4 to arr.
+Push 5 to arr.
+Push 6 to arr.
+Push 7 to arr.
+Push 8 to arr.
+Push 9 to arr.
+Show probe(arr, parseInt("10")).
+"#;
+    let rust = compile_to_rust(source).unwrap();
+    assert!(
+        !rust.contains("assert_unchecked"),
+        "Loop with non-unit counter step must not produce a bounds hint. Got:\n{}",
+        rust
+    );
+    common::assert_exact_output(source, "25");
+}
+
+#[test]
+fn o5a_break_in_body_no_hint() {
+    // A Break can exit before the counter reaches the bound, so the hint is
+    // not implied by correctness — no hint for any array in this loop.
+    let source = r#"## To native parseInt (s: Text) -> Int
+
+## Main
+Let n be parseInt("100").
+Let mutable arr be a new Seq of Int.
+Push 7 to arr.
+Push 8 to arr.
+Push 9 to arr.
+Let mutable total be 0.
+Let mutable i be 1.
+While i is at most n:
+    Set total to total + item i of arr.
+    If i is at least 3:
+        Break.
+    Set i to i + 1.
+Show total.
+"#;
+    let rust = compile_to_rust(source).unwrap();
+    assert!(
+        !rust.contains("assert_unchecked"),
+        "Loop containing Break must not produce a bounds hint. Got:\n{}",
+        rust
+    );
+    common::assert_exact_output(source, "24");
+}
+
+#[test]
+fn o5a_resized_array_no_hint() {
+    // The array grows inside the loop, so a preheader length snapshot
+    // understates the length at access time — no hint for resized arrays.
+    let source = r#"## To native parseInt (s: Text) -> Int
+
+## Main
+Let n be parseInt("4").
+Let mutable dp be a new Seq of Int.
+Push 1 to dp.
+Let mutable total be 0.
+Let mutable w be 0.
+While w is at most n:
+    Set total to total + item (w + 1) of dp.
+    Push 0 to dp.
+    Set w to w + 1.
+Show total.
+"#;
+    let rust = compile_to_rust(source).unwrap();
+    assert!(
+        !rust.contains("assert_unchecked"),
+        "Loop that resizes the indexed array must not produce a bounds hint. Got:\n{}",
+        rust
+    );
+    common::assert_exact_output(source, "1");
+}
+
+#[test]
+fn bce_hoist_tiled_flattened_indices_get_bilinear_guard() {
+    // OPT-TILE loops index with flattened affine forms (i*n+j+1). The old O5a
+    // counter-bound hint is meaningless for them, but the AOT BCE-hoist proves
+    // them in range with a SOUND bilinear guard: one preheader `assert!` of the
+    // max index `(n-1)*n + (n-1)` per array (PANICS, never UB, if too short) +
+    // a per-FMA `assert_unchecked` LLVM uses to drop the check. This is what
+    // flips matrix_mult to a win.
+    let source = r#"## To native parseInt (s: Text) -> Int
+
+## Main
+Let n be parseInt("8").
+Let mutable a be a new Seq of Int.
+Let mutable c be a new Seq of Int.
+Let mutable i be 0.
+While i is less than n * n:
+    Push i % 100 to a.
+    Push 0 to c.
+    Set i to i + 1.
+Set i to 0.
+While i is less than n:
+    Let mutable k be 0.
+    While k is less than n:
+        Let mutable j be 0.
+        While j is less than n:
+            Let idx be i * n + j + 1.
+            Set item idx of c to (item idx of c) + (item (i * n + k + 1) of a) * (item (k * n + j + 1) of a).
+            Set j to j + 1.
+        Set k to k + 1.
+    Set i to i + 1.
+Show item 1 of c.
+"#;
+    let rust = compile_to_rust(source).unwrap();
+    assert!(
+        rust.contains("step_by"),
+        "Tiling should still fire on the matrix shape. Got:\n{}",
+        rust
+    );
+    assert!(
+        rust.contains("LOGOS bounds guard"),
+        "Tiled flattened bilinear indices should get a preheader bounds guard. Got:\n{}",
+        rust
+    );
+    assert!(
+        rust.contains("assert_unchecked"),
+        "The hoisted guard licenses a per-access assert_unchecked. Got:\n{}",
+        rust
+    );
+    // The elision must stay CORRECT: c[0] = Σ_k a[k]·a[8k] = Σ_k k·8k = 8·Σk² = 1120.
+    common::assert_exact_output(source, "1120");
+}
+
+#[test]
+fn o5a_zero_based_loop_keeps_le() {
+    // OPT-8 zero-based loops (`for i in 0..limit`, raw index) have max index
+    // limit-1 — the `<=` strength is correct and must be kept.
+    let source = r#"## To native parseInt (s: Text) -> Int
+
+## Main
+Let n be parseInt("3").
+Let mutable items be a new Seq of Int.
+Let mutable k be 1.
+While k is at most n:
+    Push k * 10 to items.
+    Set k to k + 1.
+Let mutable total be 0.
+Let mutable i be 1.
+While i is at most n:
+    Set total to total + item i of items.
+    Set i to i + 1.
+Show total.
+"#;
+    let rust = compile_to_rust(source).unwrap();
+    assert!(
+        rust.contains("<= __items_bhl"),
+        "Zero-based loop should keep the `<=` hint on the hoisted length. Got:\n{}",
+        rust
+    );
+    common::assert_exact_output(source, "60");
 }

@@ -1,0 +1,33 @@
+# Types, enums, pattern matching, CRDTs, zones, temporal literals.
+
+## A Point has:
+    An x: Int.
+    A y: Int.
+
+## A Shape is one of:
+    A Circle with radius Int.
+    A Square with side Int.
+
+## Main
+Let p be a new Point with x 10 and y 20.
+Set p's x to 5.
+Show p's x.
+Let s be a new Circle with radius 10.
+Inspect s:
+    When Circle (r):
+        Show r.
+    Otherwise:
+        Show "other".
+Let maybe be some 30.
+Inspect maybe:
+    When OptionSome (v):
+        Show v.
+    When OptionNone:
+        Show none.
+Let deadline be 2026-05-20 at 4pm.
+Sleep 500ms.
+Inside a zone called "Scratch":
+    Let tmp be a copy of p.
+Merge remote into local.
+Increase c's points by 10.
+Append "Line 1" to doc's lines.

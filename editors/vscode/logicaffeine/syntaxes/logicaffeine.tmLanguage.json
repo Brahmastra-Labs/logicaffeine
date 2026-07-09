@@ -3,59 +3,301 @@
   "name": "LogicAffeine",
   "scopeName": "source.logicaffeine",
   "patterns": [
+    { "include": "#note-block" },
     { "include": "#block-header" },
-    { "include": "#strings" },
+    { "include": "#comment" },
+    { "include": "#string-multiline" },
+    { "include": "#string" },
+    { "include": "#char-literal" },
+    { "include": "#temporal-literals" },
+    { "include": "#money" },
     { "include": "#numbers" },
+    { "include": "#let-binding" },
+    { "include": "#set-target" },
+    { "include": "#collection-types" },
+    { "include": "#constructor" },
+    { "include": "#variant-pattern" },
+    { "include": "#type-annotation" },
+    { "include": "#return-type" },
+    { "include": "#english-operators" },
     { "include": "#keywords" },
+    { "include": "#method-call" },
+    { "include": "#function-call" },
+    { "include": "#storage-modifiers" },
     { "include": "#types" },
-    { "include": "#operators" },
+    { "include": "#constants" },
     { "include": "#quantifiers" },
     { "include": "#modals" },
-    { "include": "#connectives" }
+    { "include": "#connectives" },
+    { "include": "#operators" },
+    { "include": "#possessive" },
+    { "include": "#accessor-dot" },
+    { "include": "#index-brackets" }
   ],
   "repository": {
-    "block-header": {
-      "match": "^##\\s+.*$",
-      "name": "entity.name.section.logicaffeine"
+    "note-block": {
+      "comment": "## Note / ## Example bodies are documentation — prose recedes into comment color (mirrors the LSP's semantic classification)",
+      "begin": "^(##)\\s+(Note|Example)\\b.*$",
+      "beginCaptures": {
+        "1": { "name": "punctuation.definition.heading.logicaffeine" },
+        "2": { "name": "keyword.control.section.logicaffeine" }
+      },
+      "end": "(?=^##\\s)",
+      "name": "comment.block.documentation.logicaffeine"
     },
-    "strings": {
+    "block-header": {
+      "patterns": [
+        {
+          "comment": "## To name (params) -> Ret:  — function definition",
+          "match": "^(##)\\s+(To)\\s+(native\\s+)?([a-zA-Z_]\\w*)",
+          "captures": {
+            "1": { "name": "punctuation.definition.heading.logicaffeine" },
+            "2": { "name": "keyword.control.section.logicaffeine" },
+            "3": { "name": "storage.modifier.native.logicaffeine" },
+            "4": { "name": "entity.name.function.logicaffeine" }
+          }
+        },
+        {
+          "comment": "## A Point has: / ## A Shape is one of:  — type definition",
+          "match": "^(##)\\s+(An?)\\s+([A-Z]\\w*)",
+          "captures": {
+            "1": { "name": "punctuation.definition.heading.logicaffeine" },
+            "2": { "name": "keyword.control.section.logicaffeine" },
+            "3": { "name": "entity.name.type.logicaffeine" }
+          }
+        },
+        {
+          "comment": "## Theorem: name and the other section headers",
+          "match": "^(##)\\s+(Main|Theorem|Proof|Definition|Define|Axiom|Theory|Example|Logic|Note|Policy|Requires|Hardware|Property|No|Tier)\\b\\s*(:)?\\s*(.*)$",
+          "captures": {
+            "1": { "name": "punctuation.definition.heading.logicaffeine" },
+            "2": { "name": "keyword.control.section.logicaffeine" },
+            "3": { "name": "punctuation.separator.logicaffeine" },
+            "4": { "name": "entity.name.section.logicaffeine" }
+          }
+        },
+        {
+          "comment": "Any other ## header",
+          "match": "^(##)\\s+.*$",
+          "name": "entity.name.section.logicaffeine",
+          "captures": {
+            "1": { "name": "punctuation.definition.heading.logicaffeine" }
+          }
+        }
+      ]
+    },
+    "comment": {
+      "comment": "Single # comments to end of line (## is a block header). Level-1 `# Heading` lines in literate files are comments to the compiler too.",
+      "match": "#(?!#).*$",
+      "name": "comment.line.number-sign.logicaffeine"
+    },
+    "string-multiline": {
+      "begin": "\"\"\"",
+      "end": "\"\"\"",
+      "name": "string.quoted.triple.logicaffeine",
+      "patterns": [{ "include": "#string-interior" }]
+    },
+    "string": {
       "begin": "\"",
       "end": "\"",
       "name": "string.quoted.double.logicaffeine",
+      "patterns": [{ "include": "#string-interior" }]
+    },
+    "string-interior": {
       "patterns": [
         {
           "match": "\\\\.",
           "name": "constant.character.escape.logicaffeine"
+        },
+        {
+          "comment": "Interpolation hole with optional format spec: {name}, {pi:.2}, {s:>10}, {v=}, {price:$}",
+          "match": "(\\{)([a-zA-Z_]\\w*)(=)?((:)[^}]*)?(\\})",
+          "captures": {
+            "1": { "name": "punctuation.section.interpolation.begin.logicaffeine" },
+            "2": { "name": "variable.other.interpolated.logicaffeine" },
+            "3": { "name": "constant.other.format.debug.logicaffeine" },
+            "4": { "name": "constant.other.format.logicaffeine" },
+            "6": { "name": "punctuation.section.interpolation.end.logicaffeine" }
+          }
         }
       ]
     },
+    "char-literal": {
+      "match": "`[^`]`",
+      "name": "string.quoted.single.logicaffeine"
+    },
+    "temporal-literals": {
+      "patterns": [
+        {
+          "comment": "Durations: 50ns 100us 500ms 2s 5min 1h",
+          "match": "\\b\\d+(ns|us|ms|s|min|h)\\b",
+          "name": "constant.numeric.duration.logicaffeine"
+        },
+        {
+          "comment": "ISO dates: 2026-05-20",
+          "match": "\\b\\d{4}-\\d{2}-\\d{2}\\b",
+          "name": "constant.numeric.date.logicaffeine"
+        },
+        {
+          "comment": "Times of day: 9am, 9:30am, 4pm",
+          "match": "\\b\\d{1,2}(:\\d{2})?(am|pm)\\b",
+          "name": "constant.numeric.time.logicaffeine"
+        },
+        {
+          "match": "\\b(noon|midnight)\\b",
+          "name": "constant.numeric.time.logicaffeine"
+        }
+      ]
+    },
+    "money": {
+      "match": "[$€£¥]\\d[\\d,]*(\\.\\d+)?",
+      "name": "constant.numeric.money.logicaffeine"
+    },
     "numbers": {
-      "match": "\\b\\d+(\\.\\d+)?\\b",
-      "name": "constant.numeric.logicaffeine"
+      "patterns": [
+        {
+          "match": "\\b0x[0-9a-fA-F][0-9a-fA-F_]*\\b",
+          "name": "constant.numeric.hex.logicaffeine"
+        },
+        {
+          "match": "\\b\\d[\\d_]*(\\.\\d+)?\\b",
+          "name": "constant.numeric.logicaffeine"
+        }
+      ]
+    },
+    "let-binding": {
+      "comment": "Let [mutable] name … — the bound name is a declaration",
+      "match": "\\b(Let)\\s+(mutable\\s+|mut\\s+)?([a-zA-Z_]\\w*)",
+      "captures": {
+        "1": { "name": "keyword.control.logicaffeine" },
+        "2": { "name": "storage.modifier.logicaffeine" },
+        "3": { "name": "variable.other.readwrite.definition.logicaffeine" }
+      }
+    },
+    "set-target": {
+      "comment": "Set name … — mutation target (`Set item i of xs` keeps `item` as the operator word)",
+      "match": "^\\s*(Set)\\s+(?!item\\b|items\\b)([a-z_]\\w*)\\b",
+      "captures": {
+        "1": { "name": "keyword.control.logicaffeine" },
+        "2": { "name": "variable.other.readwrite.logicaffeine" }
+      }
+    },
+    "collection-types": {
+      "comment": "Collection names in type position (`Set of Int`) beat the Set/Map statement keywords",
+      "match": "\\b(Set|Map|Seq|List|Vec|Option|Result|Pipe)\\b(?=\\s+of\\b)",
+      "name": "entity.name.type.logicaffeine"
+    },
+    "constructor": {
+      "comment": "a new TypeName — construction site",
+      "match": "\\b(an?)\\s+(new)\\s+([A-Z]\\w*)",
+      "captures": {
+        "1": { "name": "keyword.control.logicaffeine" },
+        "2": { "name": "keyword.control.logicaffeine" },
+        "3": { "name": "entity.name.type.logicaffeine" }
+      }
+    },
+    "variant-pattern": {
+      "comment": "When VariantName (bindings): — pattern-match arm",
+      "match": "\\b(When)\\s+([A-Z]\\w*)",
+      "captures": {
+        "1": { "name": "keyword.control.logicaffeine" },
+        "2": { "name": "variable.other.enummember.logicaffeine" }
+      }
+    },
+    "type-annotation": {
+      "comment": "name: Type — parameter and field annotations",
+      "match": "\\b([a-z_]\\w*)\\s*(:)\\s*(?=[A-Z]|fn\\b)",
+      "captures": {
+        "1": { "name": "variable.parameter.logicaffeine" },
+        "2": { "name": "punctuation.separator.annotation.logicaffeine" }
+      }
+    },
+    "return-type": {
+      "match": "(->)\\s*([A-Z]\\w*)",
+      "captures": {
+        "1": { "name": "keyword.operator.arrow.logicaffeine" },
+        "2": { "name": "entity.name.type.logicaffeine" }
+      }
+    },
+    "english-operators": {
+      "comment": "Multiword English operators — the signature LOGOS look",
+      "patterns": [
+        {
+          "match": "\\b(is at least|is at most|is less than|is greater than|is equal to|is not equal to|is not|is divisible by|is even|is odd|is between)\\b",
+          "name": "keyword.operator.word.comparison.logicaffeine"
+        },
+        {
+          "match": "\\b(combined with|followed by|shifted left by|shifted right by|without|equals|xor|union|intersection|contains)\\b",
+          "name": "keyword.operator.word.logicaffeine"
+        },
+        {
+          "match": "\\b(item|items|length of|copy of|through|where|decreasing)\\b",
+          "name": "keyword.operator.word.logicaffeine"
+        }
+      ]
     },
     "keywords": {
-      "match": "\\b(Let|Set|If|While|Repeat|Return|Show|Give|Push|Pop|Call|Inspect|Otherwise|Else|Elif|New|Check|Assert|Trust|Escape|Native|Read|Write|Sleep|Spawn|Send|Await|Merge|Increase|Decrease|Launch|Receive|Stop|Mount|Sync|Listen|For|In|From|Be|To)\\b",
+      "match": "\\b(Let|Set|If|While|Repeat|Return|Break|Show|Give|Push|Pop|Call|Inspect|When|Otherwise|Else|Elif|elif|New|Check|Assert|Trust|Require|Requires|Ensures|Escape|Native|native|Read|Write|Sleep|Spawn|Send|Await|Merge|Increase|Decrease|Launch|Receive|Stop|Try|Mount|Sync|Listen|Connect|For|for|In|in|From|from|Be|be|To|to|Into|Inside|Zone|Called|called|Add|Remove|Append|Resolve|Attempt|Simultaneously|Following|Given|Prove|Auto|First|After|Console|File|Values|Size|Mapped|Manifest|Chunk|with|of|by|at|Task|task)\\b",
       "name": "keyword.control.logicaffeine"
     },
-    "types": {
-      "match": "\\b(Int|Nat|Text|Bool|Float|Unit|Char|Byte|List|Seq|Map|Set|Option|Result|Shared|Portable|Persistent)\\b",
-      "name": "storage.type.logicaffeine"
+    "storage-modifiers": {
+      "match": "\\b(mutable|mut|Shared|Portable|Persistent|Divergent|RemoveWins|AddWins|YATA)\\b",
+      "name": "storage.modifier.logicaffeine"
     },
-    "operators": {
-      "match": "(->|==|!=|<=|>=|<|>|\\+|-|\\*|/|%|=)",
-      "name": "keyword.operator.logicaffeine"
+    "types": {
+      "match": "\\b(Int|Nat|Text|Bool|Float|Unit|Char|Byte|BigInt|Word8|Word16|Word32|Word64|List|Seq|Vec|Map|Set|Option|Result|Pipe|Pair|Triple|Tally|SharedSet|SharedSequence|CollaborativeSequence|SharedMap|ConvergentCount|fn)\\b",
+      "name": "entity.name.type.logicaffeine"
+    },
+    "constants": {
+      "match": "\\b(true|false|none|nothing|some)\\b",
+      "name": "constant.language.logicaffeine"
     },
     "quantifiers": {
-      "match": "\\b(All|Every|Some|No|Any|Most|Few|Many|Both)\\b",
-      "name": "keyword.other.quantifier.logicaffeine"
+      "match": "\\b(All|Every|Some|No|Any|Most|Few|Many|Both|Each|every|all|no one|nobody|nothing|anything|anyone|nowhere|never|ever)\\b",
+      "name": "keyword.control.quantifier.logicaffeine"
     },
     "modals": {
-      "match": "\\b(Must|Can|Should|Shall|May|Cannot|Would|Could|Might)\\b",
-      "name": "keyword.other.modal.logicaffeine"
+      "match": "\\b(Must|Can|Should|Shall|May|Cannot|Would|Could|Might|must|can|should|shall|may|cannot|would|could|might)\\b",
+      "name": "keyword.control.modal.logicaffeine"
     },
     "connectives": {
-      "match": "\\b(And|Or|Not|If|Then|Iff|Because)\\b",
+      "match": "\\b(And|Or|Not|Then|Iff|Because|Although|Until|Release|and|or|not|then|iff|because|although|until)\\b",
       "name": "keyword.operator.logical.logicaffeine"
+    },
+    "operators": {
+      "patterns": [
+        {
+          "match": "(\\*\\*|//|\\+=|-=|\\*=|/=|%=|->|==|!=|<=|>=|<|>|\\+|-|\\*|/|%|=|&|\\||~|\\^)",
+          "name": "keyword.operator.logicaffeine"
+        }
+      ]
+    },
+    "possessive": {
+      "comment": "p's x — the genitive field accessor",
+      "match": "('s)\\b",
+      "name": "keyword.operator.accessor.logicaffeine"
+    },
+    "method-call": {
+      "comment": "UFCS: xs.f(a) — accessor dot + callee",
+      "match": "(\\.)([a-zA-Z_]\\w*)\\s*(?=\\()",
+      "captures": {
+        "1": { "name": "punctuation.accessor.logicaffeine" },
+        "2": { "name": "entity.name.function.logicaffeine" }
+      }
+    },
+    "function-call": {
+      "comment": "f(a, b) — call site",
+      "match": "\\b([a-zA-Z_]\\w*)\\s*(?=\\()",
+      "name": "entity.name.function.logicaffeine"
+    },
+    "accessor-dot": {
+      "comment": "p.x — field access (≡ p's x)",
+      "match": "(\\.)(?=[a-zA-Z_])",
+      "name": "punctuation.accessor.logicaffeine"
+    },
+    "index-brackets": {
+      "match": "[\\[\\]]",
+      "name": "punctuation.section.brackets.logicaffeine"
     }
   }
 }

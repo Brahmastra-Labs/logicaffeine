@@ -600,9 +600,12 @@ Let result be f(3, n).
 Show result.
 "#;
     let rust = compile_to_rust(source).unwrap();
+    // The constant 3 is inlined as the LEFT operand of the residual multiply. Under the
+    // exact-arithmetic ruling an `Int * Int` lowers to `logos_mul_exact(..)` (overflow →
+    // BigInt), so the specialization shows up as `logos_mul_exact(3, <dyn>)`.
     assert!(
-        rust.contains("3 * "),
-        "PE should specialize f(3, D): residual body should contain 3 * <dyn>. Got:\n{}",
+        rust.contains("logos_mul_exact(3, ") || rust.contains("logos_mul_i64(3, "),
+        "PE should specialize f(3, D): residual body should contain logos_mul_exact(3, <dyn>) or the narrowed logos_mul_i64(3, <dyn>). Got:\n{}",
         rust
     );
     common::assert_exact_output(source, "21");
@@ -621,9 +624,12 @@ Let result be f(n, 5).
 Show result.
 "#;
     let rust = compile_to_rust(source).unwrap();
+    // The constant 5 is inlined as the RIGHT operand of the residual multiply — under the
+    // exact-arithmetic ruling `Int * Int` lowers to `logos_mul_exact(<dyn>, 5)`.
     assert!(
-        rust.contains("* 5"),
-        "PE should specialize f(D, 5): residual body should contain <dyn> * 5. Got:\n{}",
+        rust.contains(", 5).expect_i64") || rust.contains("logos_mul_exact(a, 5)")
+            || rust.contains("logos_mul_i64(a, 5)"),
+        "PE should specialize f(D, 5): residual body should contain logos_mul_exact(<dyn>, 5). Got:\n{}",
         rust
     );
     common::assert_exact_output(source, "20");
@@ -662,9 +668,13 @@ Let result be f(3, n).
 Show result.
 "#;
     let rust = compile_to_rust(source).unwrap();
+    // Both occurrences of the constant 3 are inlined into the nested residual: the exact-arith
+    // lowering is `logos_add_exact(logos_mul_exact(3, <dyn>), 3)` — 3 as the left multiply
+    // operand AND 3 as the right add operand.
     assert!(
-        rust.contains("3 * ") && rust.contains("+ 3"),
-        "PE should specialize f(3, D): residual should be 3 * <dyn> + 3. Got:\n{}",
+        rust.contains("(3i64 * b) + 3i64")
+            || (rust.contains("logos_mul_exact(3, ") && rust.contains("), 3)")),
+        "PE should specialize f(3, D): residual should be logos_add_exact(logos_mul_exact(3, <dyn>), 3). Got:\n{}",
         rust
     );
     common::assert_exact_output(source, "24");
@@ -816,9 +826,11 @@ Let result be f(3, n).
 Show result.
 "#;
     let rust = compile_to_rust(source).unwrap();
+    // The constant 3 is inlined as the LEFT operand of the residual add — under the
+    // exact-arithmetic ruling `Int + Int` lowers to `logos_add_exact(3, <dyn>)`.
     assert!(
-        rust.contains("3 + "),
-        "Mixed S(3), D: PE should specialize with body containing 3 + <dyn>. Got:\n{}",
+        rust.contains("logos_add_exact(3, ") || rust.contains("logos_add_i64(3, "),
+        "Mixed S(3), D: PE should specialize with body containing logos_add_exact(3, <dyn>) or the narrowed logos_add_i64(3, <dyn>). Got:\n{}",
         rust
     );
     common::assert_exact_output(source, "7");
@@ -872,9 +884,12 @@ Let x be a + b.
 Show x.
 "#;
     let rust = compile_to_rust(source).unwrap();
+    // Both inputs are dynamic, so the add is PRESERVED (not folded). Under the exact-arithmetic
+    // ruling `Int + Int` lowers to `logos_add_exact(a, b)` (overflow → BigInt) rather than a raw
+    // `a + b`; the operation is still residualized over both operands, never constant-folded.
     assert!(
-        rust.contains("a + b") || rust.contains("a +b"),
-        "Arithmetic should be preserved as a + b with all-dynamic inputs. Got:\n{}",
+        rust.contains("logos_add_exact(a, b)") || rust.contains("logos_add_i64(a, b)"),
+        "Arithmetic should be preserved as logos_add_exact(a, b) with all-dynamic inputs. Got:\n{}",
         rust
     );
     common::assert_exact_output(source, "7");

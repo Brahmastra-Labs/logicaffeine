@@ -1,0 +1,11 @@
+{
+  "id": "I_1.3",
+  "type": "translation",
+  "difficulty": 2,
+  "prompt": "Translate this negated action:",
+  "template": "{ProperName} does not {Verb}.",
+  "constraints": {
+    "Verb": ["Intransitive"]
+  },
+  "hint": "Same shape as before: the verb is an event, ∃e(Verb(e) ∧ Agent(e, subject)), and 'does not' negates the entire event: ¬∃e(Verb(e) ∧ Agent(e, subject))."
+}

@@ -1,0 +1,15 @@
+{
+  "id": "R_1.11",
+  "type": "multiple_choice",
+  "difficulty": 4,
+  "prompt": "A relation that is reflexive, antisymmetric, and transitive is called:",
+  "options": [
+    "An equivalence relation",
+    "A partial order",
+    "A strict order",
+    "A function"
+  ],
+  "correct": 1,
+  "hint": "Equivalence relations are symmetric; this combination uses antisymmetry instead.",
+  "explanation": "Reflexive + antisymmetric + transitive defines a PARTIAL ORDER (e.g. ⊆ on sets, ≤ on numbers). Swapping antisymmetry for symmetry would instead give an equivalence relation. A strict order is irreflexive, not reflexive."
+}

@@ -1,0 +1,15 @@
+{
+  "id": "J_4.17",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "F is self-contradictory",
+  "options": [
+    "$ \\sim \\lozenge F $",
+    "$ \\lozenge \\sim F $",
+    "$ \\sim \\lozenge (F) $",
+    "$ \\sim (\\lozenge F) $"
+  ],
+  "correct": 0,
+  "hint": "If something 'contradicts itself', can it be true in ANY possible world?",
+  "explanation": "A self-contradictory statement is impossible \u2014 there's no world where it's true. We express this as ~\u25c7P (not possible). Equivalently, its negation is necessary: \u25a1~P."
+}

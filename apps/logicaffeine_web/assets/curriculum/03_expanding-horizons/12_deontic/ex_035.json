@@ -1,0 +1,15 @@
+{
+  "id": "L_12.5",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "'You're selling but don't sell' is consistent",
+  "options": [
+    "$ (Su\\cdot 1,S\\underline{u} ) $",
+    "$ \\lozenge (Su\\cdot \\sim S\\underline{u} ) $",
+    "$ \\lozenge (Su\\cdot \\sim Su) $",
+    "$ (\\lozenge Su\\cdot \\sim S\\underline{u} ) $"
+  ],
+  "correct": 1,
+  "hint": "Is this a COMMAND not to do something? Who is being commanded (the agent)?",
+  "explanation": "'X is consistent' means ◇X. The descriptive Su ('you're selling') and the command ∼S͟u ('don't sell') are jointly possible: ◇(Su · ∼S͟u)."
+}

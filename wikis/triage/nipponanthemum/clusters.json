@@ -1,0 +1,70 @@
+[
+  {
+    "signature": "lexicon:nipponicum",
+    "category": "actionable_lexicon_gap",
+    "subsystem": "lexicon",
+    "gate": "auto",
+    "count": 2,
+    "members": [
+      1,
+      5
+    ],
+    "example": "Nipponanthemum nipponicum, commonly called \"Nippon daisy\" or \"Montauk daisy,\" is a species of flowering plant in the family Asteraceae."
+  },
+  {
+    "signature": "parser:expected_content_word",
+    "category": "parser_gap",
+    "subsystem": "parser",
+    "gate": "investigate",
+    "count": 2,
+    "members": [
+      2,
+      6
+    ],
+    "example": "It is native to coastal regions of Japan but cultivated as an ornamental in other regions."
+  },
+  {
+    "signature": "lexicon:disc",
+    "category": "actionable_lexicon_gap",
+    "subsystem": "lexicon",
+    "gate": "auto",
+    "count": 1,
+    "members": [
+      8
+    ],
+    "example": "Ray flowers are white, disc flowers usually yellow but sometimes red or purple."
+  },
+  {
+    "signature": "lexicon:genus",
+    "category": "actionable_lexicon_gap",
+    "subsystem": "lexicon",
+    "gate": "auto",
+    "count": 1,
+    "members": [
+      4
+    ],
+    "example": "It is the only species in the genus Nipponanthemum, formerly considered part of Chrysanthemum."
+  },
+  {
+    "signature": "lexicon:now",
+    "category": "actionable_lexicon_gap",
+    "subsystem": "lexicon",
+    "gate": "auto",
+    "count": 1,
+    "members": [
+      3
+    ],
+    "example": "It is now naturalized as an escapee along seashores in New York and New Jersey."
+  },
+  {
+    "signature": "lexicon:up",
+    "category": "actionable_lexicon_gap",
+    "subsystem": "lexicon",
+    "gate": "auto",
+    "count": 1,
+    "members": [
+      7
+    ],
+    "example": "Flower heads are up to 8 cm (3 inches) across and are borne singly."
+  }
+]

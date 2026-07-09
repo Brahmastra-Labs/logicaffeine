@@ -1,285 +1,147 @@
 # logicaffeine-proof
 
-Backward-chaining proof engine with Socratic hints for the Logicaffeine project.
+A backward-chaining proof engine over an owned, arena-independent IR (`ProofExpr` /
+`ProofTerm`): it searches for derivations, certifies them into kernel terms, and offers
+Socratic, leading-question hints when a proof gets stuck. It embodies the Curry-Howard
+correspondence — propositions are types, proofs are programs, verification is type checking.
 
-Part of the [Logicaffeine](https://logicaffeine.com) project.
+Part of the [Logicaffeine](https://github.com/Brahmastra-Labs/logicaffeine/blob/main/README.md) workspace. Tier 2 — depends on
+logicaffeine_base and logicaffeine_kernel. **Liskov invariant**: no dependency on the
+language crate, so the engine is reusable across front-ends.
 
-## Overview
+## Role in the workspace
 
-This crate implements a proof search engine that works backwards from goals to axioms, constructing derivation trees that can be certified by the kernel. It embodies the Curry-Howard correspondence: **proofs are programs**, and verification is type checking.
+This crate owns proof representation, *search*, and *certification* — the trust core that
+both `logicaffeine_language` and `logicaffeine_compile` reach without a dependency cycle.
+The `LogicExpr → ProofExpr` lowering lives in the **language** crate, not here, so the proof
+engine stays pure and the Liskov boundary holds.
 
-### Architecture Invariant
-
-This crate has **no dependency** on the language crate (Liskov boundary). The conversion from `LogicExpr` to `ProofExpr` lives in the language crate, ensuring the proof engine remains pure and reusable.
-
-## Core Concepts
-
-### Backward Chaining
-
-The engine searches for proofs by working backwards:
-
-1. Start with the goal to prove
-2. Find rules whose conclusions unify with the goal
-3. Recursively prove the premises of those rules
-4. Build the derivation tree as proofs succeed
-
-```text
-Goal: Mortal(Socrates)
-
-Knowledge Base:
-  - Human(Socrates)
-  - ∀x(Human(x) → Mortal(x))
-
-Search:
-  1. Goal matches conclusion of ∀x(Human(x) → Mortal(x)) with x=Socrates
-  2. New subgoal: Human(Socrates)
-  3. Human(Socrates) matches knowledge base fact
-  4. Build derivation tree: ModusPonens(UniversalInst, PremiseMatch)
-```
-
-### Unification
-
-Implements Robinson's algorithm with occurs check. Unification finds a substitution that makes two terms identical:
-
-| Pattern | Target | Substitution |
-|---------|--------|--------------|
-| `Mortal(x)` | `Mortal(Socrates)` | `{x ↦ Socrates}` |
-| `Add(Succ(n), 0)` | `Add(Succ(Zero), 0)` | `{n ↦ Zero}` |
-| `f(x, x)` | `f(a, b)` | Fails (x can't be both a and b) |
-
-The occurs check prevents infinite terms: `x = f(x)` has no finite solution.
-
-### Curry-Howard Correspondence
-
-The proof engine implements propositions-as-types:
-
-- **A proposition is a type** — logical formulas correspond to types
-- **A proof is a program** — derivation trees are proof terms
-- **Verification is type checking** — the kernel validates proof terms
-
-## Module Structure
-
-| Module | Purpose |
-|--------|---------|
-| `engine.rs` | `BackwardChainer` proof search implementation |
-| `unify.rs` | Robinson's unification with occurs check and beta-reduction |
-| `certifier.rs` | Curry-Howard conversion to kernel terms |
-| `hints.rs` | Socratic pedagogical guidance for stuck proofs |
-| `error.rs` | Error types (`ProofError`) |
-
-## Key Types
-
-### ProofTerm
-
-Owned term representation decoupled from arena allocation:
-
-```rust
-pub enum ProofTerm {
-    Constant(String),           // e.g., "Socrates", "42"
-    Variable(String),           // e.g., "x", "y"
-    Function(String, Vec<ProofTerm>), // e.g., "father(x)"
-    Group(Vec<ProofTerm>),      // e.g., "(x, y)"
-    BoundVarRef(String),        // Reference to bound variable
-}
-```
-
-### ProofExpr
-
-Owned expression/proposition representation supporting full FOL and extensions:
-
-- **Core FOL**: `Predicate`, `Identity`, `Atom`
-- **Connectives**: `And`, `Or`, `Implies`, `Iff`, `Not`
-- **Quantifiers**: `ForAll`, `Exists`
-- **Lambda calculus**: `Lambda`, `App`
-- **Inductive types**: `Ctor`, `Match`, `Fixpoint`
-- **Modal/Temporal**: `Modal`, `Temporal`
-- **Event semantics**: `NeoEvent`
-
-### InferenceRule
-
-The logical moves available to the prover:
-
-```rust
-pub enum InferenceRule {
-    PremiseMatch,           // Direct match with known fact
-    ModusPonens,            // P → Q, P ⊢ Q
-    ModusTollens,           // ¬Q, P → Q ⊢ ¬P
-    ConjunctionIntro,       // P, Q ⊢ P ∧ Q
-    ConjunctionElim,        // P ∧ Q ⊢ P
-    DisjunctionIntro,       // P ⊢ P ∨ Q
-    DisjunctionElim,        // P ∨ Q, P → R, Q → R ⊢ R
-    UniversalInst(String),  // ∀x P(x) ⊢ P(c)
-    UniversalIntro { variable, var_type },  // Γ, x:T ⊢ P(x) ⊢ ∀x P(x)
-    ExistentialIntro { witness, witness_type }, // P(w) ⊢ ∃x P(x)
-    StructuralInduction { variable, ind_type, step_var },
-    Rewrite { from, to },   // Leibniz's law
-    Reflexivity,            // a = a
-    // ... and more
-}
-```
-
-### DerivationTree
-
-The recursive proof structure returned by the prover:
-
-```rust
-pub struct DerivationTree {
-    pub conclusion: ProofExpr,      // What was proved
-    pub rule: InferenceRule,        // How it was proved
-    pub premises: Vec<DerivationTree>, // Sub-proofs
-    pub depth: usize,
-    pub substitution: Substitution,
-}
-```
-
-### ProofGoal
-
-The target state for backward chaining:
-
-```rust
-pub struct ProofGoal {
-    pub target: ProofExpr,      // What to prove
-    pub context: Vec<ProofExpr>, // Local assumptions
-}
-```
+The single trust door: a proof is `verified` **iff** the chainer found a derivation, the
+certifier turned it into a kernel `Term`, *and* the kernel type-checked that term against the
+goal type. An externally built `DerivationTree` (e.g. from the grid solver) is re-checked the
+same way, so untrusted search sits *outside* the trusted base — a wrong tree yields
+`verified == false`, never a false claim. Trust tiers run fast → strong: untrusted CDCL/SMT
+(`cnf::cdcl_entails`, `oracle`) → RUP-certified (`rup::entails_certified`, `sat::prove_unsat`)
+→ kernel-certified (`verify`). See [proof-and-verification.md](https://github.com/Brahmastra-Labs/logicaffeine/blob/main/docs/proof-and-verification.md).
 
 ## Public API
 
-### Proof Search
+Re-exported at the crate root: `BackwardChainer`, `ProofError`, `suggest_hint`,
+`SocraticHint`, `SuggestedTactic`, `Substitution`; plus `ProofTerm`, `ProofExpr`, `MatchArm`,
+`InferenceRule`, `DerivationTree`, `ProofGoal` defined directly in `lib.rs`.
 
-```rust
-use logicaffeine_proof::{BackwardChainer, ProofExpr, ProofTerm, ProofGoal};
+**Search** — `engine::BackwardChainer`:
 
-// Create a prover
+```text
 let mut prover = BackwardChainer::new();
-
-// Add axioms
-prover.add_axiom(human_socrates);
-prover.add_axiom(all_humans_mortal);
-
-// Prove a goal
-let result = prover.prove(mortal_socrates);
-
-// Or prove with context
-let goal = ProofGoal::with_context(target, assumptions);
-let result = prover.prove_with_goal(goal);
+prover.set_max_depth(depth: usize);
+prover.add_axiom(expr: ProofExpr);
+prover.knowledge_base() -> &[ProofExpr];
+prover.prove(goal: ProofExpr) -> ProofResult<DerivationTree>;
+prover.prove_with_goal(goal: ProofGoal) -> ProofResult<DerivationTree>;
 ```
 
-### Unification
+**The single door** — `verify`:
 
-```rust
-use logicaffeine_proof::{ProofTerm, unify::{unify_terms, unify_exprs, apply_subst_to_term}};
-
-// Unify terms
-let pattern = ProofTerm::Function("Mortal".into(), vec![ProofTerm::Variable("x".into())]);
-let target = ProofTerm::Function("Mortal".into(), vec![ProofTerm::Constant("Socrates".into())]);
-let subst = unify_terms(&pattern, &target)?;
-// subst = { "x" ↦ Constant("Socrates") }
-
-// Apply substitution
-let result = apply_subst_to_term(&pattern, &subst);
-// result = Mortal(Socrates)
-
-// Expression-level unification with alpha-equivalence
-let subst = unify_exprs(&expr1, &expr2)?;
+```text
+verify::prove_certify_check(premises: &[ProofExpr], goal: &ProofExpr) -> VerifiedProof;
+verify::prove_certify_check_bounded(premises, goal, max_depth: usize) -> VerifiedProof;
+verify::check_derivation(premises, goal, tree: DerivationTree) -> VerifiedProof;
+verify::detect_conflict(premises: &[ProofExpr]) -> ConflictReport;
 ```
 
-### Beta-Reduction
+`VerifiedProof { derivation, proof_term, kernel_ctx, verified, verification_error }` carries
+the re-checkable kernel term; `detect_conflict` returns a kernel proof of `False` plus the
+indices of the clashing premises.
 
-```rust
-use logicaffeine_proof::unify::beta_reduce;
+**IR** — `ProofTerm` (`Constant`, `Variable`, `Function`, `Group`, `BoundVarRef`) and
+`ProofExpr` cover full FOL plus extensions: connectives, quantifiers, `Modal` /
+`Counterfactual` / `Temporal` / `TemporalBinary`, `Lambda` / `App`, Neo-Davidsonian
+`NeoEvent`, inductive `Ctor` / `Match` / `Fixpoint` / `TypedVar`, and unification `Hole`s.
+`InferenceRule` names the move at each step — `ModusPonens` / `ModusTollens`, ∧/∨ intro &
+elim, ∀/∃ intro & elim, `ModalAccess`, `StructuralInduction`, Leibniz `Rewrite`,
+`ArithDecision`, `ReductioAdAbsurdum`, `CaseAnalysis`, `DisjunctionCases`, … A
+`DerivationTree { conclusion, rule, premises, depth, substitution }` is the prover's result;
+`ProofGoal { target, context }` is consumed.
 
-// (λx. P(x))(Socrates) → P(Socrates)
-let reduced = beta_reduce(&lambda_application);
+**Hints** — `hints`:
+
+```text
+hints::suggest_hint(goal: &ProofExpr, kb: &[ProofExpr], failed: &[SuggestedTactic]) -> SocraticHint;
 ```
 
-### Certification
+`SocraticHint { text, suggested_tactic, priority }` proposes a `SuggestedTactic` rather than
+giving the answer outright.
 
-```rust
-use logicaffeine_proof::certifier::{certify, CertificationContext};
-use logicaffeine_kernel::Context;
+**SAT / model checking** (Z3-free, browser-ready) — `sat` and `bmc`:
 
-let kernel_ctx = Context::new();
-let cert_ctx = CertificationContext::new(&kernel_ctx);
-let kernel_term = certify(&derivation_tree, &cert_ctx)?;
+```text
+sat::find_model(e: &ProofExpr) -> ModelOutcome;            // Sat(model) | Unsat | Unsupported
+sat::prove_equivalence(a, b: &ProofExpr) -> EquivOutcome;  // Equivalent | Differ(cex) | Unsupported
+sat::prove_unsat(e: &ProofExpr) -> UnsatOutcome;           // Refuted (RUP) | Sat(model) | Unsupported
+bmc::find_counterexample(init, trans, property, max_k) -> BmcOutcome;
+bmc::prove_invariant(init, trans, property, k) -> InductionOutcome;  // k-induction, unbounded
+bmc::check_vacuity(antecedent: &ProofExpr) -> VacuityOutcome;
 ```
 
-### Socratic Hints
+UNSAT verdicts from `sat` are independently RUP-certified (a refutation the trusted checker
+cannot replay yields `Unsupported`, never a false `Refuted`); `bmc` reduces BMC, k-induction,
+and vacuity to `prove_unsat`.
 
-```rust
-use logicaffeine_proof::{suggest_hint, SocraticHint, SuggestedTactic};
+Other trust-core modules: `certifier` (Curry-Howard `certify`: `DerivationTree` → kernel `Term`),
+`unify` (Robinson unification + occurs check, capture-avoiding `beta_reduce`, Miller
+patterns), `grounding` (expand bounded quantifiers over a finite domain), `grid_solver`
+(certified logic-grid solver: watched-literal unit propagation + DPLL), `cdcl` (CDCL(T) core:
+2-watched lits, 1-UIP, VSIDS, Luby, `Theory` trait, DRAT/LRAT log), `cnf` (Tseitin
+clausification), `rup` (RUP checker), `arith` (proof-producing integer-equality oracle),
+`error` (`ProofError` / `ProofResult`).
 
-let hint = suggest_hint(&goal, &knowledge_base, &failed_tactics);
-println!("{}", hint.text);
-// e.g., "You have an implication that concludes your goal. Can you prove its antecedent?"
-```
+### Module atlas
 
-## Usage Example
+Beyond the trust core, the crate is a broad library of certified reasoners and proof systems. Grouped by capability — every entry is a `pub mod`:
 
-```rust
-use logicaffeine_proof::{BackwardChainer, ProofExpr, ProofTerm};
+- **SAT/SMT engines & interchange** — `dimacs` (DIMACS CNF I/O), `satcli` (the SAT command-line driver shared verbatim by the `logos-sat` binary and `largo sat`: competition output, certificate export, injected streams), `twosat` (2-SAT via implication-graph SCC), `hornsat` (Horn-SAT unit propagation), `sdcl` (Satisfaction-Driven Clause Learning), `inprocess` (certified inprocessing simplifications), `discrimination` (the first-order discrimination-tree index under `simp`).
+- **Certified proof output & trust tiers** — `proof` (shared proof-step vocabulary), `proof_emit` (DRAT/LRAT/DPR trace emission), `proof_rewrite` (proof-rewrite 2-cells), `pr` (propagation-redundancy checker), `res_width` (resolution-width lower bounds), `complexity` (self-sizing refutation bounds).
+- **Algebraic proof systems** — `gf2` (GL(n,2)), `xorsat` / `xor_engine` / `xor_drat` (GF(2) parity: Gaussian XOR-SAT, DPLL(XOR), and the CNF→DRAT bridge), `modp` / `polycalc_gfp` (GF(p) linear algebra + Nullstellensatz), `modm` (ℤ/m by CRT), `polycalc` (Polynomial Calculus / Nullstellensatz over GF(2)), `pseudo_boolean` (cutting planes), `affine` / `affine_gfp` (the AGL(n,2) / AGL(n,p) affine symmetry a permutation break cannot see), `sos` (exact Sum-of-Squares / Positivstellensatz), `lll` (Lovász Local Lemma certificate).
+- **Symmetry** — `symmetry` / `symmetry_detect` (detection), `sym_break` (lex-leader breaking), `sym_certify` (certified breaking), `sym_dynamic` (Symmetric Explanation Learning), `permgroup` (Schreier–Sims BSGS — the non-abelian coset decision), `orbit_stability` (symmetric Nullstellensatz at every scale), `families` / `census` (parametric hard-instance generators + the small-`n` SAT-space census).
+- **Combinatorial reasoners** — `pigeonhole` / `matching` (bipartite-matching infeasibility), `cardinality` (cardinality constraints over boolean atoms), `counting_principle` (the modular counting principle `Count_q(n)`: `O(clauses)` recognition, `q ∤ n` certificate), `parity_cardinality` (the coupled exactly-one + parity obstruction, decided by GF(2) augmentation), `interval_sched` (sweep-line scheduling), `register_alloc` (linear-scan allocation as a Hall reasoner), `hypercube` (Boolean-hypercube subcube cover), `ordering` (the GT(n) linear-ordering contradiction: polynomial-time recognizer + certified refuter for the no-maximum total order the general cascade only decides by super-polynomial search), `lyapunov` (Lyapunov-measure synthesis).
+- **The ∞-tower (homotopy of SAT)** — `cubical` (d-dimensional cubical homology), `kan_complex` / `two_type` / `two_group` (∞-groupoids had as objects), `category_collapse` / `groupoid` / `coalgebra` (the categorical meaning of symmetry breaking), `eilenberg_maclane` / `postnikov` / `steenrod` (K(A,n), k-invariants, the Steenrod algebra), `progress_complex` / `trace_determinism` (higher homotopy from real concurrency: determinism = contractibility).
+- **Tactics, developments & simplification** — `tactic` / `tactic_script` (interactive goal-state proving), `formula` (formal-FOL surface-text parser), `development` (`## Theory` block bodies), `simp` (oriented rewrite-rule sets).
+- **Arithmetic, optimization & dispatch** — `linarith_solve` (Fourier–Motzkin LIA core), `optimize` (certified SAT-based minimization), `solve` (the structure-detecting auto-dispatcher that fronts the whole arsenal), `ait` (certified algorithmic-information / description-length objects), `isogeny` (certified SIDH/SIKE torsion-image witnesses).
+- **Number-theory / cryptanalysis substrate** — `factor` (structural factoring: trial / Fermat / Pollard `p−1` / rho + the RSA-ceiling thesis), `elliptic` (Montgomery x-only ECM), `period` (order-finding — the classical shell of Shor's algorithm), `lattice` (exact LLL / Coppersmith over `Rational`), `fp2` (𝔽_{p²} arithmetic + the supersingular 2-isogeny graph), `hyperelliptic` (genus-2 Richelot (2,2)-isogeny — the Castryck–Decru mechanism), `cyclotomic` (the power-of-two Module-LWE ring `ℤ[X]/(Xⁿ+1)`). Pure number theory over `logicaffeine_base::numeric` — the hardness lens `isogeny` / `ait` / `solve` ride on. (Relocated from `logicaffeine_base` in 0.10: the prover is their only consumer.)
 
-fn main() {
-    let mut prover = BackwardChainer::new();
+## Feature flags
 
-    // Fact: Human(Socrates)
-    let human_socrates = ProofExpr::Predicate {
-        name: "Human".to_string(),
-        args: vec![ProofTerm::Constant("Socrates".to_string())],
-        world: None,
-    };
+| Flag | Effect |
+|------|--------|
+| *(default)* | Kernel-certified search + SAT/RUP/BMC. No Z3, no external runtime dependency. |
+| `verification` | Pulls in `logicaffeine-verify`, enabling `oracle` (Z3 SMT fallback) and the private `modal_translation` (modal/temporal → world-indexed FOL). Z3 verdicts are **never** kernel-certified. |
 
-    // Rule: ∀x(Human(x) → Mortal(x))
-    let all_humans_mortal = ProofExpr::ForAll {
-        variable: "x".to_string(),
-        body: Box::new(ProofExpr::Implies(
-            Box::new(ProofExpr::Predicate {
-                name: "Human".to_string(),
-                args: vec![ProofTerm::Variable("x".to_string())],
-                world: None,
-            }),
-            Box::new(ProofExpr::Predicate {
-                name: "Mortal".to_string(),
-                args: vec![ProofTerm::Variable("x".to_string())],
-                world: None,
-            }),
-        )),
-    };
+## Tactics and decision procedures
 
-    prover.add_axiom(human_socrates);
-    prover.add_axiom(all_humans_mortal);
+Beyond the certified SAT/BMC core, the crate ships a tactic layer and algebraic solvers:
 
-    // Goal: Mortal(Socrates)
-    let goal = ProofExpr::Predicate {
-        name: "Mortal".to_string(),
-        args: vec![ProofTerm::Constant("Socrates".to_string())],
-        world: None,
-    };
-
-    match prover.prove(goal) {
-        Ok(tree) => println!("Proof found:\n{}", tree.display_tree()),
-        Err(e) => println!("Could not prove: {:?}", e),
-    }
-}
-```
+- **`engine`** — the backward-chaining proof engine.
+- **`rule_search`** — `aesop`-style rule-set search, turning `auto`'s fixed cascade into a searchable rule database.
+- **`crush`** — the grind-style closer: E-matches quantified equality lemmas into the goal.
+- **`decide`** — proof by evaluation for closed decidable goals.
+- **`omega_solve`** — `omega`: linear integer (Presburger) arithmetic.
+- **`lemma_index`** — `exact?` / `apply?` premise selection over a named, certified lemma index.
+- **`counterexample`** — when a goal is false, exhibits a model instead of just failing.
+- **`gf`** — Galois-field (GF(2)/GF(p)) arithmetic backing the algebraic refutations.
+- **`polycalc_zm`** — Nullstellensatz over the rings `ℤ/m` (composite moduli, zero divisors and all).
+- **`cofactor`** — the cofactor-DAG lens: symmetry above the instance.
 
 ## Dependencies
 
-### Internal
-
-- `logicaffeine-base` — Shared utilities
-- `logicaffeine-kernel` — Type checking and term verification
-
-### External
-
-None (zero external dependencies by design).
+Internal: `logicaffeine-base`, `logicaffeine-kernel`; `logicaffeine-verify` (optional, gated
+behind `verification`). **No** dependency on the language crate (Liskov invariant), and **no**
+external (non-workspace) crates — the default build is pure Rust with no Z3 and no runtime
+dependency, which is what keeps the SAT/BMC stack browser-ready.
 
 ## License
 
-Business Source License 1.1 (BUSL-1.1)
+Business Source License 1.1 — see [LICENSE.md](https://github.com/Brahmastra-Labs/logicaffeine/blob/main/LICENSE.md).
 
-- **Free** for individuals and organizations with <25 employees
-- **Commercial license** required for organizations with 25+ employees offering Logic Services
-- **Converts to MIT** on December 24, 2029
-
-See [LICENSE](https://github.com/Brahmastra-Labs/logicaffeine/blob/main/LICENSE.md) for full terms.
+---
+[Docs index](https://github.com/Brahmastra-Labs/logicaffeine/blob/main/docs/README.md) · [Root README](https://github.com/Brahmastra-Labs/logicaffeine/blob/main/README.md) · [Changelog](https://github.com/Brahmastra-Labs/logicaffeine/blob/main/CHANGELOG.md)

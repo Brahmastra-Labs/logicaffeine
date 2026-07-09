@@ -1,0 +1,18 @@
+{
+  "id": "Q_3.23",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "A net is anything with interstitial vacuities.",
+  "options": [
+    "Too broad",
+    "Too narrow",
+    "Circular",
+    "Uses poorly understood terms",
+    "Poor match in vagueness",
+    "Poor match in emotional tone",
+    "Has non-essential properties"
+  ],
+  "correct": 3,
+  "hint": "Would an average person understand all the words in this definition?",
+  "explanation": "'Interstitial vacuities' is far more obscure than the plain word 'net'. Explaining the familiar with the unfamiliar USES POORLY UNDERSTOOD TERMS."
+}

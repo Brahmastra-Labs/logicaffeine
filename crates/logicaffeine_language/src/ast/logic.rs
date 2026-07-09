@@ -97,6 +97,11 @@ pub enum Term<'a> {
     Sigma(Symbol),
     /// Intensional term (Montague up-arrow `^P`) for de dicto readings.
     Intension(Symbol),
+    /// Kind term (`^Kind`) — a Carlson-style kind-denoting entity, distinct
+    /// from a Montague intension. Used for kind reference ("the dodo is extinct")
+    /// and as the base of a kind-level relational adjective ("dental procedure"
+    /// → `Pertains(x, ^Tooth)`; McNally & Boleda 2004, predicates of kinds).
+    Kind(Symbol),
     /// Sentential complement (embedded clause as propositional argument).
     Proposition(&'a LogicExpr<'a>),
     /// Numeric value with optional unit and dimension.
@@ -105,6 +110,18 @@ pub enum Term<'a> {
         unit: Option<Symbol>,
         dimension: Option<Dimension>,
     },
+}
+
+/// Degree-comparison relation for [`LogicExpr::Comparative`].
+///
+/// `Greater` is the strict comparative (`>`, "taller than"); `GreaterEqual` is the
+/// equative (`≥`, "as tall as" — at least as tall); `Equal` is the exact equative
+/// ("exactly as tall as").
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ComparisonRelation {
+    Greater,
+    GreaterEqual,
+    Equal,
 }
 
 /// Quantifier types for first-order and generalized quantifiers.
@@ -223,6 +240,12 @@ pub enum ThematicRole {
     Time,
     /// How action was performed (e.g., "quickly" in "ran quickly").
     Manner,
+    /// Resulting state of an argument — resultative secondary predication
+    /// (e.g., "red" in "painted the door red"): `Result(e, Red(door))`.
+    Result,
+    /// State an argument holds during the event — depictive secondary predication
+    /// (e.g., "raw" in "ate the meat raw"): `Depictive(e, Raw(meat))`.
+    Depictive,
 }
 
 /// Grammatical aspect operators for event structure.
@@ -256,7 +279,7 @@ pub enum VoiceOperator {
 ///
 /// Captures the internal structure of noun phrases including determiners,
 /// modifiers, and possessives for correct semantic composition.
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy)]
 pub struct NounPhrase<'a> {
     /// Definiteness: the (definite), a/an (indefinite), or bare (none).
     pub definiteness: Option<Definiteness>,
@@ -385,12 +408,24 @@ pub enum ModalFlavor {
     /// Scope: WIDE (de dicto) — modal wraps the entire quantified formula.
     /// Example: "A student might win" = ◇∃x(Student(x) ∧ Win(x))
     Epistemic,
+    /// Evidential modality marks an evidence source without asserting the
+    /// complement: raising verbs seem/appear/look (§4.3).
+    /// Frame: serial, non-reflexive — Seem(⟨P⟩) does not entail P.
+    /// Example: "John seems happy" = Seem(⟨Happy(john)⟩)
+    Evidential,
+    /// Bouletic modality quantifies over preference-ideal worlds: wishes
+    /// (§1.2 optatives) and directives (§1.4 imperatives).
+    /// Frame: serial — the wished/commanded content is never entailed.
+    Bouletic,
 }
 
-/// Modal operator parameters for Kripke semantics.
+/// Modal operator parameters for Kripke semantics (Kratzer-style).
 ///
 /// Combines domain (what kind of modality), force (necessity vs possibility),
-/// and flavor (scope behavior) into a single modal specification.
+/// and flavor (scope/evidence behavior) with the conversational backgrounds:
+/// a modal base f (which worlds are in play) and an ordering source g (how
+/// they are ranked). For evidentials the modal base names the evidence-source
+/// lexeme (seem/appear); counterfactuals use g = similarity.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct ModalVector {
     /// The modal domain: alethic or deontic.
@@ -399,6 +434,31 @@ pub struct ModalVector {
     pub force: f32,
     /// Scope flavor: root (narrow scope) or epistemic (wide scope).
     pub flavor: ModalFlavor,
+    /// Kratzer modal base f — the conversational background supplying the
+    /// accessible worlds (for evidentials: the evidence-source lexeme).
+    pub modal_base: Option<Symbol>,
+    /// Kratzer ordering source g — ranks the modal-base worlds by ideality /
+    /// normality / similarity.
+    pub ordering_source: Option<Symbol>,
+}
+
+impl ModalVector {
+    /// A modal vector with empty conversational backgrounds (f = g = None).
+    pub fn new(domain: ModalDomain, force: f32, flavor: ModalFlavor) -> Self {
+        ModalVector {
+            domain,
+            force,
+            flavor,
+            modal_base: None,
+            ordering_source: None,
+        }
+    }
+
+    /// Attach a Kratzer modal base f.
+    pub fn with_base(mut self, base: Symbol) -> Self {
+        self.modal_base = Some(base);
+        self
+    }
 }
 
 // ═══════════════════════════════════════════════════════════════════
@@ -575,6 +635,30 @@ pub enum LogicExpr<'a> {
         action: &'a LogicExpr<'a>,
     },
 
+    /// Exclamative: affective stance toward a surprisingly-high degree, with no
+    /// subject-aux inversion ("How tall she is!", "What a fool he is!"). Asserts
+    /// `∃degree_var(body ∧ degree_var ≫ θ)` and presupposes `body`.
+    Exclamative {
+        degree_var: Symbol,
+        body: &'a LogicExpr<'a>,
+    },
+
+    /// Optative: a wish with no asserted truth ("May you prosper!", "Long live the
+    /// king!", "If only it were Friday!"). → `Wish(speaker, ⟨wish⟩)`; the complement
+    /// is NOT entailed.
+    Optative {
+        wish: &'a LogicExpr<'a>,
+    },
+
+    /// Scalar implicature (§8.7): a weak scalar item asserts `assertion` and
+    /// DEFEASIBLY implicates `implicature` (the negation of a stronger Horn
+    /// alternative). "Some students passed." → ∃… +> ¬∀…. Rendered `assertion +>
+    /// implicature`; the implicature is cancellable and not part of truth conditions.
+    Implicature {
+        assertion: &'a LogicExpr<'a>,
+        implicature: &'a LogicExpr<'a>,
+    },
+
     /// Speech act: performative utterance with illocutionary force.
     SpeechAct {
         performer: Symbol,
@@ -594,12 +678,23 @@ pub enum LogicExpr<'a> {
         cause: &'a LogicExpr<'a>,
     },
 
-    /// Comparative: "X is taller than Y (by 2 inches)".
+    /// Concessive relation: "main, although concession" — the main clause holds
+    /// DESPITE a defeated expectation from the concession ("Although she was tired,
+    /// she finished." → Finish(she) ∧ Concessive(Tired(she))).
+    Concessive {
+        main: &'a LogicExpr<'a>,
+        concession: &'a LogicExpr<'a>,
+    },
+
+    /// Comparative / equative: "X is taller than Y" (`>`), "X is as tall as Y"
+    /// (`≥`), "X is as tall as Y and no taller" (`=`). The `relation` selects the
+    /// degree comparison; `difference` is the optional measure ("by 2 inches").
     Comparative {
         adjective: Symbol,
         subject: &'a Term<'a>,
         object: &'a Term<'a>,
         difference: Option<&'a Term<'a>>,
+        relation: ComparisonRelation,
     },
 
     /// Superlative: "X is the tallest among domain".

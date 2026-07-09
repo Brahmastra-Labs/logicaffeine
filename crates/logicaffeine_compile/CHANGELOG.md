@@ -6,6 +6,28 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.10.0] - 2026-07-08
+
+
+### Added
+- `repl` module: `ReplSession`, the replay-based interactive session behind `largo repl` — accumulates definitions + Main statements, re-runs the composed program through `interpret_for_ui_with_args` (the exact `run --interpret` engine), surfaces output past a high-water mark, and rolls back failing inputs. `source()` is always a valid runnable program. Plus `Interpreter::global_bindings` and `ui_bridge::repl_global_bindings` for `:vars` inspection.
+- Register bytecode VM (`vm/`): bytecode compiler, dispatch machine, shared semantics-kernel delegation, and `Int` fast paths bit-identical to the kernel by the wrapping-`i64` spec (pinned by an edge-grid differential).
+- Tier-up seam to `logicaffeine-jit`: hot functions compile per call with argument guards and kind-inference; hot Main loops region-tier (OSR-lite) with incoming-dead analysis and per-entry guards. The integer/float subset gates tier-up; anything else fails closed to bytecode.
+- **The rustc→LOGOS sourcemap is live.** `codegen_program_mapped` records, for every generated line, the top-level LOGOS statement span that produced it (post-hoc newline counting — no cursor threading through emission; function bodies map to their `## To` span; peephole-fused statements map to the merged span), and walks the AST recording variable origins with ownership roles (`GiveObject` beats `ZoneLocal` beats `ShowObject`… — the move is what a borrow error is about). Previously `SourceMapBuilder` was never called: every translated rustc error had `logos_span: None`.
+- `rustc_check(source, cache_dir)` — the flycheck engine: an optimizer-OFF compile front (spans stay 1:1; a check build has no use for optimized output) with prelude-offset translation (stdlib prepend never shifts user spans), `cargo check --message-format=json` in a persistent cache dir, and `translate_diagnostics_all` through the REAL interner and populated map. Fail-loud: a cargo failure that translates to nothing is a `Build` error, never a silent all-clear. Plus `rustc_check_artifacts` (the cargo-free substrate for tests) and `write_cargo_project` (extracted from `compile_to_dir`, now shared).
+- `translate_diagnostics_all` — every translatable rustc diagnostic, not just the first (`translate_diagnostics` now delegates).
+- `OwnershipChecker::check_program_collect` (+ `OwnershipFinding`) and `EscapeChecker::check_program_collect` — every finding reports with its top-level statement index, and ownership findings carry the index of the statement that MOVED the variable (tracked at the four move sites via a central `mark_moved`); after each finding the variable resets to owned so errors don't cascade. Strict `check_program` on both checkers is unchanged.
+- `analysis::check_program_collect` + `IndexedTypeError` — collect EVERY failing top-level statement (with its statement index, mapping 1:1 onto `Parser::stmt_spans()`), instead of bailing at the first; inference continues best-effort so one bad statement does not cascade. The strict fail-fast `check_program` contract is unchanged and compile paths keep using it — this is the IDE substrate.
+- **The stdlib is literate.** Every definition across the 12 embedded stdlib modules (158 in all — the crypto suite included) carries a `## Note` doc line above its header; `loader::prelude_module_sources()` exposes the RAW sources so the LSP reads the prose, while `prelude()`/`apply_prelude` strip Note blocks byte-exactly — the runtime prelude is identical to the pre-documentation join, and documentation prose can never mint an auto-import trigger (`module_names` derives from the stripped code). En route, the root `assets/std` copies of `env`/`random`/`time` had silently drifted from the canonical compile-tree copies (`## To native args` vs `## To native args ()`); they're re-synced and a byte-parity lock in `logicaffeine_tests` (`stdlib_asset_sync.rs`) ends that drift class.
+
+### Fixed
+- `compile_to_dir` appended `## Requires` dependencies after the `[target.'cfg(linux)'.dependencies]` section of the generated Cargo.toml, silently scoping user crates to Linux; they now land inside `[dependencies]`.
+
+### Changed
+- Run-path optimizer: magic-reciprocal division/modulo, run-path recursion inlining, and loop-invariant pointer/length plus constant hoisting on the interpreted execution path.
+
+See the root CHANGELOG for the cross-crate history.
+
 ## [0.8.18] - 2026-02-15
 
 ### Fixed

@@ -1,0 +1,5 @@
+[package]
+name = "proj_a"
+version = "0.1.0"
+description = "LSP workspace fixture"
+entry = "src/main.lg"

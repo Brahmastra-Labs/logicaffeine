@@ -1,0 +1,15 @@
+{
+  "id": "M_1.7",
+  "type": "multiple_choice",
+  "difficulty": 4,
+  "prompt": "What does it mean for a logical system to be DECIDABLE?",
+  "options": [
+    "Every formula is either true or false",
+    "There is an algorithm that determines, for any formula, whether it is valid",
+    "Every valid formula can be proven",
+    "The system contains no contradictions"
+  ],
+  "correct": 1,
+  "hint": "Decidability is about a mechanical procedure that always halts with a yes/no answer.",
+  "explanation": "A system is DECIDABLE if there is an algorithm that, for any formula, halts and correctly answers whether it is valid (or provable). Propositional logic is decidable (truth tables). Option 3 describes completeness, not decidability — a logic can be complete yet undecidable."
+}

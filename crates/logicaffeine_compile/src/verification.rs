@@ -54,6 +54,9 @@ use logicaffeine_verify::{VerificationSession, VerifyExpr, VerifyOp, VerifyType}
 pub struct VerificationPass<'a> {
     session: VerificationSession,
     interner: &'a Interner,
+    /// Counter for minting fresh, distinct uninterpreted propositions for
+    /// constructs the verifier cannot yet interpret. See [`Self::unverifiable`].
+    unverifiable_counter: std::cell::Cell<u32>,
 }
 
 impl<'a> VerificationPass<'a> {
@@ -62,7 +65,27 @@ impl<'a> VerificationPass<'a> {
         Self {
             session: VerificationSession::new(),
             interner,
+            unverifiable_counter: std::cell::Cell::new(0),
         }
+    }
+
+    /// A fresh, distinct uninterpreted proposition standing for a construct the
+    /// verifier cannot interpret.
+    ///
+    /// This is the sound stand-in for "we don't know": it is Bool-sorted (an
+    /// uninterpreted predicate application), and because each call is a *fresh*
+    /// symbol it is never entailed by anything. As an assertion *goal* it
+    /// therefore fails verification (we must not claim to have proved what we
+    /// cannot interpret); as an *assumption* it is a harmless free proposition.
+    /// Crucially it is **not** `Bool(true)`, so it can never be vacuously
+    /// discharged.
+    fn unverifiable(&self) -> VerifyExpr {
+        let n = self.unverifiable_counter.get();
+        self.unverifiable_counter.set(n + 1);
+        VerifyExpr::apply(
+            "__Unverifiable",
+            vec![VerifyExpr::var(format!("__unverifiable_{}", n))],
+        )
     }
 
     /// Run verification on a list of statements.
@@ -239,11 +262,17 @@ impl<'a> VerificationPass<'a> {
                     | BinaryOpKind::Subtract
                     | BinaryOpKind::Multiply
                     | BinaryOpKind::Divide
+                    | BinaryOpKind::ExactDivide
+                    | BinaryOpKind::FloorDivide
+                    | BinaryOpKind::Pow
                     | BinaryOpKind::Modulo => VerifyType::Int,
                     // Concat produces a string (Object type)
                     BinaryOpKind::Concat => VerifyType::Object,
+                    // `followed by` produces a sequence (Object type)
+                    BinaryOpKind::SeqConcat => VerifyType::Object,
+                    BinaryOpKind::ApproxEq => VerifyType::Bool,
                     // Bitwise operations produce Int
-                    BinaryOpKind::BitXor
+                    BinaryOpKind::BitXor | BinaryOpKind::BitAnd | BinaryOpKind::BitOr
                     | BinaryOpKind::Shl
                     | BinaryOpKind::Shr => VerifyType::Int,
                 }
@@ -401,7 +430,10 @@ impl<'a> VerificationPass<'a> {
                     BinaryOpKind::Add => VerifyOp::Add,
                     BinaryOpKind::Subtract => VerifyOp::Sub,
                     BinaryOpKind::Multiply => VerifyOp::Mul,
-                    BinaryOpKind::Divide => VerifyOp::Div,
+                    BinaryOpKind::Divide | BinaryOpKind::ExactDivide => VerifyOp::Div,
+                    // `//` floors toward -inf, modeled EXACTLY in the IR (`to_int(a/b)` over reals),
+                    // so a program using floor division verifies precisely rather than being declined.
+                    BinaryOpKind::FloorDivide => VerifyOp::FloorDiv,
                     BinaryOpKind::Eq => VerifyOp::Eq,
                     BinaryOpKind::NotEq => VerifyOp::Neq,
                     BinaryOpKind::Gt => VerifyOp::Gt,
@@ -410,9 +442,13 @@ impl<'a> VerificationPass<'a> {
                     BinaryOpKind::LtEq => VerifyOp::Lte,
                     BinaryOpKind::And => VerifyOp::And,
                     BinaryOpKind::Or => VerifyOp::Or,
-                    // Modulo, Concat, and bitwise ops not directly supported in verification IR
-                    BinaryOpKind::Modulo | BinaryOpKind::Concat
-                    | BinaryOpKind::BitXor | BinaryOpKind::Shl | BinaryOpKind::Shr => return None,
+                    // Modulo, Pow, Concat, and bitwise ops are not directly supported in the
+                    // verification IR.
+                    BinaryOpKind::Modulo | BinaryOpKind::Pow
+                    | BinaryOpKind::Concat | BinaryOpKind::SeqConcat
+                    | BinaryOpKind::ApproxEq
+                    | BinaryOpKind::BitXor | BinaryOpKind::BitAnd | BinaryOpKind::BitOr
+                    | BinaryOpKind::Shl | BinaryOpKind::Shr => return None,
                 };
                 Some(VerifyExpr::binary(verify_op, l, r))
             }
@@ -457,7 +493,10 @@ impl<'a> VerificationPass<'a> {
                     BinaryOpKind::Add => VerifyOp::Add,
                     BinaryOpKind::Subtract => VerifyOp::Sub,
                     BinaryOpKind::Multiply => VerifyOp::Mul,
-                    BinaryOpKind::Divide => VerifyOp::Div,
+                    BinaryOpKind::Divide | BinaryOpKind::ExactDivide => VerifyOp::Div,
+                    // `//` floors toward -inf, modeled EXACTLY in the IR (`to_int(a/b)` over reals),
+                    // so a program using floor division verifies precisely rather than being declined.
+                    BinaryOpKind::FloorDivide => VerifyOp::FloorDiv,
                     BinaryOpKind::Eq => VerifyOp::Eq,
                     BinaryOpKind::NotEq => VerifyOp::Neq,
                     BinaryOpKind::Gt => VerifyOp::Gt,
@@ -466,9 +505,13 @@ impl<'a> VerificationPass<'a> {
                     BinaryOpKind::LtEq => VerifyOp::Lte,
                     BinaryOpKind::And => VerifyOp::And,
                     BinaryOpKind::Or => VerifyOp::Or,
-                    // Modulo, Concat, and bitwise ops not directly supported in verification IR
-                    BinaryOpKind::Modulo | BinaryOpKind::Concat
-                    | BinaryOpKind::BitXor | BinaryOpKind::Shl | BinaryOpKind::Shr => return None,
+                    // Modulo, Pow, Concat, and bitwise ops are not directly supported in the
+                    // verification IR.
+                    BinaryOpKind::Modulo | BinaryOpKind::Pow
+                    | BinaryOpKind::Concat | BinaryOpKind::SeqConcat
+                    | BinaryOpKind::ApproxEq
+                    | BinaryOpKind::BitXor | BinaryOpKind::BitAnd | BinaryOpKind::BitOr
+                    | BinaryOpKind::Shl | BinaryOpKind::Shr => return None,
                 };
                 Some(VerifyExpr::binary(verify_op, l, r))
             }
@@ -575,7 +618,8 @@ impl<'a> VerificationPass<'a> {
                     TemporalOperator::Past => "Past",
                     TemporalOperator::Future => "Future",
                     TemporalOperator::Always => "Always",
-                    TemporalOperator::Eventually => "Eventually",
+                    TemporalOperator::Eventually
+                    | TemporalOperator::BoundedEventually(_) => "Eventually",
                     TemporalOperator::Next => "Next",
                 };
                 VerifyExpr::apply(op_name, vec![self.map_logic_expr(body)])
@@ -689,6 +733,20 @@ impl<'a> VerificationPass<'a> {
                 )
             }
 
+            LogicExpr::Concessive { main, concession } => {
+                // main ∧ Concessive(concession): the main clause is asserted.
+                VerifyExpr::and(
+                    self.map_logic_expr(main),
+                    VerifyExpr::apply("Concessive", vec![self.map_logic_expr(concession)]),
+                )
+            }
+
+            LogicExpr::Implicature { assertion, .. } => {
+                // Only the literal assertion is truth-conditional; the implicature is
+                // defeasible and excluded from the verification core.
+                self.map_logic_expr(assertion)
+            }
+
             // Questions become uninterpreted (for query semantics)
             LogicExpr::Question { wh_variable, body } => {
                 let var_name = self.interner.resolve(*wh_variable);
@@ -719,7 +777,7 @@ impl<'a> VerificationPass<'a> {
             }
 
             // Comparatives
-            LogicExpr::Comparative { adjective, subject, object, difference } => {
+            LogicExpr::Comparative { adjective, subject, object, difference, .. } => {
                 let adj_name = self.interner.resolve(*adjective);
                 let mut args = vec![
                     self.map_term(subject),
@@ -758,7 +816,25 @@ impl<'a> VerificationPass<'a> {
                 )
             }
 
-            // Fallback for complex types: map to True to avoid false positives
+            // Constructs the program-refinement verifier cannot interpret.
+            // Mapping these to `true` would *vacuously discharge* any assertion
+            // or refinement that touches them — a soundness hole (we'd claim to
+            // have verified what we never modelled). Instead we mint a fresh
+            // uninterpreted proposition: unprovable as a goal (so such
+            // assertions honestly fail), harmless as an assumption. The
+            // LINGUISTIC reasoning path is separate: events, Distributive, and
+            // GroupQuantifier lower to real first-order forms in
+            // `proof_convert` and reason via the oracle's Link-lattice axioms.
+            // An optative wish quantifies over bouletically ideal worlds: its
+            // complement is NEVER entailed as fact, yet an identical wish entails
+            // itself. Encode it as a DETERMINISTIC uninterpreted predicate of the
+            // (mapped) wish content — structurally stable so `Wish ⊢ Wish`, opaque
+            // so `Wish ⊬ content`. (The fresh-symbol `unverifiable()` would break
+            // the self-entailment, minting a distinct symbol per occurrence.)
+            LogicExpr::Optative { wish } => {
+                VerifyExpr::apply("__Optative", vec![self.map_logic_expr(wish)])
+            }
+
             LogicExpr::Metaphor { .. }
             | LogicExpr::Categorical(_)
             | LogicExpr::Relation(_)
@@ -766,14 +842,12 @@ impl<'a> VerificationPass<'a> {
             | LogicExpr::Event { .. }
             | LogicExpr::NeoEvent(_)
             | LogicExpr::Imperative { .. }
+            | LogicExpr::Exclamative { .. }
             | LogicExpr::TemporalAnchor { .. }
             | LogicExpr::Distributive { .. }
             | LogicExpr::GroupQuantifier { .. }
             | LogicExpr::Scopal { .. }
-            | LogicExpr::Control { .. } => {
-                // These complex linguistic constructs are assumed valid
-                VerifyExpr::bool(true)
-            }
+            | LogicExpr::Control { .. } => self.unverifiable(),
         }
     }
 
@@ -830,6 +904,13 @@ impl<'a> VerificationPass<'a> {
             Term::Intension(sym) => {
                 let name = self.interner.resolve(*sym);
                 VerifyExpr::apply("Intension", vec![VerifyExpr::var(name)])
+            }
+
+            Term::Kind(sym) => {
+                // Kind terms are reified entities: a 0-ary kind constant the
+                // solver treats as a fixed individual (e.g. ^Tooth).
+                let name = self.interner.resolve(*sym);
+                VerifyExpr::apply("Kind", vec![VerifyExpr::var(name)])
             }
 
             Term::Proposition(expr) => {

@@ -10,7 +10,7 @@ echo "Generating comprehensive LOGICAFFEINE documentation..."
 # ==============================================================================
 # HEADER & TABLE OF CONTENTS
 # ==============================================================================
-catalyst > "$OUTPUT_FILE" << 'EOF'
+cat > "$OUTPUT_FILE" << 'EOF'
 # LOGICAFFEINE 1.0 - System Documentation
 
 # **Logicaffeine** is a hybrid platform combining a rigorous English-to-First-Order-Logic transpiler (**Logical Core**) with an imperative programming language (**Imperative Layer**) and a gamified learning environment (**Frontend**).

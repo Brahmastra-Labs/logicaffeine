@@ -1,35 +1,111 @@
 #![cfg_attr(docsrs, feature(doc_cfg))]
+#![doc = include_str!("../README.md")]
 
-//! # Logicaffeine Proof Engine
-//!
-//! Core structures for proof representation and verification.
-//!
-//! This module defines the "Shape of Truth." A proof is not a boolean;
-//! it is a recursive tree of inference rules that can be inspected,
-//! transformed, and verified.
-//!
-//! ## Curry-Howard Correspondence
-//!
-//! The proof engine implements the propositions-as-types paradigm:
-//!
-//! - **A Proposition is a Type** — logical formulas correspond to types
-//! - **A Proof is a Program** — derivation trees are proof terms
-//! - **Verification is Type Checking** — the kernel validates proof terms
-//!
-//! ## Architecture Invariant
-//!
-//! This crate has **no dependency** on the language crate (Liskov boundary).
-//! The conversion from `LogicExpr` → [`ProofExpr`] lives in the language crate,
-//! ensuring the proof engine remains pure and reusable.
+// Number-theory / cryptanalysis substrate — factoring, elliptic/isogeny, lattice, order-finding.
+// These are prover tools (the hardness lens behind isogeny/ait/oracle), not runtime crypto; they
+// depend only on `logicaffeine_base::numeric`.
+pub mod cyclotomic;
+pub mod elliptic;
+pub mod factor;
+pub mod fp2;
+pub mod hyperelliptic;
+pub mod lattice;
+pub mod period;
 
+pub mod arith;
+pub mod cdcl;
+pub mod cnf;
+pub mod dimacs;
+pub mod proof;
+pub mod proof_emit;
+pub mod complexity;
+pub mod ait;
+pub mod isogeny;
+pub mod coalgebra;
+pub mod groupoid;
+pub mod category_collapse;
+pub mod two_group;
+pub mod proof_rewrite;
+pub mod trace_determinism;
+pub mod progress_complex;
+pub mod cubical;
+pub mod kan_complex;
+pub mod two_type;
+pub mod eilenberg_maclane;
+pub mod postnikov;
+pub mod steenrod;
+pub mod pr;
+pub mod affine;
+pub mod affine_gfp;
+pub mod families;
+pub mod gf2;
+pub mod hypercube;
+pub mod census;
+pub mod cofactor;
+pub mod res_width;
+pub mod rup;
+pub mod sat;
+pub mod satcli;
+pub mod solve;
+pub mod xor_drat;
+pub mod xor_engine;
+pub mod bmc;
+pub mod cardinality;
+pub mod counting_principle;
+pub mod matching;
+pub mod ordering;
+pub mod parity_cardinality;
+pub mod pigeonhole;
+pub mod pseudo_boolean;
+pub mod symmetry;
+pub mod symmetry_detect;
+pub mod sym_certify;
+pub mod sym_dynamic;
+pub mod lyapunov;
+pub mod inprocess;
+pub mod sdcl;
+pub mod xorsat;
+pub mod lll;
+pub mod modp;
+pub mod modm;
+pub mod orbit_stability;
+pub mod polycalc;
+pub mod polycalc_gfp;
+pub mod polycalc_zm;
+pub mod sos;
+pub mod permgroup;
+pub mod sym_break;
+pub mod hornsat;
+pub mod twosat;
+pub mod interval_sched;
+pub mod register_alloc;
+pub mod optimize;
 pub mod certifier;
+pub mod counterexample;
+pub mod crush;
+pub mod decide;
+pub mod development;
+pub mod discrimination;
+pub mod lemma_index;
 pub mod engine;
+pub mod simp;
+pub mod formula;
+pub mod tactic;
+pub mod tactic_script;
+pub mod rule_search;
+pub mod linarith_solve;
+pub mod omega_solve;
+pub mod grounding;
+pub mod grid_solver;
 pub mod error;
 pub mod hints;
 pub mod unify;
+pub mod verify;
 
 #[cfg(feature = "verification")]
 pub mod oracle;
+#[cfg(feature = "verification")]
+mod modal_translation;
 
 pub use engine::BackwardChainer;
 pub use error::ProofError;
@@ -177,6 +253,14 @@ pub enum ProofExpr {
         body: Box<ProofExpr>,
     },
 
+    /// Counterfactual conditional: P □→ Q. Quantifies the consequent over the
+    /// closest antecedent-worlds (a similarity ordering), so it is strictly
+    /// distinct from material implication in both directions.
+    Counterfactual {
+        antecedent: Box<ProofExpr>,
+        consequent: Box<ProofExpr>,
+    },
+
     // --- Temporal Logic ---
 
     /// Temporal operator: Past(P), Future(P), Always(P), Eventually(P), Next(P)
@@ -310,6 +394,9 @@ impl fmt::Display for ProofExpr {
             ProofExpr::Modal { domain, force, flavor, body } => {
                 write!(f, "□[{}/{}/{}]{}", domain, force, flavor, body)
             }
+            ProofExpr::Counterfactual { antecedent, consequent } => {
+                write!(f, "({} □→ {})", antecedent, consequent)
+            }
             ProofExpr::Temporal { operator, body } => write!(f, "{}({})", operator, body),
             ProofExpr::TemporalBinary { operator, left, right } => {
                 write!(f, "TemporalBinary({}, {}, {})", operator, left, right)
@@ -375,6 +462,28 @@ impl fmt::Display for ProofExpr {
 /// * [`certifier::certify`] - Maps inference rules to kernel terms
 /// * [`hints::suggest_hint`] - Suggests applicable rules when stuck
 /// * [`BackwardChainer`] - The engine that selects and applies rules
+///
+/// One constructor's case in a generic induction scheme
+/// ([`InferenceRule::InductionScheme`]). The derivation's premises align 1:1 with
+/// the cases, in the inductive's constructor-registration order.
+#[derive(Debug, Clone, PartialEq)]
+pub struct InductionCase {
+    /// The constructor this case eliminates (e.g. `"Succ"`, `"Node"`).
+    pub constructor: String,
+    /// The constructor's arguments, in order — each bound in the case body.
+    pub args: Vec<InductionArg>,
+}
+
+/// One argument of a constructor in an [`InductionCase`].
+#[derive(Debug, Clone, PartialEq)]
+pub struct InductionArg {
+    /// The name bound for this argument in the case body.
+    pub name: String,
+    /// Whether this argument is itself of the inductive type — a recursive
+    /// position, which therefore carries an induction hypothesis.
+    pub recursive: bool,
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub enum InferenceRule {
     // --- Basic FOL ---
@@ -401,14 +510,35 @@ pub enum InferenceRule {
     /// Logic: P ∨ Q, P → R, Q → R ⊢ R
     DisjunctionElim,
 
+    /// Logic: ⊥ ⊢ anything (ex falso quodlibet). The single premise concludes `False`.
+    ExFalso,
+
+    /// Logic: assume P, derive Q ⊢ P → Q (implication introduction / →I). The
+    /// single premise proves Q with P bound as a local hypothesis.
+    ImpliesIntro,
+
+    /// Logic: prove P → Q and Q → P ⊢ P ↔ Q (biconditional introduction / ↔I).
+    BicondIntro,
+
     /// Logic: ¬¬P ⊢ P (and P ⊢ ¬¬P)
     DoubleNegation,
+
+    /// Logic: classical reductio (proof by contradiction) — assume ¬G, derive ⊥ ⊢ G,
+    /// discharged through the `dne` axiom. The single premise concludes `False` with
+    /// ¬G bound as a local hypothesis.
+    ClassicalReductio,
 
     // --- Quantifiers ---
 
     /// Logic: ∀x P(x) ⊢ P(c)
     /// Stores the specific term 'c' used to instantiate the universal.
     UniversalInst(String),
+
+    /// Logic: ∀x P(x) ⊢ P(t) at an arbitrary witness TERM (a compound like
+    /// `add(a, Zero)`, not just a name). `UniversalInst` keeps the name-only
+    /// fast path; this carries the full term for instantiations that
+    /// `simp`/`crush` produce by matching.
+    UniversalInstTerm(ProofTerm),
 
     /// Logic: Γ, x:T ⊢ P(x) implies Γ ⊢ ∀x:T. P(x)
     /// Stores variable name and type name for Lambda construction.
@@ -461,6 +591,63 @@ pub enum InferenceRule {
         step_var: String,  // "k" - the predecessor variable (for IH matching)
     },
 
+    /// Logic: generic structural induction over ANY inductive type. Generalizes
+    /// [`InferenceRule::StructuralInduction`] (fixed to the nullary-base + unary-step
+    /// Nat shape) to an arbitrary constructor set — one premise per constructor, in
+    /// registration order, each recursive argument carrying its own induction
+    /// hypothesis. Certifies to a `Fix` over an N-ary `Match`: the dependent
+    /// eliminator the kernel re-checks for coverage, case types, and termination.
+    InductionScheme {
+        variable: String,          // the induction variable, e.g. "t"
+        ind_type: String,          // the inductive type, e.g. "Tree"
+        cases: Vec<InductionCase>, // one per constructor, in registration order
+    },
+
+    // --- Linear arithmetic (order) ---
+
+    /// `a ≤ b`, `b ≤ c` ⊢ `a ≤ c` over `Int`. The middle term is recovered from
+    /// the first premise's conclusion. Certifies to `le_trans a b c p₀ p₁`.
+    /// Inequalities are encoded as the Prop `Eq Bool (le a b) true`.
+    LeTrans,
+
+    /// `⊢ a ≤ a` over `Int`. Certifies to `le_refl a`.
+    LeRefl,
+
+    /// `a ≤ b`, `c ≤ d` ⊢ `a + c ≤ b + d` over `Int`. The four operands are read
+    /// from the conclusion `le(add a c, add b d) = true`; `premise[0]` proves
+    /// `a ≤ b`, `premise[1]` proves `c ≤ d`. Certifies to `le_add_mono a b c d p₀ p₁`.
+    LeAddMono,
+
+    /// Linear contradiction: `premise[0]` proves `le(m, n) = true` for ground `m > n`
+    /// (so `le m n ⇝ false`, the Prop is `Eq Bool false true`). Concludes `⊥` via the
+    /// `Bool` no-confusion discriminator. Lets contradictory bounds prove anything.
+    LinFalse,
+
+    /// `0 ≤ k`, `a ≤ b` ⊢ `k·a ≤ k·b` — scale an inequality by a non-negative `k`.
+    /// Operands from the conclusion `le(mul k a, mul k b) = true`; `premise[0]` proves
+    /// `0 ≤ k`, `premise[1]` proves `a ≤ b`. Certifies to `le_mul_nonneg k a b p₀ p₁`.
+    /// A Farkas-reconstruction primitive.
+    LeMulNonneg,
+
+    /// `a ≤ b` ⊢ `0 ≤ b - a` — move an inequality to one side. Operands from the
+    /// conclusion `le(0, sub b a) = true`; `premise[0]` proves `a ≤ b`. Certifies to
+    /// `le_sub a b p₀`. The Farkas "collect to a single side" primitive.
+    LeSub,
+
+    /// `a < b` ⊢ `(a + 1) ≤ b` — integer DISCRETENESS. Operands from the conclusion
+    /// `le(add a 1, b) = true`; `premise[0]` proves `a < b` (`lt(a,b) = true`).
+    /// Certifies to `lt_succ_le a b p₀`. This is the one step rational Fourier-Motzkin
+    /// lacks — the `omega` primitive that refutes strict systems the rational solver
+    /// reports satisfiable.
+    LtSuccLe,
+
+    /// `a < (b + 1)` ⊢ `a ≤ b` — the upper-side discreteness companion. Operands
+    /// from the conclusion `le(a, b) = true`; `premise[0]` proves `a < b+1`
+    /// (`lt(a, add b 1) = true`). Certifies to `lt_add1_le a b p₀`. Preferred over
+    /// `LtSuccLe` when the strict bound is already `b+1`, since it cancels the
+    /// constant instead of propagating it into the Farkas reconstruction.
+    LtAdd1Le,
+
     // --- Equality ---
 
     /// Leibniz's Law / Substitution of Equals
@@ -481,6 +668,18 @@ pub enum InferenceRule {
     /// Reflexivity of Equality: a = a (after normalization)
     /// Used when both sides of an identity reduce to the same normal form.
     Reflexivity,
+
+    /// Arithmetic decision: an `Int` equality discharged by the proof-producing
+    /// arithmetic oracle ([`crate::arith::prove_int_eq`]) into a kernel-checked
+    /// proof (computation + the ring axioms). The conclusion is the `Identity`.
+    ArithDecision,
+
+    /// Proof by kernel evaluation: a closed decidable proposition (a ground
+    /// comparison or Bool/Nat equality) discharged via `native_decide`. The
+    /// leaf carries only the claim; certification re-runs the evaluator and
+    /// the kernel checks the resulting `of_decide_eq_true`/`ofReduceBool`
+    /// term, so a lying leaf is rejected.
+    NativeDecide,
 
     // --- Fallbacks ---
 
@@ -507,10 +706,25 @@ pub enum InferenceRule {
     /// The witness c must be fresh (not appearing in Goal).
     ExistentialElim { witness: String },
 
-    /// Case Analysis (Tertium Non Datur / Law of Excluded Middle)
-    /// Logic: (P → ⊥), (¬P → ⊥) ⊢ ⊥
-    /// Used for self-referential paradoxes like the Barber Paradox.
-    CaseAnalysis { case_formula: String },
+    /// Case Analysis on a formula `C` whose two cases both reach absurdity.
+    /// Logic: (C → ⊥), (¬C → ⊥) ⊢ ⊥ — note this is the *intuitionistic* form
+    /// (build `¬C` and `¬¬C`, then apply), so certifying it needs no excluded
+    /// middle. Used for self-referential paradoxes like the Barber Paradox.
+    ///
+    /// `case_formula` carries the actual proposition `C` (not a rendered string)
+    /// so the certifier can build the case lambdas' parameter types and bind `C`
+    /// / `¬C` as local hypotheses in each branch.
+    CaseAnalysis { case_formula: Box<ProofExpr> },
+
+    /// Logic: `A ∨ B`, `A ⊢ C`, `B ⊢ C` ⊢ `C` — disjunction elimination to a common
+    /// conclusion (here always `⊥`, for the grounded-grid contradiction prover).
+    /// Premises: `[A∨B, left-branch (C assuming A), right-branch (C assuming B)]`.
+    /// Unlike `DisjunctionElim` (disjunctive syllogism, which needs a refuted
+    /// disjunct) this eliminates BOTH disjuncts by case analysis — the move a grid's
+    /// of-pair / either-or / closure clause needs. The disjuncts (and, when a disjunct
+    /// is a conjunction, each of its conjuncts) are bound as local hypotheses in the
+    /// respective branch, so a branch may reference them directly.
+    DisjunctionCases,
 }
 
 // =============================================================================
@@ -595,6 +809,7 @@ impl DerivationTree {
 
         let rule_name = match &self.rule {
             InferenceRule::UniversalInst(var) => format!("UniversalInst({})", var),
+            InferenceRule::UniversalInstTerm(term) => format!("UniversalInst({})", term),
             InferenceRule::UniversalIntro { variable, var_type } => {
                 format!("UniversalIntro({}:{})", variable, var_type)
             }

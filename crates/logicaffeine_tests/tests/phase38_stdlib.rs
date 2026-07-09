@@ -65,6 +65,31 @@ Let x be 1.
     assert!(result.is_ok(), "Should parse native function: {:?}", result);
 }
 
+/// A native may be *named* with a word that also leads a statement keyword.
+/// `sleep` lexes to the `Sleep` statement keyword (Phase 51), but a
+/// `## To native sleep` declaration is in name position, so the keyword must be
+/// accepted there as the function name — "declarer wins," the same rule the rest
+/// of `expect_identifier` already applies to `Read`/`Write`/`Merge`/`Add`. This
+/// is what keeps the embedded `time.lg` prelude module (`## To native sleep
+/// (ms: Nat)`) parsing once `sleep` became reserved.
+#[test]
+fn test_native_function_named_with_statement_keyword_parses() {
+    let source = r#"
+# Test
+
+## To native sleep (ms: Nat)
+
+## Main
+Let x be 1.
+"#;
+    let result = compile_to_rust(source);
+    assert!(
+        result.is_ok(),
+        "`## To native sleep` must parse — a native name shadows the Sleep keyword: {:?}",
+        result
+    );
+}
+
 /// Test that native functions generate logicaffeine_system calls.
 #[test]
 fn test_file_read_codegen() {

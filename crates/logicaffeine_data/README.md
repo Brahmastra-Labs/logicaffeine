@@ -1,256 +1,122 @@
 # logicaffeine-data
 
-WASM-safe data structures and CRDTs for distributed systems.
+WASM-safe runtime values and conflict-free replicated data types (CRDTs): the
+dynamic value universe LOGOS programs manipulate, the specialized integer
+collections the code generator emits for proven-safe hot paths, the 1-based
+indexing traits that make values subscriptable, and the eight CRDTs that converge
+those values across replicas — all with no path to system IO.
 
-Part of the [Logicaffeine](https://logicaffeine.com) project.
+Part of the [Logicaffeine](https://github.com/Brahmastra-Labs/logicaffeine/blob/main/README.md) workspace. Tier 1 — depends on
+logicaffeine_base. **Lamport invariant**: no IO dependencies, so these structures
+stay WASM-safe and clock-agnostic.
 
-## The Lamport Invariant
+## Role in the workspace
 
-This crate enforces a strict boundary: **no IO, no system time, no network access**. It compiles cleanly for both native and `wasm32-unknown-unknown` targets.
+This is the value layer shared by the rest of the workspace. `logicaffeine_compile`
+and `logicaffeine_system` build on its runtime types and CRDTs; the web app links
+it for `wasm32-unknown-unknown`. Everything compiles identically for native and
+WASM because nothing here touches the clock, the network, or the filesystem. The
+networking wrappers that *do* (e.g. `Synced<T>`) live one tier up in
+`logicaffeine_system`. See [concurrency](https://github.com/Brahmastra-Labs/logicaffeine/blob/main/docs/concurrency.md) for how
+replicated state flows through the runtime.
 
-All timestamps must be injected by callers. This means:
-- `LWWRegister` requires explicit timestamp parameters
-- Replica IDs are generated using `getrandom` (works in WASM)
-- The `Synced<T>` networking wrapper lives in `logicaffeine_system`, not here
+The Lamport invariant is enforced at the dependency boundary: no tokio, no libp2p,
+no `std::time::SystemTime` in CRDT logic. Timestamps are injected by callers —
+`LWWRegister::new`/`set` take an explicit `u64`. The single clock touch is
+`generate_replica_id`: native XORs `SystemTime::now()` with `getrandom` bytes;
+wasm32 uses `getrandom` alone (Web Crypto via the `js` feature), keeping the WASM
+build pure.
 
-## Features
+## CRDTs
 
-- **WASM-compatible**: Compiles for native and WebAssembly targets
-- **Pure data structures**: No tokio, no libp2p, no SystemTime dependencies
-- **Serializable**: All types implement `serde::Serialize` and `Deserialize`
-- **Delta sync**: Efficient incremental synchronization via `DeltaCrdt` trait
+Eight CRDT types. Every one converges through the `Merge` trait (commutative,
+associative, idempotent) and derives `serde::Serialize`/`Deserialize`.
+`ReplicaId = u64`.
 
-## CRDT Types
+| Type | File | Description |
+|------|------|-------------|
+| `GCounter` | `crdt/gcounter.rs` | Grow-only counter; per-replica counts, value is their sum |
+| `PNCounter` | `crdt/pncounter.rs` | Increment/decrement counter built from two G-Counters (P and N) |
+| `LWWRegister<T>` | `crdt/lww.rs` | Last-write-wins register; highest caller-supplied timestamp wins on merge |
+| `MVRegister<T>` | `crdt/mvregister.rs` | Multi-value register; preserves all concurrent writes until resolved |
+| `ORSet<T, B = AddWins>` | `crdt/orset.rs` | Observed-remove set; `B: SetBias` = `AddWins` (default) or `RemoveWins` |
+| `ORMap<K, V: Merge>` | `crdt/ormap.rs` | Observed-remove map; add-wins keys, recursively merged nested-CRDT values |
+| `RGA<T>` | `crdt/sequence/rga.rs` | Replicated Growable Array; sequence CRDT for collaborative lists |
+| `YATA<T>` | `crdt/sequence/yata.rs` | Origin-left/right sequence CRDT optimized for collaborative text |
 
-CRDTs (Conflict-free Replicated Data Types) provide automatic conflict resolution. Any two replicas can merge to produce the same result, regardless of message order.
+## Public API
 
-### Counters
+**`Value` and runtime types** (`types`) — `Value` is the dynamic enum
+(`Int`/`Float`/`Bool`/`Text`/`Char`/`Nothing`) for heterogeneous tuples, with
+`Add`/`Sub`/`Mul`/`Div` (numeric promotion, text concat). Aliases: `Nat=u64`,
+`Int=i64`, `Real=f64`, `Text=String`, `Bool=bool`, `Char=char`, `Byte=u8`,
+`Unit=()`, plus `LogosRational`. Collections use reference semantics:
+`Seq<T> = LogosSeq<T>` (`Rc<RefCell<Vec<T>>>`) and `Map<K,V> = LogosMap<K,V>`
+(`Rc<RefCell<FxHashMap>>`); `.deep_clone()` gives an independent copy. `Set<T>`
+is a value-semantics `FxHashSet`. The code generator substitutes specialized
+value-semantics integer collections — `LogosI64Map`/`LogosI64Set`,
+`LogosI32Map`/`LogosI32Set`, `LogosDenseI64Map`/`LogosDenseI64Set`,
+`LogosDenseI64MapNoPresence`, and the `LogosDivU64` magic-divisor — wherever
+bounds/range analysis proves the swap invisible. `LogosContains<T>` unifies
+membership across all of these plus `Vec`/`[T]`/`String`/`ORSet`.
 
-| Type | Description | Use Case |
-|------|-------------|----------|
-| `GCounter` | Grow-only counter | View counts, page hits |
-| `PNCounter` | Positive-negative counter | Bidirectional counters (upvotes/downvotes) |
+**`Merge` trait** — `fn merge(&mut self, other: &Self)`, the convergence contract
+(commutative, associative, idempotent).
 
-```rust
-use logicaffeine_data::{GCounter, PNCounter, Merge};
+**Delta support** — `DeltaCrdt: Merge` exposes `delta_since(&VClock)` /
+`apply_delta` / `version`, implemented by `PNCounter`, `RGA`, and `YATA`; several
+CRDTs additionally carry their own `*Delta` payload structs. `DeltaBuffer<D>`
+retains recent deltas in a ring buffer for late joiners.
 
-let mut counter = GCounter::new();
-counter.increment(5);
-assert_eq!(counter.value(), 5);
+**Causal metadata** (`crdt::causal`) — `Dot` (replica + counter), `VClock`
+(`dominates`/`concurrent`/`merge_vclock`), and `DotContext` (clock plus an
+out-of-order dot cloud) track happens-before across replicas.
 
-let mut pn = PNCounter::new();
-pn.increment(10);
-pn.decrement(3);
-assert_eq!(pn.value(), 7);
-```
+**Indexing** (`indexing`) — `LogosIndex`/`LogosIndexMut` use 1-based indices to
+match natural language; `LogosGetChar` returns a `char` without allocating. They
+cover `Vec`, `[T]`, `&mut [T]`, `String`, `LogosSeq`, `LogosMap`, and `FxHashMap`.
 
-### Registers
+**Shared wire codec** (`wire`) — the byte format of the peer/transport codec,
+factored out so both the interpreter's `RuntimeValue` and AOT-generated types
+encode through one definition (`WireEncode`/`WireDecode` over the `T_INT`/`T_TEXT`/
+`T_LIST`/`T_INDUCTIVE` tagged-varint form). Byte-identical across value models —
+what lets a compile-once native partial evaluator receive a program as data.
 
-| Type | Description | Use Case |
-|------|-------------|----------|
-| `LWWRegister<T>` | Last-write-wins | Single values where latest update should win |
-| `MVRegister<T>` | Multi-value | Track conflicts for manual resolution |
-
-```rust
-use logicaffeine_data::{LWWRegister, MVRegister, Merge};
-
-// LWW: Timestamp determines winner
-let mut reg = LWWRegister::new("initial", 100);
-reg.set("updated", 200);  // Higher timestamp wins
-
-// MV: Preserves concurrent writes for conflict detection
-let mut mv: MVRegister<String> = MVRegister::new(1);
-mv.set("value".into());
-if mv.has_conflict() {
-    mv.resolve("resolved".into());
-}
-```
-
-### Sets
-
-| Type | Description | Use Case |
-|------|-------------|----------|
-| `ORSet<T, AddWins>` | Concurrent add beats remove | Collaborative collections (default) |
-| `ORSet<T, RemoveWins>` | Concurrent remove beats add | Access revocation, cleanup operations |
-
-```rust
-use logicaffeine_data::{ORSet, AddWins, RemoveWins, Merge};
-
-let mut set: ORSet<String, AddWins> = ORSet::new(1);
-set.add("item".into());
-assert!(set.contains(&"item".into()));
-
-// With remove-wins bias
-let mut strict: ORSet<String, RemoveWins> = ORSet::new(1);
-```
-
-### Maps
-
-| Type | Description | Use Case |
-|------|-------------|----------|
-| `ORMap<K, V>` | Key-value map with nested CRDTs | Structured data, nested counters/sets |
+**Cross-tier arithmetic and formatting** — `ops` is the exact numeric-comparison
+layer the code generator emits (`logos_cmp_i64_f64`/`logos_i64_eq_f64`/
+`logos_approx_eq`/`logos_truthy`), so a statically-mixed `Int`/`Float` compare is
+exact — never a lossy `as f64` cast that would call `9007199254740993` equal to
+`9007199254740992.0`. `fmt` is the single float-display authority: every tier
+(tree-walker, VM, AOT binary, direct-WASM host) renders an `f64` through it, so
+the same program prints the same decimal string however it was run.
 
 ```rust
 use logicaffeine_data::{ORMap, PNCounter, Merge};
 
-let mut scores: ORMap<String, PNCounter> = ORMap::new(1);
-scores.get_or_insert("player1".into()).increment(100);
-assert_eq!(scores.get(&"player1".into()).unwrap().value(), 100);
+let mut a: ORMap<String, PNCounter> = ORMap::new(1);
+a.get_or_insert("score".into()).increment(100);
+
+let mut b: ORMap<String, PNCounter> = ORMap::new(2);
+b.get_or_insert("score".into()).increment(50);
+
+a.merge(&b);
+b.merge(&a);
+// Both replicas converge to the same state regardless of merge order.
 ```
 
-### Sequences
+## Dependencies
 
-| Type | Description | Use Case |
-|------|-------------|----------|
-| `RGA` | Replicated Growable Array | Collaborative lists |
-| `YATA` | Yet Another Text Algorithm | Collaborative text editing |
+- **Internal**: `logicaffeine-base`.
+- **External**: `rustc-hash` (FxHashMap/FxHashSet), `serde` (derive),
+  `getrandom` (replica-id entropy; `js` feature on wasm32). Dev-only: `bincode`.
 
-```rust
-use logicaffeine_data::{RGA, YATA, Merge};
-
-let mut list: RGA<String> = RGA::new(1);
-list.append("first".into());
-list.append("second".into());
-assert_eq!(list.to_vec(), vec!["first", "second"]);
-
-let mut text: YATA<char> = YATA::new(1);
-text.append('H');
-text.append('i');
-```
-
-## Causal Infrastructure
-
-These types track causality and enable conflict detection.
-
-| Type | Description |
-|------|-------------|
-| `VClock` | Vector clock for causal ordering |
-| `Dot` | Unique event identifier (replica ID + sequence number) |
-| `DotContext` | Combines clock + cloud for out-of-order message handling |
-| `DeltaBuffer<D>` | Ring buffer for recent deltas (efficient sync) |
-
-```rust
-use logicaffeine_data::{VClock, Dot, DotContext};
-
-let mut clock = VClock::new();
-let seq = clock.increment(42);  // Returns sequence number
-
-let dot = Dot::new(42, seq);
-
-let mut ctx = DotContext::new();
-let next_dot = ctx.next(42);  // Generate and track
-assert!(ctx.has_seen(&next_dot));
-```
-
-## Runtime Types
-
-Type aliases for LOGOS programs:
-
-| LOGOS Type | Rust Type | Description |
-|------------|-----------|-------------|
-| `Nat` | `u64` | Natural numbers |
-| `Int` | `i64` | Signed integers |
-| `Real` | `f64` | Floating-point |
-| `Text` | `String` | UTF-8 strings |
-| `Bool` | `bool` | Boolean values |
-| `Unit` | `()` | Unit type |
-| `Char` | `char` | Unicode scalar |
-| `Byte` | `u8` | Raw bytes |
-| `Seq<T>` | `Vec<T>` | Ordered sequences |
-| `Set<T>` | `HashSet<T>` | Unique elements |
-| `Map<K,V>` | `HashMap<K,V>` | Key-value pairs |
-| `Tuple` | `Vec<Value>` | Heterogeneous tuples |
-| `Value` | enum | Dynamic type for mixed collections |
-
-## Key Traits
-
-### `Merge`
-
-The core CRDT trait. Must satisfy:
-- **Commutative**: `a.merge(b) == b.merge(a)`
-- **Associative**: `a.merge(b.merge(c)) == a.merge(b).merge(c)`
-- **Idempotent**: `a.merge(a) == a`
-
-```rust
-use logicaffeine_data::Merge;
-
-// All CRDT types implement Merge
-fn sync<T: Merge>(local: &mut T, remote: &T) {
-    local.merge(remote);
-}
-```
-
-### `DeltaCrdt`
-
-For efficient incremental synchronization:
-
-```rust
-use logicaffeine_data::{DeltaCrdt, VClock};
-
-// Extract changes since a known version
-fn get_updates<T: DeltaCrdt>(crdt: &T, since: &VClock) -> Option<T::Delta> {
-    crdt.delta_since(since)
-}
-```
-
-### `LogosIndex` / `LogosIndexMut`
-
-1-based indexing for natural language conventions:
-
-```rust
-use logicaffeine_data::{LogosIndex, LogosIndexMut};
-
-let v = vec![10, 20, 30];
-assert_eq!(v.logos_get(1i64), 10);  // Index 1 = first element
-assert_eq!(v.logos_get(3i64), 30);  // Index 3 = third element
-// Index 0 panics!
-```
-
-### `LogosContains`
-
-Unified containment testing:
-
-```rust
-use logicaffeine_data::LogosContains;
-
-let v = vec![1, 2, 3];
-assert!(v.logos_contains(&2));
-
-let s = String::from("hello");
-assert!(s.logos_contains(&"ell"));  // Substring
-assert!(s.logos_contains(&'o'));    // Character
-```
-
-## Usage Example
-
-```rust
-use logicaffeine_data::{ORSet, PNCounter, ORMap, Merge, AddWins};
-
-// Create state on replica 1
-let mut replica1: ORMap<String, PNCounter> = ORMap::new(1);
-replica1.get_or_insert("score".into()).increment(100);
-
-// Create state on replica 2
-let mut replica2: ORMap<String, PNCounter> = ORMap::new(2);
-replica2.get_or_insert("score".into()).increment(50);
-
-// Merge - order doesn't matter, result is always the same
-replica1.merge(&replica2);
-assert_eq!(replica1.get(&"score".into()).unwrap().value(), 150);
-```
-
-## Important Constraints
-
-1. **No IO** - Timestamps and network sync are the caller's responsibility
-2. **1-based indexing** - `LogosIndex` panics on index 0 or out-of-bounds
-3. **For networking** - Use `logicaffeine_system`'s `Synced<T>` wrapper
+No tokio, no libp2p, no `SystemTime` — the Lamport invariant is part of the
+dependency graph, not just convention. The crate has no Cargo features and no
+build script.
 
 ## License
 
-Business Source License 1.1 (BUSL-1.1)
+Business Source License 1.1 — see [LICENSE.md](https://github.com/Brahmastra-Labs/logicaffeine/blob/main/LICENSE.md).
 
-- **Free** for individuals and organizations with <25 employees
-- **Commercial license** required for organizations with 25+ employees offering Logic Services
-- **Converts to MIT** on December 24, 2029
-
-See [LICENSE](https://github.com/Brahmastra-Labs/logicaffeine/blob/main/LICENSE.md) for full terms.
+---
+[Docs index](https://github.com/Brahmastra-Labs/logicaffeine/blob/main/docs/README.md) · [Root README](https://github.com/Brahmastra-Labs/logicaffeine/blob/main/README.md) · [Changelog](https://github.com/Brahmastra-Labs/logicaffeine/blob/main/CHANGELOG.md)

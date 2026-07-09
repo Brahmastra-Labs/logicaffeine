@@ -548,6 +548,11 @@ impl<'a> Lexer<'a> {
         let chars: Vec<char> = input.chars().collect();
         let mut char_idx = 0;
         let mut skip_count = 0;
+        // Inside `[` … `]` a digit-flanked comma is a list separator, not a
+        // thousands separator — `[1,2,3]` is three elements. Money literals
+        // (`$125,000`) keep their commas at any depth; line-local so an
+        // unbalanced bracket never poisons the rest of the input.
+        let mut bracket_depth: usize = 0;
         // Track byte offset for escape range matching
         let mut skip_to_byte: Option<usize> = None;
 
@@ -594,7 +599,13 @@ impl<'a> Lexer<'a> {
             }
             let next_pos = i + c.len_utf8();
             match c {
+                // "8:15 pm" — a space between a H:MM time and "am"/"pm" is part of
+                // the time literal: skip the flush so "pm" joins "8:15" → "8:15pm".
+                ' ' if Self::is_time_space_before_ampm(&current_word, &chars, char_idx) => {}
                 ' ' | '\t' | '\n' | '\r' => {
+                    if c == '\n' {
+                        bracket_depth = 0;
+                    }
                     if !current_word.is_empty() {
                         items.push(WordItem {
                             word: std::mem::take(&mut current_word),
@@ -613,9 +624,47 @@ impl<'a> Lexer<'a> {
                     let next_is_digit = char_idx + 1 < chars.len()
                         && chars[char_idx + 1].is_ascii_digit();
 
+                    // Field-access / UFCS DOT: an identifier char (letter/`_`) or a
+                    // closing `)`/`]` immediately before, and an identifier-start
+                    // immediately after — no whitespace either side. `p.x`, `xs.f(a)`,
+                    // `(e).m`. Digit-glue wins (`5.sqrt` stays `5` + period + `sqrt`,
+                    // `5.0` stays a decimal), and `Show x.` stays a sentence (the next
+                    // char is a newline, not an identifier). Mode is resolved later:
+                    // `classify_with_lookahead` maps the `\x00DOT` marker to `Dot`
+                    // (imperative) or a sentence `Period` (declarative — prose keeps
+                    // `e.g.` exactly as today).
+                    let prev_ident = current_word
+                        .chars()
+                        .last()
+                        .map_or(false, |ch| ch.is_alphabetic() || ch == '_');
+                    let prev_close = current_word.is_empty()
+                        && char_idx > 0
+                        && matches!(chars[char_idx - 1], ')' | ']');
+                    let next_ident = char_idx + 1 < chars.len()
+                        && (chars[char_idx + 1].is_alphabetic() || chars[char_idx + 1] == '_');
+
                     if prev_is_digit && next_is_digit {
                         // This is a decimal point, include it in the current word
                         current_word.push(c);
+                    } else if (prev_ident || prev_close) && next_ident {
+                        // Flush the receiver, then the mode-deferred dot marker.
+                        if !current_word.is_empty() {
+                            items.push(WordItem {
+                                word: std::mem::take(&mut current_word),
+                                trailing_punct: None,
+                                start: word_start,
+                                end: i,
+                                punct_pos: None,
+                            });
+                        }
+                        items.push(WordItem {
+                            word: "\x00DOT".to_string(),
+                            trailing_punct: None,
+                            start: i,
+                            end: next_pos,
+                            punct_pos: None,
+                        });
+                        word_start = next_pos;
                     } else {
                         // This is a sentence period
                         if !current_word.is_empty() {
@@ -698,8 +747,14 @@ impl<'a> Lexer<'a> {
                 }
                 // String literals: "hello world" or """multi-line"""
                 '"' => {
-                    // Push any pending word
-                    if !current_word.is_empty() {
+                    // `r"…"` RAW string: the adjacent `r` prefix is part of
+                    // the literal, not a word — backslashes stay verbatim
+                    // (paths, regexes). Only the exact word `r` glued to the
+                    // quote triggers it; `Show r.` (a variable) is untouched.
+                    let raw_string = current_word == "r";
+                    if raw_string {
+                        current_word.clear();
+                    } else if !current_word.is_empty() {
                         items.push(WordItem {
                             word: std::mem::take(&mut current_word),
                             trailing_punct: None,
@@ -753,11 +808,41 @@ impl<'a> Lexer<'a> {
                         let mut j = char_idx + 1;
                         let mut string_content = String::new();
                         while j < chars.len() && chars[j] != '"' {
-                            if chars[j] == '\\' && j + 1 < chars.len() {
-                                // Escape sequence - skip backslash, include next char
+                            if chars[j] == '\\' && j + 1 < chars.len() && !raw_string {
+                                // DECODE the escape (`"a\nb"` is two lines,
+                                // not the letters a-n-b). Unknown escapes and
+                                // malformed \u{…} stay verbatim rather than
+                                // silently dropping the backslash.
                                 j += 1;
-                                if j < chars.len() {
-                                    string_content.push(chars[j]);
+                                match chars[j] {
+                                    'n' => string_content.push('\n'),
+                                    't' => string_content.push('\t'),
+                                    'r' => string_content.push('\r'),
+                                    '0' => string_content.push('\0'),
+                                    '\\' => string_content.push('\\'),
+                                    '"' => string_content.push('"'),
+                                    'u' if j + 1 < chars.len() && chars[j + 1] == '{' => {
+                                        let mut k = j + 2;
+                                        let mut hex = String::new();
+                                        while k < chars.len() && chars[k] != '}' {
+                                            hex.push(chars[k]);
+                                            k += 1;
+                                        }
+                                        match u32::from_str_radix(&hex, 16).ok().and_then(char::from_u32) {
+                                            Some(c) if k < chars.len() => {
+                                                string_content.push(c);
+                                                j = k;
+                                            }
+                                            _ => {
+                                                string_content.push('\\');
+                                                string_content.push('u');
+                                            }
+                                        }
+                                    }
+                                    other => {
+                                        string_content.push('\\');
+                                        string_content.push(other);
+                                    }
                                 }
                             } else {
                                 string_content.push(chars[j]);
@@ -767,11 +852,21 @@ impl<'a> Lexer<'a> {
 
                         // Create a special marker for string literals
                         // We prefix with a special character to identify in tokenize()
+                        //
+                        // `end` and the following `word_start` are BYTE offsets
+                        // (Span fields are byte positions, like `start`/`i`); `j`
+                        // is a CHAR index, so convert through the byte length of
+                        // the covered source chars. Emitting `j + 1` (a char
+                        // index) produced a byte-start / char-end span that
+                        // underflows downstream on multibyte input.
+                        let end_char = if j < chars.len() { j + 1 } else { j };
+                        let end_byte = string_start
+                            + chars[char_idx..end_char].iter().map(|c| c.len_utf8()).sum::<usize>();
                         items.push(WordItem {
                             word: format!("\x00STR:{}", string_content),
                             trailing_punct: None,
                             start: string_start,
-                            end: if j < chars.len() { j + 1 } else { j },
+                            end: end_byte,
                             punct_pos: None,
                         });
 
@@ -781,7 +876,7 @@ impl<'a> Lexer<'a> {
                         } else {
                             skip_count = j - char_idx - 1;
                         }
-                        word_start = if j < chars.len() { j + 1 } else { j };
+                        word_start = end_byte;
                     }
                 }
                 // Character literals with backticks: `x`
@@ -960,11 +1055,164 @@ impl<'a> Lexer<'a> {
                     // This colon is part of a time, include it in the word
                     current_word.push(c);
                 }
+                // Hyphenated compounds ("weak-until", "highest-priority"):
+                // a hyphen BETWEEN letters is part of the word, never the
+                // arithmetic minus (which is space- or digit-adjacent).
+                '-' if char_idx > 0
+                    && chars[char_idx - 1].is_alphabetic()
+                    && char_idx + 1 < chars.len()
+                    && chars[char_idx + 1].is_alphabetic() => {
+                    current_word.push(c);
+                }
                 // Scientific notation: 4.84e+00, 1.66E-03, 2.5e-2
                 '+' | '-' if Self::is_exponent_sign(&current_word, &chars, char_idx) => {
                     current_word.push(c);
                 }
-                '(' | ')' | '[' | ']' | ',' | '?' | '!' | ':' | '+' | '-' | '*' | '/' | '%' | '<' | '>' | '=' => {
+                // Alphanumeric codes ("AV-435", "FRZ-192", "I-5"): a hyphen with
+                // an UPPERCASE-code word before it and a DIGIT after is part of
+                // the identifier, not an arithmetic minus. The all-uppercase gate
+                // keeps lowercase variables ("x-1") and digit arithmetic ("5-3")
+                // emitting a Minus.
+                '-' if char_idx > 0
+                    && chars[char_idx - 1].is_alphabetic()
+                    && char_idx + 1 < chars.len()
+                    && chars[char_idx + 1].is_ascii_digit()
+                    && !current_word.is_empty()
+                    && current_word.chars().all(|ch| ch.is_ascii_uppercase()) => {
+                    current_word.push(c);
+                }
+                // Letter grades ("B+", "A+"): a '+' directly after an
+                // uppercase-letter word, NOT followed by a digit (arithmetic
+                // "B+2"), is part of the grade. A spaced "B + C" flushes "B"
+                // before the '+', so only the glued grade form is caught.
+                '+' if !current_word.is_empty()
+                    && current_word.chars().all(|ch| ch.is_ascii_uppercase())
+                    && (char_idx + 1 >= chars.len()
+                        || !chars[char_idx + 1].is_ascii_digit()) => {
+                    current_word.push(c);
+                }
+                // Thousands separator inside a number: "125,000", "1,234,567".
+                // A comma flanked by digits is part of the numeral, not a clause
+                // separator — except inside a bracketed list, where `[1,2,3]`
+                // means three elements. A money word (`$125,000`) keeps its
+                // commas even there.
+                ',' if char_idx > 0
+                    && chars[char_idx - 1].is_ascii_digit()
+                    && char_idx + 1 < chars.len()
+                    && chars[char_idx + 1].is_ascii_digit()
+                    && (bracket_depth == 0
+                        || current_word.chars().next().map_or(false, Self::is_currency_symbol)) => {
+                    current_word.push(c);
+                }
+                // Date separator inside a numeral: "04/2024", "12/25", "04/2024"
+                // (MM/YYYY, MM/DD). A slash flanked by digits is part of the date
+                // token, not an arithmetic division (rare in NL clues).
+                '/' if char_idx > 0
+                    && chars[char_idx - 1].is_ascii_digit()
+                    && char_idx + 1 < chars.len()
+                    && chars[char_idx + 1].is_ascii_digit() => {
+                    current_word.push(c);
+                }
+                // "28-inch", "6-year-old", "12-year-old" — a hyphen with a DIGIT
+                // before and a LETTER after is orthographic (= "28 inch"), so
+                // split into separate words here (flush the number, skip the
+                // hyphen as a word boundary) rather than emitting an arithmetic
+                // Minus. A digit-digit hyphen ("5-3") stays Minus (letter-after
+                // required); a letter-letter hyphen ("well-known") is handled above.
+                '-' if char_idx > 0
+                    && chars[char_idx - 1].is_ascii_digit()
+                    && char_idx + 1 < chars.len()
+                    && chars[char_idx + 1].is_alphabetic() => {
+                    if !current_word.is_empty() {
+                        items.push(WordItem {
+                            word: std::mem::take(&mut current_word),
+                            trailing_punct: None,
+                            start: word_start,
+                            end: i,
+                            punct_pos: None,
+                        });
+                    }
+                    word_start = next_pos;
+                }
+                // `**` exponentiation — a single two-char token (before the
+                // generic punct arm and the `*=` arm; `**` is `*` then `*`).
+                '*' if char_idx + 1 < chars.len() && chars[char_idx + 1] == '*' => {
+                    if !current_word.is_empty() {
+                        items.push(WordItem {
+                            word: std::mem::take(&mut current_word),
+                            trailing_punct: None,
+                            start: word_start,
+                            end: i,
+                            punct_pos: None,
+                        });
+                    }
+                    items.push(WordItem {
+                        word: "**".to_string(),
+                        trailing_punct: None,
+                        start: i,
+                        end: i + 2,
+                        punct_pos: None,
+                    });
+                    skip_count = 1;
+                    word_start = i + 2;
+                }
+                // `//` floor division — a single two-char token (before the generic
+                // punct arm and the `/=` arm; `//` is `/` then `/`, not `/` then `=`).
+                // A digit-flanked `/` is already claimed above as a date separator, so
+                // this only fires on a genuine `x // y`.
+                '/' if char_idx + 1 < chars.len() && chars[char_idx + 1] == '/' => {
+                    if !current_word.is_empty() {
+                        items.push(WordItem {
+                            word: std::mem::take(&mut current_word),
+                            trailing_punct: None,
+                            start: word_start,
+                            end: i,
+                            punct_pos: None,
+                        });
+                    }
+                    items.push(WordItem {
+                        word: "//".to_string(),
+                        trailing_punct: None,
+                        start: i,
+                        end: i + 2,
+                        punct_pos: None,
+                    });
+                    skip_count = 1;
+                    word_start = i + 2;
+                }
+                // Compound assignment `+= -= *= /= %=` — a single two-char token
+                // (before the generic punct arm so `+` etc. don't split first).
+                // `-=` is distinct from `->` (next is `=`, not `>`); `/=` from `//`.
+                '+' | '-' | '*' | '/' | '%'
+                    if char_idx + 1 < chars.len() && chars[char_idx + 1] == '=' =>
+                {
+                    if !current_word.is_empty() {
+                        items.push(WordItem {
+                            word: std::mem::take(&mut current_word),
+                            trailing_punct: None,
+                            start: word_start,
+                            end: i,
+                            punct_pos: None,
+                        });
+                    }
+                    items.push(WordItem {
+                        word: format!("{c}="),
+                        trailing_punct: None,
+                        start: i,
+                        end: i + 2,
+                        punct_pos: None,
+                    });
+                    skip_count = 1;
+                    word_start = i + 2;
+                }
+                '(' | ')' | '[' | ']' | '{' | '}' | '|' | '~' | '^' | ',' | '?' | '!' | ':' | '+' | '-' | '*' | '/' | '%' | '<' | '>' | '=' => {
+                    match c {
+                        // `{…}` literals are bracket contexts for the comma
+                        // rule too: `{1,2}` is a two-element set, not `{12}`.
+                        '[' | '{' => bracket_depth += 1,
+                        ']' | '}' => bracket_depth = bracket_depth.saturating_sub(1),
+                        _ => {}
+                    }
                     if !current_word.is_empty() {
                         items.push(WordItem {
                             word: std::mem::take(&mut current_word),
@@ -993,58 +1241,27 @@ impl<'a> Lexer<'a> {
                        remaining_lower.starts_with("t,") || remaining_lower == "t" ||
                        (char_idx + 1 < chars.len() && chars[char_idx + 1] == 't' &&
                         (char_idx + 2 >= chars.len() || !chars[char_idx + 2].is_alphabetic())) {
-                        // This is a contraction ending in 't (don't, doesn't, won't, can't, etc.)
+                        // The splitter broke the word at the apostrophe, so
+                        // `current_word` is the n't-contraction STEM ("isn",
+                        // "won"). Which stems contract — and what they expand
+                        // to ("won" is suppletive: "will not") — is lexical
+                        // knowledge, so the lexicon owns the table; here we
+                        // only apply its expansion.
                         let word_lower = current_word.to_lowercase();
-                        if word_lower == "don" || word_lower == "doesn" || word_lower == "didn" {
-                            // do/does/did + not
-                            let base = if word_lower == "don" { "do" }
-                                      else if word_lower == "doesn" { "does" }
-                                      else { "did" };
-                            items.push(WordItem {
-                                word: base.to_string(),
-                                trailing_punct: None,
-                                start: word_start,
-                                end: i,
-                                punct_pos: None,
-                            });
-                            items.push(WordItem {
-                                word: "not".to_string(),
-                                trailing_punct: None,
-                                start: i,
-                                end: i + 2,
-                                punct_pos: None,
-                            });
-                            current_word.clear();
-                            word_start = next_pos + 1;
-                            skip_count = 1;
-                        } else if word_lower == "won" {
-                            // will + not
-                            items.push(WordItem {
-                                word: "will".to_string(),
-                                trailing_punct: None,
-                                start: word_start,
-                                end: i,
-                                punct_pos: None,
-                            });
-                            items.push(WordItem {
-                                word: "not".to_string(),
-                                trailing_punct: None,
-                                start: i,
-                                end: i + 2,
-                                punct_pos: None,
-                            });
-                            current_word.clear();
-                            word_start = next_pos + 1;
-                            skip_count = 1;
-                        } else if word_lower == "can" {
-                            // cannot
-                            items.push(WordItem {
-                                word: "cannot".to_string(),
-                                trailing_punct: None,
-                                start: word_start,
-                                end: i + 2,
-                                punct_pos: None,
-                            });
+                        if let Some(expansion) =
+                            crate::lexicon::lookup_negative_contraction(&word_lower)
+                        {
+                            let words: Vec<&str> = expansion.split_whitespace().collect();
+                            let last_idx = words.len().saturating_sub(1);
+                            for (idx, part) in words.iter().enumerate() {
+                                items.push(WordItem {
+                                    word: (*part).to_string(),
+                                    trailing_punct: None,
+                                    start: if idx == 0 { word_start } else { i },
+                                    end: if idx == last_idx { i + 2 } else { i },
+                                    punct_pos: None,
+                                });
+                            }
                             current_word.clear();
                             word_start = next_pos + 1;
                             skip_count = 1;
@@ -1075,11 +1292,64 @@ impl<'a> Lexer<'a> {
                         word_start = next_pos;
                     }
                 }
+                // Currency-symbol money literal: a `$ € £ ¥` directly before a digit starts a money
+                // word (`$19.99`, `€5`, `¥100`), so the symbol survives into the word for
+                // `classify_with_lookahead` to read as `MoneyLiteral`. A lone or non-numeric symbol
+                // (`$ each`) still falls through to the default arm and is dropped, as before.
+                c if Self::is_currency_symbol(c)
+                    && char_idx + 1 < chars.len()
+                    && chars[char_idx + 1].is_ascii_digit() => {
+                    if !current_word.is_empty() {
+                        items.push(WordItem {
+                            word: std::mem::take(&mut current_word),
+                            trailing_punct: None,
+                            start: word_start,
+                            end: i,
+                            punct_pos: None,
+                        });
+                    }
+                    word_start = i;
+                    current_word.push(c);
+                }
                 c if c.is_alphabetic() || c.is_ascii_digit() || (c == '.' && !current_word.is_empty() && current_word.chars().all(|ch| ch.is_ascii_digit())) || c == '_' => {
                     if current_word.is_empty() {
                         word_start = i;
                     }
                     current_word.push(c);
+                }
+                '&' => {
+                    // "&" is COLOR coordination ("black & red" → emit "and" →
+                    // Black ∧ Red) when its neighbour is LOWERCASE, but a FIRM-NAME
+                    // joiner ("Leach & Mccall", "Ingram & Kemp") when CAPITALIZED —
+                    // there it is dropped so the proper-name absorber joins the
+                    // names (Leach_Mccall), the prior behaviour. Decide on the next
+                    // word's case.
+                    if !current_word.is_empty() {
+                        items.push(WordItem {
+                            word: std::mem::take(&mut current_word),
+                            trailing_punct: None,
+                            start: word_start,
+                            end: i,
+                            punct_pos: None,
+                        });
+                    }
+                    let next_cap = chars[char_idx + 1..]
+                        .iter()
+                        .find(|ch| !ch.is_whitespace())
+                        .map_or(false, |ch| ch.is_ascii_uppercase());
+                    if !next_cap {
+                        // Mode-deferred: `classify_with_lookahead` resolves the
+                        // marker to prose "and" (Declarative) or the bitwise
+                        // `&` operator (Imperative).
+                        items.push(WordItem {
+                            word: "\x00AMP".to_string(),
+                            trailing_punct: None,
+                            start: i,
+                            end: next_pos,
+                            punct_pos: None,
+                        });
+                    }
+                    word_start = next_pos;
                 }
                 _ => {
                     word_start = next_pos;
@@ -1114,6 +1384,34 @@ impl<'a> Lexer<'a> {
         } else {
             false
         }
+    }
+
+    /// Whether the previous word closes a sentence (ends with `.`/`!`/`?`), so the
+    /// current word is sentence-initial. Used to tell a capitalized modal that opens a
+    /// question ("Will Alice win?") from a capitalized proper name mid-clause ("started
+    /// by Will Waters") — a function word never capitalizes mid-sentence.
+    fn prev_word_ends_sentence(&self) -> bool {
+        if self.pos == 0 {
+            return true;
+        }
+        self.words
+            .get(self.pos - 1)
+            .and_then(|w| w.word.chars().last())
+            .map_or(true, |c| matches!(c, '.' | '!' | '?' | ':' | ';'))
+    }
+
+    /// Whether the previous word is a bare number ("30 minutes", "1 second"),
+    /// used to disambiguate the singular clock units "second"/"minute" (which are
+    /// also an ordinal and an adjective) — they are time units only after a count.
+    fn prev_word_is_numeric(&self) -> bool {
+        if self.pos == 0 { return false; }
+        self.words
+            .get(self.pos - 1)
+            .map(|p| {
+                let w = p.word.trim_start_matches('$').replace(',', "");
+                !w.is_empty() && w.chars().all(|c| c.is_ascii_digit() || c == '.')
+            })
+            .unwrap_or(false)
     }
 
     fn next_token_is_copula(&self) -> bool {
@@ -1166,6 +1464,13 @@ impl<'a> Lexer<'a> {
                         ')' => TokenType::RParen,
                         '[' => TokenType::LBracket,
                         ']' => TokenType::RBracket,
+                        '{' => TokenType::LBrace,
+                        '}' => TokenType::RBrace,
+                        // Bitwise symbols exist only in IMPERATIVE code; in
+                        // prose they stay dropped (the old behavior).
+                        '|' if matches!(self.mode, LexerMode::Imperative) => TokenType::VBar,
+                        '~' if matches!(self.mode, LexerMode::Imperative) => TokenType::Tilde,
+                        '^' if matches!(self.mode, LexerMode::Imperative) => TokenType::Caret,
                         ',' => TokenType::Comma,
                         ':' => TokenType::Colon,
                         '.' | '?' => {
@@ -1188,7 +1493,14 @@ impl<'a> Lexer<'a> {
                     };
                     let lexeme = self.interner.intern(&punct.to_string());
                     let span = Span::new(word_start, word_end);
-                    tokens.push(Token::new(kind, lexeme, span));
+                    // Collapse consecutive Periods — an abbreviation's own period
+                    // followed by the sentence period ("Dorsey Assoc.." → "Assoc"
+                    // + one Period). The extra "." would otherwise strand the parse.
+                    let dup_period = kind == TokenType::Period
+                        && tokens.last().map_or(false, |t: &Token| t.kind == TokenType::Period);
+                    if !dup_period {
+                        tokens.push(Token::new(kind, lexeme, span));
+                    }
                 }
                 self.pos += 1;
                 continue;
@@ -1231,7 +1543,37 @@ impl<'a> Lexer<'a> {
                 continue;
             }
 
+            // "exactly N" / "precisely N" — a redundant exactness marker on a following
+            // count or measure. The count/measure is already exact in the FOL (a value,
+            // not a ≥/≤ bound), so the word adds no constraint; dropping it lets the
+            // count object parse ("serves exactly 2 people" ≡ "serves 2 people") with
+            // zero meaning loss. (Approximative "about N" is a Preposition and keeps its
+            // own About-relation; "at least/most N" are handled separately as bounds.)
+            if matches!(word.to_lowercase().as_str(), "exactly" | "precisely")
+                && self.peek_word(1).map_or(false, |w| {
+                    let w = w.trim_start_matches('$');
+                    w.chars().next().map_or(false, |c| c.is_ascii_digit())
+                        || crate::lexicon::word_to_number(&w.to_lowercase()).is_some()
+                })
+            {
+                self.pos += 1;
+                continue;
+            }
+
             let kind = self.classify_with_lookahead(&word);
+            // A subject pronoun or WH-relativizer takes the copula clitic "'s" = "is"
+            // ("who's going", "he's …"), never the possessive 's (their genitive is the
+            // dedicated form whose / its / his). Captured from the host's lexical
+            // CATEGORY before `kind` is moved into the token, so the contraction rule
+            // below is data-driven, not a word list.
+            let host_takes_copula_clitic = matches!(
+                kind,
+                TokenType::Pronoun { case: crate::lexicon::Case::Subject, .. }
+                    | TokenType::Who
+                    | TokenType::That
+                    | TokenType::What
+                    | TokenType::Where
+            );
             let lexeme = self.interner.intern(&word);
             let span = Span::new(word_start, word_end);
             tokens.push(Token::new(kind, lexeme, span));
@@ -1240,10 +1582,27 @@ impl<'a> Lexer<'a> {
                 if punct == '\'' {
                     if let Some(next_item) = self.words.get(self.pos + 1) {
                         if next_item.word.to_lowercase() == "s" {
-                            let poss_lexeme = self.interner.intern("'s");
+                            // The contraction "'s" = "is" iff the host takes the copula
+                            // clitic AND the next word is not a past-participle/non-
+                            // progressive verb — that case is the perfect "has"
+                            // ("he's found/been"), a separate unsupported feature, and
+                            // emitting "is" there would misread it as the passive "is
+                            // found". Verb aspect comes from the lexicon (data-driven).
+                            let next_is_past_verb = self
+                                .words
+                                .get(self.pos + 2)
+                                .map(|a| a.word.to_lowercase())
+                                .and_then(|w| self.lexicon.lookup_verb(&w))
+                                .map_or(false, |v| v.aspect != crate::lexicon::Aspect::Progressive);
+                            let (poss_kind, poss_text) = if host_takes_copula_clitic && !next_is_past_verb {
+                                (TokenType::Is, "is")
+                            } else {
+                                (TokenType::Possessive, "'s")
+                            };
+                            let poss_lexeme = self.interner.intern(poss_text);
                             let poss_start = punct_pos.unwrap_or(word_end);
                             let poss_end = next_item.end;
-                            tokens.push(Token::new(TokenType::Possessive, poss_lexeme, Span::new(poss_start, poss_end)));
+                            tokens.push(Token::new(poss_kind, poss_lexeme, Span::new(poss_start, poss_end)));
                             self.pos += 1;
                             if let Some(s_punct) = next_item.trailing_punct {
                                 let kind = match s_punct {
@@ -1251,6 +1610,11 @@ impl<'a> Lexer<'a> {
                                     ')' => TokenType::RParen,
                                     '[' => TokenType::LBracket,
                                     ']' => TokenType::RBracket,
+                                    '{' => TokenType::LBrace,
+                                    '}' => TokenType::RBrace,
+                                    '|' if matches!(self.mode, LexerMode::Imperative) => TokenType::VBar,
+                                    '~' if matches!(self.mode, LexerMode::Imperative) => TokenType::Tilde,
+                                    '^' if matches!(self.mode, LexerMode::Imperative) => TokenType::Caret,
                                     ',' => TokenType::Comma,
                                     ':' => TokenType::Colon,
                                     '.' | '?' => TokenType::Period,
@@ -1280,11 +1644,28 @@ impl<'a> Lexer<'a> {
                     continue;
                 }
 
+                // An abbreviation's own dot ("Mr.", "Dr.", "153 ft.", "Mt.") is NOT a
+                // sentence terminator when more text follows — emitting a Period there
+                // strands the rest of the clause. Which words abbreviate is lexical
+                // (lexicon `abbreviations`); suppress the dot only mid-clue, so a
+                // genuine clue-final abbreviation ("…on Main St.") keeps its terminator.
+                if punct == '.'
+                    && lexicon::is_abbreviation(&word.to_lowercase())
+                    && self.words.get(self.pos + 1).is_some()
+                {
+                    self.pos += 1;
+                    continue;
+                }
                 let kind = match punct {
                     '(' => TokenType::LParen,
                     ')' => TokenType::RParen,
                     '[' => TokenType::LBracket,
                     ']' => TokenType::RBracket,
+                    '{' => TokenType::LBrace,
+                    '}' => TokenType::RBrace,
+                    '|' if matches!(self.mode, LexerMode::Imperative) => TokenType::VBar,
+                    '~' if matches!(self.mode, LexerMode::Imperative) => TokenType::Tilde,
+                    '^' if matches!(self.mode, LexerMode::Imperative) => TokenType::Caret,
                     ',' => TokenType::Comma,
                     ':' => TokenType::Colon,
                     '.' | '?' => {
@@ -1395,12 +1776,41 @@ impl<'a> Lexer<'a> {
         {
             let string_spans: Vec<(usize, usize)> = tokens.iter()
                 .filter(|t| matches!(t.kind, TokenType::StringLiteral(_) | TokenType::InterpolatedString(_)))
-                .filter(|t| t.span.end - t.span.start > 6) // only multi-line strings (""" adds >=6 chars)
+                .filter(|t| t.span.end.saturating_sub(t.span.start) > 6) // only multi-line strings (""" adds >=6 chars)
                 .map(|t| (t.span.start, t.span.end))
                 .collect();
             if !string_spans.is_empty() {
                 structural_events.retain(|&(pos, _)| {
                     !string_spans.iter().any(|(start, end)| pos > *start && pos < *end)
+                });
+            }
+        }
+
+        // Bracket line-continuation: a collection literal / call / parenthesised expression may span
+        // lines with the continuation lines INDENTED (`[\n    1,\n    2,\n]`). The LineLexer sees that
+        // indentation and emits Indent/Dedent, which would break element parsing. Drop every
+        // structural event that falls strictly inside an unclosed `(`/`[`/`{` … `)`/`]`/`}` span. Both
+        // the opening Indent and the matching Dedent lie inside the span, so they are dropped as a
+        // balanced pair — the enclosing block level is preserved.
+        {
+            let mut bracket_ranges: Vec<(usize, usize)> = Vec::new();
+            let mut open_stack: Vec<usize> = Vec::new();
+            for t in &tokens {
+                match t.kind {
+                    TokenType::LParen | TokenType::LBracket | TokenType::LBrace => {
+                        open_stack.push(t.span.start);
+                    }
+                    TokenType::RParen | TokenType::RBracket | TokenType::RBrace => {
+                        if let Some(open) = open_stack.pop() {
+                            bracket_ranges.push((open, t.span.end));
+                        }
+                    }
+                    _ => {}
+                }
+            }
+            if !bracket_ranges.is_empty() {
+                structural_events.retain(|&(pos, _)| {
+                    !bracket_ranges.iter().any(|(start, end)| pos > *start && pos < *end)
                 });
             }
         }
@@ -1585,25 +1995,57 @@ impl<'a> Lexer<'a> {
             return false;
         }
 
-        // Check if followed by exactly 2 digits and then "am" or "pm"
-        if char_idx + 4 < chars.len()
+        // Followed by exactly 2 digits (the minutes), then "am"/"pm" — which may
+        // come immediately ("9:30am") or after a space ("8:15 pm").
+        if char_idx + 3 < chars.len()
             && chars[char_idx + 1].is_ascii_digit()
             && chars[char_idx + 2].is_ascii_digit()
         {
-            // Check for "am" or "pm" suffix
-            let next_two: String = chars[char_idx + 3..char_idx + 5].iter().collect();
-            let lower = next_two.to_lowercase();
-            if lower == "am" || lower == "pm" {
-                // Make sure we're not followed by more alphabetic chars
-                let after_suffix = char_idx + 5 >= chars.len()
-                    || !chars[char_idx + 5].is_alphabetic();
-                if after_suffix {
+            let suffix_start = if chars.get(char_idx + 3) == Some(&' ') {
+                char_idx + 4
+            } else {
+                char_idx + 3
+            };
+            if suffix_start + 1 < chars.len() {
+                let next_two: String = chars[suffix_start..suffix_start + 2].iter().collect();
+                let lower = next_two.to_lowercase();
+                if (lower == "am" || lower == "pm")
+                    && (suffix_start + 2 >= chars.len()
+                        || !chars[suffix_start + 2].is_alphabetic())
+                {
                     return true;
                 }
             }
         }
 
         false
+    }
+
+    /// Whether a space separates a `H:MM` clock time from a trailing "am"/"pm"
+    /// ("8:15 pm") — the space is part of the time literal, so the tokenizer keeps
+    /// "am"/"pm" attached to the time rather than splitting on it.
+    fn is_time_space_before_ampm(current_word: &str, chars: &[char], char_idx: usize) -> bool {
+        let valid_time = match current_word.find(':') {
+            Some(p) => {
+                let hour = &current_word[..p];
+                let min = &current_word[p + 1..];
+                (1..=2).contains(&hour.len())
+                    && hour.chars().all(|c| c.is_ascii_digit())
+                    && min.len() == 2
+                    && min.chars().all(|c| c.is_ascii_digit())
+            }
+            None => false,
+        };
+        if !valid_time {
+            return false;
+        }
+        let next_two: String = chars
+            .get(char_idx + 1..char_idx + 3)
+            .map(|s| s.iter().collect())
+            .unwrap_or_default();
+        let lower = next_two.to_lowercase();
+        (lower == "am" || lower == "pm")
+            && chars.get(char_idx + 3).map_or(true, |c| !c.is_alphabetic())
     }
 
     /// Check if a string contains an unescaped `{` (i.e., not part of `{{`).
@@ -1767,8 +2209,20 @@ impl<'a> Lexer<'a> {
         let month: u32 = word[5..7].parse().ok()?;
         let day: u32 = word[8..10].parse().ok()?;
 
-        // Basic validation
-        if month < 1 || month > 12 || day < 1 || day > 31 {
+        // Reject calendar-impossible dates (e.g. 2026-02-30, 2026-04-31): the
+        // Howard Hinnant day count below would otherwise silently map them onto
+        // a real but DIFFERENT day.
+        if month < 1 || month > 12 || day < 1 {
+            return None;
+        }
+        let is_leap = (year % 4 == 0 && year % 100 != 0) || (year % 400 == 0);
+        let max_day = match month {
+            1 | 3 | 5 | 7 | 8 | 10 | 12 => 31,
+            4 | 6 | 9 | 11 => 30,
+            2 => if is_leap { 29 } else { 28 },
+            _ => return None,
+        };
+        if day > max_day {
             return None;
         }
 
@@ -1845,7 +2299,43 @@ impl<'a> Lexer<'a> {
         Some(nanos)
     }
 
+    /// True for the currency symbols that prefix a money literal (`$ € £ ¥`).
+    fn is_currency_symbol(c: char) -> bool {
+        matches!(c, '$' | '€' | '£' | '¥')
+    }
+
+    /// The ISO-4217 code a leading currency symbol denotes — `$`→USD, `€`→EUR, `£`→GBP, `¥`→JPY (the
+    /// dominant reading of each symbol). Unknown symbols yield `None`.
+    fn currency_for_symbol(c: char) -> Option<&'static str> {
+        Some(match c {
+            '$' => "USD",
+            '€' => "EUR",
+            '£' => "GBP",
+            '¥' => "JPY",
+            _ => return None,
+        })
+    }
+
     fn classify_with_lookahead(&mut self, word: &str) -> TokenType {
+        // The `&` character, deferred by the word-splitter: prose keeps the
+        // coordination reading (`black & red` → and); imperative code gets
+        // the bitwise operator.
+        if word == "\x00AMP" {
+            return if matches!(self.mode, LexerMode::Imperative) {
+                TokenType::Amp
+            } else {
+                TokenType::And
+            };
+        }
+        if word == "\x00DOT" {
+            // Imperative: the field-access / UFCS operator. Declarative/prose:
+            // a plain sentence period (so `e.g.` and abbreviations read as today).
+            return if matches!(self.mode, LexerMode::Imperative) {
+                TokenType::Dot
+            } else {
+                TokenType::Period
+            };
+        }
         // Handle block headers (##Theorem, ##Main, etc.)
         if word.starts_with("##") {
             let block_name = &word[2..];
@@ -1853,6 +2343,9 @@ impl<'a> Lexer<'a> {
                 "theorem" => BlockType::Theorem,
                 "main" => BlockType::Main,
                 "definition" => BlockType::Definition,
+                "define" => BlockType::Define,  // Vernacular-logic predicate definition (Rung 0a)
+                "axiom" => BlockType::Axiom,    // Formal first-order axiom (the seam for Tarski)
+                "theory" => BlockType::Theory,  // Named development grouping axioms + theorems
                 "proof" => BlockType::Proof,
                 "example" => BlockType::Example,
                 "logic" => BlockType::Logic,
@@ -1864,7 +2357,29 @@ impl<'a> Lexer<'a> {
                 "hardware" => BlockType::Hardware,  // Signal declarations
                 "property" => BlockType::Property,  // Temporal assertions
                 "no" => BlockType::No,  // Optimization annotation: ## No Memo, ## No TCO, etc.
-                _ => BlockType::Note, // Default unknown block types to Note
+                "tier" => BlockType::Tier,  // Tiered-optimizer pin: ## Tier specialize eager, etc.
+                other => {
+                    // A near-miss of a CONSEQUENTIAL header is a probable
+                    // typo — `## Mian` silently becoming prose is the bug
+                    // class where a whole program runs to empty output.
+                    // Prose-type names (note/example/logic) and the short
+                    // forms are excluded, so ordinary literate headings
+                    // (`## Notes`, `## Design`) keep working.
+                    const CONSEQUENTIAL: &[&str] = &[
+                        "main", "theorem", "definition", "define", "axiom",
+                        "theory", "proof", "policy", "requires", "hardware",
+                        "property", "tier",
+                    ];
+                    if let Some(similar) =
+                        crate::suggest::find_similar(other, CONSEQUENTIAL, 2)
+                    {
+                        let found = self.interner.intern(block_name);
+                        let suggestion = self.interner.intern(similar);
+                        BlockType::SuspectedTypo { found, suggestion }
+                    } else {
+                        BlockType::Note // Unknown block types stay literate prose
+                    }
+                }
             };
 
             // Update lexer mode based on block type
@@ -1872,6 +2387,7 @@ impl<'a> Lexer<'a> {
                 BlockType::Main | BlockType::Function => LexerMode::Imperative,
                 _ => LexerMode::Declarative,
             };
+
 
             return TokenType::BlockHeader { block_type };
         }
@@ -1946,6 +2462,42 @@ impl<'a> Lexer<'a> {
         // Check for time-of-day literal (e.g., "4pm", "9:30am", "noon", "midnight")
         if let Some(nanos_from_midnight) = Self::parse_time_literal(word) {
             return TokenType::TimeLiteral { nanos_from_midnight };
+        }
+
+        // Currency-symbol money literal: `$19.99`, `€5`, `£10`, `¥100`, `$1,250.50`. The symbol
+        // resolves to its ISO-4217 code; the magnitude keeps its digits and decimal point (thousands
+        // separators stripped). A `MoneyLiteral` carries both, so the parser builds an exact
+        // currency-tagged value rather than dropping the symbol. ONLY in imperative code — in
+        // natural-language clauses `$25,000` is a bare magnitude (a logic-grid constraint), handled
+        // by the magnitude-stripping block below; the symbol there is just orthography.
+        if self.mode == LexerMode::Imperative {
+            if let Some(first) = word.chars().next() {
+                if let Some(code) = Self::currency_for_symbol(first) {
+                    let cleaned: String =
+                        word.chars().skip(1).filter(|c| c.is_ascii_digit() || *c == '.').collect();
+                    if cleaned.starts_with(|c: char| c.is_ascii_digit()) {
+                        let amount = self.interner.intern(&cleaned);
+                        let currency = self.interner.intern(code);
+                        return TokenType::MoneyLiteral { amount, currency };
+                    }
+                }
+            }
+        }
+
+        // Currency / comma-grouped numerals: "$125,000", "€2.60", "1,234". Strip the currency
+        // marker and thousands separators; in a natural-language clause the puzzle constraint is the
+        // bare magnitude (125000, 2.60). (Imperative code took the `MoneyLiteral` path above.)
+        if word.starts_with(|c: char| Self::is_currency_symbol(c))
+            || (word.starts_with(|c: char| c.is_ascii_digit()) && word.contains(','))
+        {
+            let cleaned: String = word
+                .chars()
+                .filter(|c| c.is_ascii_digit() || *c == '.')
+                .collect();
+            if cleaned.starts_with(|c: char| c.is_ascii_digit()) {
+                let sym = self.interner.intern(&cleaned);
+                return TokenType::Number(sym);
+            }
         }
 
         if Self::is_numeric_literal(word) {
@@ -2038,12 +2590,21 @@ impl<'a> Lexer<'a> {
         let lower = word.to_lowercase();
         let first_char = word.chars().next().unwrap();
 
-        // Disambiguate "that" as determiner vs complementizer
-        // "that dog" → Article(Distal), "I know that he ran" → That (complementizer)
+        // Disambiguate "that" as determiner vs complementizer/relativizer.
+        // "that dog" → Article(Distal); "I know that he ran" → That.
+        // After a nominal antecedent ("the vessel that saw …"), "that" heads a
+        // relative clause even when the clause verb is also noun-like ("saw"),
+        // so it must NOT collapse to a demonstrative there.
         if lower == "that" {
             if let Some(next) = self.peek_word(1) {
                 let next_lower = next.to_lowercase();
-                if self.is_noun_like(&next_lower) || self.is_adjective_like(&next_lower) {
+                // A verb-capable next word ("that saw …", "that played …") makes
+                // "that" a relativizer/complementizer even when that word is also
+                // noun-like — the demonstrative reading needs a pure-noun head.
+                let next_is_verb = self.lexicon.lookup_verb(&next_lower).is_some();
+                if !next_is_verb
+                    && (self.is_noun_like(&next_lower) || self.is_adjective_like(&next_lower))
+                {
                     return TokenType::Article(Definiteness::Distal);
                 }
             }
@@ -2060,6 +2621,16 @@ impl<'a> Lexer<'a> {
         }
         if word == ">=" {
             return TokenType::GtEq;
+        }
+        match word {
+            "+=" => return TokenType::PlusEq,
+            "-=" => return TokenType::MinusEq,
+            "*=" => return TokenType::StarEq,
+            "/=" => return TokenType::SlashEq,
+            "%=" => return TokenType::PercentEq,
+            "**" => return TokenType::StarStar,
+            "//" => return TokenType::SlashSlash,
+            _ => {}
         }
         if word == "==" {
             return TokenType::EqEq;
@@ -2079,6 +2650,60 @@ impl<'a> Lexer<'a> {
         }
 
         if let Some(kind) = lexicon::lookup_keyword(&lower) {
+            // A capitalized modal/auxiliary MID-sentence is a proper name, not the
+            // function word ("the startup started by Will Waters", "the May deadline").
+            // Modals/auxiliaries never capitalize mid-clause, so the keyword reading is
+            // spurious there; sentence-initial stays the keyword (a question "Will Alice
+            // win?"). This is the same name/keyword collision resolved for item/native.
+            let is_modal = matches!(
+                kind,
+                TokenType::Must
+                    | TokenType::Shall
+                    | TokenType::Should
+                    | TokenType::Can
+                    | TokenType::May
+                    | TokenType::Cannot
+                    | TokenType::Would
+                    | TokenType::Could
+                    | TokenType::Might
+            );
+            if is_modal && first_char.is_uppercase() && !self.prev_word_ends_sentence() {
+                return TokenType::ProperName(self.interner.intern(word));
+            }
+            // In Declarative (NL) mode, "from" and "for" are prepositions, not Logos keywords.
+            // They are listed in the prepositions section of the lexicon and will be
+            // correctly re-classified by the is_preposition() check below if we skip here.
+            let kind = match (kind, self.mode) {
+                (TokenType::From, LexerMode::Declarative) => {
+                    // A QUALIFIED IMPORT "Type from Module" — both neighbours are
+                    // capitalised identifiers — keeps the `From` keyword even in
+                    // declarative text (there are zero "Capitalised from
+                    // Capitalised" sequences in NL clues). Otherwise "from" is an
+                    // ordinary NL preposition ("the species FROM Australia").
+                    let prev_cap = self.pos > 0
+                        && self
+                            .words
+                            .get(self.pos - 1)
+                            .and_then(|w| w.word.chars().next())
+                            .map_or(false, |c| c.is_uppercase());
+                    let next_cap = self
+                        .words
+                        .get(self.pos + 1)
+                        .and_then(|w| w.word.chars().next())
+                        .map_or(false, |c| c.is_uppercase());
+                    if prev_cap && next_cap {
+                        TokenType::From
+                    } else {
+                        let sym = self.interner.intern("from");
+                        TokenType::Preposition(sym)
+                    }
+                }
+                (TokenType::For, LexerMode::Declarative) => {
+                    let sym = self.interner.intern("for");
+                    TokenType::Preposition(sym)
+                }
+                (other, _) => other,
+            };
             return kind;
         }
 
@@ -2091,6 +2716,11 @@ impl<'a> Lexer<'a> {
         }
 
         if let Some(time) = lexicon::lookup_auxiliary(&lower) {
+            // A capitalized auxiliary MID-sentence is a proper name ("started by Will
+            // Waters"), not the function word — auxiliaries never capitalize mid-clause.
+            if first_char.is_uppercase() && !self.prev_word_ends_sentence() {
+                return TokenType::ProperName(self.interner.intern(word));
+            }
             return TokenType::Auxiliary(time);
         }
 
@@ -2109,15 +2739,49 @@ impl<'a> Lexer<'a> {
             _ => {}
         }
 
-        if lexicon::is_preposition(&lower) {
+        // "per" is the rate preposition ("$2.50 per pound", "10 miles per
+        // hour"). It is not in the general preposition lexicon, and must not be
+        // mistaken for a measure unit or an unknown noun.
+        if lower == "per" {
+            let sym = self.interner.intern("per");
+            return TokenType::Preposition(sym);
+        }
+
+        // A word that is BOTH a verb and a preposition ("like") stays
+        // ambiguous — the dual-class block below emits the alternatives.
+        // Lexicon-disambiguated NON-verbs ("during") are pure prepositions
+        // even when morphology over-derives a verb reading.
+        if lexicon::is_preposition(&lower)
+            && (self.lexicon.lookup_verb(&lower).is_none()
+                || lexicon::is_disambiguation_not_verb(&lower))
+        {
             let sym = self.interner.intern(&lower);
             return TokenType::Preposition(sym);
         }
 
         match lower.as_str() {
             "equals" => return TokenType::Equals,
-            "item" => return TokenType::Item,
-            "items" => return TokenType::Items,
+            // "item"/"items" is the indexing keyword in imperative code (where a
+            // variable index like "item i of arr" is the whole point and prose nouns
+            // never appear), and in declarative text ONLY when an index number follows
+            // ("item 1 of list", "items 2 through 5"). Otherwise, in declarative text,
+            // it is the ordinary English noun ("the blue item", "the item made of
+            // gold"), which leaked as the keyword before and stranded the noun after an
+            // adjective. Mode separates code from prose; the following number is the
+            // finer signal within prose.
+            "item" | "items"
+                if self.mode == LexerMode::Imperative
+                    || self.peek_word(1).map_or(false, |w| {
+                        w.chars().next().map_or(false, |c| c.is_ascii_digit())
+                            || crate::lexicon::word_to_number(&w.to_lowercase()).is_some()
+                    }) =>
+            {
+                return if lower == "item" {
+                    TokenType::Item
+                } else {
+                    TokenType::Items
+                };
+            }
             // Mutability keyword for `mut x = 5` syntax
             "mut" if self.mode == LexerMode::Imperative => return TokenType::Mut,
             "let" => {
@@ -2153,6 +2817,11 @@ impl<'a> Lexer<'a> {
             "while" => return TokenType::While,
             "assert" => return TokenType::Assert,
             "trust" => return TokenType::Trust,
+            // Imperative-only: these are common English words ("the proof requires
+            // …", "this ensures …"), so keep them as plain words in declarative mode.
+            "require" if self.mode == LexerMode::Imperative => return TokenType::Require,
+            "requires" if self.mode == LexerMode::Imperative => return TokenType::Requires,
+            "ensures" if self.mode == LexerMode::Imperative => return TokenType::Ensures,
             "check" => return TokenType::Check,
             // Theorem keywords (Declarative mode - for theorem blocks)
             "given" if self.mode == LexerMode::Declarative => return TokenType::Given,
@@ -2168,6 +2837,7 @@ impl<'a> Lexer<'a> {
             "mount" if self.mode == LexerMode::Imperative => return TokenType::Mount,
             "persistent" => return TokenType::Persistent,  // Works in type expressions
             "combined" if self.mode == LexerMode::Imperative => return TokenType::Combined,
+            "followed" if self.mode == LexerMode::Imperative => return TokenType::Followed,
             // Go-like Concurrency keywords (Imperative mode only)
             // Note: "first" and "after" are NOT keywords - they're checked via lookahead in parser
             // to avoid conflicting with their use as variable names
@@ -2178,7 +2848,7 @@ impl<'a> Lexer<'a> {
             "stop" if self.mode == LexerMode::Imperative => return TokenType::Stop,
             "try" if self.mode == LexerMode::Imperative => return TokenType::Try,
             "into" if self.mode == LexerMode::Imperative => return TokenType::Into,
-            "native" => return TokenType::Native,
+            "native" if self.mode == LexerMode::Imperative => return TokenType::Native,
             "escape" if self.mode == LexerMode::Imperative => return TokenType::Escape,
             "from" => return TokenType::From,
             "otherwise" => return TokenType::Otherwise,
@@ -2251,7 +2921,19 @@ impl<'a> Lexer<'a> {
             "removewins" => return TokenType::RemoveWins,
             "addwins" => return TokenType::AddWins,
             "yata" => return TokenType::YATA,
-            // Calendar time unit words (Span expressions)
+            // Calendar / clock time unit words (Span expressions). The singular
+            // "second"/"minute" are ambiguous (ordinal "second base", adjective
+            // "minute detail") so they are time units only after a count; the
+            // plurals and "hour" are unambiguous time units.
+            "seconds" => return TokenType::CalendarUnit(CalendarUnit::Second),
+            "minutes" => return TokenType::CalendarUnit(CalendarUnit::Minute),
+            "second" if self.prev_word_is_numeric() => {
+                return TokenType::CalendarUnit(CalendarUnit::Second)
+            }
+            "minute" if self.prev_word_is_numeric() => {
+                return TokenType::CalendarUnit(CalendarUnit::Minute)
+            }
+            "hour" | "hours" => return TokenType::CalendarUnit(CalendarUnit::Hour),
             "day" | "days" => return TokenType::CalendarUnit(CalendarUnit::Day),
             "week" | "weeks" => return TokenType::CalendarUnit(CalendarUnit::Week),
             "month" | "months" => return TokenType::CalendarUnit(CalendarUnit::Month),
@@ -2275,7 +2957,7 @@ impl<'a> Lexer<'a> {
             return TokenType::ScopalAdverb(sym);
         }
 
-        if lexicon::is_temporal_adverb(&lower) {
+        if lexicon::is_temporal_adverb(&lower) && !self.prev_token_is_determiner() {
             let sym = self.interner.intern(&Self::capitalize(&lower));
             return TokenType::TemporalAdverb(sym);
         }
@@ -2289,7 +2971,22 @@ impl<'a> Lexer<'a> {
             let sym = self.interner.intern(&Self::capitalize(&lower));
             return TokenType::Adverb(sym);
         }
-        if lower.ends_with("ly") && !lexicon::is_not_adverb(&lower) && lower.len() > 4 {
+        // A capitalized "-ly" word is normally a proper name ("Billy", "Holly",
+        // "Kelly's stamp"), not an adverb — UNLESS it is a sentence-initial
+        // manner adverb modifying a following pronoun ("Quickly he ran").
+        let cap_ly_is_name = word.chars().next().map_or(false, |c| c.is_uppercase())
+            && !self.peek_word(1).map_or(false, |w| {
+                matches!(
+                    w.to_lowercase().as_str(),
+                    "he" | "she" | "it" | "they" | "we" | "i" | "you" | "who"
+                )
+            });
+        if lower.ends_with("ly")
+            && !lexicon::is_not_adverb(&lower)
+            && !lexicon::is_common_noun(&lower)
+            && lower.len() > 4
+            && !cap_ly_is_name
+        {
             let sym = self.interner.intern(&Self::capitalize(&lower));
             return TokenType::Adverb(sym);
         }
@@ -2299,9 +2996,14 @@ impl<'a> Lexer<'a> {
             return TokenType::Superlative(sym);
         }
 
-        // Handle irregular comparatives (less, more, better, worse)
+        // Handle irregular comparatives (less, more, better, worse). "fewer" is
+        // the count counterpart of "less" — same decreasing direction — and maps
+        // to the same Decreasing base so it grades like "less" ("received fewer
+        // votes than Y" → Less(Vote(X), Vote(Y))) without turning bare "few" into
+        // an adjective (which would break its quantifier reading, "few cookies").
         let irregular_comparative = match lower.as_str() {
             "less" => Some("Little"),
+            "fewer" => Some("Little"),
             "more" => Some("Much"),
             "better" => Some("Good"),
             "worse" => Some("Bad"),
@@ -2313,8 +3015,20 @@ impl<'a> Lexer<'a> {
         }
 
         if let Some(base) = self.try_parse_comparative(&lower) {
-            let sym = self.interner.intern(&base);
-            return TokenType::Comparative(sym);
+            // A word that is ALSO a common noun ("stranger" — the noun vs the
+            // comparative of "strange") is a comparative only in comparative
+            // position, signalled by a following "than" ("is stranger than").
+            // Elsewhere ("the stranger", "Let stranger be …") it is the noun, so
+            // defer to noun classification below — mirroring the performative /
+            // base-verb noun-deference above.
+            let next_is_than = self
+                .peek_word(1)
+                .map_or(false, |w| w.eq_ignore_ascii_case("than"));
+            if !lexicon::is_common_noun(&lower) || next_is_than {
+                let sym = self.interner.intern(&base);
+                return TokenType::Comparative(sym);
+            }
+            // else fall through to noun classification
         }
 
         if lexicon::is_performative(&lower) {
@@ -2355,14 +3069,29 @@ impl<'a> Lexer<'a> {
         // Check for gerunds/progressive verbs BEFORE ProperName check
         // "Running" at start of sentence should be Verb, not ProperName
         if lower.ends_with("ing") && lower.len() > 4 {
-            if let Some(entry) = self.lexicon.lookup_verb(&lower) {
-                let sym = self.interner.intern(&entry.lemma);
-                return TokenType::Verb {
-                    lemma: sym,
-                    time: entry.time,
-                    aspect: entry.aspect,
-                    class: entry.class,
-                };
+            // Participial ADJECTIVE in attributive position ("the
+            // corresponding output line"): the word has an adjective entry
+            // and a content word follows it. -ing PREPOSITIONS ("during")
+            // skip the early return too — the dual-class block below emits
+            // their Ambiguous alternatives.
+            let attributive = self.is_adjective_like(&lower)
+                && self
+                    .peek_word(1)
+                    .map(|next| {
+                        let next_lower = next.to_lowercase();
+                        self.is_noun_like(&next_lower) || self.is_adjective_like(&next_lower)
+                    })
+                    .unwrap_or(false);
+            if !attributive && !lexicon::is_preposition(&lower) {
+                if let Some(entry) = self.lexicon.lookup_verb(&lower) {
+                    let sym = self.interner.intern(&entry.lemma);
+                    return TokenType::Verb {
+                        lemma: sym,
+                        time: entry.time,
+                        aspect: entry.aspect,
+                        class: entry.class,
+                    };
+                }
             }
         }
 
@@ -2407,12 +3136,22 @@ impl<'a> Lexer<'a> {
         }
 
         let verb_entry = self.lexicon.lookup_verb(&lower);
-        let is_noun = lexicon::is_common_noun(&lower);
+        // Irregular plurals ("children", "mice") are not in the common-noun
+        // table; morphological analysis identifies them. Restricted to
+        // non-verb words so "rains" stays a pure verb.
+        let is_noun = lexicon::is_common_noun(&lower)
+            || (verb_entry.is_none()
+                && matches!(
+                    lexicon::analyze_word(&lower),
+                    Some(lexicon::WordAnalysis::Noun(_))
+                ));
         let is_adj = self.is_adjective_like(&lower);
         let is_disambiguated = lexicon::is_disambiguation_not_verb(&lower);
 
-        // Ambiguous: word is Verb AND (Noun OR Adjective), not disambiguated
-        if verb_entry.is_some() && (is_noun || is_adj) && !is_disambiguated {
+        // Ambiguous: word is Verb AND (Noun OR Adjective OR Preposition),
+        // not disambiguated
+        let is_prep = lexicon::is_preposition(&lower);
+        if verb_entry.is_some() && (is_noun || is_adj || is_prep) && !is_disambiguated {
             let entry = verb_entry.unwrap();
             let verb_token = TokenType::Verb {
                 lemma: self.interner.intern(&entry.lemma),
@@ -2428,6 +3167,9 @@ impl<'a> Lexer<'a> {
             if is_adj {
                 alternatives.push(TokenType::Adjective(self.interner.intern(word)));
             }
+            if is_prep {
+                alternatives.push(TokenType::Preposition(self.interner.intern(&lower)));
+            }
 
             return TokenType::Ambiguous {
                 primary: Box::new(verb_token),
@@ -2435,14 +3177,24 @@ impl<'a> Lexer<'a> {
             };
         }
 
-        // Disambiguated to noun/adjective (not verb)
-        if let Some(_) = &verb_entry {
+        // Disambiguated away from verb — only when there is an alternate reading.
+        // If the word has no noun or adjective reading, the lexicon verb entry wins.
+        if let Some(entry) = &verb_entry {
             if is_disambiguated {
                 let sym = self.interner.intern(word);
                 if is_noun {
                     return TokenType::Noun(sym);
                 }
-                return TokenType::Adjective(sym);
+                if is_adj {
+                    return TokenType::Adjective(sym);
+                }
+                // No alternate reading: honour the lexicon (e.g. "led" = past of "lead").
+                return TokenType::Verb {
+                    lemma: self.interner.intern(&entry.lemma),
+                    time: entry.time,
+                    aspect: entry.aspect,
+                    class: entry.class,
+                };
             }
         }
 
@@ -2461,6 +3213,15 @@ impl<'a> Lexer<'a> {
         if is_noun {
             let sym = self.interner.intern(word);
             return TokenType::Noun(sym);
+        }
+
+        // Pure adjective — a word the lexicon knows only as an adjective
+        // ("happy", "dangerous", "tall"). Without this the word falls through
+        // to the Noun fallback and predicative/attributive adjective readings
+        // are lost (e.g. "John seems happy." strands "happy").
+        if is_adj {
+            let sym = self.interner.intern(word);
+            return TokenType::Adjective(sym);
         }
 
         if lexicon::is_base_verb(&lower) {
@@ -2493,8 +3254,35 @@ impl<'a> Lexer<'a> {
             return TokenType::Particle(sym);
         }
 
+        // Unknown "-ed" word → regular past-tense verb ("aired", "studied",
+        // "debuted"). English marks the past tense morphologically, so an
+        // otherwise-unrecognized "-ed" content word is overwhelmingly a verb.
+        // Kept Ambiguous with a Noun reading so it can still head an NP where a
+        // noun is expected; the parser picks the verb reading in VP position.
+        if lower.len() >= 4 && lower.ends_with("ed") {
+            let stem = if lower.ends_with("ied") {
+                format!("{}y", &lower[..lower.len() - 3])
+            } else {
+                lower[..lower.len() - 2].to_string()
+            };
+            let verb_token = TokenType::Verb {
+                lemma: self.interner.intern(&Self::capitalize(&stem)),
+                time: Time::Past,
+                aspect: Aspect::Simple,
+                class: lexicon::lookup_verb_class(&stem),
+            };
+            return TokenType::Ambiguous {
+                primary: Box::new(verb_token),
+                alternatives: vec![TokenType::Noun(self.interner.intern(word))],
+            };
+        }
+
+        // Unknown lowercase words default to Noun. In natural language contexts
+        // (puzzle clues, prose) unknown content words are overwhelmingly nouns —
+        // domain-specific items like dance styles, place names, object names, etc.
+        // Genuine adjectives and adverbs are caught by earlier checks.
         let sym = self.interner.intern(word);
-        TokenType::Adjective(sym)
+        TokenType::Noun(sym)
     }
 
     fn capitalize(s: &str) -> String {
@@ -2622,6 +3410,13 @@ impl<'a> Lexer<'a> {
             return Some(Self::capitalize(base));
         }
 
+        // Silent-e adjectives drop the 'e' before -er: "wide"→"wider",
+        // "large"→"larger", "late"→"later". Recover the base by restoring it.
+        let with_e = format!("{}e", base);
+        if lexicon::is_gradable_adjective(&with_e) {
+            return Some(Self::capitalize(&with_e));
+        }
+
         None
     }
 }
@@ -2652,6 +3447,46 @@ mod tests {
         let mut lexer = Lexer::new("ring", &mut interner);
         let tokens = lexer.tokenize();
         assert!(matches!(tokens[0].kind, TokenType::Noun(_)));
+    }
+
+    /// Rung 0a, Stride 0: `## Define` introduces a vernacular-logic predicate
+    /// definition. It must lex to its OWN block type — never collapse into the
+    /// pre-existing `## Definition` (which `DiscoveryPass` consumes for type
+    /// defs). This pins both: `## Define` → `Define`, `## Definition` unchanged.
+    #[test]
+    fn define_block_header_is_distinct_from_definition() {
+        let mut interner = Interner::new();
+        let mut lexer = Lexer::new("## Define\n", &mut interner);
+        let tokens = lexer.tokenize();
+        let header = tokens
+            .iter()
+            .find(|t| matches!(t.kind, TokenType::BlockHeader { .. }))
+            .expect("## Define should produce a block header token");
+        assert!(
+            matches!(
+                header.kind,
+                TokenType::BlockHeader { block_type: BlockType::Define }
+            ),
+            "## Define must tokenize to BlockType::Define, got {:?}",
+            header.kind
+        );
+
+        // Regression guard: the long-standing `## Definition` block stays itself.
+        let mut interner2 = Interner::new();
+        let mut lexer2 = Lexer::new("## Definition\n", &mut interner2);
+        let tokens2 = lexer2.tokenize();
+        let header2 = tokens2
+            .iter()
+            .find(|t| matches!(t.kind, TokenType::BlockHeader { .. }))
+            .expect("## Definition should produce a block header token");
+        assert!(
+            matches!(
+                header2.kind,
+                TokenType::BlockHeader { block_type: BlockType::Definition }
+            ),
+            "## Definition must still tokenize to BlockType::Definition, got {:?}",
+            header2.kind
+        );
     }
 
     #[test]
@@ -2869,5 +3704,58 @@ mod tests {
             eprintln!("Triple-quote content: {:?}", content);
             assert!(content.contains("Hello"), "Should contain Hello, got: {:?}", content);
         }
+    }
+
+    /// BUG-015: a string-literal span must stay BYTE-indexed even when multibyte
+    /// text precedes it; a byte-start / char-end span underflows in
+    /// `insert_indentation_tokens` and panics on valid Unicode input.
+    #[test]
+    fn string_literal_span_stays_byte_indexed_after_leading_multibyte_text() {
+        // 7 leading 2-byte Greek letters, a space, then a quoted string.
+        let src = "\u{3b1}\u{3b1}\u{3b1}\u{3b1}\u{3b1}\u{3b1}\u{3b1} \"x\"";
+        let mut interner = Interner::new();
+        let mut lexer = Lexer::new(src, &mut interner);
+        let tokens = lexer.tokenize(); // previously panicked: 'attempt to subtract with overflow'
+
+        let s = tokens
+            .iter()
+            .find(|t| matches!(t.kind, TokenType::StringLiteral(_) | TokenType::InterpolatedString(_)))
+            .expect("should produce a string literal token");
+
+        assert!(s.span.end >= s.span.start, "span end {} must be >= start {}", s.span.end, s.span.start);
+        assert!(
+            src.is_char_boundary(s.span.start) && src.is_char_boundary(s.span.end),
+            "span [{}, {}) must lie on char boundaries",
+            s.span.start, s.span.end
+        );
+        assert_eq!(&src[s.span.start..s.span.end], "\"x\"");
+    }
+
+    /// BUG-030: calendar-impossible dates (Feb 30, Apr 31, Feb 29 in a non-leap
+    /// year) must NOT tokenize to a DateLiteral — they would otherwise silently
+    /// map onto a real, different day.
+    #[test]
+    fn date_literal_rejects_impossible_day_of_month() {
+        let impossible = [
+            "2026-02-30", "2026-02-31", "2026-02-29", // 2026 is not a leap year
+            "2026-04-31", "2026-06-31", "2026-09-31", "2026-11-31",
+        ];
+        for input in impossible {
+            let mut interner = Interner::new();
+            let mut lexer = Lexer::new(input, &mut interner);
+            let tokens = lexer.tokenize();
+            assert!(
+                !tokens.iter().any(|t| matches!(t.kind, TokenType::DateLiteral { .. })),
+                "{input} is not a real calendar date and must not become a DateLiteral; got {tokens:?}"
+            );
+        }
+        // Control: a real leap-day must still tokenize.
+        let mut interner = Interner::new();
+        let mut lexer = Lexer::new("2024-02-29", &mut interner);
+        let tokens = lexer.tokenize();
+        assert!(
+            tokens.iter().any(|t| matches!(t.kind, TokenType::DateLiteral { .. })),
+            "2024-02-29 is a valid leap-day and must still tokenize; got {tokens:?}"
+        );
     }
 }

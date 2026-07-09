@@ -62,29 +62,39 @@ pub fn completions(doc: &DocumentState, position: Position) -> Option<Completion
         add_statement_keywords(&mut items);
     }
 
+    // Stdlib prelude names ride along in every context, after the locals —
+    // additive, so they can never displace the context-specific items above.
+    add_stdlib_completions(doc, &mut items);
+
     Some(CompletionResponse::Array(items))
 }
 
 fn add_statement_keywords(items: &mut Vec<CompletionItem>) {
+    // Snippet skeletons are editing mechanics and live here; the teaching
+    // text (detail + documentation) comes from the shared lesson table, so
+    // completion, hover, and the REPL always say the same thing.
     let keywords = [
-        ("Let", "Declare a variable", "Let ${1:name} be ${2:value}."),
-        ("Set", "Update a variable", "Set ${1:name} to ${2:value}."),
-        ("If", "Conditional branch", "If ${1:condition}:\n    ${2:body}"),
-        ("While", "Loop while condition", "While ${1:condition}:\n    ${2:body}"),
-        ("Repeat", "Iterate over collection", "Repeat for ${1:item} in ${2:collection}:\n    ${3:body}"),
-        ("Return", "Return a value", "Return ${1:value}."),
-        ("Show", "Display a value", "Show ${1:value}."),
-        ("Give", "Transfer ownership", "Give ${1:value} to ${2:target}."),
-        ("Push", "Append to list", "Push ${1:value} to ${2:list}."),
-        ("Call", "Invoke function", "Call ${1:function} with ${2:args}."),
-        ("Inspect", "Pattern match", "Inspect ${1:value}:\n    ${2:pattern}:\n        ${3:body}"),
+        (TokenType::Let, "Let ${1:name} be ${2:value}."),
+        (TokenType::Set, "Set ${1:name} to ${2:value}."),
+        (TokenType::If, "If ${1:condition}:\n    ${2:body}"),
+        (TokenType::While, "While ${1:condition}:\n    ${2:body}"),
+        (TokenType::Repeat, "Repeat for ${1:item} in ${2:collection}:\n    ${3:body}"),
+        (TokenType::Return, "Return ${1:value}."),
+        (TokenType::Show, "Show ${1:value}."),
+        (TokenType::Give, "Give ${1:value} to ${2:target}."),
+        (TokenType::Push, "Push ${1:value} to ${2:list}."),
+        (TokenType::Call, "Call ${1:function} with ${2:args}."),
+        (TokenType::Inspect, "Inspect ${1:value}:\n    ${2:pattern}:\n        ${3:body}"),
     ];
 
-    for (label, detail, snippet) in keywords {
+    for (kind, snippet) in keywords {
+        let lesson = logicaffeine_language::teach::doc_for(&kind)
+            .expect("every statement-keyword completion is taught");
         items.push(CompletionItem {
-            label: label.to_string(),
+            label: lesson.name.to_string(),
             kind: Some(CompletionItemKind::KEYWORD),
-            detail: Some(detail.to_string()),
+            detail: Some(lesson.what.to_string()),
+            documentation: Some(crate::teach_md::completion_docs(lesson)),
             insert_text: Some(snippet.to_string()),
             insert_text_format: Some(tower_lsp::lsp_types::InsertTextFormat::SNIPPET),
             ..Default::default()
@@ -111,24 +121,30 @@ fn add_expression_completions(doc: &DocumentState, items: &mut Vec<CompletionIte
 }
 
 fn add_type_completions(doc: &DocumentState, items: &mut Vec<CompletionItem>) {
-    // Primitive types
+    // Primitive types — each teaches from the shared lesson table.
     let primitives = ["Int", "Nat", "Text", "Bool", "Float", "Unit", "Char", "Byte"];
     for prim in primitives {
+        let lesson = logicaffeine_language::teach::doc_for_primitive(prim)
+            .expect("every offered primitive is taught");
         items.push(CompletionItem {
             label: prim.to_string(),
             kind: Some(CompletionItemKind::TYPE_PARAMETER),
-            detail: Some("Primitive type".to_string()),
+            detail: Some(lesson.what.to_string()),
+            documentation: Some(crate::teach_md::completion_docs(lesson)),
             ..Default::default()
         });
     }
 
-    // Generic types
+    // Generic types — same table.
     let generics = ["List", "Seq", "Map", "Set", "Option", "Result"];
     for gen in generics {
+        let lesson = logicaffeine_language::teach::doc_for_primitive(gen)
+            .expect("every offered generic is taught");
         items.push(CompletionItem {
             label: gen.to_string(),
             kind: Some(CompletionItemKind::CLASS),
-            detail: Some("Generic type".to_string()),
+            detail: Some(lesson.what.to_string()),
+            documentation: Some(crate::teach_md::completion_docs(lesson)),
             ..Default::default()
         });
     }
@@ -351,6 +367,98 @@ mod tests {
     }
 
     #[test]
+    fn keyword_completions_teach_with_detail_and_documentation() {
+        let doc = make_doc("## Main\n    ");
+        let pos = Position { line: 1, character: 4 };
+        let Some(CompletionResponse::Array(items)) = completions(&doc, pos) else {
+            panic!("expected completions after indent");
+        };
+        for label in [
+            "Let", "Set", "If", "While", "Repeat", "Return", "Show", "Give", "Push", "Call",
+            "Inspect",
+        ] {
+            let item = items
+                .iter()
+                .find(|i| i.label == label && i.kind == Some(CompletionItemKind::KEYWORD))
+                .unwrap_or_else(|| panic!("keyword completion for {label}"));
+            let lesson = logicaffeine_language::teach::doc_for_word(label)
+                .unwrap_or_else(|| panic!("{label} must be taught"));
+            assert_eq!(
+                item.detail.as_deref(),
+                Some(lesson.what),
+                "{label}: completion detail must be the lesson's one-liner"
+            );
+            assert!(
+                item.documentation.is_some(),
+                "{label}: completion must carry teaching documentation"
+            );
+        }
+    }
+
+    #[test]
+    fn primitive_type_completions_teach_from_the_lesson_table() {
+        let doc = make_doc("## Main\n    Let x: Int be 5.\n");
+        // Position right after the colon.
+        let pos = Position { line: 1, character: 10 };
+        let Some(CompletionResponse::Array(items)) = completions(&doc, pos) else {
+            panic!("expected type completions after colon");
+        };
+        let int_item = items
+            .iter()
+            .find(|i| i.label == "Int")
+            .expect("Int must be offered after a colon");
+        let lesson = logicaffeine_language::teach::doc_for_primitive("Int").unwrap();
+        assert_eq!(
+            int_item.detail.as_deref(),
+            Some(lesson.what),
+            "Int detail must come from the lesson table, not a generic placeholder"
+        );
+        assert!(
+            int_item.documentation.is_some(),
+            "Int completion must carry teaching documentation"
+        );
+    }
+
+    #[test]
+    fn documented_function_completion_carries_its_prose() {
+        let doc = make_doc(
+            "## Note\nDoubles a number.\n\n## To double (n: Int) -> Int:\n    Return n * 2.\n\n## Main\nShow x.\n",
+        );
+        // Default context after "Show".
+        let pos = Position { line: 7, character: 5 };
+        let Some(CompletionResponse::Array(items)) = completions(&doc, pos) else {
+            panic!("expected completions");
+        };
+        let item = items
+            .iter()
+            .find(|i| i.label == "double")
+            .expect("double completes");
+        let Some(tower_lsp::lsp_types::Documentation::MarkupContent(content)) =
+            &item.documentation
+        else {
+            panic!("documented function must carry markdown docs");
+        };
+        assert!(content.value.contains("Doubles a number."), "{}", content.value);
+    }
+
+    #[test]
+    fn stdlib_names_complete_with_their_documentation() {
+        let doc = make_doc("## Main\n    Show x.\n");
+        let pos = Position { line: 1, character: 9 };
+        let Some(CompletionResponse::Array(items)) = completions(&doc, pos) else {
+            panic!("expected completions");
+        };
+        let md5 = items.iter().find(|i| i.label == "md5").expect("md5 offered from stdlib");
+        assert_eq!(md5.kind, Some(CompletionItemKind::FUNCTION));
+        assert!(
+            md5.detail.as_deref().is_some_and(|d| d.contains("md5")),
+            "{:?}",
+            md5.detail
+        );
+        assert!(md5.documentation.is_some(), "stdlib completion teaches");
+    }
+
+    #[test]
     fn variant_completion_no_crash_with_inspect() {
         // After "Inspect" keyword, should not crash even without a defined enum
         let doc = make_doc("## Main\n    Let x be 5.\n    Inspect x:\n");
@@ -442,9 +550,45 @@ fn add_identifier_completions(doc: &DocumentState, items: &mut Vec<CompletionIte
             label: def.name.clone(),
             kind: Some(kind),
             detail,
+            documentation: def.doc.clone().map(markdown_docs),
             deprecated,
             tags,
             ..Default::default()
         });
     }
+}
+
+/// Stdlib prelude names, documented from their literate `## Note`s.
+/// Declarer wins: a local definition of the same name suppresses the
+/// stdlib entry, mirroring the loader's auto-import rule.
+fn add_stdlib_completions(doc: &DocumentState, items: &mut Vec<CompletionItem>) {
+    for (name, entry) in crate::stdlib_docs::all() {
+        if doc.symbol_index.name_to_defs.contains_key(name) {
+            continue;
+        }
+        items.push(CompletionItem {
+            label: name.to_string(),
+            kind: Some(if entry.is_type {
+                CompletionItemKind::CLASS
+            } else {
+                CompletionItemKind::FUNCTION
+            }),
+            detail: Some(entry.signature.trim_start_matches("## ").to_string()),
+            documentation: Some(tower_lsp::lsp_types::Documentation::MarkupContent(
+                tower_lsp::lsp_types::MarkupContent {
+                    kind: tower_lsp::lsp_types::MarkupKind::Markdown,
+                    value: crate::stdlib_docs::hover_md(name, entry),
+                },
+            )),
+            ..Default::default()
+        });
+    }
+}
+
+/// Plain prose as markdown completion documentation.
+fn markdown_docs(value: String) -> tower_lsp::lsp_types::Documentation {
+    tower_lsp::lsp_types::Documentation::MarkupContent(tower_lsp::lsp_types::MarkupContent {
+        kind: tower_lsp::lsp_types::MarkupKind::Markdown,
+        value,
+    })
 }

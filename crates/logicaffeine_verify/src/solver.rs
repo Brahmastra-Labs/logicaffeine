@@ -576,6 +576,32 @@ impl VerificationSession {
         result
     }
 
+    /// Check the joint satisfiability of all assumptions (no goal).
+    ///
+    /// Returns `Ok(true)` when Z3 finds a model, `Ok(false)` when the
+    /// assumptions are jointly unsatisfiable, and `Err` on solver-unknown —
+    /// three-valued, so an unknown never reads as either verdict.
+    pub fn check_sat(&self) -> Result<bool, VerificationError> {
+        let mut cfg = Config::new();
+        cfg.set_param_value("timeout", "10000");
+        let ctx = Context::new(&cfg);
+        let solver = Solver::new(&ctx);
+
+        let encoder = Encoder::new(&ctx, &self.vars);
+        for assumption in &self.assumptions {
+            let ast = encoder.encode(assumption);
+            if let Some(b) = ast.as_bool() {
+                solver.assert(&b);
+            }
+        }
+
+        match solver.check() {
+            SatResult::Sat => Ok(true),
+            SatResult::Unsat => Ok(false),
+            SatResult::Unknown => Err(VerificationError::solver_unknown()),
+        }
+    }
+
     /// Verify a temporal property via bounded model checking.
     ///
     /// Unrolls the transition relation `bound` steps and checks if the property
@@ -694,6 +720,10 @@ pub fn rename_var_in_expr(expr: &VerifyExpr, from: &str, to: &str) -> VerifyExpr
             name: name.clone(),
             args: args.iter().map(|a| r(a)).collect(),
         },
+        VerifyExpr::ApplyInt { name, args } => VerifyExpr::ApplyInt {
+            name: name.clone(),
+            args: args.iter().map(|a| r(a)).collect(),
+        },
 
         // Bitvector: recurse operands
         VerifyExpr::BitVecBinary { op, left, right } => VerifyExpr::BitVecBinary {
@@ -791,6 +821,17 @@ impl<'ctx> Encoder<'ctx> {
 
             VerifyExpr::Apply { name, args } => {
                 self.encode_apply(name, args)
+            }
+
+            VerifyExpr::ApplyInt { name, args } => {
+                let int_sort = Sort::int(self.ctx);
+                let domain: Vec<&Sort> = args.iter().map(|_| &int_sort).collect();
+                let func_decl = FuncDecl::new(self.ctx, name.as_str(), &domain, &int_sort);
+                let encoded_args: Vec<Dynamic> =
+                    args.iter().map(|a| self.encode(a)).collect();
+                let arg_refs: Vec<&dyn Ast> =
+                    encoded_args.iter().map(|a| a as &dyn Ast).collect();
+                Dynamic::from_ast(&func_decl.apply(&arg_refs))
             }
 
             VerifyExpr::ForAll { vars, body } => {
@@ -971,6 +1012,15 @@ impl<'ctx> Encoder<'ctx> {
                     l
                 }
             }
+            // Floor division `a // b`: `to_int(to_real(a) / to_real(b))` — real division then the
+            // floor (`Real::to_int` is floor), exact toward -inf for every sign.
+            VerifyOp::FloorDiv => {
+                if let (Some(li), Some(ri)) = (l.as_int(), r.as_int()) {
+                    Dynamic::from_ast(&(li.to_real() / ri.to_real()).to_int())
+                } else {
+                    l
+                }
+            }
 
             // Comparison
             VerifyOp::Gt => {
@@ -1045,6 +1095,8 @@ impl<'ctx> Encoder<'ctx> {
                 BitVecOp::Add => Dynamic::from_ast(&lb.bvadd(&rb)),
                 BitVecOp::Sub => Dynamic::from_ast(&lb.bvsub(&rb)),
                 BitVecOp::Mul => Dynamic::from_ast(&lb.bvmul(&rb)),
+                BitVecOp::SDiv => Dynamic::from_ast(&lb.bvsdiv(&rb)),
+                BitVecOp::SRem => Dynamic::from_ast(&lb.bvsrem(&rb)),
                 BitVecOp::ULt => Dynamic::from_ast(&lb.bvult(&rb)),
                 BitVecOp::SLt => Dynamic::from_ast(&lb.bvslt(&rb)),
                 BitVecOp::ULe => Dynamic::from_ast(&lb.bvule(&rb)),

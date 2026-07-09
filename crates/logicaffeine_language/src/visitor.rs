@@ -138,6 +138,16 @@ pub fn walk_expr<'a, V: Visitor<'a>>(v: &mut V, expr: &'a LogicExpr<'a>) {
             }
         }
 
+        LogicExpr::Exclamative { body, .. } => {
+            v.visit_expr(body);
+        }
+        LogicExpr::Optative { wish } => {
+            v.visit_expr(wish);
+        }
+        LogicExpr::Implicature { assertion, implicature } => {
+            v.visit_expr(assertion);
+            v.visit_expr(implicature);
+        }
         LogicExpr::Imperative { action } => {
             v.visit_expr(action);
         }
@@ -154,6 +164,10 @@ pub fn walk_expr<'a, V: Visitor<'a>>(v: &mut V, expr: &'a LogicExpr<'a>) {
         LogicExpr::Causal { effect, cause } => {
             v.visit_expr(cause);
             v.visit_expr(effect);
+        }
+        LogicExpr::Concessive { main, concession } => {
+            v.visit_expr(main);
+            v.visit_expr(concession);
         }
 
         LogicExpr::Comparative { subject, object, .. } => {
@@ -204,7 +218,7 @@ pub fn walk_expr<'a, V: Visitor<'a>>(v: &mut V, expr: &'a LogicExpr<'a>) {
 
 pub fn walk_term<'a, V: Visitor<'a>>(v: &mut V, term: &'a Term<'a>) {
     match term {
-        Term::Constant(_) | Term::Variable(_) | Term::Sigma(_) | Term::Intension(_) | Term::Value { .. } => {}
+        Term::Constant(_) | Term::Variable(_) | Term::Sigma(_) | Term::Intension(_) | Term::Kind(_) | Term::Value { .. } => {}
 
         Term::Function(_, args) => {
             for arg in *args {

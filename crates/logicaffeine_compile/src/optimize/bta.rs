@@ -141,20 +141,21 @@ pub fn analyze_expr(expr: &Expr, division: &Division) -> BindingTime {
 
 fn eval_literal_binop(op: BinaryOpKind, left: &Literal, right: &Literal) -> Option<Literal> {
     match (op, left, right) {
+        // Fold only when it fits i64; overflow → None so the exact runtime promotes.
         (BinaryOpKind::Add, Literal::Number(a), Literal::Number(b)) => {
-            Some(Literal::Number(a.wrapping_add(*b)))
+            a.checked_add(*b).map(Literal::Number)
         }
         (BinaryOpKind::Subtract, Literal::Number(a), Literal::Number(b)) => {
-            Some(Literal::Number(a.wrapping_sub(*b)))
+            a.checked_sub(*b).map(Literal::Number)
         }
         (BinaryOpKind::Multiply, Literal::Number(a), Literal::Number(b)) => {
-            Some(Literal::Number(a.wrapping_mul(*b)))
+            a.checked_mul(*b).map(Literal::Number)
         }
         (BinaryOpKind::Divide, Literal::Number(a), Literal::Number(b)) if *b != 0 => {
-            Some(Literal::Number(a / b))
+            a.checked_div(*b).map(Literal::Number)
         }
         (BinaryOpKind::Modulo, Literal::Number(a), Literal::Number(b)) if *b != 0 => {
-            Some(Literal::Number(a % b))
+            a.checked_rem(*b).map(Literal::Number)
         }
         (BinaryOpKind::Eq, Literal::Number(a), Literal::Number(b)) => {
             Some(Literal::Boolean(a == b))
@@ -246,7 +247,14 @@ fn analyze_stmt<'a>(
             }
             None
         }
-        _ => None,
+        other => {
+            // A variable rebound from a runtime source (channel receive, Mount, console
+            // read, peer message, …) is Dynamic regardless of any prior static binding.
+            for var in effectful_bound_vars(other) {
+                division.insert(var, BindingTime::Dynamic);
+            }
+            None
+        }
     }
 }
 
@@ -374,6 +382,10 @@ enum BtaStmtKind {
     Call { function: Symbol, args: Vec<BtaExpr> },
     If { cond: BtaExpr, then_block: Vec<BtaStmt>, else_block: Option<Vec<BtaStmt>> },
     While { cond: BtaExpr, body: Vec<BtaStmt> },
+    /// A statement that binds one or more variables to a *runtime* value (a channel
+    /// receive, Mount, console read, peer message, …). Each named variable becomes
+    /// Dynamic, overwriting any prior static binding.
+    ClobberDynamic { vars: Vec<Symbol> },
     Other,
 }
 
@@ -428,7 +440,29 @@ fn convert_expr(expr: &Expr) -> BtaExpr {
     }
 }
 
+/// The variables a statement binds to a runtime value. These must be clobbered to
+/// Dynamic in any binding-time division — a prior `Static` binding is stale once the
+/// variable is rebound from a channel, the filesystem, the console, or a peer.
+fn effectful_bound_vars(stmt: &Stmt) -> Vec<Symbol> {
+    match stmt {
+        Stmt::ReceivePipe { var, .. }
+        | Stmt::TryReceivePipe { var, .. }
+        | Stmt::ReadFrom { var, .. }
+        | Stmt::Mount { var, .. }
+        | Stmt::CreatePipe { var, .. }
+        | Stmt::LetPeerAgent { var, .. } => vec![*var],
+        Stmt::AwaitMessage { into, .. } => vec![*into],
+        Stmt::LaunchTaskWithHandle { handle, .. } => vec![*handle],
+        Stmt::Spawn { name, .. } => vec![*name],
+        _ => Vec::new(),
+    }
+}
+
 fn convert_stmt(stmt: &Stmt) -> BtaStmt {
+    let clobbered = effectful_bound_vars(stmt);
+    if !clobbered.is_empty() {
+        return BtaStmt { kind: BtaStmtKind::ClobberDynamic { vars: clobbered } };
+    }
     let kind = match stmt {
         Stmt::Let { var, value, .. } => BtaStmtKind::Let {
             var: *var,
@@ -698,6 +732,12 @@ fn analyze_bta_stmt(
                         *division = joined;
                     }
                 }
+            }
+            None
+        }
+        BtaStmtKind::ClobberDynamic { vars } => {
+            for var in vars {
+                division.insert(*var, BindingTime::Dynamic);
             }
             None
         }

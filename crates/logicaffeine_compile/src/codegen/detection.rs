@@ -1,10 +1,11 @@
 use std::collections::{HashMap, HashSet};
 
 use crate::analysis::registry::{FieldType, TypeDef, TypeRegistry};
-use crate::ast::stmt::{Expr, ReadSource, Stmt, TypeExpr};
+use crate::ast::stmt::{Expr, Literal, ReadSource, Stmt, TypeExpr};
 use crate::intern::{Interner, Symbol};
 
 use super::is_recursive_field;
+use super::types::codegen_type_expr;
 
 pub(super) fn is_result_type(ty: &TypeExpr, interner: &Interner) -> bool {
     if let TypeExpr::Generic { base, .. } = ty {
@@ -557,7 +558,7 @@ pub(super) fn calls_async_function(stmt: &Stmt, async_fns: &HashSet<Symbol>) -> 
             value.as_ref().map_or(false, |v| calls_async_function_in_expr(v, async_fns))
         }
         // Check RuntimeAssert condition for async calls
-        Stmt::RuntimeAssert { condition } => calls_async_function_in_expr(condition, async_fns),
+        Stmt::RuntimeAssert { condition, .. } => calls_async_function_in_expr(condition, async_fns),
         // Check Show for async calls
         Stmt::Show { object, .. } => calls_async_function_in_expr(object, async_fns),
         // Check Push for async calls
@@ -681,6 +682,7 @@ fn is_directly_impure_stmt(stmt: &Stmt) -> bool {
         | Stmt::Listen { .. }
         | Stmt::ConnectTo { .. }
         | Stmt::SendMessage { .. }
+        | Stmt::StreamMessage { .. }
         | Stmt::AwaitMessage { .. }
         | Stmt::Sleep { .. }
         | Stmt::Sync { .. }
@@ -980,6 +982,28 @@ pub(super) fn expr_indexes_collection(expr: &Expr, coll_sym: Symbol) -> bool {
     }
 }
 
+/// True if `expr` borrows ANY collection at runtime — an index (`item i of C`),
+/// slice, or length read. Under LOGOS reference semantics any such collection
+/// may alias the target of a `SetIndex`, so the RHS must be evaluated into a
+/// temp BEFORE the target's `borrow_mut()` is taken; otherwise the live
+/// `borrow()` and the `borrow_mut()` can land on the same `RefCell` and panic
+/// ("already borrowed"). `expr_indexes_collection` only catches same-symbol
+/// aliasing; this catches the cross-variable case (e.g. `prev` aliasing `curr`
+/// after `Set prev to curr`).
+pub(super) fn expr_reads_any_collection(expr: &Expr) -> bool {
+    match expr {
+        Expr::Index { .. } | Expr::Slice { .. } | Expr::Length { .. } => true,
+        Expr::BinaryOp { left, right, .. } => {
+            expr_reads_any_collection(left) || expr_reads_any_collection(right)
+        }
+        Expr::Call { args, .. } => args.iter().any(|a| expr_reads_any_collection(a)),
+        Expr::FieldAccess { object, .. } => expr_reads_any_collection(object),
+        Expr::Not { operand } => expr_reads_any_collection(operand),
+        Expr::List(items) | Expr::Tuple(items) => items.iter().any(|i| expr_reads_any_collection(i)),
+        _ => false,
+    }
+}
+
 // =============================================================================
 // Inline Annotation Detection
 // =============================================================================
@@ -1168,7 +1192,7 @@ pub(super) fn symbol_appears_in_stmts(sym: Symbol, stmts: &[&Stmt]) -> bool {
     stmts.iter().any(|s| symbol_appears_in_stmt(sym, s))
 }
 
-fn symbol_appears_in_stmt(sym: Symbol, stmt: &Stmt) -> bool {
+pub(super) fn symbol_appears_in_stmt(sym: Symbol, stmt: &Stmt) -> bool {
     match stmt {
         Stmt::Let { value, .. } => symbol_appears_in_expr(sym, value),
         Stmt::Set { target, value, .. } => *target == sym || symbol_appears_in_expr(sym, value),
@@ -1203,7 +1227,7 @@ fn symbol_appears_in_stmt(sym: Symbol, stmt: &Stmt) -> bool {
             symbol_appears_in_expr(sym, target)
                 || arms.iter().any(|arm| arm.body.iter().any(|s| symbol_appears_in_stmt(sym, s)))
         }
-        Stmt::RuntimeAssert { condition } => symbol_appears_in_expr(sym, condition),
+        Stmt::RuntimeAssert { condition, .. } => symbol_appears_in_expr(sym, condition),
         Stmt::FunctionDef { body, .. } => body.iter().any(|s| symbol_appears_in_stmt(sym, s)),
         Stmt::Concurrent { tasks } | Stmt::Parallel { tasks } => {
             tasks.iter().any(|s| symbol_appears_in_stmt(sym, s))
@@ -1212,7 +1236,7 @@ fn symbol_appears_in_stmt(sym: Symbol, stmt: &Stmt) -> bool {
     }
 }
 
-fn symbol_appears_in_expr(sym: Symbol, expr: &Expr) -> bool {
+pub(super) fn symbol_appears_in_expr(sym: Symbol, expr: &Expr) -> bool {
     match expr {
         Expr::Identifier(s) => *s == sym,
         Expr::BinaryOp { left, right, .. } => {
@@ -1274,7 +1298,7 @@ fn symbol_appears_in_expr(sym: Symbol, expr: &Expr) -> bool {
 }
 
 /// Check if a TypeExpr is a Vec/Seq/List type (collection that could be borrowed as &[T]).
-pub(super) fn is_vec_type_expr(ty: &TypeExpr, interner: &Interner) -> bool {
+pub(crate) fn is_vec_type_expr(ty: &TypeExpr, interner: &Interner) -> bool {
     match ty {
         TypeExpr::Generic { base, .. } => {
             let name = interner.resolve(*base);
@@ -1322,6 +1346,762 @@ pub(super) fn vec_to_mut_slice_type(vec_type: &str) -> String {
         format!("&mut [{}]", inner)
     } else {
         vec_type.to_string()
+    }
+}
+
+/// O2 de-Rc eligibility: Seq variables that provably never need reference
+/// semantics, so codegen can emit a plain `Vec<T>` (no Rc/RefCell) instead of
+/// `LogosSeq<T> = Rc<RefCell<Vec<T>>>`.
+///
+/// A variable qualifies when it is declared with a FRESH allocation of a Seq
+/// whose element type is a scalar (Int/Float/Bool/Char/Text — reading an
+/// element copies, never shares a handle) and, across the whole scope, it is
+/// never aliased by a second live handle (`Let b be a`, `Set b to a`, stored
+/// as an element) and never escapes (call arg, return, given away).
+///
+/// Conservative by construction: anything uncertain stays `LogosSeq`. An
+/// unsound de-Rc would make the generated Rust fail to compile (two owners /
+/// moved-from use), a loud failure the tests catch — never silent corruption.
+pub(crate) fn collect_de_rc_seqs(
+    stmts: &[Stmt],
+    interner: &Interner,
+    borrow_params: &HashMap<Symbol, HashSet<usize>>,
+    mut_borrow_params: &HashMap<Symbol, HashSet<usize>>,
+    vec_return_fns: &HashSet<Symbol>,
+    returns_vec: bool,
+) -> HashSet<Symbol> {
+    // Kill switch (benchmark A/B): `LOGOS_DERC=0` keeps every Seq as `LogosSeq`.
+    if !crate::optimize::active_config().is_on(crate::optimization::Opt::Unbox) {
+        return HashSet::new();
+    }
+    // Phase 3a/3b: a candidate passed at EITHER a readonly-borrow (`&[T]`) or a
+    // mutable-borrow (`&mut [T]`) param slot is only borrowed for the call, not
+    // retained — that is not an escape. Both call conventions pass a reference
+    // to the de-Rc'd `Vec`, so the use-scan treats both as safe slots. (Codegen
+    // distinguishes `&x` vs `&mut x` via its own borrow maps.)
+    let borrow_slots: HashMap<Symbol, HashSet<usize>> = if mut_borrow_params.is_empty() {
+        borrow_params.clone()
+    } else {
+        let mut m = borrow_params.clone();
+        for (f, idx) in mut_borrow_params {
+            m.entry(*f).or_default().extend(idx.iter().copied());
+        }
+        m
+    };
+    let borrow_params = &borrow_slots;
+    let mut candidates = HashSet::new();
+    collect_de_rc_candidates_block(stmts, interner, vec_return_fns, &mut candidates);
+    if candidates.is_empty() {
+        return candidates;
+    }
+    // A candidate survives ONLY if every one of its occurrences is in a
+    // Vec-safe slot (the collection of push/pop/add/remove/setindex/index/
+    // length, or a fresh-Seq decl/reassign). Any other occurrence — call arg,
+    // return, given/shown whole, sliced, copied, stored as an element,
+    // aliased, or inside any statement/expression kind not explicitly
+    // permitted — disqualifies it. Conservative by construction: the worst
+    // outcome of the catch-alls is a missed optimization, never an unsound
+    // `Vec` used where a `LogosSeq` is required.
+    // Phase 2: buffer-reuse swap pairs. `Set outer to inner`, where `inner` is
+    // a fresh-per-iteration buffer, is lowered by codegen to `std::mem::swap`
+    // (a content exchange, NOT a shared handle), so it must not be treated as
+    // aliasing. Collect those (outer, inner) pairs so the use-scan exempts them.
+    let mut swaps = HashSet::new();
+    collect_buffer_swap_pairs(stmts, interner, &mut swaps);
+
+    let mut disqualified = HashSet::new();
+    derc_scan_uses(stmts, &candidates, &swaps, borrow_params, mut_borrow_params, vec_return_fns, returns_vec, interner, &mut disqualified);
+    candidates.retain(|c| !disqualified.contains(c));
+
+    // A swap pair must de-Rc together — `std::mem::swap` needs both partners to
+    // be the same type. If either is disqualified, drop both. Iterate to a
+    // fixpoint so chained pairs settle.
+    loop {
+        let mut changed = false;
+        for (outer, inner) in &swaps {
+            if candidates.contains(outer) != candidates.contains(inner) {
+                changed |= candidates.remove(outer);
+                changed |= candidates.remove(inner);
+            }
+        }
+        if !changed {
+            break;
+        }
+    }
+    if !candidates.is_empty() {
+        crate::optimize::mark_fired(crate::optimization::Opt::Unbox);
+    }
+    candidates
+}
+
+/// Phase 4 — return-type de-Rc. A function declared to return `Seq of T` can
+/// instead return `Vec<T>` when EVERY `Return` yields a uniquely-owned value:
+/// a freshly-built local Seq (moved out), a readonly-BORROW param (copied via
+/// `.to_vec()` — a borrow can't alias), a fresh-Seq expression, or a call to
+/// another such function. Returning `Vec` removes the per-call Rc clone +
+/// RefCell borrow and the Rc box, and — crucially — makes `Set x to f(...)` at
+/// every call site a uniquely-owned fresh value, unblocking de-Rc on `x` (the
+/// mergesort `left`/`right`/`result` chain, currently disqualified because the
+/// callee returns `LogosSeq`). Fixpoint over the callgraph so a function that
+/// returns a call to a not-yet-confirmed peer settles.
+pub(super) fn collect_vec_return_fns(
+    stmts: &[Stmt],
+    interner: &Interner,
+    borrow_params: &HashMap<Symbol, HashSet<usize>>,
+    mut_borrow_params: &HashMap<Symbol, HashSet<usize>>,
+) -> HashSet<Symbol> {
+    if !crate::optimize::active_config().is_on(crate::optimization::Opt::Unbox) {
+        return HashSet::new();
+    }
+    // Every non-native function declared to return a Seq/List/Vec, with its
+    // body + params. Each is a CANDIDATE to instead return an owned `Vec<T>`.
+    let mut seq_fns: Vec<(Symbol, &[Stmt], &[(Symbol, &TypeExpr)])> = Vec::new();
+    for s in stmts {
+        if let Stmt::FunctionDef {
+            name, body, params, return_type: Some(rt), is_native: false, ..
+        } = s
+        {
+            if is_vec_type_expr(rt, interner) {
+                seq_fns.push((*name, body, params));
+            }
+        }
+    }
+    if seq_fns.is_empty() {
+        return HashSet::new();
+    }
+
+    // GREATEST FIXPOINT — return-type de-Rc is an interprocedural aliasing
+    // problem co-dependent with each scope's local de-Rc set: a function `f`
+    // returns `Vec` only if every return site AND every call site is owned-Vec
+    // compatible, while a call site's result de-Rc's only if `f` returns `Vec`.
+    // Start OPTIMISTIC (every candidate returns `Vec`), then SHRINK on any
+    // soundness violation until stable. Monotone (removals only) ⇒ converges.
+    //
+    // `f` is removed when ANY holds (each would emit ill-typed `Vec`/`LogosSeq`
+    // code, never silent corruption — the violations are type errors):
+    //   (a) a `Return` in `f` yields a value that is not an owned Vec — i.e. NOT
+    //       a readonly-borrow param (returns `.to_vec()`) and NOT a local that
+    //       itself de-Rc's (returns the moved `Vec`). A LogosSeq local return
+    //       would be `return os;` into a `-> Vec` signature.
+    //   (b) a call site `Let/Set x to f(...)` whose result `x` does not de-Rc —
+    //       a `Vec` assigned into a `LogosSeq` variable.
+    //   (c) `f(...)` used in ANY inline / non-binding position (struct field,
+    //       owned arg, `Return f(x)`, `Show f(x)`, nested expression) — a `Vec`
+    //       where a `LogosSeq` is expected. Conservative: only a top-level
+    //       `Let/Set x to f(...)` binding consumes the owned `Vec` cleanly.
+    let mut vec_fns: HashSet<Symbol> = seq_fns.iter().map(|(n, _, _)| *n).collect();
+    loop {
+        let mut remove = HashSet::new();
+
+        // (c) any inline use anywhere in the program (recurses into fn bodies).
+        flag_inline_vec_calls(stmts, &vec_fns, &mut remove);
+
+        // (a)+(b), per scope, with that scope's de-Rc set computed under the
+        // CURRENT candidate set. Main's scope is the whole program slice
+        // (`collect_de_rc_seqs` skips nested fn defs); each function's scope is
+        // its own body with `returns_vec` = whether it is still a candidate.
+        let main_de_rc = collect_de_rc_seqs(stmts, interner, borrow_params, mut_borrow_params, &vec_fns, false);
+        collect_unsound_vec_returns(stmts, &vec_fns, &main_de_rc, &mut remove);
+        for (name, body, params) in &seq_fns {
+            let rv = vec_fns.contains(name);
+            let de_rc = collect_de_rc_seqs(body, interner, borrow_params, mut_borrow_params, &vec_fns, rv);
+            collect_unsound_vec_returns(body, &vec_fns, &de_rc, &mut remove);
+            if rv && !all_returns_vec_ownable(body, params, borrow_params.get(name), &de_rc) {
+                remove.insert(*name);
+            }
+        }
+
+        if remove.is_empty() {
+            break;
+        }
+        vec_fns.retain(|f| !remove.contains(f));
+    }
+    if !vec_fns.is_empty() {
+        crate::optimize::mark_fired(crate::optimization::Opt::Unbox);
+    }
+    vec_fns
+}
+
+/// Record any `f ∈ vec_fns` that has a call site `Let/Set x to f(...)` whose
+/// result variable `x` is NOT de-Rc'd in this scope — returning `Vec` there
+/// would assign a `Vec` into a `LogosSeq` variable.
+fn collect_unsound_vec_returns(
+    stmts: &[Stmt],
+    vec_fns: &HashSet<Symbol>,
+    de_rc: &HashSet<Symbol>,
+    remove: &mut HashSet<Symbol>,
+) {
+    for stmt in stmts {
+        let binding = match stmt {
+            Stmt::Let { var, value, .. } => Some((*var, value)),
+            Stmt::Set { target, value } => Some((*target, value)),
+            _ => None,
+        };
+        if let Some((x, Expr::Call { function, .. })) = binding {
+            if vec_fns.contains(function) && !de_rc.contains(&x) {
+                remove.insert(*function);
+            }
+        }
+        match stmt {
+            Stmt::If { then_block, else_block, .. } => {
+                collect_unsound_vec_returns(then_block, vec_fns, de_rc, remove);
+                if let Some(eb) = else_block {
+                    collect_unsound_vec_returns(eb, vec_fns, de_rc, remove);
+                }
+            }
+            Stmt::While { body, .. } | Stmt::Repeat { body, .. } | Stmt::Zone { body, .. } => {
+                collect_unsound_vec_returns(body, vec_fns, de_rc, remove)
+            }
+            _ => {}
+        }
+    }
+}
+
+/// Condition (a): every `Return` in `body` yields a value the codegen can hand
+/// back as an owned `Vec<T>`. Only two return shapes are owned-Vec compatible:
+///   - a readonly-BORROW param (idx ∈ `borrow_idx`) → `return p.to_vec();` (a
+///     copy — a borrow can never alias the caller's value), or
+///   - a LOCAL that itself de-Rc's (`x ∈ de_rc`) → `return x;` (the moved Vec).
+/// Anything else — a LogosSeq local, a bare fresh/slice/copy expression, an
+/// owned param, a valueless `Return` — would emit a value of the wrong type
+/// into the `-> Vec<T>` signature, so it disqualifies the function. (Inline
+/// peer-call returns like `Return g(x)` are handled by the inline-use check.)
+fn all_returns_vec_ownable(
+    body: &[Stmt],
+    params: &[(Symbol, &TypeExpr)],
+    borrow_idx: Option<&HashSet<usize>>,
+    de_rc: &HashSet<Symbol>,
+) -> bool {
+    fn walk(
+        stmts: &[Stmt],
+        params: &[(Symbol, &TypeExpr)],
+        borrow_idx: Option<&HashSet<usize>>,
+        de_rc: &HashSet<Symbol>,
+        ok: &mut bool,
+    ) {
+        for s in stmts {
+            match s {
+                Stmt::Return { value: Some(e) } => {
+                    if !is_vec_ownable_return(e, params, borrow_idx, de_rc) {
+                        *ok = false;
+                    }
+                }
+                Stmt::Return { value: None } => *ok = false,
+                Stmt::If { then_block, else_block, .. } => {
+                    walk(then_block, params, borrow_idx, de_rc, ok);
+                    if let Some(eb) = else_block {
+                        walk(eb, params, borrow_idx, de_rc, ok);
+                    }
+                }
+                Stmt::While { body, .. } | Stmt::Repeat { body, .. } | Stmt::Zone { body, .. } => {
+                    walk(body, params, borrow_idx, de_rc, ok)
+                }
+                _ => {}
+            }
+        }
+    }
+    let mut ok = true;
+    walk(body, params, borrow_idx, de_rc, &mut ok);
+    ok
+}
+
+fn is_vec_ownable_return(
+    e: &Expr,
+    params: &[(Symbol, &TypeExpr)],
+    borrow_idx: Option<&HashSet<usize>>,
+    de_rc: &HashSet<Symbol>,
+) -> bool {
+    match e {
+        Expr::Identifier(x) => match params.iter().position(|(p, _)| p == x) {
+            // A readonly-BORROW param: `return p.to_vec();` — a copy, cannot alias.
+            Some(idx) => borrow_idx.map_or(false, |b| b.contains(&idx)),
+            // A LOCAL that de-Rc's: it is already a `Vec<T>` → `return x;`.
+            None => de_rc.contains(x),
+        },
+        _ => false,
+    }
+}
+
+/// Condition (c): flag every `f ∈ vec_fns` whose call result is consumed in an
+/// inline / non-binding position — anywhere other than the outermost RHS of a
+/// top-level `Let/Set x to f(...)`. Such a position (struct field, owned arg,
+/// `Return f(x)`, `Show f(x)`, a nested sub-expression, a control condition)
+/// expects a `LogosSeq`, so an owned `Vec` return would not type-check.
+/// Recurses into nested function bodies. Uses `symbol_appears_in_*` (the same
+/// complete walker the de-Rc disqualification rests on) so its coverage matches.
+fn flag_inline_vec_calls(
+    stmts: &[Stmt],
+    vec_fns: &HashSet<Symbol>,
+    remove: &mut HashSet<Symbol>,
+) {
+    let flag_in_expr = |e: &Expr, remove: &mut HashSet<Symbol>| {
+        for &f in vec_fns {
+            if symbol_appears_in_expr(f, e) {
+                remove.insert(f);
+            }
+        }
+    };
+    for stmt in stmts {
+        match stmt {
+            Stmt::Let { value, .. } | Stmt::Set { value, .. } => {
+                // The outermost call of a binding RHS is the one SAFE consuming
+                // position (its result is named; `collect_unsound_vec_returns`
+                // separately requires that name to de-Rc). Only the call's ARGS
+                // are inline positions here.
+                if let Expr::Call { args, .. } = value {
+                    for a in args.iter() {
+                        flag_in_expr(a, remove);
+                    }
+                } else {
+                    flag_in_expr(value, remove);
+                }
+            }
+            Stmt::If { cond, then_block, else_block } => {
+                flag_in_expr(cond, remove);
+                flag_inline_vec_calls(then_block, vec_fns, remove);
+                if let Some(eb) = else_block {
+                    flag_inline_vec_calls(eb, vec_fns, remove);
+                }
+            }
+            Stmt::While { cond, body, .. } => {
+                flag_in_expr(cond, remove);
+                flag_inline_vec_calls(body, vec_fns, remove);
+            }
+            Stmt::Repeat { iterable, body, .. } => {
+                flag_in_expr(iterable, remove);
+                flag_inline_vec_calls(body, vec_fns, remove);
+            }
+            Stmt::Zone { body, .. } | Stmt::FunctionDef { body, .. } => {
+                flag_inline_vec_calls(body, vec_fns, remove)
+            }
+            // Every other statement kind (Return, Show, Give, Push, Add, Remove,
+            // SetIndex, Call, Inspect, …): a vec-fn call anywhere inside is an
+            // inline use. `symbol_appears_in_stmt` is the complete walker.
+            other => {
+                for &f in vec_fns {
+                    if symbol_appears_in_stmt(f, other) {
+                        remove.insert(f);
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// `value` is a call to a function that returns an owned `Vec` (Phase 4) — so
+/// `Set x to value` binds `x` to a uniquely-owned fresh value, not a shared
+/// callee handle.
+fn is_vec_return_call(value: &Expr, vec_return_fns: &HashSet<Symbol>) -> bool {
+    matches!(value, Expr::Call { function, .. } if vec_return_fns.contains(function))
+}
+
+/// Phase 3b: `value` is a call `f(..., target, ...)` where `f` mutably borrows
+/// `target` at the position `target` appears. Codegen lowers `Set target to
+/// f(...)` to the in-place call `f(&mut target, ...)`, so it is a mutation of
+/// `target`, not a rebinding — `target` keeps its identity and de-Rc eligibility.
+fn is_mut_borrow_inplace_call(
+    target: Symbol,
+    value: &Expr,
+    mut_borrow_params: &HashMap<Symbol, HashSet<usize>>,
+) -> bool {
+    if let Expr::Call { function, args } = value {
+        if let Some(slots) = mut_borrow_params.get(function) {
+            return args.iter().enumerate().any(|(i, a)| {
+                slots.contains(&i) && matches!(a, Expr::Identifier(s) if *s == target)
+            });
+        }
+    }
+    false
+}
+
+/// Collect `(outer, inner)` pairs where `Set outer to inner` is a buffer-reuse
+/// swap: `inner` is declared `Let mutable inner = <fresh Seq>` earlier in the
+/// same loop body and is not referenced after the `Set`. These exactly mirror
+/// `detect_buffer_reuse_in_body`'s shape, so codegen lowers each to
+/// `std::mem::swap` — content exchange, not aliasing.
+fn collect_buffer_swap_pairs(
+    stmts: &[Stmt],
+    interner: &Interner,
+    out: &mut HashSet<(Symbol, Symbol)>,
+) {
+    for stmt in stmts {
+        match stmt {
+            Stmt::While { body, .. } | Stmt::Repeat { body, .. } => {
+                detect_swap_in_body(body, interner, out);
+                collect_buffer_swap_pairs(body, interner, out);
+            }
+            Stmt::If { then_block, else_block, .. } => {
+                collect_buffer_swap_pairs(then_block, interner, out);
+                if let Some(eb) = else_block {
+                    collect_buffer_swap_pairs(eb, interner, out);
+                }
+            }
+            Stmt::Zone { body, .. } => collect_buffer_swap_pairs(body, interner, out),
+            _ => {}
+        }
+    }
+}
+
+fn detect_swap_in_body(body: &[Stmt], interner: &Interner, out: &mut HashSet<(Symbol, Symbol)>) {
+    let mut fresh_inner: HashSet<Symbol> = HashSet::new();
+    for stmt in body {
+        if let Stmt::Let { var, value, mutable: true, .. } = stmt {
+            if is_fresh_seq_value(value, interner) {
+                fresh_inner.insert(*var);
+            }
+        }
+    }
+    if fresh_inner.is_empty() {
+        return;
+    }
+    for (idx, stmt) in body.iter().enumerate() {
+        if let Stmt::Set { target, value: Expr::Identifier(src) } = stmt {
+            if *target != *src && fresh_inner.contains(src) {
+                let used_after = body[idx + 1..]
+                    .iter()
+                    .any(|s| symbol_appears_in_stmt(*src, s));
+                if !used_after {
+                    out.insert((*target, *src));
+                }
+            }
+        }
+    }
+}
+
+/// Walk every statement, disqualifying any candidate that appears outside a
+/// Vec-safe slot. Buffer-reuse swap pairs are exempt from the alias rule.
+fn derc_scan_uses(
+    stmts: &[Stmt],
+    cands: &HashSet<Symbol>,
+    swaps: &HashSet<(Symbol, Symbol)>,
+    borrow_params: &HashMap<Symbol, HashSet<usize>>,
+    mut_borrow_params: &HashMap<Symbol, HashSet<usize>>,
+    vec_return_fns: &HashSet<Symbol>,
+    returns_vec: bool,
+    interner: &Interner,
+    dq: &mut HashSet<Symbol>,
+) {
+    for stmt in stmts {
+        derc_scan_stmt(stmt, cands, swaps, borrow_params, mut_borrow_params, vec_return_fns, returns_vec, interner, dq);
+    }
+}
+
+/// Phase 3: a candidate passed at a READONLY-borrow-param position (`&[T]`) is
+/// only borrowed, never retained — that is NOT an escape, so it stays eligible
+/// and the call site passes `&vec`. A candidate at any other arg position
+/// (owned param, or a callee with no borrow info) escapes and is disqualified.
+fn derc_scan_call_args(
+    function: Symbol,
+    args: &[&Expr],
+    cands: &HashSet<Symbol>,
+    borrow_params: &HashMap<Symbol, HashSet<usize>>,
+    dq: &mut HashSet<Symbol>,
+) {
+    let slots = borrow_params.get(&function);
+    for (i, a) in args.iter().enumerate() {
+        match a {
+            Expr::Identifier(s) if cands.contains(s) => {
+                let is_borrow_slot = slots.map_or(false, |set| set.contains(&i));
+                if !is_borrow_slot {
+                    dq.insert(*s);
+                }
+            }
+            _ => derc_scan_expr(a, cands, borrow_params, dq),
+        }
+    }
+}
+
+/// True if `value` is a fresh Seq/List allocation (a safe decl/reassign source).
+fn is_fresh_seq_value(value: &Expr, interner: &Interner) -> bool {
+    match value {
+        Expr::New { type_name, init_fields, .. } if init_fields.is_empty() => {
+            matches!(interner.resolve(*type_name), "Seq" | "List" | "Vec")
+        }
+        Expr::WithCapacity { value: inner, .. } => is_fresh_seq_value(inner, interner),
+        Expr::List(_) => true,
+        _ => false,
+    }
+}
+
+fn derc_scan_stmt(
+    stmt: &Stmt,
+    cands: &HashSet<Symbol>,
+    swaps: &HashSet<(Symbol, Symbol)>,
+    borrow_params: &HashMap<Symbol, HashSet<usize>>,
+    mut_borrow_params: &HashMap<Symbol, HashSet<usize>>,
+    vec_return_fns: &HashSet<Symbol>,
+    returns_vec: bool,
+    interner: &Interner,
+    dq: &mut HashSet<Symbol>,
+) {
+    match stmt {
+        // A fresh-Seq decl is the safe origin; otherwise the initializer is a
+        // general use of whatever it references.
+        Stmt::Let { value, .. } => {
+            if is_vec_return_call(value, vec_return_fns) {
+                // Phase 4: `Let r be f(...)` with f returning an OWNED Vec — r
+                // captures a uniquely-owned fresh value, not a shared handle.
+                // Still scan the call's args.
+                if let Expr::Call { function, args } = value {
+                    derc_scan_call_args(*function, args, cands, borrow_params, dq);
+                }
+            } else if !is_fresh_seq_value(value, interner) {
+                derc_scan_expr(value, cands, borrow_params, dq);
+            }
+        }
+        Stmt::Set { target, value } => {
+            if let Expr::Identifier(src) = value {
+                if swaps.contains(&(*target, *src)) {
+                    // Buffer-reuse swap → content exchange (`std::mem::swap`),
+                    // not aliasing. Both partners stay eligible.
+                } else if target != src {
+                    // `Set x to y` rebinds x onto y's allocation — both lose
+                    // unique ownership.
+                    dq.insert(*src);
+                    dq.insert(*target);
+                }
+            } else if is_vec_return_call(value, vec_return_fns) {
+                // Phase 4: `Set x to f(...)` where f returns an OWNED Vec — x
+                // captures a uniquely-owned fresh value, not a shared callee
+                // handle, so x stays eligible. Still scan the call's args (a
+                // candidate passed to a NON-borrow param would escape).
+                if let Expr::Call { function, args } = value {
+                    derc_scan_call_args(*function, args, cands, borrow_params, dq);
+                }
+            } else if is_mut_borrow_inplace_call(*target, value, mut_borrow_params) {
+                // Phase 3b: `Set x to f(..., x, ...)` where `f` mut-borrows `x`
+                // at x's position is lowered to an IN-PLACE call `f(&mut x, ...)`
+                // — the "result" is x itself, not a reassignment, so x keeps its
+                // unique ownership and stays eligible. Scan the OTHER args (a
+                // candidate passed to a non-borrow slot still escapes).
+                if let Expr::Call { function, args } = value {
+                    derc_scan_call_args(*function, args, cands, borrow_params, dq);
+                }
+            } else if !is_fresh_seq_value(value, interner) {
+                // `Set x to <non-fresh value>` (a call result, slice, copy, …)
+                // rebinds x to a value that is NOT a uniquely-owned fresh Vec —
+                // e.g. `Set right to mergeSort(right)` binds right to a callee's
+                // returned `LogosSeq`. Disqualify the target.
+                dq.insert(*target);
+                derc_scan_expr(value, cands, borrow_params, dq);
+            }
+        }
+        // Collection slots are safe for a bare candidate; the value/index are
+        // general uses.
+        Stmt::Push { value, collection } | Stmt::Add { value, collection } => {
+            derc_scan_collection_slot(collection, cands, borrow_params, dq);
+            derc_scan_expr(value, cands, borrow_params, dq);
+        }
+        Stmt::Pop { collection, .. } => derc_scan_collection_slot(collection, cands, borrow_params, dq),
+        Stmt::Remove { value, collection } => {
+            derc_scan_collection_slot(collection, cands, borrow_params, dq);
+            derc_scan_expr(value, cands, borrow_params, dq);
+        }
+        Stmt::SetIndex { collection, index, value } => {
+            derc_scan_collection_slot(collection, cands, borrow_params, dq);
+            derc_scan_expr(index, cands, borrow_params, dq);
+            derc_scan_expr(value, cands, borrow_params, dq);
+        }
+        Stmt::If { cond, then_block, else_block } => {
+            derc_scan_expr(cond, cands, borrow_params, dq);
+            derc_scan_uses(then_block, cands, swaps, borrow_params, mut_borrow_params, vec_return_fns, returns_vec, interner, dq);
+            if let Some(eb) = else_block {
+                derc_scan_uses(eb, cands, swaps, borrow_params, mut_borrow_params, vec_return_fns, returns_vec, interner, dq);
+            }
+        }
+        Stmt::While { cond, body, .. } => {
+            derc_scan_expr(cond, cands, borrow_params, dq);
+            derc_scan_uses(body, cands, swaps, borrow_params, mut_borrow_params, vec_return_fns, returns_vec, interner, dq);
+        }
+        Stmt::Repeat { iterable, body, .. } => {
+            // Iterating a de-Rc'd Vec is not lowered in v1 → treat as a use.
+            derc_scan_expr(iterable, cands, borrow_params, dq);
+            derc_scan_uses(body, cands, swaps, borrow_params, mut_borrow_params, vec_return_fns, returns_vec, interner, dq);
+        }
+        Stmt::Zone { body, .. } => derc_scan_uses(body, cands, swaps, borrow_params, mut_borrow_params, vec_return_fns, returns_vec, interner, dq),
+        // Statements that carry expressions which may legitimately pass a
+        // candidate to a borrow-param: scan position-aware.
+        Stmt::Call { function, args } => {
+            derc_scan_call_args(*function, args, cands, borrow_params, dq);
+        }
+        // Phase 4: in a Vec-returning function, returning a candidate LOCAL
+        // moves it out as the owned Vec result — not a disqualifying escape.
+        Stmt::Return { value: Some(e) } => {
+            if !(returns_vec && matches!(e, Expr::Identifier(x) if cands.contains(x))) {
+                derc_scan_expr(e, cands, borrow_params, dq);
+            }
+        }
+        Stmt::Return { value: None } => {}
+        Stmt::Show { object, recipient } | Stmt::Give { object, recipient } => {
+            derc_scan_expr(object, cands, borrow_params, dq);
+            derc_scan_expr(recipient, cands, borrow_params, dq);
+        }
+        // A nested function is a SEPARATE scope with its own de-Rc analysis. Its
+        // parameter/local symbols are distinct bindings even when they reuse an
+        // outer name (the interner gives `arr` one Symbol, but main's `arr` and a
+        // function's `arr` param are different variables). The outer scan must
+        // NOT descend — a candidate can only reach a function through explicit
+        // call args, which are checked at the call site. Skipping keeps a
+        // name-collision from spuriously disqualifying an outer candidate.
+        Stmt::FunctionDef { .. } => {}
+        // Every other statement kind (SetField, Concurrent, …): any candidate
+        // that appears anywhere in it is an unsafe use. `symbol_appears_in_stmt`
+        // is a complete walker.
+        other => {
+            for &c in cands {
+                if symbol_appears_in_stmt(c, other) {
+                    dq.insert(c);
+                }
+            }
+        }
+    }
+}
+
+/// The collection position of an indexing/mutation op: a bare candidate
+/// identifier here is the SAFE Vec target; a nested expression is scanned.
+fn derc_scan_collection_slot(
+    collection: &Expr,
+    cands: &HashSet<Symbol>,
+    borrow_params: &HashMap<Symbol, HashSet<usize>>,
+    dq: &mut HashSet<Symbol>,
+) {
+    match collection {
+        Expr::Identifier(_) => {}
+        other => derc_scan_expr(other, cands, borrow_params, dq),
+    }
+}
+
+/// Disqualify any candidate that appears in `expr` outside an index/length
+/// collection slot. Expression kinds that may legitimately read a candidate by
+/// index (BinaryOp, Not, Call args) are recursed position-aware; every other
+/// kind is treated conservatively — any candidate inside is an unsafe use.
+fn derc_scan_expr(
+    expr: &Expr,
+    cands: &HashSet<Symbol>,
+    borrow_params: &HashMap<Symbol, HashSet<usize>>,
+    dq: &mut HashSet<Symbol>,
+) {
+    match expr {
+        Expr::Identifier(s) => {
+            if cands.contains(s) {
+                dq.insert(*s);
+            }
+        }
+        Expr::Index { collection, index } => {
+            derc_scan_collection_slot(collection, cands, borrow_params, dq);
+            derc_scan_expr(index, cands, borrow_params, dq);
+        }
+        Expr::Length { collection } => derc_scan_collection_slot(collection, cands, borrow_params, dq),
+        Expr::BinaryOp { left, right, .. } => {
+            derc_scan_expr(left, cands, borrow_params, dq);
+            derc_scan_expr(right, cands, borrow_params, dq);
+        }
+        Expr::Not { operand } => derc_scan_expr(operand, cands, borrow_params, dq),
+        Expr::Call { function, args } => {
+            derc_scan_call_args(*function, args, cands, borrow_params, dq);
+        }
+        // Slice, Copy, FieldAccess, interpolation, New init-fields, and any
+        // other kind: a candidate appearing inside is an unsafe use.
+        // `symbol_appears_in_expr` is a complete walker.
+        other => {
+            for &c in cands {
+                if symbol_appears_in_expr(c, other) {
+                    dq.insert(c);
+                }
+            }
+        }
+    }
+}
+
+/// Rust element type of a homogeneous **scalar-literal** list, or `None` when the list is
+/// empty, mixed-kind, or has any non-scalar-literal element. `[1,2,3]`→`i64`, `[1.0,…]`→`f64`,
+/// `[true,…]`→`bool`, `['a',…]`→`char`. Such a list is a uniquely-owned fresh value with no
+/// borrowed handle inside it, so it de-Rc's from `LogosSeq<T>` to a plain `Vec<T>`. Detection
+/// (`fresh_scalar_seq_elem`) and codegen (`derc_vec_decl`) BOTH route through this one helper
+/// so their eligibility can never drift.
+pub(crate) fn homogeneous_scalar_literal_elem(items: &[&Expr]) -> Option<String> {
+    fn elem_ty(e: &Expr) -> Option<&'static str> {
+        match e {
+            Expr::Literal(Literal::Number(_)) => Some("i64"),
+            Expr::Literal(Literal::Float(_)) => Some("f64"),
+            Expr::Literal(Literal::Boolean(_)) => Some("bool"),
+            Expr::Literal(Literal::Char(_)) => Some("char"),
+            _ => None,
+        }
+    }
+    let first = elem_ty(items.first()?)?;
+    if items.iter().all(|i| elem_ty(i) == Some(first)) {
+        Some(first.to_string())
+    } else {
+        None
+    }
+}
+
+/// The Rust element type string if `value` freshly allocates a Seq of scalars.
+fn fresh_scalar_seq_elem(value: &Expr, interner: &Interner) -> Option<String> {
+    match value {
+        Expr::New { type_name, type_args, init_fields } if init_fields.is_empty() => {
+            match interner.resolve(*type_name) {
+                "Seq" | "List" | "Vec" => {
+                    let elem = type_args.first()?;
+                    let ty = codegen_type_expr(elem, interner);
+                    if is_scalar_elem_type(&ty) { Some(ty) } else { None }
+                }
+                _ => None,
+            }
+        }
+        Expr::WithCapacity { value: inner, .. } => fresh_scalar_seq_elem(inner, interner),
+        // A homogeneous SCALAR-literal list (`[1,2,3]`, `[1.0,…]`, `[true,…]`, `['a',…]`) is a
+        // uniquely-owned fresh Seq — de-Rc it to a plain `Vec<T>` so indexed access skips the
+        // RefCell borrow + the Rc box. The use-scan still disqualifies any occurrence that
+        // escapes a Vec-safe slot.
+        Expr::List(items) => homogeneous_scalar_literal_elem(items),
+        _ => None,
+    }
+}
+
+/// Scalar element types whose reads copy (no shared handle): safe to de-Rc.
+fn is_scalar_elem_type(ty: &str) -> bool {
+    matches!(
+        ty,
+        "i64" | "i32" | "i16" | "i8" | "u64" | "u32" | "u16" | "u8" | "usize" | "isize"
+            | "f64" | "f32" | "bool" | "char" | "String"
+            // Fixed-width word newtypes are Copy scalars (repr(transparent)) → de-Rc to `Vec<WordN>`.
+            | "Word8" | "Word16" | "Word32" | "Word64"
+    )
+}
+
+fn collect_de_rc_candidates_block(
+    stmts: &[Stmt],
+    interner: &Interner,
+    vec_return_fns: &HashSet<Symbol>,
+    out: &mut HashSet<Symbol>,
+) {
+    for stmt in stmts {
+        match stmt {
+            Stmt::Let { var, value, .. } => {
+                // A fresh-Seq decl, or a binding to a Phase-4 Vec-returning call
+                // (`Let r be buildSeq(4)`) — both capture a uniquely-owned value.
+                if fresh_scalar_seq_elem(value, interner).is_some()
+                    || is_vec_return_call(value, vec_return_fns)
+                {
+                    out.insert(*var);
+                }
+            }
+            Stmt::If { then_block, else_block, .. } => {
+                collect_de_rc_candidates_block(then_block, interner, vec_return_fns, out);
+                if let Some(eb) = else_block {
+                    collect_de_rc_candidates_block(eb, interner, vec_return_fns, out);
+                }
+            }
+            Stmt::While { body, .. } | Stmt::Repeat { body, .. } => {
+                collect_de_rc_candidates_block(body, interner, vec_return_fns, out);
+            }
+            Stmt::Zone { body, .. } => {
+                collect_de_rc_candidates_block(body, interner, vec_return_fns, out);
+            }
+            _ => {}
+        }
     }
 }
 
@@ -1569,6 +2349,20 @@ pub(super) fn detect_double_recursion_closed_form<'a>(
     }
     let param_sym = params[0].0;
 
+    // The closed form emits `((base + k) << d) - k`, which requires the parameter
+    // `d` to be an integer (a `<<` on a float operand does not type-check). A bare
+    // `0`/`1` base literal parses as an integer regardless of the declared
+    // parameter type, so a Float-typed double recursion would otherwise still
+    // match and emit `i64 << f64`. Decline anything but an integer parameter.
+    let is_integer_param = matches!(
+        params[0].1,
+        TypeExpr::Primitive(sym) | TypeExpr::Named(sym)
+            if matches!(interner.resolve(*sym), "Int" | "Nat" | "Byte")
+    );
+    if !is_integer_param {
+        return None;
+    }
+
     // Body must be exactly: If { param == 0 → Return base }, Return(recursive_expr)
     if body.len() != 2 {
         return None;
@@ -1679,6 +2473,608 @@ fn cf_analyze_add_tree(
             } else {
                 false
             }
+        }
+    }
+}
+
+// =============================================================================
+// O3: small fixed-size Seq scalarization (`Seq` → `[T; N]`).
+// =============================================================================
+
+/// A `Seq` local proven to have a compile-time-constant size, built by
+/// straight-line pushes and thereafter only indexed/length-queried, never
+/// resized, aliased, or escaped. Codegen emits it as a Rust `[T; N]` array —
+/// C's representation for nbody's bodies: stack-allocated, statically bounded.
+pub(crate) struct ScalarizableSeq {
+    pub elem_ty: String,
+    pub len: usize,
+}
+
+struct ScalarCand {
+    elem_ty: String,
+    len: usize,
+    /// A non-push use of the handle has been seen — later pushes disqualify.
+    seen_use: bool,
+    disqualified: bool,
+}
+
+/// `a new Seq of {Int|Nat|Float|Bool}` → the Rust element type, else None.
+fn scalar_seq_elem_ty(value: &Expr, interner: &Interner) -> Option<String> {
+    if let Expr::New { type_name, type_args, .. } = value {
+        if matches!(interner.resolve(*type_name), "Seq" | "List") && type_args.len() == 1 {
+            if let TypeExpr::Primitive(t) | TypeExpr::Named(t) = &type_args[0] {
+                return match interner.resolve(*t) {
+                    "Int" | "Nat" => Some("i64".to_string()),
+                    "Float" => Some("f64".to_string()),
+                    "Bool" => Some("bool".to_string()),
+                    _ => None,
+                };
+            }
+        }
+    }
+    None
+}
+
+/// Maximum scalarized array length (keeps generated arrays small).
+const MAX_SCALARIZE_LEN: usize = 64;
+
+/// Find scalarizable Seqs among the given block's locals (v1: the block
+/// passed is Main; function bodies are not scanned). Conservative: any
+/// appearance of a candidate outside an allowed position disqualifies it.
+pub(crate) fn collect_scalarizable_seqs(
+    stmts: &[Stmt],
+    interner: &Interner,
+) -> HashMap<Symbol, ScalarizableSeq> {
+    // Kill switch for A/B measurement (`LOGOS_SCALARIZE=0`).
+    if !crate::optimize::active_config().is_on(crate::optimization::Opt::Scalarize) {
+        return HashMap::new();
+    }
+    let mut cand: HashMap<Symbol, ScalarCand> = HashMap::new();
+    scalar_walk_block(stmts, true, &mut cand, interner);
+    let result: HashMap<Symbol, ScalarizableSeq> = cand
+        .into_iter()
+        .filter_map(|(sym, c)| {
+            if c.disqualified || c.len == 0 || c.len > MAX_SCALARIZE_LEN {
+                None
+            } else {
+                Some((sym, ScalarizableSeq { elem_ty: c.elem_ty, len: c.len }))
+            }
+        })
+        .collect();
+    if !result.is_empty() {
+        crate::optimize::mark_fired(crate::optimization::Opt::Scalarize);
+    }
+    result
+}
+
+/// The set of Seq variables that qualify for fixed-size scalarization (`[T; N]`).
+///
+/// Exposed to the AOT loop-unroller (`optimize::unroll`): it only unrolls a loop
+/// when every collection the loop indexes is one of these. Unrolling a loop over
+/// a reference-semantics `LogosSeq` (a push-grown buffer or DP row) would destroy
+/// the loop shapes the de-Rc buffer-reuse and borrow-hoist passes pattern-match
+/// on — and yields no SROA benefit there anyway, since only scalarized arrays
+/// promote to registers.
+pub(crate) fn scalarizable_seq_symbols(
+    stmts: &[Stmt],
+    interner: &Interner,
+) -> std::collections::HashSet<Symbol> {
+    collect_scalarizable_seqs(stmts, interner)
+        .into_keys()
+        .collect()
+}
+
+fn scalar_disq(cand: &mut HashMap<Symbol, ScalarCand>, sym: Symbol) {
+    if let Some(c) = cand.get_mut(&sym) {
+        c.disqualified = true;
+    }
+}
+
+// =============================================================================
+// Co-indexed array interleaving (struct-of-arrays → array-of-structs).
+// =============================================================================
+
+/// A group of same-type, same-length scalarizable Seqs built by an interleaved
+/// (round-robin) push pattern — the columns of an array-of-structs. Codegen
+/// fuses them into one `[[T; W]; N]` backing so per-entity fields are adjacent
+/// (C's `struct Body[N]` layout), letting LLVM pack them with `movupd` instead
+/// of gathering separate arrays with shuffles.
+pub(super) struct InterleaveGroup {
+    /// Members in column order: column `c` is `members[c]`.
+    pub members: Vec<Symbol>,
+    /// `N` — the common length (number of round-robin rounds).
+    pub len: usize,
+    /// The common Rust element type ("f64" / "i64" / "bool").
+    pub elem_ty: String,
+}
+
+/// Detect co-indexed array groups for AoS interleaving. GENERAL over W (number
+/// of co-indexed arrays) and N (length). v1 recognizes a single round-robin
+/// cycle that covers all scalarizable pushes, with W >= 2 distinct members of
+/// equal element type and length — the canonical AoS-init pattern
+/// (`Push x to ax; Push y to ay; …` repeated per entity).
+pub(super) fn collect_interleaved_groups(
+    stmts: &[Stmt],
+    scalarizable: &HashMap<Symbol, ScalarizableSeq>,
+    _interner: &Interner,
+) -> Vec<InterleaveGroup> {
+    // Kill switch for A/B measurement (`LOGOS_AOS=0`).
+    if !crate::optimize::active_config().is_on(crate::optimization::Opt::Interleave) {
+        return Vec::new();
+    }
+    if scalarizable.len() < 2 {
+        return Vec::new();
+    }
+    // Ordered sequence of top-level pushes targeting scalarizable Seqs (their
+    // pushes are straight-line top-level by the scalarization rule).
+    let mut push_seq: Vec<Symbol> = Vec::new();
+    for s in stmts {
+        if let Stmt::Push { collection, .. } = s {
+            if let Expr::Identifier(sym) = collection {
+                if scalarizable.contains_key(sym) {
+                    push_seq.push(*sym);
+                }
+            }
+        }
+    }
+    if push_seq.len() < 2 {
+        return Vec::new();
+    }
+    // Period W = index of the first repeat of the first pushed array.
+    let first = push_seq[0];
+    let w = match push_seq.iter().skip(1).position(|&s| s == first) {
+        Some(p) => p + 1,
+        None => return Vec::new(),
+    };
+    if w < 2 || push_seq.len() % w != 0 {
+        return Vec::new();
+    }
+    let group: Vec<Symbol> = push_seq[..w].to_vec();
+    // The W columns must be distinct symbols.
+    let mut seen = std::collections::HashSet::new();
+    if !group.iter().all(|s| seen.insert(*s)) {
+        return Vec::new();
+    }
+    // Every round must repeat the same column order exactly.
+    let rounds = push_seq.len() / w;
+    for r in 0..rounds {
+        for c in 0..w {
+            if push_seq[r * w + c] != group[c] {
+                return Vec::new();
+            }
+        }
+    }
+    // The group must cover the whole scalarizable set (no stragglers), and all
+    // members must share element type and length (== rounds).
+    if group.len() != scalarizable.len() {
+        return Vec::new();
+    }
+    let elem_ty = scalarizable[&group[0]].elem_ty.clone();
+    for m in &group {
+        let info = &scalarizable[m];
+        if info.elem_ty != elem_ty || info.len != rounds {
+            return Vec::new();
+        }
+    }
+    // Regime gate: AoS pays off only while the group stays MEMORY-RESIDENT —
+    // accessed by variable indices in rolled loops, where adjacent fields load
+    // packed (C's `movupd`) and beat SoA's gather. If ANY member is read/written
+    // at a CONSTANT literal index, the kernel has been unrolled (or will SROA
+    // into registers), where the layout is moot and SoA+unroll wins outright —
+    // AoS there only perturbs LLVM's SLP for the worse (measured: nbody
+    // 1.12×→1.19×). Leave those to the unroller.
+    // `LOGOS_AOS_FORCE=1` bypasses the regime gate for A/B measurement.
+    let force = std::env::var("LOGOS_AOS_FORCE").map(|v| v == "1").unwrap_or(false);
+    let members: std::collections::HashSet<Symbol> = group.iter().copied().collect();
+    if !force && block_has_const_member_index(stmts, &members) {
+        // A const-index access means the kernel has been unrolled / will SROA into
+        // registers — Unroll/Scalarize claim it, preempting AoS interleaving.
+        crate::optimize::mark_preempted(
+            crate::optimization::Opt::Scalarize,
+            crate::optimization::Opt::Interleave,
+        );
+        crate::optimize::mark_preempted(
+            crate::optimization::Opt::Unroll,
+            crate::optimization::Opt::Interleave,
+        );
+        return Vec::new();
+    }
+    crate::optimize::mark_fired(crate::optimization::Opt::Interleave);
+    vec![InterleaveGroup { members: group, len: rounds, elem_ty }]
+}
+
+/// True if any member of `members` is indexed by a constant literal anywhere in
+/// `stmts` (evidence the kernel unrolled / will SROA — the register regime).
+fn block_has_const_member_index(stmts: &[Stmt], members: &std::collections::HashSet<Symbol>) -> bool {
+    stmts.iter().any(|s| stmt_has_const_member_index(s, members))
+}
+
+fn is_member_const_index(collection: &Expr, index: &Expr, members: &std::collections::HashSet<Symbol>) -> bool {
+    matches!(collection, Expr::Identifier(s) if members.contains(s))
+        && matches!(index, Expr::Literal(Literal::Number(_)))
+}
+
+fn stmt_has_const_member_index(s: &Stmt, members: &std::collections::HashSet<Symbol>) -> bool {
+    match s {
+        Stmt::SetIndex { collection, index, value } => {
+            is_member_const_index(collection, index, members)
+                || expr_has_const_member_index(collection, members)
+                || expr_has_const_member_index(index, members)
+                || expr_has_const_member_index(value, members)
+        }
+        Stmt::Let { value, .. } | Stmt::Set { value, .. } => expr_has_const_member_index(value, members),
+        Stmt::Push { value, collection } => {
+            expr_has_const_member_index(value, members) || expr_has_const_member_index(collection, members)
+        }
+        Stmt::Show { object, .. } => expr_has_const_member_index(object, members),
+        Stmt::SetField { object, value, .. } => {
+            expr_has_const_member_index(object, members) || expr_has_const_member_index(value, members)
+        }
+        Stmt::Give { object, recipient } => {
+            expr_has_const_member_index(object, members) || expr_has_const_member_index(recipient, members)
+        }
+        Stmt::Add { value, collection } | Stmt::Remove { value, collection } => {
+            expr_has_const_member_index(value, members) || expr_has_const_member_index(collection, members)
+        }
+        Stmt::RuntimeAssert { condition, .. } => expr_has_const_member_index(condition, members),
+        Stmt::Return { value } => matches!(value, Some(v) if expr_has_const_member_index(v, members)),
+        Stmt::Call { args, .. } => args.iter().any(|a| expr_has_const_member_index(a, members)),
+        Stmt::If { cond, then_block, else_block } => {
+            expr_has_const_member_index(cond, members)
+                || block_has_const_member_index(then_block, members)
+                || matches!(else_block, Some(eb) if block_has_const_member_index(eb, members))
+        }
+        Stmt::While { cond, body, .. } => {
+            expr_has_const_member_index(cond, members) || block_has_const_member_index(body, members)
+        }
+        Stmt::Repeat { iterable, body, .. } => {
+            expr_has_const_member_index(iterable, members) || block_has_const_member_index(body, members)
+        }
+        Stmt::Inspect { target, arms, .. } => {
+            expr_has_const_member_index(target, members)
+                || arms.iter().any(|a| block_has_const_member_index(a.body, members))
+        }
+        _ => false,
+    }
+}
+
+fn expr_has_const_member_index(e: &Expr, members: &std::collections::HashSet<Symbol>) -> bool {
+    match e {
+        Expr::Index { collection, index } => {
+            is_member_const_index(collection, index, members)
+                || expr_has_const_member_index(collection, members)
+                || expr_has_const_member_index(index, members)
+        }
+        Expr::Slice { collection, start, end } => {
+            expr_has_const_member_index(collection, members)
+                || expr_has_const_member_index(start, members)
+                || expr_has_const_member_index(end, members)
+        }
+        Expr::BinaryOp { left, right, .. } => {
+            expr_has_const_member_index(left, members) || expr_has_const_member_index(right, members)
+        }
+        Expr::Not { operand } => expr_has_const_member_index(operand, members),
+        Expr::Length { collection } => expr_has_const_member_index(collection, members),
+        Expr::Contains { collection, value } => {
+            expr_has_const_member_index(collection, members) || expr_has_const_member_index(value, members)
+        }
+        Expr::Union { left, right } | Expr::Intersection { left, right } => {
+            expr_has_const_member_index(left, members) || expr_has_const_member_index(right, members)
+        }
+        Expr::Call { args, .. } | Expr::CallExpr { args, .. } => {
+            args.iter().any(|a| expr_has_const_member_index(a, members))
+        }
+        Expr::FieldAccess { object, .. } => expr_has_const_member_index(object, members),
+        Expr::Copy { expr } => expr_has_const_member_index(expr, members),
+        Expr::Give { value } | Expr::OptionSome { value } => expr_has_const_member_index(value, members),
+        Expr::WithCapacity { value, capacity } => {
+            expr_has_const_member_index(value, members) || expr_has_const_member_index(capacity, members)
+        }
+        Expr::Range { start, end } => {
+            expr_has_const_member_index(start, members) || expr_has_const_member_index(end, members)
+        }
+        Expr::List(items) | Expr::Tuple(items) => {
+            items.iter().any(|i| expr_has_const_member_index(i, members))
+        }
+        Expr::InterpolatedString(parts) => parts.iter().any(|p| match p {
+            crate::ast::stmt::StringPart::Expr { value, .. } => expr_has_const_member_index(value, members),
+            _ => false,
+        }),
+        _ => false,
+    }
+}
+
+/// A parsed `__aos:<backing>:<col>:<width>:<len>:<elem>` member type tag — one
+/// column of a fused array-of-structs. `item i of member` lowers to
+/// `backing[(i-1)][col]`; column 0 emits the `[[elem; width]; len]` backing.
+pub(super) struct AosTag {
+    pub backing: String,
+    pub col: usize,
+    pub width: usize,
+    pub len: usize,
+    pub elem: String,
+}
+
+/// Parse an AoS member type tag (registered in `codegen_program`). The backing
+/// name is the first member's emitted identifier; it contains no `:`, and the
+/// element type (`f64`/`i64`/`bool`) contains none either, so `:`-splitting is
+/// unambiguous.
+pub(super) fn parse_aos_tag(ty: Option<&String>) -> Option<AosTag> {
+    let rest = ty?.strip_prefix("__aos:")?;
+    let mut parts = rest.split(':');
+    let backing = parts.next()?.to_string();
+    let col = parts.next()?.parse().ok()?;
+    let width = parts.next()?.parse().ok()?;
+    let len = parts.next()?.parse().ok()?;
+    let elem = parts.next()?.to_string();
+    Some(AosTag { backing, col, width, len, elem })
+}
+
+fn scalar_mark_use(cand: &mut HashMap<Symbol, ScalarCand>, sym: Symbol) {
+    if let Some(c) = cand.get_mut(&sym) {
+        c.seen_use = true;
+    }
+}
+
+/// A collection-position expression: a bare candidate handle is an ALLOWED
+/// access (read/length); anything else is a value.
+fn scalar_note_access(e: &Expr, cand: &mut HashMap<Symbol, ScalarCand>) {
+    if let Expr::Identifier(s) = e {
+        scalar_mark_use(cand, *s);
+    } else {
+        scalar_note_value(e, cand);
+    }
+}
+
+/// A value-position expression: a bare candidate handle DISQUALIFIES (the
+/// handle itself flows somewhere). `item i of x` and `length of x` remain
+/// allowed accesses — their results are scalars.
+fn scalar_note_value(e: &Expr, cand: &mut HashMap<Symbol, ScalarCand>) {
+    match e {
+        Expr::Identifier(s) => scalar_disq(cand, *s),
+        Expr::Literal(_) | Expr::OptionNone => {}
+        Expr::Index { collection, index } => {
+            scalar_note_access(collection, cand);
+            scalar_note_value(index, cand);
+        }
+        Expr::Length { collection } => scalar_note_access(collection, cand),
+        Expr::Slice { collection, start, end } => {
+            // A slice yields a new Seq — the handle escapes into it.
+            if let Expr::Identifier(s) = collection {
+                scalar_disq(cand, *s);
+            } else {
+                scalar_note_value(collection, cand);
+            }
+            scalar_note_value(start, cand);
+            scalar_note_value(end, cand);
+        }
+        Expr::Contains { collection, value } => {
+            if let Expr::Identifier(s) = collection {
+                scalar_disq(cand, *s);
+            } else {
+                scalar_note_value(collection, cand);
+            }
+            scalar_note_value(value, cand);
+        }
+        Expr::Copy { expr } => {
+            if let Expr::Identifier(s) = expr {
+                scalar_disq(cand, *s);
+            } else {
+                scalar_note_value(expr, cand);
+            }
+        }
+        Expr::BinaryOp { left, right, .. }
+        | Expr::Union { left, right }
+        | Expr::Intersection { left, right }
+        | Expr::Range { start: left, end: right } => {
+            scalar_note_value(left, cand);
+            scalar_note_value(right, cand);
+        }
+        Expr::Not { operand } => scalar_note_value(operand, cand),
+        Expr::FieldAccess { object, .. } => scalar_note_value(object, cand),
+        Expr::OptionSome { value } | Expr::Give { value } => scalar_note_value(value, cand),
+        Expr::WithCapacity { value, capacity } => {
+            scalar_note_value(value, cand);
+            scalar_note_value(capacity, cand);
+        }
+        Expr::List(items) | Expr::Tuple(items) => {
+            for it in items {
+                scalar_note_value(it, cand);
+            }
+        }
+        Expr::New { init_fields, .. } => {
+            for (_, v) in init_fields {
+                scalar_note_value(v, cand);
+            }
+        }
+        Expr::NewVariant { fields, .. } => {
+            for (_, v) in fields {
+                scalar_note_value(v, cand);
+            }
+        }
+        Expr::Call { args, .. } => {
+            for a in args {
+                scalar_note_value(a, cand);
+            }
+        }
+        Expr::CallExpr { callee, args } => {
+            scalar_note_value(callee, cand);
+            for a in args {
+                scalar_note_value(a, cand);
+            }
+        }
+        Expr::InterpolatedString(parts) => {
+            for p in parts {
+                if let crate::ast::stmt::StringPart::Expr { value, .. } = p {
+                    scalar_note_value(value, cand);
+                }
+            }
+        }
+        Expr::ManifestOf { zone } => scalar_note_value(zone, cand),
+        Expr::ChunkAt { index, zone } => {
+            scalar_note_value(index, cand);
+            scalar_note_value(zone, cand);
+        }
+        // Closures and escape hatches are opaque — they may capture or
+        // reference any handle in scope. Conservatively disqualify every
+        // candidate rather than risk scalarizing a captured Seq.
+        Expr::Closure { .. } | Expr::Escape { .. } => {
+            for c in cand.values_mut() {
+                c.disqualified = true;
+            }
+        }
+        _ => {}
+    }
+}
+
+fn scalar_walk_block(
+    stmts: &[Stmt],
+    top_level: bool,
+    cand: &mut HashMap<Symbol, ScalarCand>,
+    interner: &Interner,
+) {
+    for stmt in stmts {
+        match stmt {
+            Stmt::Let { var, value, mutable, .. } => {
+                if top_level && *mutable {
+                    if let Some(elem) = scalar_seq_elem_ty(value, interner) {
+                        cand.insert(
+                            *var,
+                            ScalarCand { elem_ty: elem, len: 0, seen_use: false, disqualified: false },
+                        );
+                        continue;
+                    }
+                }
+                // `Let y be x` aliases x; any candidate in the value escapes.
+                if let Expr::Identifier(s) = value {
+                    scalar_disq(cand, *s);
+                } else {
+                    scalar_note_value(value, cand);
+                }
+            }
+            Stmt::Push { value, collection } => {
+                // The pushed value may carry a candidate handle (it escapes).
+                if let Expr::Identifier(s) = value {
+                    scalar_disq(cand, *s);
+                } else {
+                    scalar_note_value(value, cand);
+                }
+                if let Expr::Identifier(x) = collection {
+                    let nested_or_used = {
+                        match cand.get(x) {
+                            Some(c) => !top_level || c.seen_use || c.disqualified,
+                            None => false,
+                        }
+                    };
+                    if cand.contains_key(x) {
+                        if nested_or_used {
+                            scalar_disq(cand, *x);
+                        } else if let Some(c) = cand.get_mut(x) {
+                            c.len += 1;
+                        }
+                    }
+                } else {
+                    scalar_note_value(collection, cand);
+                }
+            }
+            Stmt::SetIndex { collection, index, value } => {
+                if let Expr::Identifier(x) = collection {
+                    scalar_mark_use(cand, *x);
+                } else {
+                    scalar_note_value(collection, cand);
+                }
+                scalar_note_value(index, cand);
+                scalar_note_value(value, cand);
+            }
+            Stmt::Set { target, value } => {
+                // Rebinding a candidate disqualifies it; aliasing escapes the RHS.
+                scalar_disq(cand, *target);
+                if let Expr::Identifier(s) = value {
+                    scalar_disq(cand, *s);
+                } else {
+                    scalar_note_value(value, cand);
+                }
+            }
+            Stmt::Pop { collection, .. } => {
+                if let Expr::Identifier(x) = collection {
+                    scalar_disq(cand, *x);
+                } else {
+                    scalar_note_value(collection, cand);
+                }
+            }
+            Stmt::Add { collection, value } | Stmt::Remove { collection, value } => {
+                if let Expr::Identifier(x) = collection {
+                    scalar_disq(cand, *x);
+                } else {
+                    scalar_note_value(collection, cand);
+                }
+                scalar_note_value(value, cand);
+            }
+            Stmt::Show { object, recipient } => {
+                scalar_note_value(object, cand);
+                scalar_note_value(recipient, cand);
+            }
+            Stmt::Give { object, recipient } => {
+                if let Expr::Identifier(s) = object {
+                    scalar_disq(cand, *s);
+                } else {
+                    scalar_note_value(object, cand);
+                }
+                scalar_note_value(recipient, cand);
+            }
+            Stmt::Return { value: Some(v) } => {
+                if let Expr::Identifier(s) = v {
+                    scalar_disq(cand, *s);
+                } else {
+                    scalar_note_value(v, cand);
+                }
+            }
+            Stmt::SetField { object, value, .. } => {
+                scalar_note_value(object, cand);
+                scalar_note_value(value, cand);
+            }
+            Stmt::If { cond, then_block, else_block } => {
+                scalar_note_value(cond, cand);
+                scalar_walk_block(then_block, false, cand, interner);
+                if let Some(eb) = else_block {
+                    scalar_walk_block(eb, false, cand, interner);
+                }
+            }
+            Stmt::While { cond, body, .. } => {
+                scalar_note_value(cond, cand);
+                scalar_walk_block(body, false, cand, interner);
+            }
+            Stmt::Repeat { iterable, body, .. } => {
+                if let Expr::Identifier(x) = iterable {
+                    scalar_disq(cand, *x);
+                } else {
+                    scalar_note_value(iterable, cand);
+                }
+                scalar_walk_block(body, false, cand, interner);
+            }
+            Stmt::Inspect { target, arms, .. } => {
+                scalar_note_value(target, cand);
+                for arm in arms {
+                    scalar_walk_block(&arm.body, false, cand, interner);
+                }
+            }
+            Stmt::RuntimeAssert { condition, .. } => scalar_note_value(condition, cand),
+            Stmt::Call { args, .. } => {
+                for a in args {
+                    if let Expr::Identifier(s) = a {
+                        scalar_disq(cand, *s);
+                    } else {
+                        scalar_note_value(a, cand);
+                    }
+                }
+            }
+            Stmt::Zone { body, .. } => scalar_walk_block(body, false, cand, interner),
+            Stmt::Concurrent { tasks } | Stmt::Parallel { tasks } => {
+                scalar_walk_block(tasks, false, cand, interner)
+            }
+            // FunctionDef and other forms: candidates are Main-locals; a
+            // function body cannot reference them. Nothing to do.
+            _ => {}
         }
     }
 }

@@ -13,6 +13,7 @@ use super::{
     CAbiClass, classify_type_for_c_abi,
     codegen_assertion, codegen_stmt,
     try_emit_vec_fill_pattern, try_emit_for_range_pattern, try_emit_swap_pattern,
+    try_emit_prefix_reverse,
 };
 
 pub(super) fn is_text_type(ty: &TypeExpr, interner: &Interner) -> bool {
@@ -21,6 +22,19 @@ pub(super) fn is_text_type(ty: &TypeExpr, interner: &Interner) -> bool {
             matches!(interner.resolve(*sym), "Text" | "String")
         }
         TypeExpr::Refinement { base, .. } => is_text_type(base, interner),
+        _ => false,
+    }
+}
+
+/// FFI: `Char` is declared `uint32_t` in the C header, so it must cross the
+/// boundary as `u32` (validated via `char::from_u32`), never as a bare Rust
+/// `char` — an out-of-range `u32` from C materialized as a `char` is UB.
+pub(super) fn is_char_type(ty: &TypeExpr, interner: &Interner) -> bool {
+    match ty {
+        TypeExpr::Primitive(sym) | TypeExpr::Named(sym) => {
+            interner.resolve(*sym) == "Char"
+        }
+        TypeExpr::Refinement { base, .. } => is_char_type(base, interner),
         _ => false,
     }
 }
@@ -37,6 +51,68 @@ pub(super) fn map_type_to_c_abi(ty: &TypeExpr, interner: &Interner, is_return: b
     } else {
         codegen_type_expr(ty, interner)
     }
+}
+
+/// Whether `ty` is a scalar that crosses the AOT-native boundary BY VALUE — the sound,
+/// hazard-free subset (no `Rc`/pointer marshaling). `Seq`/`Map`/`Text` are deferred:
+/// they would cross `*mut LogosSeq<T>` etc., which needs the borrow-not-own protocol
+/// (HOTSWAP §Axis-3 B4). A function outside this subset gets no shim and falls through.
+pub(super) fn is_native_scalar(ty: &TypeExpr, interner: &Interner) -> bool {
+    match ty {
+        TypeExpr::Primitive(sym) | TypeExpr::Named(sym) => {
+            matches!(interner.resolve(*sym), "Int" | "Float" | "Bool")
+        }
+        TypeExpr::Refinement { base, .. } => is_native_scalar(base, interner),
+        _ => false,
+    }
+}
+
+/// Emit the AOT-native export shim (HOTSWAP §Axis-3): a thin `#[no_mangle] extern "C"`
+/// calling-convention wrapper over the inner Rust fn that crosses our ACTUAL values —
+/// scalars BY VALUE — with NO `CString`/handle marshaling (unlike
+/// [`codegen_c_export_with_marshaling`]). The interpreter marshals VM `Value`s to these
+/// scalar args, calls the loaded symbol, and re-boxes the scalar result.
+///
+/// Returns `None` unless every param AND the return are in the sound scalar subset
+/// ([`is_native_scalar`]): the caller then falls through to VM+JIT, so a function the
+/// shim cannot represent simply isn't AOT-native — no gap at the seam.
+pub fn codegen_native_tier_export(
+    name: Symbol,
+    params: &[(Symbol, &TypeExpr)],
+    return_type: Option<&TypeExpr>,
+    interner: &Interner,
+) -> Option<String> {
+    if !params.iter().all(|(_, t)| is_native_scalar(t, interner)) {
+        return None;
+    }
+    if let Some(rt) = return_type {
+        if !is_native_scalar(rt, interner) {
+            return None;
+        }
+    }
+    let names = RustNames::new(interner);
+    let inner = names.ident(name);
+    let export = format!("logos_native_{}", names.raw(name));
+    let params_sig = params
+        .iter()
+        .map(|(p, t)| format!("{}: {}", interner.resolve(*p), codegen_type_expr(t, interner)))
+        .collect::<Vec<_>>()
+        .join(", ");
+    let args = params
+        .iter()
+        .map(|(p, _)| interner.resolve(*p).to_string())
+        .collect::<Vec<_>>()
+        .join(", ");
+    let ret = return_type
+        .map(|t| codegen_type_expr(t, interner))
+        .unwrap_or_else(|| "()".to_string());
+    let ret_sig = if ret == "()" { String::new() } else { format!(" -> {ret}") };
+    let mut out = String::new();
+    let _ = writeln!(out, "#[no_mangle]");
+    let _ = writeln!(out, "pub extern \"C\" fn {export}({params_sig}){ret_sig} {{");
+    let _ = writeln!(out, "    {inner}({args})");
+    let _ = writeln!(out, "}}");
+    Some(out)
 }
 
 /// FFI: Generate a C-exported function with Universal ABI marshaling.
@@ -126,7 +202,12 @@ pub(super) fn codegen_c_export_with_marshaling(
                 si += 1 + skip;
                 continue;
             }
-            if let Some((code, skip)) = try_emit_swap_pattern(&stmt_refs, si, interner, 1, func_ctx.get_variable_types()) {
+            if let Some((code, skip)) = try_emit_prefix_reverse(&stmt_refs, si, interner, 1, func_ctx.get_variable_types()) {
+                output.push_str(&code);
+                si += 1 + skip;
+                continue;
+            }
+            if let Some((code, skip)) = try_emit_swap_pattern(&stmt_refs, si, interner, 1, func_ctx.get_variable_types(), func_ctx.oracle()) {
                 output.push_str(&code);
                 si += 1 + skip;
                 continue;
@@ -146,6 +227,9 @@ pub(super) fn codegen_c_export_with_marshaling(
             c_params.push(format!("{}: LogosHandle", pn));
         } else if is_text_type(ptype, interner) {
             c_params.push(format!("{}: *const std::os::raw::c_char", pn));
+        } else if is_char_type(ptype, interner) {
+            // Char crosses the ABI as uint32_t; validated to a `char` in the body.
+            c_params.push(format!("{}: u32", pn));
         } else {
             c_params.push(format!("{}: {}", pn, codegen_type_expr(ptype, interner)));
         }
@@ -183,7 +267,12 @@ pub(super) fn codegen_c_export_with_marshaling(
     } else if has_text_return {
         format!("pub extern \"C\" fn {}({}) -> *mut std::os::raw::c_char", func_name, c_params.join(", "))
     } else if let Some(ret_ty) = return_type {
-        let ret_str = codegen_type_expr(ret_ty, interner);
+        // Char returns cross the ABI as uint32_t (see is_char_type).
+        let ret_str = if is_char_type(ret_ty, interner) {
+            "u32".to_string()
+        } else {
+            codegen_type_expr(ret_ty, interner)
+        };
         if ret_str != "()" {
             format!("pub extern \"C\" fn {}({}) -> {}", func_name, c_params.join(", "), ret_str)
         } else {
@@ -201,14 +290,26 @@ pub(super) fn codegen_c_export_with_marshaling(
         .map(|(pname, ptype)| {
             let pname_str = names.ident(*pname);
             if classify_type_for_c_abi(ptype, interner, registry) == CAbiClass::ReferenceType {
-                // Look up handle in registry, dereference, and clone for inner
+                // Look up handle in registry, dereference, and clone for inner.
+                // A NULL/stale handle must surface as an error and return
+                // gracefully — NOT panic via `.expect()` OUTSIDE the catch_unwind
+                // boundary, which would unwind across the `extern "C"` frame (UB /
+                // abort). Mirrors the graceful accessors (codegen/ffi.rs).
                 let rust_ty = codegen_type_expr(ptype, interner);
+                let err_return = if uses_status_code {
+                    "return LogosStatus::InvalidHandle;".to_string()
+                } else if return_type.map_or(false, |t| codegen_type_expr(t, interner) != "()") {
+                    "return Default::default();".to_string()
+                } else {
+                    "return;".to_string()
+                };
                 writeln!(output, "    let {pn} = {{", pn = pname_str).unwrap();
                 writeln!(output, "        let __id = {pn} as u64;", pn = pname_str).unwrap();
                 writeln!(output, "        let __reg = logos_handle_registry().lock().unwrap_or_else(|e| e.into_inner());").unwrap();
-                writeln!(output, "        let __ptr = __reg.deref(__id).expect(\"InvalidHandle: handle not found in registry\");").unwrap();
-                writeln!(output, "        drop(__reg);").unwrap();
-                writeln!(output, "        unsafe {{ &*(__ptr as *const {ty}) }}.clone()", ty = rust_ty).unwrap();
+                writeln!(output, "        match __reg.deref(__id) {{").unwrap();
+                writeln!(output, "            Some(__ptr) => {{ let __v = unsafe {{ &*(__ptr as *const {ty}) }}.clone(); drop(__reg); __v }}", ty = rust_ty).unwrap();
+                writeln!(output, "            None => {{ drop(__reg); logos_set_last_error(\"InvalidHandle: handle '{pn}' not found in registry\".to_string()); {ret} }}", pn = pname_str, ret = err_return).unwrap();
+                writeln!(output, "        }}").unwrap();
                 writeln!(output, "    }};").unwrap();
             } else if is_text_type(ptype, interner) {
                 // Null-safety: check for NULL *const c_char before CStr::from_ptr
@@ -222,6 +323,11 @@ pub(super) fn codegen_c_export_with_marshaling(
                     writeln!(output, "    let {pn} = if {pn}.is_null() {{ String::new() }} else {{ unsafe {{ std::ffi::CStr::from_ptr({pn}).to_string_lossy().into_owned() }} }};",
                         pn = pname_str).unwrap();
                 }
+            } else if is_char_type(ptype, interner) {
+                // Validate the incoming uint32_t scalar; an out-of-range value is
+                // UB if materialized as a Rust `char`. Use U+FFFD on invalid input.
+                writeln!(output, "    let {pn} = char::from_u32({pn}).unwrap_or('\\u{{FFFD}}');",
+                    pn = pname_str).unwrap();
             }
             pname_str.to_string()
         })
@@ -334,8 +440,13 @@ pub(super) fn codegen_c_export_with_marshaling(
         writeln!(output, "        Ok(cstr) => cstr.into_raw(),").unwrap();
         writeln!(output, "        Err(_) => {{ logos_set_last_error(\"Return value contains null byte\".to_string()); std::ptr::null_mut() }}").unwrap();
         writeln!(output, "    }}").unwrap();
-    } else if return_type.is_some() {
-        writeln!(output, "    {}({})", inner_name, call_args.join(", ")).unwrap();
+    } else if let Some(ret_ty) = return_type {
+        // A Char return crosses the ABI as uint32_t.
+        if is_char_type(ret_ty, interner) {
+            writeln!(output, "    {}({}) as u32", inner_name, call_args.join(", ")).unwrap();
+        } else {
+            writeln!(output, "    {}({})", inner_name, call_args.join(", ")).unwrap();
+        }
     } else {
         writeln!(output, "    {}({})", inner_name, call_args.join(", ")).unwrap();
     }

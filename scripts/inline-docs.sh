@@ -49,7 +49,7 @@ CSS_TEMP=$(mktemp)
 cat "$NORMALIZE_CSS" "$RUSTDOC_CSS" > "$CSS_TEMP"
 
 # Replace font declarations with system fonts in CSS
-sed -i '' \
+sed -i \
     -e 's/font-family:[^;}]*"Fira Sans"[^;}]*/font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif/g' \
     -e 's/font-family:[^;}]*"Source Serif 4"[^;}]*/font-family: Georgia, "Times New Roman", serif/g' \
     -e 's/font-family:[^;}]*"Source Code Pro"[^;}]*/font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Monaco, Consolas, monospace/g' \

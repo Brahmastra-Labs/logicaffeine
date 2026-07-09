@@ -1,0 +1,25 @@
+CLASSIFICATION: ParserGap | subsystem Parser | gate Investigate | confidence 0.50
+
+═══ Sentence 6 ═══
+INPUT: Most of the alternate leaves are clustered near the top of the stem.
+
+TOKENS:
+    0..4   "Most"       Quantifier
+    5..7   "of"         Preposition
+    8..11  "the"        Determiner
+   12..21  "alternate"  Adjective
+   22..28  "leaves"     Verb
+   29..32  "are"        Other
+   33..42  "clustered"  Adjective
+   43..47  "near"       Preposition
+   48..51  "the"        Determiner
+   52..55  "top"        Other
+   56..58  "of"         Preposition
+   59..62  "the"        Determiner
+   63..67  "stem"       Adjective
+   67..68  "."          Punctuation
+   68..68  ""           Other
+
+ERROR (Socratic):
+  I was looking for a noun, verb, or adjective at position 8, but found Preposition(Symbol(2)) instead. The logic needs a content word to ground it.
+

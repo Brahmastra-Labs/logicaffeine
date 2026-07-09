@@ -1,0 +1,19 @@
+/install.sh
+  Content-Type: text/plain; charset=utf-8
+/install.ps1
+  Content-Type: text/plain; charset=utf-8
+
+# dx content-hashes the bundle filenames, so these are safe to cache forever.
+# Rules deliberately match ONLY the hashed names: Cloudflare Pages JOINS duplicate
+# headers from multiple matching rules (no override), so a blanket /assets/* rule
+# would poison un-hashed files (style.css, opfs-worker.js, images) with immutable.
+/assets/logicaffeine-web_bg-*.wasm
+  Cache-Control: public, max-age=31536000, immutable
+/assets/logicaffeine-web-*.js
+  Cache-Control: public, max-age=31536000, immutable
+# wasm-split lazy chunks (also content-hashed): each route/showcase module
+# downloads at most once per browser, ever.
+/assets/module_*.wasm
+  Cache-Control: public, max-age=31536000, immutable
+/assets/chunk_*.wasm
+  Cache-Control: public, max-age=31536000, immutable

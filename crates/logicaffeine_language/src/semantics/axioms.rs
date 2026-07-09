@@ -392,6 +392,7 @@ fn clone_term<'a>(term: &Term<'a>, arena: &'a Arena<Term<'a>>) -> Term<'a> {
         }
         Term::Sigma(s) => Term::Sigma(*s),
         Term::Intension(s) => Term::Intension(*s),
+        Term::Kind(s) => Term::Kind(*s),
         Term::Proposition(e) => Term::Proposition(*e),
         Term::Value { kind, unit, dimension } => Term::Value {
             kind: *kind,

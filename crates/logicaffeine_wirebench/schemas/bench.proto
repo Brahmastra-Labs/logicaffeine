@@ -1,0 +1,31 @@
+syntax = "proto3";
+
+package bench;
+
+// Mirrors the wirebench payload matrix: the same logical data every codec sees.
+message Point {
+  int64 x = 1;
+  int64 y = 2;
+}
+
+message Record {
+  int64 id = 1;
+  string name = 2;
+  bool active = 3;
+}
+
+message Ints {
+  repeated int64 v = 1;
+}
+
+message Points {
+  repeated Point items = 1;
+}
+
+message Records {
+  repeated Record items = 1;
+}
+
+message Strings {
+  repeated string v = 1;
+}

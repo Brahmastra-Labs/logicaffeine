@@ -73,8 +73,12 @@ Show y.
         .take(5)
         .collect::<Vec<_>>()
         .join("\n");
+    // The static param a=3 is inlined into the residual multiply. Under the exact-arithmetic
+    // ruling that multiply lowers to `logos_mul_exact(3, <dyn>)`.
     assert!(
-        in_specialized.contains("3 *") || in_specialized.contains("3i64 *") || in_specialized.contains("(3)"),
+        in_specialized.contains("3 *") || in_specialized.contains("3i64 *")
+            || in_specialized.contains("(3)") || in_specialized.contains("logos_mul_exact(3")
+            || in_specialized.contains("logos_mul_i64(3"),
         "Specialized body should contain literal 3 from static param a.\nSpecialized region:\n{}",
         in_specialized
     );
@@ -143,8 +147,12 @@ Show y.
         .take(10)
         .collect::<Vec<_>>()
         .join("\n");
+    // After a=4 is substituted, the fold simplifies c = 4 + 1 to the literal 5, which is then
+    // inlined into the residual multiply — `logos_mul_exact(5, <dyn>)` under the exact-arith ruling.
     assert!(
-        specialized.contains("5 *") || specialized.contains("5i64 *") || specialized.contains("(5)"),
+        specialized.contains("5 *") || specialized.contains("5i64 *")
+            || specialized.contains("(5)") || specialized.contains("logos_mul_exact(5")
+            || specialized.contains("logos_mul_i64(5"),
         "After substitution a=4, fold should simplify c=4+1=5. Body should contain 5*b.\nSpecialized:\n{}",
         specialized
     );
@@ -740,8 +748,12 @@ Show y.
         .take(5)
         .collect::<Vec<_>>()
         .join("\n");
+    // After a=4, the fold collapses (4+1)*b to 5*b, inlining the literal 5 into the residual
+    // multiply — `logos_mul_exact(5, <dyn>)` under the exact-arith ruling.
     assert!(
-        specialized.contains("5 *") || specialized.contains("5i64 *") || specialized.contains("(5)"),
+        specialized.contains("5 *") || specialized.contains("5i64 *")
+            || specialized.contains("(5)") || specialized.contains("logos_mul_exact(5")
+            || specialized.contains("logos_mul_i64(5"),
         "After substitution a=4, fold should simplify (4+1)*b → 5*b.\nSpecialized:\n{}",
         specialized
     );

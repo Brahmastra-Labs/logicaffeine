@@ -399,6 +399,13 @@ tokio = {{ version = "1", features = ["rt-multi-thread", "macros"] }}
     std::fs::create_dir_all(project_dir.join("src")).unwrap();
     std::fs::write(project_dir.join("Cargo.toml"), cargo_toml).unwrap();
     std::fs::write(project_dir.join("src/main.rs"), &rust_code).unwrap();
+    // Pin dependency resolution to the workspace's lockfile so a newly
+    // published transitive version cannot break the generated build.
+    std::fs::copy(
+        workspace_root.join("Cargo.lock"),
+        project_dir.join("Cargo.lock"),
+    )
+    .expect("Failed to seed Cargo.lock into generated project");
 
     // 3. Build and run — try offline first, fall back to online
     let output = Command::new("cargo")

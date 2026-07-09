@@ -1,0 +1,15 @@
+{
+  "id": "M_1.8",
+  "type": "multiple_choice",
+  "difficulty": 3,
+  "prompt": "The notation ⊨ φ (with no premises on the left) means:",
+  "options": [
+    "φ can be derived using the proof rules",
+    "φ is true in every model (it is valid)",
+    "φ is an axiom",
+    "φ is consistent"
+  ],
+  "correct": 1,
+  "hint": "⊨ is the SEMANTIC turnstile; ⊢ is the SYNTACTIC (provability) one.",
+  "explanation": "⊨ φ is the semantic turnstile: φ is true under every interpretation/model — i.e. φ is valid. Contrast ⊢ φ (the syntactic turnstile), which means φ is provable from the axioms and rules. Soundness and completeness are precisely the claims that these two coincide."
+}

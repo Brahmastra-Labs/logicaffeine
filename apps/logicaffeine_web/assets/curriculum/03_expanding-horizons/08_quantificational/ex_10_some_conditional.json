@@ -1,0 +1,15 @@
+{
+  "id": "Q_1.10",
+  "type": "multiple_choice",
+  "difficulty": 4,
+  "prompt": "Why is ∃x(Dog(x) → Barks(x)) the WRONG translation of 'Some dogs bark'?",
+  "options": [
+    "It is true even in a world with no dogs at all",
+    "It uses ∃ where it should use ∀",
+    "It claims that every dog barks",
+    "Nothing is wrong with it"
+  ],
+  "correct": 0,
+  "hint": "A conditional A → B is automatically true whenever A is false. What does that do to ∃x(Dog(x) → ...)?",
+  "explanation": "A conditional is true whenever its antecedent is false, so ∃x(Dog(x) → Barks(x)) is satisfied by ANY non-dog — it's even true in a world with zero dogs. It never guarantees that an actual dog barks. 'Some dogs bark' needs conjunction: ∃x(Dog(x) ∧ Barks(x)). This is the mirror image of the 'all' mistake: ∃ goes with ∧, ∀ goes with →."
+}

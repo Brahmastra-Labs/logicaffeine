@@ -1,8 +1,79 @@
 [profile.default]
 retries = 0
-slow-warning = { period = "60s" }
+# Warn every 60s, then TERMINATE at 20 min (60s × 20). No single test may hang an
+# interactive/iteration run — a runaway (e.g. a non-ignored research probe) is killed
+# and reported, never left spinning. Non-ignored tests should finish in seconds, so this
+# only ever fires on an accidental hang or an unbounded research test run ad hoc.
+slow-timeout = { period = "60s", terminate-after = 20 }
 fail-fast = false
 
 [profile.ci]
 retries = 1
 fail-fast = true
+
+# Full-baseline profile: every test, no retries, no early exit. Used by
+# scripts/run-all-tests-fast.sh for parity with the cargo-test baseline run.
+[profile.full]
+retries = 0
+# Warn at 120s, then TERMINATE at 30 min (120s × 15) — a HARD backstop so no single
+# test can hang the baseline for hours. The legit heavies (aot_montgomery ~875s,
+# jit_mega_fuzz, futamura) finish well under this; the multi-hour SAT/coNP research
+# probes are excluded up front by run-all-tests-fast.sh, and this catches any straggler
+# that isn't. A terminated test is a FAILURE, so a genuine new hang is never silent.
+slow-timeout = { period = "120s", terminate-after = 15 }
+fail-fast = false
+final-status-level = "slow"
+
+# Start the wall-clock monsters at t=0 so they overlap the rest of the suite:
+# jit_mega_fuzz (~325s, pure CPU) is the suite's floor, and the phase_futamura /
+# phase_pe_differential heavies (60-220s each) otherwise queue up in the tail.
+[[profile.full.overrides]]
+filter = 'binary(phase_futamura) | binary(phase_pe_differential) | test(jit_mega_fuzz) | test(vm_fuzz_overnight)'
+priority = 100
+
+# The subprocess-harness e2e tests spawn `cargo build/run` against per-slot
+# sharded target dirs (/tmp/logos_e2e_cache_<NEXTEST_TEST_GROUP_SLOT>, see
+# tests/common/mod.rs get_shared_target_dir). max-threads doubles as the shard
+# count — keep it in sync with E2E_TARGET_SHARDS in common/mod.rs. The group cap
+# guarantees each running e2e test gets a DISTINCT group slot, so no two ever
+# share a target dir and contend on cargo's build lock. WITHOUT the group the
+# fallback shards by `NEXTEST_TEST_GLOBAL_SLOT % 12`, which COLLIDES once the
+# thread count exceeds 12 (slots 12+ alias 0+) → two builds in one dir → a
+# transient build failure under load. So the override is applied to EVERY
+# profile (default/ci/full), not just the full-baseline run, so no invocation —
+# ad-hoc, CI, or the fast script — can flake on load.
+[test-groups.e2e-subprocess]
+max-threads = 12
+
+[[profile.default.overrides]]
+filter = 'binary(/^(e2e_async_cross_cutting|e2e_causal_consistency|e2e_closures|e2e_codegen_collections|e2e_codegen_comparisons|e2e_codegen_control_flow|e2e_codegen_edge_cases|e2e_codegen_enums|e2e_codegen_expressions|e2e_codegen_functions|e2e_codegen_gaps|e2e_codegen_iteration|e2e_codegen_logical|e2e_codegen_maps|e2e_codegen_optimization|e2e_codegen_primitives|e2e_codegen_sets|e2e_codegen_structs|e2e_codegen_tuples|e2e_codegen_types|e2e_codegen_variables|e2e_concurrency|e2e_crdt|e2e_feature_matrix|e2e_gossip|e2e_gossip_edge_cases|e2e_integration|e2e_language_gaps|e2e_math_builtins|e2e_mesh|e2e_multi_node|e2e_network_partition|e2e_policy|e2e_refinement|e2e_ref_semantics|e2e_string_interpolation|e2e_studio_examples|e2e_temporal|e2e_temporal_show|e2e_zones|phase25_type_expr|phase38_stdlib|phase_abstract_interp|phase_autoparallel|phase_break|phase_bta|phase_crdt_language|phase_deforestation|phase_escape_hatch|phase_ffi_requires|phase_futamura|phase_mountain_climb|phase_optimize|phase_optimize_v2|phase_partial_eval|phase_polyhedral|phase_supercompile|test_concurrency|user_concurrency|concurrency_aot|e2e_codegen_rational|opt_toggle_aot_differential|phase_affine_array|phase_aos_interleave|phase_borrow_hoist|phase_construction_opts|phase_de_rc|phase_entry_guard|phase_fast_div|phase_mod_defer|phase_narrow|phase_oracle_bounds|phase_pe_concurrency|phase_prefix_reverse|phase_scratch_hoist|phase_seq_scalarize|phase_strsearch|phase_unroll|phase_zero_based|report1_misc|report1_peephole|stdlib_prelude_invisible)$/)'
+test-group = 'e2e-subprocess'
+
+[[profile.ci.overrides]]
+filter = 'binary(/^(e2e_async_cross_cutting|e2e_causal_consistency|e2e_closures|e2e_codegen_collections|e2e_codegen_comparisons|e2e_codegen_control_flow|e2e_codegen_edge_cases|e2e_codegen_enums|e2e_codegen_expressions|e2e_codegen_functions|e2e_codegen_gaps|e2e_codegen_iteration|e2e_codegen_logical|e2e_codegen_maps|e2e_codegen_optimization|e2e_codegen_primitives|e2e_codegen_sets|e2e_codegen_structs|e2e_codegen_tuples|e2e_codegen_types|e2e_codegen_variables|e2e_concurrency|e2e_crdt|e2e_feature_matrix|e2e_gossip|e2e_gossip_edge_cases|e2e_integration|e2e_language_gaps|e2e_math_builtins|e2e_mesh|e2e_multi_node|e2e_network_partition|e2e_policy|e2e_refinement|e2e_ref_semantics|e2e_string_interpolation|e2e_studio_examples|e2e_temporal|e2e_temporal_show|e2e_zones|phase25_type_expr|phase38_stdlib|phase_abstract_interp|phase_autoparallel|phase_break|phase_bta|phase_crdt_language|phase_deforestation|phase_escape_hatch|phase_ffi_requires|phase_futamura|phase_mountain_climb|phase_optimize|phase_optimize_v2|phase_partial_eval|phase_polyhedral|phase_supercompile|test_concurrency|user_concurrency|concurrency_aot|e2e_codegen_rational|opt_toggle_aot_differential|phase_affine_array|phase_aos_interleave|phase_borrow_hoist|phase_construction_opts|phase_de_rc|phase_entry_guard|phase_fast_div|phase_mod_defer|phase_narrow|phase_oracle_bounds|phase_pe_concurrency|phase_prefix_reverse|phase_scratch_hoist|phase_seq_scalarize|phase_strsearch|phase_unroll|phase_zero_based|report1_misc|report1_peephole|stdlib_prelude_invisible)$/)'
+test-group = 'e2e-subprocess'
+
+[[profile.full.overrides]]
+filter = 'binary(/^(e2e_async_cross_cutting|e2e_causal_consistency|e2e_closures|e2e_codegen_collections|e2e_codegen_comparisons|e2e_codegen_control_flow|e2e_codegen_edge_cases|e2e_codegen_enums|e2e_codegen_expressions|e2e_codegen_functions|e2e_codegen_gaps|e2e_codegen_iteration|e2e_codegen_logical|e2e_codegen_maps|e2e_codegen_optimization|e2e_codegen_primitives|e2e_codegen_sets|e2e_codegen_structs|e2e_codegen_tuples|e2e_codegen_types|e2e_codegen_variables|e2e_concurrency|e2e_crdt|e2e_feature_matrix|e2e_gossip|e2e_gossip_edge_cases|e2e_integration|e2e_language_gaps|e2e_math_builtins|e2e_mesh|e2e_multi_node|e2e_network_partition|e2e_policy|e2e_refinement|e2e_ref_semantics|e2e_string_interpolation|e2e_studio_examples|e2e_temporal|e2e_temporal_show|e2e_zones|phase25_type_expr|phase38_stdlib|phase_abstract_interp|phase_autoparallel|phase_break|phase_bta|phase_crdt_language|phase_deforestation|phase_escape_hatch|phase_ffi_requires|phase_futamura|phase_mountain_climb|phase_optimize|phase_optimize_v2|phase_partial_eval|phase_polyhedral|phase_supercompile|test_concurrency|user_concurrency|concurrency_aot|e2e_codegen_rational|opt_toggle_aot_differential|phase_affine_array|phase_aos_interleave|phase_borrow_hoist|phase_construction_opts|phase_de_rc|phase_entry_guard|phase_fast_div|phase_mod_defer|phase_narrow|phase_oracle_bounds|phase_pe_concurrency|phase_prefix_reverse|phase_scratch_hoist|phase_seq_scalarize|phase_strsearch|phase_unroll|phase_zero_based|report1_misc|report1_peephole|stdlib_prelude_invisible)$/)'
+test-group = 'e2e-subprocess'
+
+# AOT-native tier tests (HOTSWAP §Axis-3) each shell out to `rustc`/`cargo` to build a
+# cdylib / wasm module / binary, recompiling the shared runtime crates in a PRIVATE temp
+# target. Running several at once (they're all `#[ignore]`'d and only run under
+# `--run-ignored`) storms the box — CPU plus ext4 dir-htree pressure from millions of
+# `.dwo` files — and a build can transiently FAIL under that contention, panicking on
+# `.expect("cdylib builds")`. The code is correct (each passes in isolation), so serialize
+# the group (max-threads = 1) and retry a transient build failure, instead of letting the
+# full suite flake on a self-inflicted build storm.
+[test-groups.aot-cdylib]
+max-threads = 1
+
+[[profile.default.overrides]]
+filter = 'binary(/^(aot_native_tier|aot_native_corpus|hotswap_p14_slice|hotswap_p15_aot_load|hotswap_p16_bundle|hotswap_p16_cache|hotswap_p17_wasm|hotswap_p18_bg_aot)$/)'
+test-group = 'aot-cdylib'
+retries = 2
+
+[[profile.full.overrides]]
+filter = 'binary(/^(aot_native_tier|aot_native_corpus|hotswap_p14_slice|hotswap_p15_aot_load|hotswap_p16_bundle|hotswap_p16_cache|hotswap_p17_wasm|hotswap_p18_bg_aot)$/)'
+test-group = 'aot-cdylib'
+retries = 2

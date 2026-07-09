@@ -1,18 +1,12 @@
 #![cfg_attr(docsrs, feature(doc_cfg))]
-
-//! WASM-safe data structures and CRDTs
-//!
-//! This crate provides pure data structures with NO IO dependencies.
-//! It compiles for both native and wasm32-unknown-unknown targets.
-//!
-//! ## LAMPORT INVARIANT
-//!
-//! This crate has NO path to system IO. No tokio, no libp2p, no SystemTime.
-//! Timestamps are injected by callers (typically from logicaffeine_system).
+#![doc = include_str!("../README.md")]
 
 pub mod crdt;
+pub mod fmt;
 pub mod indexing;
+pub mod ops;
 pub mod types;
+pub mod wire;
 
 // Re-export commonly used types
 pub use crdt::{
@@ -20,8 +14,12 @@ pub use crdt::{
     MVRegister, Merge, ORMap, ORSet, PNCounter, RemoveWins, ReplicaId, SetBias, VClock, RGA, YATA,
 };
 pub use types::{
-    Bool, Byte, Char, Int, LogosContains, LogosMap, LogosSeq, Map, Nat, Real, Seq, Set, Text,
-    Tuple, Unit, Value,
+    Bool, Byte, Char, FillClone, FxIndexMap, FxIndexSet, Int, LogosContains, LogosDenseI64Map, LogosDenseI64MapNoPresence,
+    LogosDenseI64Set, LogosDivU64, LogosI32Map, LogosI32Set, LogosI64Map, LogosI64Set, LogosMap,
+    LogosComplex, LogosDecimal, LogosInt, LogosModular, LogosMoney, LogosQuantity, LogosRational, Map, Nat, Real, Seq, Set, Text, Tuple,
+    Unit, Value, LogosSeq, LogosUuid, IntoRate, set_rate, set_rates, to_currency,
+    text_bytes, text_from_bytes,
 };
 pub use rustc_hash::{FxHashMap, FxHashSet};
 pub use indexing::{LogosGetChar, LogosIndex, LogosIndexMut};
+pub use ops::{logos_add_exact, logos_add_i64, logos_approx_eq, logos_cmp_i64_f64, logos_div_exact, logos_div_i128, logos_div_i64, logos_floordiv_exact, logos_i64_eq_f64, logos_i64_key_of_f64, logos_mul_exact, logos_mul_i64, logos_narrow_i128, logos_pow_exact, logos_rem_exact, logos_rem_i128, logos_rem_i64, logos_sub_exact, logos_sub_i64, logos_truthy, Truthy};

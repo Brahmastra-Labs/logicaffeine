@@ -27,6 +27,12 @@
         Return " and ".
     If op equals "||":
         Return " or ".
+    If op equals "^":
+        Return " xor ".
+    If op equals "<<":
+        Return " shifted left by ".
+    If op equals ">>":
+        Return " shifted right by ".
     Return " {op} ".
 
 ## To joinExprs (parts: Seq of Text, sep: Text) -> Text:
@@ -127,7 +133,7 @@
             Let cs be decompileExpr(coll).
             Let ss be decompileExpr(startIdx).
             Let es be decompileExpr(endIdx).
-            Return "slice of {cs} from {ss} to {es}".
+            Return "items {ss} through {es} of {cs}".
         When CCopy (target):
             Let ts be decompileExpr(target).
             Return "copy of {ts}".
@@ -138,13 +144,17 @@
         When CUnion (left, right):
             Let ls be decompileExpr(left).
             Let rs be decompileExpr(right).
-            Return "union of {ls} and {rs}".
+            Return "{ls} union {rs}".
         When CIntersection (left, right):
             Let ls be decompileExpr(left).
             Let rs be decompileExpr(right).
-            Return "intersection of {ls} and {rs}".
+            Return "{ls} intersection {rs}".
         When CNew (typeName, fieldNames, fields):
             If length of fieldNames equals 0:
+                If typeName equals "Map":
+                    Return "a new Map of Text to Int".
+                If typeName equals "Set":
+                    Return "a new Set of Int".
                 Return "a new {typeName}".
             Let fParts be a new Seq of Text.
             Let mutable fi be 1.
@@ -175,8 +185,21 @@
                     When CLiteralPart (v):
                         Set result to "{result}{v}".
                     When CExprPart (expr):
-                        Let es be decompileExpr(expr).
-                        Set result to "{result}{lb}{es}{rb}".
+                        Inspect expr:
+                            When CInt (iv):
+                                Set result to "{result}{iv}".
+                            When CText (tv):
+                                Set result to "{result}{tv}".
+                            When CBool (bv):
+                                If bv:
+                                    Set result to "{result}true".
+                                Otherwise:
+                                    Set result to "{result}false".
+                            When CFloat (fv):
+                                Set result to "{result}{fv}".
+                            Otherwise:
+                                Let es be decompileExpr(expr).
+                                Set result to "{result}{lb}{es}{rb}".
             Let q be chr(34).
             Return "{q}{result}{q}".
         When CDuration (amount, unit):
@@ -188,6 +211,13 @@
             Return "today".
         When CEscExpr (code):
             Return code.
+        When CManifestOf (zn):
+            Let zoneS be decompileExpr(zn).
+            Return "the manifest of {zoneS}".
+        When CChunkAt (idx, zn):
+            Let idxS be decompileExpr(idx).
+            Let zoneS be decompileExpr(zn).
+            Return "the chunk at {idxS} in {zoneS}".
         Otherwise:
             Return "<?expr?>".
 
@@ -299,6 +329,8 @@
             Let es be decompileExpr(end).
             Let bs be decompileBlock(body, indent + 1).
             Return "{pad}Repeat for {var} from {ss} to {es}:{nl}{bs}".
+        When CForceDynamic (fdName):
+            Return "".
         When CAdd (elem, target):
             Let es be decompileExpr(elem).
             Return "{pad}Add {es} to {target}.{nl}".
@@ -315,6 +347,10 @@
             Let cs be decompileExpr(cond).
             Let ms be decompileExpr(msg).
             Return "{pad}Assert {cs}, {ms}.{nl}".
+        When CHardAssert (cond, msg):
+            Let cs be decompileExpr(cond).
+            Let ms be decompileExpr(msg).
+            Return "{pad}Require {cs}, {ms}.{nl}".
         When CGive (expr, target):
             Let es be decompileExpr(expr).
             Return "{pad}Give {es} to {target}.{nl}".
@@ -348,7 +384,7 @@
             Return "{pad}Require {q}{dependency}{q}.{nl}".
         When CMerge (target, other):
             Let os be decompileExpr(other).
-            Return "{pad}Merge {target} with {os}.{nl}".
+            Return "{pad}Merge {os} into {target}.{nl}".
         When CIncrease (target, amount):
             Let amtS be decompileExpr(amount).
             Return "{pad}Increase {target} by {amtS}.{nl}".
@@ -415,6 +451,10 @@
             Let ts be decompileExpr(target).
             Let ms be decompileExpr(msg).
             Return "{pad}Send message {ms} to {ts}.{nl}".
+        When CStreamMessage (target, values):
+            Let ts be decompileExpr(target).
+            Let vs be decompileExpr(values).
+            Return "{pad}Stream {vs} to {ts}.{nl}".
         When CAwaitMessage (target):
             Return "{pad}Await message from {target}.{nl}".
         When CListen (addr, handler):
@@ -426,7 +466,7 @@
         When CZone (name, kind, body):
             Let bs be decompileBlock(body, indent + 1).
             Let q be chr(34).
-            Return "{pad}Zone {q}{name}{q} as {q}{kind}{q}:{nl}{bs}".
+            Return "{pad}Inside a new zone called {q}{name}{q}:{nl}{bs}".
         Otherwise:
             Return "{pad}<?stmt?>{nl}".
 

@@ -1,0 +1,15 @@
+{
+  "id": "C_6.115",
+  "type": "multiple_choice",
+  "difficulty": 2,
+  "prompt": "Which of these formulas is a tautology (true in every row of its truth table)?",
+  "options": [
+    "P ∨ ¬P",
+    "P ∧ ¬P",
+    "P → ¬P",
+    "P ↔ ¬P"
+  ],
+  "correct": 0,
+  "hint": "A tautology can never be false. Build the truth table and look for a column of all T.",
+  "explanation": "P ∨ ¬P (the law of excluded middle) is true whether P is true or false, so it is a tautology. P ∧ ¬P is a contradiction (always false); P → ¬P and P ↔ ¬P are each false in at least one row, so they are contingent or contradictory, not tautologies."
+}

@@ -1,0 +1,15 @@
+{
+  "id": "J_4.23",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "If you're a convict, then it's necessary that you're bold",
+  "options": [
+    "$ \\square (C \\supset B) $",
+    "Ambiguous between 1 & 3",
+    "$ (C \\supset \\square B) $",
+    "$ \\square C \\supset B $"
+  ],
+  "correct": 1,
+  "hint": "Does the necessity attach to the consequence only, or to the whole statement?",
+  "explanation": "Scope-ambiguous. 'It's necessary that you're bold' is □B. The box can take NARROW scope — C ⊃ □B, 'if you're a convict then you must be bold' (option 3) — or WIDE scope — □(C ⊃ B), 'necessarily, convicts are bold' (option 1). Both are legitimate readings of the English. (□C ⊃ B, necessity on the antecedent, is not a natural reading.)"
+}

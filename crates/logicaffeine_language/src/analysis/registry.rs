@@ -154,6 +154,17 @@ impl TypeRegistry {
         reg.register(interner.intern("Real"), TypeDef::Primitive);  // Floating point
         reg.register(interner.intern("Char"), TypeDef::Primitive);  // Character
         reg.register(interner.intern("Byte"), TypeDef::Primitive);  // 8-bit unsigned (0-255)
+        // Fixed-width machine words — the ℤ/2ⁿ wrapping ring (crypto substrate).
+        reg.register(interner.intern("Word8"), TypeDef::Primitive);
+        reg.register(interner.intern("Word16"), TypeDef::Primitive);
+        reg.register(interner.intern("Word32"), TypeDef::Primitive);
+        reg.register(interner.intern("Word64"), TypeDef::Primitive);
+        // SIMD lane vectors — one AVX2 register each.
+        reg.register(interner.intern("Lanes8Word32"), TypeDef::Primitive);
+        reg.register(interner.intern("Lanes4Word32"), TypeDef::Primitive);
+        reg.register(interner.intern("Lanes16Word8"), TypeDef::Primitive);
+        reg.register(interner.intern("Lanes4Word64"), TypeDef::Primitive);
+        reg.register(interner.intern("Lanes16Word16"), TypeDef::Primitive);
 
         // Intrinsic Generics
         reg.register(interner.intern("List"), TypeDef::Generic { param_count: 1 });
@@ -163,6 +174,9 @@ impl TypeRegistry {
         reg.register(interner.intern("Option"), TypeDef::Generic { param_count: 1 });
         reg.register(interner.intern("Maybe"), TypeDef::Generic { param_count: 1 });
         reg.register(interner.intern("Result"), TypeDef::Generic { param_count: 2 });
+        // A dimensioned quantity carries its dimension as a type parameter: `Quantity of Length`.
+        // Bare `Quantity` (no `of`) still parses as the dimension-polymorphic form.
+        reg.register(interner.intern("Quantity"), TypeDef::Generic { param_count: 1 });
 
         reg
     }

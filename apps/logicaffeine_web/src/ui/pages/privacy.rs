@@ -5,13 +5,16 @@
 //!
 //! # Route
 //!
-//! Accessed via [`Route::Privacy`].
+//! Accessed via `Route::Privacy`.
 
 use dioxus::prelude::*;
 use crate::ui::components::main_nav::{MainNav, ActivePage};
 use crate::ui::components::footer::Footer;
 use crate::ui::seo::{JsonLdMultiple, PageHead, organization_schema, webpage_schema, breadcrumb_schema, BreadcrumbItem, pages as seo_pages};
 
+// Compiled in natively (tests, SSG prerender); wasm fetches the staged /data copy
+// so the ~110 KB of legal prose never rides inside the shipped binary.
+#[cfg(not(target_arch = "wasm32"))]
 const PRIVACY_HTML: &str = include_str!("../../../privacy.html");
 
 const LEGAL_STYLE: &str = r#"
@@ -87,13 +90,39 @@ pub fn Privacy() -> Element {
             MainNav { active: ActivePage::Other, subtitle: Some("Privacy Policy") }
 
             main { class: "legal-content",
-                div {
-                    class: "legal-content-inner",
-                    dangerous_inner_html: "{PRIVACY_HTML}"
-                }
+                PrivacyBody {}
             }
 
             Footer {}
         }
+    }
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+#[component]
+fn PrivacyBody() -> Element {
+    rsx! {
+        div { class: "legal-content-inner", dangerous_inner_html: "{PRIVACY_HTML}" }
+    }
+}
+
+#[cfg(target_arch = "wasm32")]
+#[component]
+fn PrivacyBody() -> Element {
+    let mut body = use_resource(|| crate::ui::data_fetch::fetch_static_text("/data/privacy.html"));
+    let state = body.read_unchecked();
+    match &*state {
+        Some(Ok(html)) => rsx! {
+            div { class: "legal-content-inner", dangerous_inner_html: "{html}" }
+        },
+        Some(Err(e)) => rsx! {
+            div { class: "legal-content-inner",
+                p { "The privacy policy failed to load: {e}" }
+                button { onclick: move |_| body.restart(), "Retry" }
+            }
+        },
+        None => rsx! {
+            div { class: "legal-content-inner", p { "Loading\u{2026}" } }
+        },
     }
 }

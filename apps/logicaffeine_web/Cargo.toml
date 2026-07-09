@@ -1,24 +1,27 @@
 [package]
 name = "logicaffeine-web"
-version = "0.9.16"
+version.workspace = true
 edition = "2021"
-description = "Web-based IDE for logicaffeine"
+description = "Web-based IDE for logicaffeine — Studio, Learn Logic, Syntax Guide, and Benchmarks (Dioxus/WASM)"
 license = "BUSL-1.1"
+readme = "README.md"
 publish = false
 
 [dependencies]
 # Core crates (Tier 0-3)
-logicaffeine-base = { path = "../../crates/logicaffeine_base" }
-logicaffeine-lexicon = { path = "../../crates/logicaffeine_lexicon", features = ["dynamic-lexicon"] }
-logicaffeine-kernel = { path = "../../crates/logicaffeine_kernel" }
-logicaffeine-data = { path = "../../crates/logicaffeine_data" }
-logicaffeine-system = { path = "../../crates/logicaffeine_system", features = ["persistence"] }
-logicaffeine-language = { path = "../../crates/logicaffeine_language", features = ["dynamic-lexicon"] }
-logicaffeine-proof = { path = "../../crates/logicaffeine_proof" }
-logicaffeine-compile = { path = "../../crates/logicaffeine_compile" }
+logicaffeine-base = { workspace = true }
+logicaffeine-lexicon = { workspace = true, features = ["dynamic-lexicon"] }
+logicaffeine-kernel = { workspace = true }
+logicaffeine-data = { workspace = true }
+logicaffeine-system = { workspace = true, features = ["persistence"] }
+logicaffeine-language = { workspace = true, features = ["dynamic-lexicon"] }
+logicaffeine-proof = { workspace = true }
+logicaffeine-compile = { workspace = true }
 
-# Web framework
-dioxus = { version = "0.7", features = ["web", "router"] }
+# Web framework. The renderer is a per-target cargo feature (below) so dx can build
+# the wasm client with `web` and the SSG prerender server with `server` — putting a
+# renderer here directly would drag dioxus-web into the native server binary.
+dioxus = { version = "0.7", features = ["router"] }
 
 # Web platform bindings
 wasm-bindgen = "0.2"
@@ -29,7 +32,7 @@ web-sys = { version = "0.3", features = [
     "Storage", "Navigator", "Clipboard", "UrlSearchParams",
     "IntersectionObserver", "IntersectionObserverInit", "IntersectionObserverEntry",
     "DomRect", "ScrollIntoViewOptions", "ScrollBehavior", "ScrollLogicalPosition",
-    "ScrollToOptions"
+    "ScrollToOptions", "HtmlHeadElement", "Node"
 ] }
 wasm-bindgen-futures = "0.4"
 gloo-timers = { version = "0.3", features = ["futures"] }
@@ -47,5 +50,22 @@ bumpalo = "3.19.1"
 # Async support
 async-recursion = "1.1"
 
+[dev-dependencies]
+# Native SSR render tests (tests/ssr_render.rs): render every prerendered route on
+# the server target and assert no browser API leaks into the render path.
+dioxus-ssr = "0.7"
+dioxus-history = "0.7"
+
 [features]
 default = []
+# The wasm client (dx auto-detects this as the client renderer). Deliberately NOT
+# fullstack: a hydrating client hard-fails on SPA-fallback URLs, so the client does
+# a plain CSR takeover over the prerendered HTML instead.
+web = ["dioxus/web"]
+# The native SSG/prerender server (dx builds this side for `--ssg --fullstack`).
+# fullstack is needed here for the `#[server]` static_routes manifest endpoint.
+server = ["dioxus/server", "dioxus/fullstack"]
+# Code-splitting: `#[component(lazy)]` route bodies move into a lazily-fetched
+# wasm chunk. Deploy builds pass `--features split` together with dx's
+# `--wasm-split`; without BOTH, lazy components compile to direct calls.
+split = ["dioxus/wasm-split"]

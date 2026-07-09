@@ -1,0 +1,18 @@
+{
+  "id": "Q_3.12",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "Knowledge is a true belief that is absolutely certain.",
+  "options": [
+    "Too broad",
+    "Too narrow",
+    "Circular",
+    "Uses poorly understood terms",
+    "Poor match in vagueness",
+    "Poor match in emotional tone",
+    "Has non-essential properties"
+  ],
+  "correct": 1,
+  "hint": "Can you think of a genuine Knowledge that this definition would wrongly EXCLUDE?",
+  "explanation": "Most of what we call knowledge falls short of absolute certainty — you know your own name without it being beyond all possible doubt. Demanding certainty excludes ordinary knowledge, making the definition TOO NARROW."
+}

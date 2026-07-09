@@ -1,0 +1,196 @@
+{
+  "schema_version": 1,
+  "metadata": {
+    "date": "2026-06-14T18:35:36Z",
+    "commit": "4d31c18",
+    "logos_version": "0.9.17",
+    "node": "v22.22.3",
+    "cpu": "Intel(R) Core(TM) i9-14900K",
+    "os": "Ubuntu 24.04.2 LTS x86_64",
+    "warmup": 1,
+    "runs": 10
+  },
+  "languages": [
+    {
+      "id": "logos_interp",
+      "label": "LOGOS (interpreted)",
+      "color": "#ff8c00",
+      "tier": "interpreted"
+    },
+    {
+      "id": "js",
+      "label": "Node v22.22.3",
+      "color": "#f7df1e",
+      "tier": "interpreted"
+    }
+  ],
+  "benchmarks": [
+    {
+      "id": "collatz",
+      "name": "Collatz Conjecture",
+      "reference_size": "36369",
+      "interpreter_engine": "vm+jit",
+      "sizes": [
+        "1000000",
+        "5000000",
+        "10000000"
+      ],
+      "logos_source": "## To native args () -> Seq of Text\n## To native parseInt (s: Text) -> Int\n\n## Main\nLet arguments be args().\nLet n be parseInt(item 2 of arguments).\nLet mutable total be 0.\nLet mutable i be 1.\nWhile i is at most n:\n    Let mutable k be i.\n    While k is not 1:\n        If k % 2 equals 0:\n            Set k to k / 2.\n        Otherwise:\n            Set k to 3 * k + 1.\n        Set total to total + 1.\n    Set i to i + 1.\nShow total.",
+      "js_source": "const n = parseInt(process.argv[2]);\nlet total = 0;\nfor (let i = 1; i <= n; i++) {\n    let k = i;\n    while (k !== 1) {\n        if (k % 2 === 0) k = k / 2;\n        else k = 3 * k + 1;\n        total++;\n    }\n}\nconsole.log(total);",
+      "scaling": {
+        "36369": {
+          "logos_interp": {
+            "mean_ms": 32.04386236000,
+            "median_ms": 31.684710260000006000,
+            "stddev_ms": 2.370179946063566000,
+            "min_ms": 28.76689126000,
+            "max_ms": 36.02646526000001000,
+            "cv": 0.07396673720026445650,
+            "runs": 10,
+            "user_ms": 30.8448000,
+            "system_ms": 1.08524000
+          },
+          "js": {
+            "mean_ms": 25.429582300000003000,
+            "median_ms": 24.982965500000003000,
+            "stddev_ms": 2.960919922159217000,
+            "min_ms": 21.409715000000003000,
+            "max_ms": 32.184561000,
+            "cv": 0.11643604237098368110,
+            "runs": 10,
+            "user_ms": 19.707000,
+            "system_ms": 7.036099999999999000
+          }
+        }
+      },
+      "compilation": {},
+      "timeouts": {}
+    },
+    {
+      "id": "heap_sort",
+      "name": "Heap Sort",
+      "reference_size": "60094",
+      "interpreter_engine": "vm+jit",
+      "sizes": [
+        "50000",
+        "100000",
+        "2500000"
+      ],
+      "logos_source": "## To native args () -> Seq of Text\n## To native parseInt (s: Text) -> Int\n\n## To siftDown (arr: Seq of Int, start: Int, end: Int) -> Seq of Int:\n    Let mutable result be arr.\n    Let mutable root be start.\n    While 2 * root + 1 is at most end:\n        Let child be 2 * root + 1.\n        Let mutable swapIdx be root.\n        If item (swapIdx + 1) of result is less than item (child + 1) of result:\n            Set swapIdx to child.\n        If child + 1 is at most end:\n            If item (swapIdx + 1) of result is less than item (child + 2) of result:\n                Set swapIdx to child + 1.\n        If swapIdx equals root:\n            Return result.\n        Let tmp be item (root + 1) of result.\n        Set item (root + 1) of result to item (swapIdx + 1) of result.\n        Set item (swapIdx + 1) of result to tmp.\n        Set root to swapIdx.\n    Return result.\n\n## Main\nLet arguments be args().\nLet n be parseInt(item 2 of arguments).\nLet mutable arr be a new Seq of Int.\nLet mutable seed be 42.\nLet mutable i be 0.\nWhile i is less than n:\n    Set seed to (seed * 1103515245 + 12345) % 2147483648.\n    Push (seed / 65536) % 32768 to arr.\n    Set i to i + 1.\nLet mutable start be (n - 2) / 2.\nWhile start is at least 0:\n    Set arr to siftDown(arr, start, n - 1).\n    Set start to start - 1.\nLet mutable end be n - 1.\nWhile end is greater than 0:\n    Let tmp be item 1 of arr.\n    Set item 1 of arr to item (end + 1) of arr.\n    Set item (end + 1) of arr to tmp.\n    Set end to end - 1.\n    Set arr to siftDown(arr, 0, end).\nLet mutable checksum be 0.\nSet i to 1.\nWhile i is at most n:\n    Set checksum to (checksum + item i of arr) % 1000000007.\n    Set i to i + 1.\nShow \"\" + item 1 of arr + \" \" + item n of arr + \" \" + checksum.",
+      "js_source": "function siftDown(arr, start, end) {\n    let root = start;\n    while (2 * root + 1 <= end) {\n        let child = 2 * root + 1;\n        let swap = root;\n        if (arr[swap] < arr[child]) swap = child;\n        if (child + 1 <= end && arr[swap] < arr[child + 1]) swap = child + 1;\n        if (swap === root) return;\n        [arr[root], arr[swap]] = [arr[swap], arr[root]];\n        root = swap;\n    }\n}\nconst n = parseInt(process.argv[2]);\nconst arr = new Array(n);\nlet seed = 42;\nfor (let i = 0; i < n; i++) { seed = ((Math.imul(seed, 1103515245) + 12345) >>> 0) % 2147483648; arr[i] = (seed>>16)&0x7fff; }\nfor (let s = Math.floor((n-2)/2); s >= 0; s--) siftDown(arr, s, n-1);\nfor (let end = n-1; end > 0; end--) { [arr[0], arr[end]] = [arr[end], arr[0]]; siftDown(arr, 0, end-1); }\nlet checksum = 0;\nfor (const v of arr) checksum = (checksum + v) % 1000000007;\nconsole.log(`${arr[0]} ${arr[n-1]} ${checksum}`);",
+      "scaling": {
+        "60094": {
+          "logos_interp": {
+            "mean_ms": 58.39757702000,
+            "median_ms": 58.278817420000004000,
+            "stddev_ms": 3.019539333310746000,
+            "min_ms": 54.489565420000004000,
+            "max_ms": 63.05311842000,
+            "cv": 0.05170658591325825524,
+            "runs": 10,
+            "user_ms": 52.63508000,
+            "system_ms": 5.6621399999999995000
+          },
+          "js": {
+            "mean_ms": 31.029190900000003000,
+            "median_ms": 30.049184000000003000,
+            "stddev_ms": 3.49788848421525000,
+            "min_ms": 27.605714000000003000,
+            "max_ms": 38.639983000,
+            "cv": 0.11272896207600597351,
+            "runs": 10,
+            "user_ms": 33.511099999999995000,
+            "system_ms": 7.3685000
+          }
+        }
+      },
+      "compilation": {},
+      "timeouts": {}
+    },
+    {
+      "id": "mergesort",
+      "name": "Merge Sort",
+      "reference_size": "102614",
+      "interpreter_engine": "vm+jit",
+      "sizes": [
+        "50000",
+        "100000",
+        "3000000"
+      ],
+      "logos_source": "## To native args () -> Seq of Text\n## To native parseInt (s: Text) -> Int\n\n## To mergeSort (arr: Seq of Int) -> Seq of Int:\n    Let n be length of arr.\n    If n is less than 2:\n        Return arr.\n    Let mid be n / 2.\n    Let mutable left be a new Seq of Int.\n    Let mutable right be a new Seq of Int.\n    Let mutable i be 1.\n    While i is at most mid:\n        Push item i of arr to left.\n        Set i to i + 1.\n    While i is at most n:\n        Push item i of arr to right.\n        Set i to i + 1.\n    Set left to mergeSort(left).\n    Set right to mergeSort(right).\n    Let mutable result be a new Seq of Int.\n    Let mutable li be 1.\n    Let mutable ri be 1.\n    While li is at most length of left:\n        If ri is greater than length of right:\n            Push item li of left to result.\n            Set li to li + 1.\n        Otherwise:\n            If item li of left is at most item ri of right:\n                Push item li of left to result.\n                Set li to li + 1.\n            Otherwise:\n                Push item ri of right to result.\n                Set ri to ri + 1.\n    While ri is at most length of right:\n        Push item ri of right to result.\n        Set ri to ri + 1.\n    Return result.\n\n## Main\nLet arguments be args().\nLet n be parseInt(item 2 of arguments).\nLet mutable arr be a new Seq of Int.\nLet mutable seed be 42.\nLet mutable i be 0.\nWhile i is less than n:\n    Set seed to (seed * 1103515245 + 12345) % 2147483648.\n    Push (seed / 65536) % 32768 to arr.\n    Set i to i + 1.\nSet arr to mergeSort(arr).\nLet mutable checksum be 0.\nSet i to 1.\nWhile i is at most n:\n    Set checksum to (checksum + item i of arr) % 1000000007.\n    Set i to i + 1.\nShow \"\" + item 1 of arr + \" \" + item n of arr + \" \" + checksum.",
+      "js_source": "function mergeSort(arr) {\n    if (arr.length < 2) return arr;\n    const mid = Math.floor(arr.length / 2);\n    const left = mergeSort(arr.slice(0, mid));\n    const right = mergeSort(arr.slice(mid));\n    const result = [];\n    let i = 0, j = 0;\n    while (i < left.length && j < right.length) {\n        if (left[i] <= right[j]) result.push(left[i++]);\n        else result.push(right[j++]);\n    }\n    while (i < left.length) result.push(left[i++]);\n    while (j < right.length) result.push(right[j++]);\n    return result;\n}\nconst n = parseInt(process.argv[2]);\nlet arr = new Array(n);\nlet seed = 42;\nfor (let i = 0; i < n; i++) {\n    seed = ((Math.imul(seed, 1103515245) + 12345) >>> 0) % 2147483648;\n    arr[i] = (seed >> 16) & 0x7fff;\n}\narr = mergeSort(arr);\nlet checksum = 0;\nfor (const v of arr) checksum = (checksum + v) % 1000000007;\nconsole.log(`${arr[0]} ${arr[n - 1]} ${checksum}`);",
+      "scaling": {
+        "102614": {
+          "logos_interp": {
+            "mean_ms": 82.70059688000002000,
+            "median_ms": 82.56473488000002000,
+            "stddev_ms": 2.5098090009078376000,
+            "min_ms": 80.07244588000001000,
+            "max_ms": 88.83756388000001000,
+            "cv": 0.03034813647777673685,
+            "runs": 10,
+            "user_ms": 71.75345999999999000,
+            "system_ms": 10.79638000
+          },
+          "js": {
+            "mean_ms": 47.5387618000,
+            "median_ms": 46.59600650000001000,
+            "stddev_ms": 5.9357133508626085000,
+            "min_ms": 41.18096000,
+            "max_ms": 61.859252000,
+            "cv": 0.12486049543811653293,
+            "runs": 10,
+            "user_ms": 40.8307000,
+            "system_ms": 15.2497000
+          }
+        }
+      },
+      "compilation": {},
+      "timeouts": {}
+    },
+    {
+      "id": "quicksort",
+      "name": "Quicksort",
+      "reference_size": "140771",
+      "interpreter_engine": "vm+jit",
+      "sizes": [
+        "50000",
+        "100000",
+        "3000000"
+      ],
+      "logos_source": "## To native args () -> Seq of Text\n## To native parseInt (s: Text) -> Int\n\n## To qs (arr: Seq of Int, lo: Int, hi: Int) -> Seq of Int:\n    If lo is at least hi:\n        Return arr.\n    Let pivot be item hi of arr.\n    Let mutable result be arr.\n    Let mutable i be lo.\n    Let mutable j be lo.\n    While j is less than hi:\n        If item j of result is at most pivot:\n            Let tmp be item i of result.\n            Set item i of result to item j of result.\n            Set item j of result to tmp.\n            Set i to i + 1.\n        Set j to j + 1.\n    Let tmp be item i of result.\n    Set item i of result to item hi of result.\n    Set item hi of result to tmp.\n    Set result to qs(result, lo, i - 1).\n    Set result to qs(result, i + 1, hi).\n    Return result.\n\n## Main\nLet arguments be args().\nLet n be parseInt(item 2 of arguments).\nLet mutable arr be a new Seq of Int.\nLet mutable seed be 42.\nLet mutable i be 0.\nWhile i is less than n:\n    Set seed to (seed * 1103515245 + 12345) % 2147483648.\n    Push (seed / 65536) % 32768 to arr.\n    Set i to i + 1.\nSet arr to qs(arr, 1, n).\nLet mutable checksum be 0.\nSet i to 1.\nWhile i is at most n:\n    Set checksum to (checksum + item i of arr) % 1000000007.\n    Set i to i + 1.\nShow \"\" + item 1 of arr + \" \" + item n of arr + \" \" + checksum.",
+      "js_source": "function partition(arr, lo, hi) {\n    const pivot = arr[hi]; let i = lo;\n    for (let j = lo; j < hi; j++)\n        if (arr[j] <= pivot) { [arr[i], arr[j]] = [arr[j], arr[i]]; i++; }\n    [arr[i], arr[hi]] = [arr[hi], arr[i]];\n    return i;\n}\nfunction qs(arr, lo, hi) {\n    if (lo < hi) { const p = partition(arr, lo, hi); qs(arr, lo, p-1); qs(arr, p+1, hi); }\n}\nconst n = parseInt(process.argv[2]);\nconst arr = new Array(n);\nlet seed = 42;\nfor (let i = 0; i < n; i++) { seed = ((Math.imul(seed, 1103515245) + 12345) >>> 0) % 2147483648; arr[i] = (seed>>16)&0x7fff; }\nqs(arr, 0, n-1);\nlet checksum = 0;\nfor (const v of arr) checksum = (checksum + v) % 1000000007;\nconsole.log(`${arr[0]} ${arr[n-1]} ${checksum}`);",
+      "scaling": {
+        "140771": {
+          "logos_interp": {
+            "mean_ms": 64.482244000,
+            "median_ms": 65.44309339999999000,
+            "stddev_ms": 3.1976035890287197000,
+            "min_ms": 59.009801400000006000,
+            "max_ms": 67.93699639999999000,
+            "cv": 0.04958890061314739139,
+            "runs": 10,
+            "user_ms": 59.040459999999996000,
+            "system_ms": 5.23788000
+          },
+          "js": {
+            "mean_ms": 35.11601660000001000,
+            "median_ms": 33.595858000000006000,
+            "stddev_ms": 4.423945741718113000,
+            "min_ms": 31.109447000000002000,
+            "max_ms": 43.34599000,
+            "cv": 0.12598085346952796861,
+            "runs": 10,
+            "user_ms": 37.2393000,
+            "system_ms": 6.465499999999999000
+          }
+        }
+      },
+      "compilation": {},
+      "timeouts": {}
+    }
+  ],
+  "summary": {
+    "geometric_mean_logos_interp_over_node": 1.659
+  }
+}

@@ -1,0 +1,22 @@
+[package]
+name = "logicaffeine-jit"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+repository.workspace = true
+homepage.workspace = true
+keywords.workspace = true
+categories.workspace = true
+rust-version.workspace = true
+license = "BUSL-1.1"
+description = "The LOGOS native tier — wires the copy-and-patch forge JIT into the bytecode VM (native only)."
+readme = "README.md"
+
+[lints]
+workspace = true
+
+[dependencies]
+logicaffeine-compile = { workspace = true }
+
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+logicaffeine-forge = { workspace = true }

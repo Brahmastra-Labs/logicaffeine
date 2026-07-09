@@ -9,7 +9,10 @@ use tempfile::TempDir;
 fn test_list_literal_codegen() {
     let source = "## Main\nLet numbers be [1, 2, 3].";
     let rust = compile_to_rust(source).expect("Compiles");
-    assert!(rust.contains("LogosSeq::from_vec(vec![1, 2, 3])"), "Generated: {}", rust);
+    // De-Rc strips the read-only literal list to a plain typed `Vec<i64>` (the canonical Seq
+    // representation collapses when the value is never aliased/mutated). `## No Optimize` keeps
+    // the `LogosSeq::from_vec(...)` baseline form.
+    assert!(rust.contains("let numbers: Vec<i64> = vec![1, 2, 3]"), "Generated: {}", rust);
 }
 
 #[test]
@@ -30,7 +33,14 @@ Repeat for x in [1, 2, 3]:
 "#;
     let rust = compile_to_rust(source).expect("Compiles");
     assert!(rust.contains("for x in"), "Generated: {}", rust);
-    assert!(rust.contains("sum = (sum + x);"), "Generated: {}", rust);
+    // The accumulator `sum + x` is unbounded, so exact arithmetic emits a
+    // checked narrowed form (overflow ruling v2): the fused i64-native helper
+    // or its `LogosInt`-chain equivalent — never a raw wrapping add.
+    assert!(
+        rust.contains("sum = logos_add_i64(sum, x);")
+            || rust.contains("sum = logos_add_exact(sum, x).expect_i64(\"Int\");"),
+        "Generated: {}", rust
+    );
 }
 
 #[test]
@@ -73,7 +83,8 @@ fn test_runtime_seq_type() {
 fn test_seq_type_annotation_codegen() {
     let source = "## Main\nLet nums: Seq of Int be [1, 2].";
     let rust = compile_to_rust(source).expect("Compiles");
-    assert!(rust.contains("LogosSeq<i64>"), "Generated: {}", rust);
+    // `Seq of Int` lowers to a Vec<i64> after de-Rc (the read-only annotated literal de-Rc's).
+    assert!(rust.contains("Vec<i64>"), "Generated: {}", rust);
 }
 
 #[test]

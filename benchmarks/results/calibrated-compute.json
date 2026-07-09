@@ -1,0 +1,266 @@
+{
+  "meta": {
+    "date": "2026-06-16T15:04:23Z",
+    "cpu": "Intel(R) Core(TM) i9-14900K",
+    "os": "Ubuntu 24.04.2 LTS x86_64",
+    "calibrated_side": "interpreter (VM + copy-and-patch JIT)",
+    "targets_ms": [
+      500
+    ],
+    "tol": 0.01,
+    "budget_s": 1,
+    "accel": 8,
+    "overshoot": 2
+  },
+  "benchmarks": {
+    "fib": {
+      "500": {
+        "n": 37,
+        "interp_ms": 403.487,
+        "target_ms": 500,
+        "status": "under"
+      }
+    },
+    "ackermann": {},
+    "nqueens": {
+      "500": {
+        "n": 13,
+        "interp_ms": 147.484,
+        "target_ms": 500,
+        "status": "under"
+      }
+    },
+    "bubble_sort": {
+      "500": {
+        "n": 10140,
+        "interp_ms": 492.333,
+        "target_ms": 500,
+        "status": "under"
+      }
+    },
+    "mergesort": {
+      "500": {
+        "n": 621652,
+        "interp_ms": 496.351,
+        "target_ms": 500,
+        "status": "ok"
+      }
+    },
+    "quicksort": {
+      "500": {
+        "n": 989255,
+        "interp_ms": 498.634,
+        "target_ms": 500,
+        "status": "ok"
+      }
+    },
+    "counting_sort": {
+      "500": {
+        "n": 17175746,
+        "interp_ms": 499.632,
+        "target_ms": 500,
+        "status": "ok"
+      }
+    },
+    "heap_sort": {
+      "500": {
+        "n": 537790,
+        "interp_ms": 499.034,
+        "target_ms": 500,
+        "status": "ok"
+      }
+    },
+    "nbody": {
+      "500": {
+        "n": 846643,
+        "interp_ms": 496.732,
+        "target_ms": 500,
+        "status": "ok"
+      }
+    },
+    "mandelbrot": {
+      "500": {
+        "n": 1322,
+        "interp_ms": 492.176,
+        "target_ms": 500,
+        "status": "under"
+      }
+    },
+    "spectral_norm": {
+      "500": {
+        "n": 1110,
+        "interp_ms": 499.711,
+        "target_ms": 500,
+        "status": "ok"
+      }
+    },
+    "pi_leibniz": {
+      "500": {
+        "n": 130529140,
+        "interp_ms": 492.386,
+        "target_ms": 500,
+        "status": "under"
+      }
+    },
+    "gcd": {
+      "500": {
+        "n": 4317,
+        "interp_ms": 493.657,
+        "target_ms": 500,
+        "status": "under"
+      }
+    },
+    "collatz": {
+      "500": {
+        "n": 566855,
+        "interp_ms": 498.872,
+        "target_ms": 500,
+        "status": "ok"
+      }
+    },
+    "primes": {
+      "500": {
+        "n": 1957368,
+        "interp_ms": 497.199,
+        "target_ms": 500,
+        "status": "ok"
+      }
+    },
+    "sieve": {
+      "500": {
+        "n": 33887222,
+        "interp_ms": 492.442,
+        "target_ms": 500,
+        "status": "under"
+      }
+    },
+    "matrix_mult": {
+      "500": {
+        "n": 324,
+        "interp_ms": 498.024,
+        "target_ms": 500,
+        "status": "ok"
+      }
+    },
+    "prefix_sum": {
+      "500": {
+        "n": 26023318,
+        "interp_ms": 499.758,
+        "target_ms": 500,
+        "status": "ok"
+      }
+    },
+    "array_reverse": {
+      "500": {
+        "n": 36078316,
+        "interp_ms": 495.328,
+        "target_ms": 500,
+        "status": "ok"
+      }
+    },
+    "array_fill": {
+      "500": {
+        "n": 38143589,
+        "interp_ms": 495.742,
+        "target_ms": 500,
+        "status": "ok"
+      }
+    },
+    "collect": {
+      "500": {
+        "n": 4562501,
+        "interp_ms": 480.386,
+        "target_ms": 500,
+        "status": "under"
+      }
+    },
+    "two_sum": {
+      "500": {
+        "n": 15819400,
+        "interp_ms": 497.857,
+        "target_ms": 500,
+        "status": "ok"
+      }
+    },
+    "histogram": {
+      "500": {
+        "n": 37152353,
+        "interp_ms": 490.674,
+        "target_ms": 500,
+        "status": "under"
+      }
+    },
+    "knapsack": {
+      "500": {
+        "n": 3154,
+        "interp_ms": 495.898,
+        "target_ms": 500,
+        "status": "ok"
+      }
+    },
+    "coins": {
+      "500": {
+        "n": 9014045,
+        "interp_ms": 497.951,
+        "target_ms": 500,
+        "status": "ok"
+      }
+    },
+    "fannkuch": {
+      "500": {
+        "n": 9,
+        "interp_ms": 466.172,
+        "target_ms": 500,
+        "status": "under"
+      }
+    },
+    "strings": {
+      "500": {
+        "n": 1142403,
+        "interp_ms": 496.487,
+        "target_ms": 500,
+        "status": "ok"
+      }
+    },
+    "binary_trees": {
+      "500": {
+        "n": 18,
+        "interp_ms": 401.347,
+        "target_ms": 500,
+        "status": "under"
+      }
+    },
+    "loop_sum": {
+      "500": {
+        "n": 234198759,
+        "interp_ms": 498.807,
+        "target_ms": 500,
+        "status": "ok"
+      }
+    },
+    "fib_iterative": {
+      "500": {
+        "n": 102214169,
+        "interp_ms": 494.713,
+        "target_ms": 500,
+        "status": "under"
+      }
+    },
+    "graph_bfs": {
+      "500": {
+        "n": 1269733,
+        "interp_ms": 496.364,
+        "target_ms": 500,
+        "status": "ok"
+      }
+    },
+    "string_search": {
+      "500": {
+        "n": 1371644,
+        "interp_ms": 499.265,
+        "target_ms": 500,
+        "status": "ok"
+      }
+    }
+  }
+}

@@ -76,6 +76,53 @@ impl<'a, 'ctx, 'int> QuestionParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int> 
             }));
         }
 
+        // "Who is a lawyer?" / "Who is the doctor?" / "Who is mortal?" — a COPULA
+        // wh-question. The complement (a nominal or an adjective) is predicated of
+        // the answer variable → Question{x, P(x)}; the wh-word IS the subject, so a
+        // bare predicate over `x` is exactly the goal whose witness is the answer.
+        if matches!(
+            self.peek().kind,
+            TokenType::Is | TokenType::Are | TokenType::Was | TokenType::Were
+        ) {
+            self.advance(); // copula
+            // "Who is in Maine?" / "What is on the table?" — a PP complement →
+            // Question{x, In(x, Maine)}: the answer is the entity standing in that
+            // relation. The locative question a logic grid asks ("who is in <state>",
+            // "who is in <year>").
+            if self.check_preposition() && !self.check_by_preposition() {
+                let prep_sym = match self.advance().kind {
+                    TokenType::Preposition(s) => s,
+                    _ => unreachable!("guarded by check_preposition"),
+                };
+                let obj = self.parse_noun_phrase(false)?;
+                let body = self.ctx.exprs.alloc(LogicExpr::Predicate {
+                    name: prep_sym,
+                    args: self
+                        .ctx
+                        .terms
+                        .alloc_slice([var_term, Term::Constant(obj.noun)]),
+                    world: None,
+                });
+                return Ok(self.ctx.exprs.alloc(LogicExpr::Question {
+                    wh_variable: var_name,
+                    body,
+                }));
+            }
+            if matches!(self.peek().kind, TokenType::Article(_)) {
+                self.advance(); // optional determiner ("a", "an", "the")
+            }
+            let pred = self.consume_content_word()?;
+            let body = self.ctx.exprs.alloc(LogicExpr::Predicate {
+                name: pred,
+                args: self.ctx.terms.alloc_slice([var_term]),
+                world: None,
+            });
+            return Ok(self.ctx.exprs.alloc(LogicExpr::Question {
+                wh_variable: var_name,
+                body,
+            }));
+        }
+
         if self.check_verb() {
             let verb = self.consume_verb();
             let mut args = vec![var_term];
@@ -242,43 +289,43 @@ impl<'a, 'ctx, 'int> QuestionParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int> 
             TokenType::Can => ModalVector {
                 domain: ModalDomain::Alethic,
                 force: 0.5,
-                flavor: ModalFlavor::Root,
+                flavor: ModalFlavor::Root, modal_base: None, ordering_source: None
             },
             TokenType::Could => ModalVector {
                 domain: ModalDomain::Alethic,
                 force: 0.4,
-                flavor: ModalFlavor::Root,
+                flavor: ModalFlavor::Root, modal_base: None, ordering_source: None
             },
             TokenType::Would => ModalVector {
                 domain: ModalDomain::Alethic,
                 force: 0.6,
-                flavor: ModalFlavor::Root,
+                flavor: ModalFlavor::Root, modal_base: None, ordering_source: None
             },
             TokenType::Must => ModalVector {
                 domain: ModalDomain::Alethic,
                 force: 1.0,
-                flavor: ModalFlavor::Root,
+                flavor: ModalFlavor::Root, modal_base: None, ordering_source: None
             },
             TokenType::Should => ModalVector {
                 domain: ModalDomain::Deontic,
                 force: 0.6,
-                flavor: ModalFlavor::Root,
+                flavor: ModalFlavor::Root, modal_base: None, ordering_source: None
             },
             // Epistemic modals (wide scope)
             TokenType::May => ModalVector {
                 domain: ModalDomain::Deontic,
                 force: 0.5,
-                flavor: ModalFlavor::Epistemic,
+                flavor: ModalFlavor::Epistemic, modal_base: None, ordering_source: None
             },
             TokenType::Might => ModalVector {
                 domain: ModalDomain::Alethic,
                 force: 0.3,
-                flavor: ModalFlavor::Epistemic,
+                flavor: ModalFlavor::Epistemic, modal_base: None, ordering_source: None
             },
             _ => ModalVector {
                 domain: ModalDomain::Alethic,
                 force: 0.5,
-                flavor: ModalFlavor::Root,
+                flavor: ModalFlavor::Root, modal_base: None, ordering_source: None
             },
         }
     }

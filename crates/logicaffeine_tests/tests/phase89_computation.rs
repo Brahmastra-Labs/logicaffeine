@@ -64,8 +64,9 @@ fn test_beta_identity_complex_arg() {
 fn test_beta_const() {
     let mut repl = Repl::new();
 
-    // (λx.y) A → y  where y is a free variable (SVar 1 in body)
-    // SVar 1 doesn't match index 0, so it's unchanged
+    // (λx. SVar 1) A → SVar 0.  The body `SVar 1` is a FREE variable (it points
+    // one level outside this λ). Beta substitutes index 0 (no match here), and
+    // removing the λ binder shifts the surviving free var down: SVar 1 → SVar 0.
     repl.execute("Definition body : Syntax := SVar 1.")
         .expect("Define");
     repl.execute("Definition arg : Syntax := SSort (UType 42).")
@@ -74,7 +75,7 @@ fn test_beta_const() {
         .expect("Define");
 
     let result = repl.execute("Eval result.").expect("Eval");
-    assert_eq!(result, "(SVar 1)");
+    assert_eq!(result, "(SVar 0)");
 }
 
 // =============================================================================

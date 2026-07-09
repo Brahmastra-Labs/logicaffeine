@@ -1,0 +1,15 @@
+{
+  "id": "C_6.104",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "If you're clean then you're demented, or you're terrified",
+  "options": [
+    "$ ((C \\supset D) \\vee T) $",
+    "$ (C \\supset (D \\vee T)) $",
+    "$ C \\supset D \\vee T $",
+    "$ (C \\supset D) \\vee T $"
+  ],
+  "correct": 0,
+  "hint": "Identify the main connective first. What's the primary structure of this sentence?",
+  "explanation": "In propositional logic: 'or' is represented by \u2228 (disjunction). 'if...then' is represented by \u2283 (conditional). Pay attention to the scope of operators - parentheses matter!"
+}

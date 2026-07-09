@@ -173,7 +173,10 @@ Show x + y.
 "#;
     let result = interpret_program(source);
     assert!(result.is_ok(), "Should interpret float arithmetic: {:?}", result);
-    assert_eq!(result.unwrap().trim(), "5.14");
+    // Shortest round-trip display: 3.14 + 2.0 is inexact in IEEE binary64 and
+    // the artifact is SHOWN, not hidden — identical on every engine (the old
+    // `{:.6}`-trimmed display masked it as "5.14").
+    assert_eq!(result.unwrap().trim(), "5.140000000000001");
 }
 
 #[test]

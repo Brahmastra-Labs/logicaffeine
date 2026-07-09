@@ -14,6 +14,8 @@
 //! with `name` and `version` parameters.
 
 use dioxus::prelude::*;
+#[cfg(all(feature = "split", target_arch = "wasm32"))]
+use dioxus::wasm_split;
 use crate::ui::router::Route;
 use crate::ui::state::PackageDetails;
 use crate::ui::components::main_nav::{MainNav, ActivePage};
@@ -289,7 +291,7 @@ enum DetailTab {
     Versions,
 }
 
-#[component]
+#[component(lazy)]
 pub fn PackageDetail(name: String) -> Element {
     let mut details = use_signal(|| None::<PackageDetails>);
     let mut error = use_signal(|| None::<String>);

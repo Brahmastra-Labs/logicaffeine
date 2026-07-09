@@ -1,0 +1,30 @@
+CLASSIFICATION: ParserGap | subsystem Parser | gate Investigate | confidence 0.85
+ORACLE [pp_fronting_to_trailing]: "The Chad formed the boundary between the counties of Worcestershire and Staffordshire at one time." ⇒ 1) ∃x(((Chad(x) ∧ ∀y((Chad(y) → y = x))) ∧ (∃e(Form(e) ∧ Agent(e, x) ∧ Theme(e, Boundary) ∧ Past(e)) ∧ Between(e, Poss(Worcestershire, Counties)))))
+2) Staffordshire
+
+═══ Sentence 5 ═══
+INPUT: At one time, The Chad formed the boundary between the counties of Worcestershire and Staffordshire.
+
+TOKENS:
+    0..2   "At"         Preposition
+    3..6   "one"        Quantifier
+    7..11  "time"       Noun
+   11..12  ","          Punctuation
+   13..16  "The"        Determiner
+   17..21  "Chad"       Proper
+   22..28  "formed"     Verb
+   29..32  "the"        Determiner
+   33..41  "boundary"   Adjective
+   42..49  "between"    Preposition
+   50..53  "the"        Determiner
+   54..62  "counties"   Adjective
+   63..65  "of"         Preposition
+   66..80  "Worcestershire" Proper
+   81..84  "and"        Connective
+   85..98  "Staffordshire" Proper
+   98..99  "."          Punctuation
+   99..99  ""           Other
+
+ERROR (Socratic):
+  I was looking for a noun, verb, or adjective at position 3, but found Preposition(Symbol(1)) instead. The logic needs a content word to ground it.
+

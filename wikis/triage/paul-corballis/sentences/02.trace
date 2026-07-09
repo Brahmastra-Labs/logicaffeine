@@ -1,0 +1,54 @@
+CLASSIFICATION: ActionableLexiconGap | subsystem Lexicon | gate Auto | confidence 0.75
+ISOLATED: "(EEG/ERPs)"(Parenthetical), "EEG"(Abbreviation), "ERPs"(Abbreviation)
+
+═══ Sentence 2 ═══
+INPUT: His research focuses on visual perception and attention, and uses electrophysiology (EEG/ERPs) and neuroimaging methods.
+
+TOKENS:
+    0..3   "His"        Pronoun
+    4..12  "research"   Other
+   13..20  "focuses"    Adjective
+   21..23  "on"         Preposition
+   24..30  "visual"     Adjective
+   31..41  "perception" Adjective
+   42..45  "and"        Connective
+   46..55  "attention"  Adjective
+   55..56  ","          Punctuation
+   57..60  "and"        Connective
+   61..65  "uses"       Verb
+   66..83  "electrophysiology" Adjective
+   84..85  "("          Other
+   85..88  "EEG"        Proper
+   88..89  "/"          Other
+   89..93  "ERPs"       Proper
+   93..94  ")"          Other
+   95..98  "and"        Connective
+   99..111 "neuroimaging" Verb
+  112..119 "methods"    Adjective
+  119..120 "."          Punctuation
+  120..120 ""           Other
+
+FOL:
+  unicode: 1) HAB((∃e(Research(e) ∧ Agent(e, Him) ∧ Theme(e, Focuses)) ∧ On(e, Perception)))
+2) ∃e(Research(e) ∧ Agent(e, Attention) ∧ Theme(e, Focuses))
+3) ∃e(Research(e) ∧ Agent(e, Use) ∧ Theme(e, Electrophysiology))
+  simple : 1) (Research(Him, Focuses) ∧ On(e, Perception))
+2) Research(Attention, Focuses)
+3) Research(Use, Electrophysiology)
+  kripke : 1) HAB((Exists e(Research(e, w0)  And  Agent(e, Him, w0)  And  Theme(e, Focuses, w0))  And  On(e, Perception, w0)))
+2) Exists e(Research(e, w0)  And  Agent(e, Attention, w0)  And  Theme(e, Focuses, w0))
+3) Exists e(Research(e, w0)  And  Agent(e, Use, w0)  And  Theme(e, Electrophysiology, w0))
+
+AST (5 nodes, 3 unhandled):
+  └─ ∧ [binary_op]
+     ├─ ∧ [binary_op]
+     │  ├─ Aspectual { operator: Habitual, body: BinaryOp { left: NeoEvent(NeoEventData { event_var: Symbol(42), verb: Symbol(2), roles: [(Agent, Constant(Symbol(40))), (Theme, Constant(Symbol(4)))], modifiers: [], suppress_existential: false, world: None }), op: And, right: Predicate { name: Symbol(5), args: [Variable(Symbol(42)), Constant(Symbol(7))], world: None } } } [other]
+     │  └─ NeoEvent(NeoEventData { event_var: Symbol(42), verb: Symbol(2), roles: [(Agent, Constant(Symbol(9))), (Theme, Constant(Symbol(4)))], modifiers: [], suppress_existential: false, world: None }) [other]
+     └─ NeoEvent(NeoEventData { event_var: Symbol(42), verb: Symbol(2), roles: [(Agent, Constant(Symbol(11))), (Theme, Constant(Symbol(13)))], modifiers: [], suppress_existential: false, world: None }) [other]
+
+AMBIGUITY READINGS (2):
+  [1] 1) HAB((∃e(Research(e) ∧ Agent(e, Him) ∧ Theme(e, Focuses)) ∧ On(e, Perception)))
+2) ∃e(Research(e) ∧ Agent(e, Attention) ∧ Theme(e, Focuses))
+3) ∃e(Research(e) ∧ Agent(e, Use) ∧ Theme(e, Electrophysiology))
+  [2] Research
+

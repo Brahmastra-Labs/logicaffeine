@@ -1,0 +1,43 @@
+CLASSIFICATION: ActionableLexiconGap | subsystem Lexicon | gate Auto | confidence 0.75
+
+═══ Sentence 9 ═══
+INPUT: It may refer to Chad of Mercia, or be derived from the medieval term shadwell, a 'shallow boundary brook'.
+
+TOKENS:
+    0..2   "It"         Pronoun
+    3..6   "may"        Modal
+    7..12  "refer"      Verb
+   13..15  "to"         Preposition
+   16..20  "Chad"       Proper
+   21..23  "of"         Preposition
+   24..30  "Mercia"     Proper
+   30..31  ","          Punctuation
+   32..34  "or"         Connective
+   35..37  "be"         Verb
+   38..45  "derived"    Adjective
+   46..50  "from"       Other
+   51..54  "the"        Determiner
+   55..63  "medieval"   Adjective
+   64..68  "term"       Adjective
+   69..77  "shadwell"   Adjective
+   77..78  ","          Punctuation
+   79..80  "a"          Determiner
+   82..89  "shallow"    Adjective
+   90..98  "boundary"   Adjective
+   99..104 "brook"      Adjective
+  105..106 "."          Punctuation
+  106..106 ""           Other
+
+FOL:
+  unicode: P_{0.5} ∃e(Refer(e) ∧ Agent(e, It))
+  simple : Refer(It)
+  kripke : Exists w1((Accessible_Deontic(w0, w1)  And  Exists e(Refer(e, w1)  And  Agent(e, It, w1))))
+
+AST (2 nodes, 1 unhandled):
+  └─ □Deontic [modal]
+     └─ NeoEvent(NeoEventData { event_var: Symbol(41), verb: Symbol(3), roles: [(Agent, Constant(Symbol(1)))], modifiers: [], suppress_existential: false, world: None }) [other]
+
+AMBIGUITY READINGS (2):
+  [1] P_{0.5} ∃e(Refer(e) ∧ Agent(e, It))
+  [2] ◇_{0.5} ∃e(Refer(e) ∧ Agent(e, It))
+

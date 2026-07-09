@@ -10,6 +10,7 @@ use super::context::{RefinementContext, VariableCapabilities};
 use super::{codegen_stmt, codegen_expr_with_async};
 use super::types::codegen_type_expr;
 use super::detection::{collect_mutable_vars, expr_contains_self_call};
+use crate::tail_call::{detect_accumulator_pattern, AccumulatorInfo, NonRecSide};
 
 // =============================================================================
 // Tail Call Elimination (TCE) Detection
@@ -48,175 +49,59 @@ pub(super) fn has_tail_call_in_stmt(func_name: Symbol, stmt: &Stmt) -> bool {
     }
 }
 
-pub(super) fn is_tail_recursive(func_name: Symbol, body: &[Stmt]) -> bool {
+pub(crate) fn is_tail_recursive(func_name: Symbol, body: &[Stmt]) -> bool {
     body.iter().any(|s| has_tail_call_in_stmt(func_name, s))
 }
 
-// =============================================================================
-// Accumulator Introduction — Detection
-// =============================================================================
-
-#[derive(Debug)]
-pub(super) enum NonRecSide { Left, Right }
-
-#[derive(Debug)]
-pub(super) struct AccumulatorInfo {
-    pub(super) op: BinaryOpKind,
-    pub(super) identity: &'static str,
-    pub(super) non_recursive_side: NonRecSide,
+/// Does the body have a top-level `Set/Let x to self(args); Return x` pair — a
+/// self-tail-call spelled across two statements? Detected only at the function
+/// body's top level (never nested in an `If`), matching the bytecode VM and the
+/// tree-walker exactly so all three tiers loop the same shapes.
+pub(super) fn body_has_top_level_tail_pair(
+    func_name: Symbol,
+    body: &[Stmt],
+    param_count: usize,
+) -> bool {
+    body.windows(2).any(|w| {
+        crate::tail_call::tail_pair_args(&w[0], &w[1], func_name, param_count).is_some()
+    })
 }
 
-pub(super) fn detect_accumulator_pattern(func_name: Symbol, body: &[Stmt]) -> Option<AccumulatorInfo> {
-    if has_non_return_self_calls(func_name, body) {
-        return None;
+/// Emit the TCE loop-back for a self-tail-call: evaluate the call's args into
+/// temporaries (so reassigning one param can't perturb another's source), assign
+/// them to the parameters, and `continue` the function's wrapping `loop`. Shared
+/// by the direct-`Return` case and the `Set/Let x; Return x` pair so they can't
+/// drift.
+pub(super) fn codegen_tce_loopback<'a>(
+    args: &[&'a Expr<'a>],
+    param_names: &[Symbol],
+    interner: &Interner,
+    indent: usize,
+    ctx: &mut RefinementContext<'a>,
+    synced_vars: &mut HashSet<Symbol>,
+    async_functions: &HashSet<Symbol>,
+) -> String {
+    let indent_str = "    ".repeat(indent);
+    let mut output = String::new();
+    writeln!(output, "{}{{", indent_str).unwrap();
+    for (i, arg) in args.iter().enumerate() {
+        let arg_str = codegen_expr_with_async(arg, interner, synced_vars, async_functions, ctx.get_variable_types());
+        writeln!(output, "{}    let __tce_{} = {};", indent_str, i, arg_str).unwrap();
     }
-    let (base_count, recursive_count) = count_recursive_returns(func_name, body);
-    if recursive_count != 1 {
-        return None;
+    for (i, param_sym) in param_names.iter().enumerate() {
+        let param_name = interner.resolve(*param_sym);
+        writeln!(output, "{}    {} = __tce_{};", indent_str, param_name, i).unwrap();
     }
-    if base_count == 0 {
-        return None;
-    }
-    find_accumulator_return(func_name, body)
+    writeln!(output, "{}    continue;", indent_str).unwrap();
+    writeln!(output, "{}}}", indent_str).unwrap();
+    output
 }
 
-pub(super) fn count_recursive_returns(func_name: Symbol, body: &[Stmt]) -> (usize, usize) {
-    let mut base = 0;
-    let mut recursive = 0;
-    for stmt in body {
-        match stmt {
-            Stmt::Return { value: Some(expr) } => {
-                if expr_contains_self_call(func_name, expr) {
-                    recursive += 1;
-                } else {
-                    base += 1;
-                }
-            }
-            Stmt::Return { value: None } => {
-                base += 1;
-            }
-            Stmt::If { then_block, else_block, .. } => {
-                let (tb, tr) = count_recursive_returns(func_name, then_block);
-                base += tb;
-                recursive += tr;
-                if let Some(else_stmts) = else_block {
-                    let (eb, er) = count_recursive_returns(func_name, else_stmts);
-                    base += eb;
-                    recursive += er;
-                }
-            }
-            _ => {}
-        }
-    }
-    (base, recursive)
-}
-
-pub(super) fn has_non_return_self_calls(func_name: Symbol, body: &[Stmt]) -> bool {
-    for stmt in body {
-        match stmt {
-            Stmt::Return { .. } => {}
-            Stmt::If { cond, then_block, else_block } => {
-                if expr_contains_self_call(func_name, cond) {
-                    return true;
-                }
-                if has_non_return_self_calls(func_name, then_block) {
-                    return true;
-                }
-                if let Some(else_stmts) = else_block {
-                    if has_non_return_self_calls(func_name, else_stmts) {
-                        return true;
-                    }
-                }
-            }
-            Stmt::Let { value, .. } => {
-                if expr_contains_self_call(func_name, value) {
-                    return true;
-                }
-            }
-            Stmt::Set { value, .. } => {
-                if expr_contains_self_call(func_name, value) {
-                    return true;
-                }
-            }
-            Stmt::Show { object, .. } => {
-                if expr_contains_self_call(func_name, object) {
-                    return true;
-                }
-            }
-            Stmt::While { cond, body, .. } => {
-                if expr_contains_self_call(func_name, cond) {
-                    return true;
-                }
-                if has_non_return_self_calls(func_name, body) {
-                    return true;
-                }
-            }
-            Stmt::Repeat { body, .. } => {
-                if has_non_return_self_calls(func_name, body) {
-                    return true;
-                }
-            }
-            Stmt::Call { function, args } => {
-                if *function == func_name || args.iter().any(|a| expr_contains_self_call(func_name, a)) {
-                    return true;
-                }
-            }
-            _ => {}
-        }
-    }
-    false
-}
-
-pub(super) fn find_accumulator_return(func_name: Symbol, body: &[Stmt]) -> Option<AccumulatorInfo> {
-    for stmt in body {
-        match stmt {
-            Stmt::Return { value: Some(expr) } => {
-                if let Expr::BinaryOp { op, left, right } = expr {
-                    match op {
-                        BinaryOpKind::Add | BinaryOpKind::Multiply => {
-                            let left_has_call = expr_is_self_call(func_name, left);
-                            let right_has_call = expr_is_self_call(func_name, right);
-                            let left_contains_call = expr_contains_self_call(func_name, left);
-                            let right_contains_call = expr_contains_self_call(func_name, right);
-                            let identity = match op {
-                                BinaryOpKind::Add => "0",
-                                BinaryOpKind::Multiply => "1",
-                                _ => unreachable!(),
-                            };
-                            if left_has_call && !right_contains_call {
-                                return Some(AccumulatorInfo {
-                                    op: *op,
-                                    identity,
-                                    non_recursive_side: NonRecSide::Right,
-                                });
-                            }
-                            if right_has_call && !left_contains_call {
-                                return Some(AccumulatorInfo {
-                                    op: *op,
-                                    identity,
-                                    non_recursive_side: NonRecSide::Left,
-                                });
-                            }
-                        }
-                        _ => {}
-                    }
-                }
-            }
-            Stmt::If { then_block, else_block, .. } => {
-                if let Some(info) = find_accumulator_return(func_name, then_block) {
-                    return Some(info);
-                }
-                if let Some(else_stmts) = else_block {
-                    if let Some(info) = find_accumulator_return(func_name, else_stmts) {
-                        return Some(info);
-                    }
-                }
-            }
-            _ => {}
-        }
-    }
-    None
-}
+// Accumulator-introduction DETECTION (`detect_accumulator_pattern`,
+// `AccumulatorInfo`, `NonRecSide`) lives in `crate::tail_call` — one definition
+// shared with the VM/tree-walker accumulator→loop rewrite so the AOT and the
+// interpreters can't disagree on which functions strength-reduce. The AOT's
+// codegen-time emitter (`codegen_stmt_acc` below) consumes that `AccumulatorInfo`.
 
 // =============================================================================
 // Accumulator Introduction — Statement Emitter
@@ -683,21 +568,7 @@ pub(super) fn codegen_stmt_tce<'a>(
         // Case 1 & 2: Return with a self-call in tail position
         Stmt::Return { value: Some(expr) } if expr_is_self_call(func_name, expr) => {
             if let Expr::Call { args, .. } = expr {
-                let mut output = String::new();
-                writeln!(output, "{}{{", indent_str).unwrap();
-                // Evaluate all args into temporaries first (prevents ordering bugs)
-                for (i, arg) in args.iter().enumerate() {
-                    let arg_str = codegen_expr_with_async(arg, interner, synced_vars, async_functions, ctx.get_variable_types());
-                    writeln!(output, "{}    let __tce_{} = {};", indent_str, i, arg_str).unwrap();
-                }
-                // Assign temporaries to params
-                for (i, param_sym) in param_names.iter().enumerate() {
-                    let param_name = interner.resolve(*param_sym);
-                    writeln!(output, "{}    {} = __tce_{};", indent_str, param_name, i).unwrap();
-                }
-                writeln!(output, "{}    continue;", indent_str).unwrap();
-                writeln!(output, "{}}}", indent_str).unwrap();
-                return output;
+                return codegen_tce_loopback(args, param_names, interner, indent, ctx, synced_vars, async_functions);
             }
             // Shouldn't reach here, but fall through to default
             codegen_stmt(stmt, interner, indent, mutable_vars, ctx, lww_fields, mv_fields, synced_vars, var_caps, async_functions, pipe_vars, boxed_fields, registry, type_env)

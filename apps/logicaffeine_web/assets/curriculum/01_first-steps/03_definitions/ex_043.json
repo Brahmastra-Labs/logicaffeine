@@ -1,0 +1,18 @@
+{
+  "id": "Q_3.53",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "A child is anyone between 2 and 12 years old.",
+  "options": [
+    "Too broad",
+    "Too narrow",
+    "Circular",
+    "Uses poorly understood terms",
+    "Poor match in vagueness",
+    "Poor match in emotional tone",
+    "Has non-essential properties"
+  ],
+  "correct": 4,
+  "hint": "Is the original term vague while the definition is precise, or vice versa?",
+  "explanation": "Childhood blends gradually into adolescence; no one stops being a child exactly on their 12th birthday. The sharp 2-to-12 range is more precise than the vague word, so it fails to MATCH THE VAGUENESS."
+}

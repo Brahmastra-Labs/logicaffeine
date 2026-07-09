@@ -1,0 +1,15 @@
+{
+  "id": "J_4.6",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "D is true",
+  "options": [
+    "$ \\square D $",
+    "$ D $",
+    "$ \\square (D) $",
+    "$ (\\square (D)) $"
+  ],
+  "correct": 1,
+  "hint": "Think about what world(s) this statement is claiming something about. Is it all worlds, some worlds, or the actual world?",
+  "explanation": "A plain assertion with no modal operator: 'D is true' is simply D. Not everything in a modal chapter is modal — here there is nothing to box or diamond."
+}

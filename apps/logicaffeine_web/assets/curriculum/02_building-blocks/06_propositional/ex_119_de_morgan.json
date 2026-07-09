@@ -1,0 +1,15 @@
+{
+  "id": "C_6.119",
+  "type": "multiple_choice",
+  "difficulty": 3,
+  "prompt": "By De Morgan's laws, ¬(P ∨ Q) is equivalent to:",
+  "options": [
+    "¬P ∧ ¬Q",
+    "¬P ∨ ¬Q",
+    "P ∧ Q",
+    "¬(P ∧ Q)"
+  ],
+  "correct": 0,
+  "hint": "Negation turns OR into AND and distributes onto each part.",
+  "explanation": "De Morgan: ¬(P ∨ Q) ≡ ¬P ∧ ¬Q — 'neither P nor Q' means 'not P and not Q'. The mirror law is ¬(P ∧ Q) ≡ ¬P ∨ ¬Q. Note that ¬P ∨ ¬Q is the negation of the AND, not of the OR."
+}

@@ -89,7 +89,7 @@ fn parse_definition(input: &str) -> Result<Command, ParseError> {
             return Err(ParseError::Missing("definition name".to_string()));
         }
 
-        let ty = TermParser::parse(type_str)?;
+        let (ty, implicit_count) = TermParser::parse_with_implicits(type_str)?;
         let body = TermParser::parse(body_str)?;
 
         Ok(Command::Definition {
@@ -97,6 +97,7 @@ fn parse_definition(input: &str) -> Result<Command, ParseError> {
             ty: Some(ty),
             body,
             is_hint: false,
+            implicit_count,
         })
     } else {
         // No type annotation: name := term
@@ -113,6 +114,7 @@ fn parse_definition(input: &str) -> Result<Command, ParseError> {
             ty: None,
             body,
             is_hint: false,
+            implicit_count: 0,
         })
     }
 }

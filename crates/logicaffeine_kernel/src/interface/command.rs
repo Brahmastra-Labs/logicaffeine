@@ -14,6 +14,8 @@ pub enum Command {
         ty: Option<Term>,
         body: Term,
         is_hint: bool,
+        /// How many leading parameters of `ty` are implicit (`{x:T}` binders).
+        implicit_count: usize,
     },
 
     /// Check term.

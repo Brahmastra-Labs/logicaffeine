@@ -224,12 +224,17 @@ pub(super) fn infer_expr_type(expr: &Expr, ctx: &CContext) -> CType {
                 BinaryOpKind::Eq | BinaryOpKind::NotEq
                 | BinaryOpKind::Lt | BinaryOpKind::LtEq
                 | BinaryOpKind::Gt | BinaryOpKind::GtEq
-                | BinaryOpKind::And | BinaryOpKind::Or => CType::Bool,
+                | BinaryOpKind::And | BinaryOpKind::Or
+                | BinaryOpKind::ApproxEq => CType::Bool,
                 BinaryOpKind::Concat => CType::String,
+                // `followed by` is unsupported in the C backend (Rust AOT path handles sequences).
+                BinaryOpKind::SeqConcat => CType::String,
+                BinaryOpKind::BitAnd | BinaryOpKind::BitOr => CType::Int64,
                 BinaryOpKind::BitXor | BinaryOpKind::Shl | BinaryOpKind::Shr => CType::Int64,
                 BinaryOpKind::Add | BinaryOpKind::Subtract
-                | BinaryOpKind::Multiply | BinaryOpKind::Divide
-                | BinaryOpKind::Modulo => {
+                | BinaryOpKind::Multiply | BinaryOpKind::Divide | BinaryOpKind::ExactDivide
+                | BinaryOpKind::FloorDivide
+                | BinaryOpKind::Modulo | BinaryOpKind::Pow => {
                     let lt = infer_expr_type(left, ctx);
                     let rt = infer_expr_type(right, ctx);
                     if lt == CType::String || rt == CType::String {

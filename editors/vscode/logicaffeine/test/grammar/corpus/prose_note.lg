@@ -1,0 +1,14 @@
+# Prose-heavy literate file — the over-highlighting guard.
+# Ordinary English below must stay mostly unpainted.
+
+## Note
+
+This module sorts sequences. The algorithm chooses a pivot near the
+middle and partitions the remaining values around it. Nothing here is
+code; a reader should see documentation, and the highlighter should
+leave these paragraphs alone apart from structural words.
+
+## Main
+# The entry point is deliberately tiny.
+Let greeting be "Hello, World!".
+Show greeting.

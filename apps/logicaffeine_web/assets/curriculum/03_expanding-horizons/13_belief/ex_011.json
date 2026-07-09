@@ -1,0 +1,15 @@
+{
+  "id": "N_14.13",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "You want everyone to laugh",
+  "options": [
+    "$ \\underline{u} :(x)L\\underline{x} $",
+    "$ (x)x:L\\underline{u} $",
+    "$ u:(x)Lx $",
+    "$ u:(x)L\\underline{x} $"
+  ],
+  "correct": 3,
+  "hint": "Is the 'everyone' INSIDE what you want (you want: everyone does X), or OUTSIDE?",
+  "explanation": "When 'everyone' is inside the desire, we write u:(\u2200x)Px \u2014 you want it to be the case that everyone does P. The universal quantifier is inside the scope of your desire."
+}

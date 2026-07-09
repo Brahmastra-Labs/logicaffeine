@@ -34,10 +34,14 @@ pub mod learn;
 // Keeping files for reference during Step 9 refactoring
 // pub mod lesson;
 // pub mod review;
+pub mod pigeonhole_viz;
 pub mod pricing;
 pub mod privacy;
+pub mod register_alloc_viz;
 pub mod registry;
 pub mod roadmap;
+pub mod roadmap_data;
+pub mod roadmap_history;
 pub mod success;
 pub mod terms;
 pub mod workspace;

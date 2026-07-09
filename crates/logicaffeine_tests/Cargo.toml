@@ -1,7 +1,10 @@
 [package]
 name = "logicaffeine-tests"
-version = "0.9.16"
+version.workspace = true
 edition = "2021"
+license = "BUSL-1.1"
+description = "The logicaffeine integration suite: 600+ phase-organized tests across the NL→FOL pipeline, execution tiers, concurrency, wire codec, crypto oracles, and proofs."
+readme = "README.md"
 publish = false
 
 [lib]
@@ -9,27 +12,50 @@ path = "src/lib.rs"
 
 [features]
 default = []
-verification = ["logicaffeine-compile/verification", "logicaffeine-proof/verification"]
+verification = [
+    "logicaffeine-compile/verification",
+    "logicaffeine-proof/verification",
+    "dep:logicaffeine-verify",
+    "dep:logicaffeine-tv",
+    "dep:logicaffeine-synth",
+]
 ffi-link-tests = []
 web-tests = ["dep:logicaffeine-web"]
 
+# Z3-backed crates are OPTIONAL (gated behind `verification`) so the default
+# test path needs no Z3 toolchain. They sit in [dependencies] rather than
+# [dev-dependencies] because Cargo forbids optional dev-dependencies;
+# integration tests can use both sections.
 [dependencies]
-logicaffeine-web = { path = "../../apps/logicaffeine_web", optional = true }
+logicaffeine-web = { workspace = true, optional = true }
+logicaffeine-verify = { workspace = true, optional = true }
+logicaffeine-tv = { workspace = true, optional = true }
+logicaffeine-synth = { workspace = true, optional = true }
+
+[target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
+logicaffeine-forge = { workspace = true }
+logicaffeine-jit = { workspace = true }
 
 [dev-dependencies]
-logicaffeine-base = { path = "../logicaffeine_base" }
-logicaffeine-kernel = { path = "../logicaffeine_kernel" }
-logicaffeine-language = { path = "../logicaffeine_language" }
-logicaffeine-compile = { path = "../logicaffeine_compile" }
-logicaffeine-proof = { path = "../logicaffeine_proof" }
-logicaffeine-data = { path = "../logicaffeine_data" }
-logicaffeine-system = { path = "../logicaffeine_system", features = ["full"] }
-logicaffeine-lexicon = { path = "../logicaffeine_lexicon" }
-logicaffeine-verify = { path = "../logicaffeine_verify" }
+logicaffeine-base = { workspace = true }
+logicaffeine-kernel = { workspace = true, features = ["serde"] }
+logicaffeine-language = { workspace = true }
+logicaffeine-compile = { workspace = true }
+logicaffeine-proof = { workspace = true }
+logicaffeine-data = { workspace = true }
+logicaffeine-system = { workspace = true, features = ["full"] }
+logicaffeine-lexicon = { workspace = true }
 tempfile = "3"
+toml = "0.8"
 futures = "0.3"
 tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
 bincode = "1"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 csv = "1"
+# Dev-only oracle for ML-KEM bit-exactness (FIPS 203). NEVER in the shipped graph — the
+# Logos-native crypto is validated *against* this, then ships on its own.
+ml-kem = { version = "0.2", features = ["deterministic"] }
+libcrux-ml-kem = { version = "0.0.9", features = ["simd256", "mlkem768"] }
+libcrux-ml-dsa = { version = "0.0.9", features = ["simd256"] }
+ml-dsa = "0.1.1"

@@ -1,0 +1,55 @@
+CLASSIFICATION: ActionableLexiconGap | subsystem Lexicon | gate Auto | confidence 0.75
+ISOLATED: "N2pc"(Abbreviation), "EEG"(Abbreviation)
+
+═══ Sentence 9 ═══
+INPUT: Corballis studies the neural mechanisms that support selective attention and visual perception, often using event-related potentials such as the N2pc, together with other EEG and neuroimaging techniques.
+
+TOKENS:
+    0..9   "Corballis"  Proper
+   10..17  "studies"    Verb
+   18..21  "the"        Determiner
+   22..28  "neural"     Adjective
+   29..39  "mechanisms" Adjective
+   40..44  "that"       Other
+   45..52  "support"    Verb
+   53..62  "selective"  Adjective
+   63..72  "attention"  Adjective
+   73..76  "and"        Connective
+   77..83  "visual"     Adjective
+   84..94  "perception" Adjective
+   94..95  ","          Punctuation
+   96..101 "often"      Other
+  102..107 "using"      Verb
+  108..113 "event"      Noun
+  113..114 "-"          Other
+  114..121 "related"    Verb
+  122..132 "potentials" Adjective
+  133..137 "such"       Adjective
+  138..140 "as"         Adjective
+  141..144 "the"        Determiner
+  145..149 "N2pc"       Proper
+  149..150 ","          Punctuation
+  151..159 "together"   Noun
+  160..164 "with"       Preposition
+  165..170 "other"      Noun
+  171..174 "EEG"        Proper
+  175..178 "and"        Connective
+  179..191 "neuroimaging" Verb
+  192..202 "techniques" Adjective
+  202..203 "."          Punctuation
+  203..203 ""           Other
+
+FOL:
+  unicode: Gen x((Corballis(x) → Study(x, Mechanisms)))
+  simple : Gen x((Corballis(x) → Study(x, Mechanisms)))
+  kripke : Gen x((Corballis(x, w0)  Implies  Study(x, Mechanisms, w0)))
+
+AST (7 nodes, 0 unhandled):
+  └─ GENx [quantifier]
+     └─ ? [binary_op]
+        ├─ Corballis(1) [predicate]
+        │  └─ x [variable]
+        └─ Study(2) [predicate]
+           ├─ x [variable]
+           └─ mechanisms [constant]
+

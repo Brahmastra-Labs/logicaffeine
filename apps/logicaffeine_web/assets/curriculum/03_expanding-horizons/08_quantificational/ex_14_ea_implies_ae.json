@@ -1,0 +1,15 @@
+{
+  "id": "Q_2.5",
+  "type": "multiple_choice",
+  "difficulty": 5,
+  "prompt": "Does ∀x∃y R(x, y) follow from ∃y∀x R(x, y)?",
+  "options": [
+    "Yes — ∃∀ always implies ∀∃",
+    "No — they are completely independent",
+    "Yes — they are logically equivalent",
+    "No — it's ∀∃ that implies ∃∀"
+  ],
+  "correct": 0,
+  "hint": "If one fixed y works for every x, can each x still find some y? Then try to reverse it.",
+  "explanation": "∃y∀x R(x, y) gives a single y that works for all x; that same y witnesses ∃y for each x, so ∀x∃y R(x, y) follows. The converse FAILS: 'everyone has a mother' (∀x∃y) does not give 'someone is everyone's mother' (∃y∀x). So ∃∀ ⊃ ∀∃, but not conversely — they are not equivalent."
+}

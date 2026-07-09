@@ -55,7 +55,7 @@ fn collect_constraints(
                     constrain_as_bool(right, constraints)?;
                 }
                 // Arithmetic operators: operands must be Int
-                VerifyOp::Add | VerifyOp::Sub | VerifyOp::Mul | VerifyOp::Div => {
+                VerifyOp::Add | VerifyOp::Sub | VerifyOp::Mul | VerifyOp::Div | VerifyOp::FloorDiv => {
                     constrain_as_int(left, constraints)?;
                     constrain_as_int(right, constraints)?;
                 }
@@ -95,7 +95,7 @@ fn collect_constraints(
             collect_constraints(body, constraints)
         }
 
-        VerifyExpr::Apply { args, .. } => {
+        VerifyExpr::Apply { args, .. } | VerifyExpr::ApplyInt { args, .. } => {
             for arg in args {
                 collect_constraints(arg, constraints)?;
             }
@@ -261,7 +261,7 @@ fn expr_suggests_int(expr: &VerifyExpr) -> bool {
         expr,
         VerifyExpr::Int(_)
             | VerifyExpr::Binary {
-                op: VerifyOp::Add | VerifyOp::Sub | VerifyOp::Mul | VerifyOp::Div,
+                op: VerifyOp::Add | VerifyOp::Sub | VerifyOp::Mul | VerifyOp::Div | VerifyOp::FloorDiv,
                 ..
             }
     )
@@ -272,7 +272,7 @@ fn infer_sort_of(expr: &VerifyExpr) -> VerifyType {
         VerifyExpr::Int(_) => VerifyType::Int,
         VerifyExpr::Bool(_) => VerifyType::Bool,
         VerifyExpr::BitVecConst { width, .. } => VerifyType::BitVector(*width),
-        VerifyExpr::Binary { op: VerifyOp::Add | VerifyOp::Sub | VerifyOp::Mul | VerifyOp::Div, .. } => VerifyType::Int,
+        VerifyExpr::Binary { op: VerifyOp::Add | VerifyOp::Sub | VerifyOp::Mul | VerifyOp::Div | VerifyOp::FloorDiv, .. } => VerifyType::Int,
         _ => VerifyType::Int, // default
     }
 }

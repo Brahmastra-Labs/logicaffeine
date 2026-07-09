@@ -1,308 +1,161 @@
 # logicaffeine-verify
 
-Z3-based static verification engine with Socratic error messages.
+A Z3-backed SMT verification and model-checking engine: it encodes a small,
+AST-independent verification IR into Z3 and decides validity, equivalence,
+consistency, and temporal/safety/liveness properties — from refinement-type
+checks up to a full hardware model checker.
 
-## The Tarski Invariant
+Part of the [Logicaffeine](https://github.com/Brahmastra-Labs/logicaffeine/blob/main/README.md) workspace. Excluded from
+default-members (requires a Z3 toolchain); reached via the `verification`
+feature in dependent crates. **Tarski invariant**: the verification IR
+(`VerifyExpr` / `VerifyType`) is decoupled from the main AST, so verification is
+front-end-agnostic. License-gated (Pro+).
 
-This crate has **NO dependency on the main AST**. The Intermediate Representation (IR) is self-contained. Translation from `LogicExpr` to `VerifyExpr` happens in the compile layer, keeping verification decoupled from parsing.
+## Role in the workspace
 
-## Overview
+This crate is the Z3 oracle behind the project's third trust layer (kernel →
+proof engine → SMT/model-checking); see
+[proof-and-verification.md](https://github.com/Brahmastra-Labs/logicaffeine/blob/main/docs/proof-and-verification.md). It is a
+workspace member but **not in `default-members`**, so a plain
+`cargo build`/`cargo test` skips it and needs no Z3. It compiles only when a
+consumer turns on its `verification` feature:
 
-A static verification engine that uses the Z3 SMT solver to prove properties at compile time:
+- `logicaffeine-proof`: `verification = ["dep:logicaffeine-verify"]`
+- `logicaffeine-compile`: `verification = ["dep:logicaffeine-verify", "logicaffeine-proof/verification"]`
+- `logicaffeine-tv` depends on it unconditionally.
 
-- Detect contradictions before runtime
-- Prove bounds and refinement types
-- Generate counter-examples when verification fails
-- Socratic error messages for pedagogical feedback
+Because the IR carries no reference to the language AST, the language crate can
+depend on the verify crate without a cycle; translation from `LogicExpr` happens
+in the compile layer. The model-checking stack backs the **English → SVA/PSL**
+hardware-verification path: `check_equivalence` decides whether an LLM-generated
+SVA expresses the *same* property as the parsed FOL (via `¬(FOL ↔ SVA)` over a
+bounded unrolling), and `synthesis` emits SVA/Verilog from an LTL spec.
 
-This is a premium feature requiring a Pro, Premium, Lifetime, or Enterprise license.
+## Capabilities
 
-### Smart Full Mapping Strategy
-
-The verification IR uses a "smart full mapping" approach:
-
-| Type | Z3 Encoding | Description |
-|------|-------------|-------------|
-| `Int` | IntSort | 64-bit integers with full arithmetic |
-| `Bool` | BoolSort | Boolean values with logical operations |
-| `Object` | Uninterpreted | Domain entities (opaque to Z3) |
-| Predicates | `Apply` | Uninterpreted functions |
-| Modals | `Apply` | Uninterpreted functions |
-| Temporals | `Apply` | Uninterpreted functions |
-
-Z3 reasons about structure without semantic knowledge. For example, given `Possible(A) -> Possible(B)` and `Possible(A)`, Z3 deduces `Possible(B)` via modus ponens.
-
-## Quick Start
-
-```rust
-use logicaffeine_verify::{VerificationSession, VerifyExpr, VerifyType};
-
-// Create a verification session
-let mut session = VerificationSession::new();
-
-// Declare variables with types
-session.declare("x", VerifyType::Int);
-
-// Add assumptions (constraints)
-session.assume(&VerifyExpr::eq(
-    VerifyExpr::var("x"),
-    VerifyExpr::int(10),
-));
-
-// Verify assertions
-session.verify(&VerifyExpr::gt(
-    VerifyExpr::var("x"),
-    VerifyExpr::int(5),
-))?; // Succeeds: 10 > 5
-```
-
-### Uninterpreted Function Example
-
-```rust
-use logicaffeine_verify::{VerificationSession, VerifyExpr, VerifyType};
-
-let mut session = VerificationSession::new();
-session.declare("socrates", VerifyType::Object);
-
-// Mortal(x) -> Human(x)
-session.assume(&VerifyExpr::implies(
-    VerifyExpr::apply("Mortal", vec![VerifyExpr::var("socrates")]),
-    VerifyExpr::apply("Human", vec![VerifyExpr::var("socrates")]),
-));
-
-// Mortal(socrates)
-session.assume(&VerifyExpr::apply("Mortal", vec![VerifyExpr::var("socrates")]));
-
-// Z3 deduces: Human(socrates)
-session.verify(&VerifyExpr::apply("Human", vec![VerifyExpr::var("socrates")]))?;
-```
+- **Validity & refinement** — `VerificationSession` accumulates declarations and
+  assumptions, then proves a goal valid (P valid iff ¬P is UNSAT). Three-valued
+  throughout: `SolverUnknown` never silently reads as a verdict.
+- **Equivalence** (`equivalence`) — bounded FOL↔SVA equivalence with
+  counterexample traces (`EquivalenceResult`, `Trace`, `CycleState`,
+  `SignalValue`).
+- **Consistency** (`consistency`) — joint satisfiability, MUS-style vacuity,
+  redundancy, and pairwise-conflict reporting over a labeled spec.
+- **Bounded model checking** — `verify_temporal` unrolls a transition relation
+  and checks a property at every state; `AtState`/`Transition` IR nodes.
+- **k-induction** (`kinduction`), **IC3/PDR** (`ic3`), **Craig interpolation**
+  (`interpolation`), **liveness-to-safety** (`liveness`),
+  **predicate abstraction + CEGAR** (`abstraction`),
+  **assume-guarantee** (`compositional`), **multiclock** scheduling
+  (`multiclock`), **parameterized** verification (`parameterized`),
+  **non-interference / taint** (`security`), **LTL→Büchi** (`automata`),
+  **reactive synthesis → SVA/Verilog** (`synthesis`).
+- **Tooling** — strategy auto-selection (`strategy`), SMT-LIB2 export
+  (`smtlib`), self-certifying proof certificates (`certificate`), result caching
+  (`incremental`), and type inference over the IR (`type_infer`).
 
 ## Public API
 
-```toml
-[dependencies]
-logicaffeine-verify = { path = "../logicaffeine_verify" }
+The IR (`ir`):
+
+- `VerifyType`: `Int`, `Bool`, `Object`, `BitVector(u32)`,
+  `Array(Box<VerifyType>, Box<VerifyType>)`, `Real`.
+- `VerifyOp` (13 arithmetic/comparison/logic ops) and `BitVecOp` (17 bitwise /
+  shift / arithmetic / comparison ops).
+- `VerifyExpr`: `Int`, `Bool`, `Var`, `Binary`, `Not`, `ForAll`/`Exists`,
+  `Apply` (predicate, `Int^n → Bool`), `ApplyInt` (term function, `Int^n → Int`),
+  `BitVecConst`/`BitVecBinary`/`BitVecExtract`/`BitVecConcat`, `AtState`/
+  `Transition` (BMC), `Select`/`Store` (arrays), `Iff`. Builders: `var`, `int`,
+  `bool`, `binary`, `not`, `apply`, `apply_int`, `forall`, `exists`,
+  `eq`/`neq`/`gt`/`lt`/`gte`/`lte`, `and`/`or`/`implies`, `bv_const`,
+  `bv_binary`, `iff`.
+
+Solvers (`solver`):
+
+```text
+let mut session = VerificationSession::new();
+session.declare("x", VerifyType::Int);                                   // (&mut self, &str, VerifyType)
+session.assume(&VerifyExpr::eq(VerifyExpr::var("x"), VerifyExpr::int(10)));
+session.verify(&VerifyExpr::gt(VerifyExpr::var("x"), VerifyExpr::int(5)))?; // -> VerificationResult
+
+session.check_sat()?;                          // -> Result<bool, VerificationError>  (three-valued)
+session.verify_with_binding(name, ty, value, predicate)?;  // refinement check, scoped binding
+session.verify_temporal(initial, transition, property, bound)?;  // BMC
 ```
 
-Re-exports from `lib.rs`:
+- `Verifier` — low-level single-shot checks with a 10 s Z3 timeout
+  (`check_bool`, `check_int_greater_than`, `check_int_less_than`,
+  `check_int_equals`, `context() -> VerificationContext`).
+- `rename_var_in_expr(expr, from, to)` — total textual substitution over every
+  IR variant.
 
-| Export | Description |
-|--------|-------------|
-| `VerificationError` | Error type with Socratic explanations |
-| `VerificationErrorKind` | Error kind enum |
-| `VerificationResult<T>` | `Result<T, VerificationError>` |
-| `VerifyExpr` | Verification IR expression |
-| `VerifyOp` | Binary operation enum |
-| `VerifyType` | Type declarations (Int, Bool, Object) |
-| `LicensePlan` | License tier enum |
-| `LicenseValidator` | License validation with caching |
-| `Verifier` | Low-level Z3 wrapper |
-| `VerificationSession` | High-level verification API |
+Top-level entry points:
 
-## Core Types
-
-### VerifyType
-
-| Variant | Z3 Sort | Description |
-|---------|---------|-------------|
-| `Int` | IntSort | 64-bit integers |
-| `Bool` | BoolSort | Boolean values |
-| `Object` | Uninterpreted | Domain entities |
-
-### VerifyOp
-
-| Variant | Category | Description |
-|---------|----------|-------------|
-| `Add`, `Sub`, `Mul`, `Div` | Arithmetic | Integer operations (Int -> Int) |
-| `Eq`, `Neq` | Equality | Equality comparison (any -> Bool) |
-| `Gt`, `Lt`, `Gte`, `Lte` | Comparison | Relational operators (Int -> Bool) |
-| `And`, `Or`, `Implies` | Logic | Boolean connectives (Bool -> Bool) |
-
-### VerifyExpr
-
-| Variant | Description |
-|---------|-------------|
-| `Int(i64)` | Integer literal |
-| `Bool(bool)` | Boolean literal |
-| `Var(String)` | Named variable reference |
-| `Binary { op, left, right }` | Binary operation |
-| `Not(Box<VerifyExpr>)` | Logical negation |
-| `ForAll { vars, body }` | Universal quantifier: forall x: T. P(x) |
-| `Exists { vars, body }` | Existential quantifier: exists x: T. P(x) |
-| `Apply { name, args }` | Uninterpreted function application |
-
-### VerifyExpr Builder Methods
-
-```rust
-// Literals
-VerifyExpr::var("x")      // Variable reference
-VerifyExpr::int(42)       // Integer literal
-VerifyExpr::bool(true)    // Boolean literal
-
-// Operations
-VerifyExpr::binary(op, left, right)  // Binary operation
-VerifyExpr::not(expr)                // Logical negation
-VerifyExpr::apply(name, args)        // Uninterpreted function
-
-// Quantifiers
-VerifyExpr::forall(vars, body)       // Universal: forall x. P(x)
-VerifyExpr::exists(vars, body)       // Existential: exists x. P(x)
-
-// Comparison shortcuts
-VerifyExpr::eq(left, right)          // left == right
-VerifyExpr::neq(left, right)         // left != right
-VerifyExpr::gt(left, right)          // left > right
-VerifyExpr::lt(left, right)          // left < right
-VerifyExpr::gte(left, right)         // left >= right
-VerifyExpr::lte(left, right)         // left <= right
-
-// Logic shortcuts
-VerifyExpr::and(left, right)         // left && right
-VerifyExpr::or(left, right)          // left || right
-VerifyExpr::implies(left, right)     // left -> right
+```text
+check_equivalence(fol: &VerifyExpr, sva: &VerifyExpr, signals: &[String], bound: usize) -> EquivalenceResult
+check_consistency(props: &[VerifyExpr], signals: &[String], bound: usize) -> ConsistencyResult
+check_spec_consistency(formulas: &[LabeledFormula], config: &ConsistencyConfig) -> ConsistencyReport
 ```
 
-## Modules
+Errors (`error`): `VerificationError`, `VerificationErrorKind`
+(`ContradictoryAssertion`, `BoundsViolation`, `RefinementViolation`,
+`License{Required,Invalid,InsufficientPlan}`, `SolverUnknown`, `SolverError`,
+`TerminationViolation`), `VerificationResult<T = ()>`, `CounterExample`.
 
-| Module | Purpose |
-|--------|---------|
-| `lib.rs` | Public API re-exports |
-| `ir.rs` | Intermediate representation (VerifyExpr, VerifyType, VerifyOp) |
-| `solver.rs` | Z3 wrapper (Verifier, VerificationSession) |
-| `license.rs` | Stripe license validation with caching |
-| `error.rs` | Error types with Socratic explanations |
+Licensing (`license`):
 
-## VerificationSession API
-
-| Method | Description |
-|--------|-------------|
-| `new()` | Create a new verification session |
-| `declare(name, ty)` | Declare a variable with a type |
-| `assume(expr)` | Add an assumption (constraint) |
-| `verify(expr)` | Verify an assertion is valid given assumptions |
-| `verify_with_binding(var, ty, value, pred)` | Verify with temporary variable binding |
-
-## Verifier (Low-Level API)
-
-| Method | Description |
-|--------|-------------|
-| `new()` | Create verifier with 10-second timeout |
-| `check_bool(value)` | Verify a boolean is always true |
-| `check_int_greater_than(value, bound)` | Verify value > bound |
-| `check_int_less_than(value, bound)` | Verify value < bound |
-| `check_int_equals(left, right)` | Verify left == right |
-| `context()` | Get a VerificationContext for complex proofs |
-
-## License Validation
-
-Verification is a premium feature gated by license.
-
-### LicensePlan
-
-| Plan | Can Verify |
-|------|------------|
-| `None` | No |
-| `Free` | No |
-| `Supporter` | No |
-| `Pro` | Yes |
-| `Premium` | Yes |
-| `Lifetime` | Yes |
-| `Enterprise` | Yes |
-
-### Validation Flow
-
-1. License key format: Stripe subscription ID (`sub_*`)
-2. Validation endpoint: `https://api.logicaffeine.com/validate`
-3. Request: `{ "licenseKey": "<key>" }`
-4. Response: `{ valid: bool, plan: Option<String>, error: Option<String> }`
-5. Results cached for 24 hours at `{cache_dir}/logos/verification_license.json`
-6. Stale cache used as fallback when network unavailable
-
-### LicenseValidator API
-
-| Method | Description |
-|--------|-------------|
-| `new()` | Create validator with default cache path |
-| `validate(key)` | Validate key, returns `VerificationResult<LicensePlan>` |
-
-## Error Types
-
-### VerificationErrorKind
-
-| Kind | Description |
-|------|-------------|
-| `ContradictoryAssertion` | Assertion can never be true |
-| `BoundsViolation { var, expected, found }` | Variable violates declared bounds |
-| `RefinementViolation { type_name }` | Value doesn't satisfy refinement type |
-| `LicenseRequired` | No license key provided |
-| `LicenseInvalid { reason }` | Invalid license key format or expired |
-| `LicenseInsufficientPlan { current }` | Plan doesn't include verification |
-| `SolverUnknown` | Z3 timeout or undecidable |
-| `SolverError { message }` | Internal Z3 error |
-| `TerminationViolation { variant, reason }` | Loop termination cannot be proven |
-
-### VerificationError Factory Methods
-
-```rust
-VerificationError::license_required()
-VerificationError::license_invalid(reason)
-VerificationError::insufficient_plan(current)
-VerificationError::contradiction(explanation, counterexample)
-VerificationError::bounds_violation(var, expected, found)
-VerificationError::refinement_violation(type_name, explanation)
-VerificationError::solver_unknown()
-VerificationError::solver_error(message)
-VerificationError::termination_violation(variant, reason)
-
-// Builder method
-error.with_span(start, end)
+```text
+let validator = LicenseValidator::new();
+let plan: LicensePlan = validator.validate("sub_…")?;   // -> VerificationResult<LicensePlan>
+if plan.can_verify() { /* Pro, Premium, Lifetime, Enterprise */ }
 ```
 
-### CounterExample
+## Build & licensing
 
-```rust
-pub struct CounterExample {
-    pub assignments: Vec<(String, String)>,
-}
-```
-
-Shows variable assignments that make an assertion false.
-
-## Dependencies
-
-| Crate | Purpose |
-|-------|---------|
-| `z3` | SMT solver bindings |
-| `serde` | Serialization for license cache |
-| `serde_json` | JSON encoding for cache files |
-| `ureq` | HTTP client for license API |
-| `dirs` | Cross-platform cache directory |
-
-## Z3 Setup
-
-### macOS (Homebrew)
+The `z3` bindings need a Z3 toolchain installed at build time:
 
 ```bash
-brew install z3
+# Linux
+sudo apt install z3 libz3-dev
+export Z3_SYS_Z3_HEADER=/usr/include/z3.h
 
-# Set environment variables for building
+# macOS
+brew install z3
 export Z3_SYS_Z3_HEADER=/opt/homebrew/include/z3.h
 export BINDGEN_EXTRA_CLANG_ARGS="-I/opt/homebrew/include"
 export LIBRARY_PATH="/opt/homebrew/lib"
-```
 
-### Linux (apt)
-
-```bash
-sudo apt install z3 libz3-dev
-```
-
-### Building
-
-```bash
 cargo build -p logicaffeine-verify
 ```
 
+Verification is license-gated. Keys are Stripe subscription IDs (`sub_` prefix).
+`LicenseValidator::validate` (1) rejects malformed keys, (2) returns a fresh
+cached result (< 24 h) when available, (3) otherwise POSTs
+`{ "licenseKey": "<key>" }` to `https://api.logicaffeine.com/validate`, and
+(4) falls back to stale cache when the network is down. Results cache at
+`{cache_dir}/logos/verification_license.json`. Only `Pro`, `Premium`,
+`Lifetime`, and `Enterprise` return `can_verify() == true`.
+
+## Feature flags
+
+| Feature | Effect |
+|---------|--------|
+| `static-link-z3` | Build Z3 from the source vendored in z3-sys and link it statically — the substrate of the release `largo-full` binaries (needs cmake + a C++ toolchain + libclang). Default stays dynamic against the system libz3. |
+
+## Dependencies
+
+- `z3` 0.12 — the SMT solver bindings (the only heavyweight dependency, and the
+  reason for the default-members exclusion).
+- `serde` / `serde_json` — license-cache (de)serialization.
+- `ureq` — HTTP client for license validation.
+- `dirs` — locating the system cache directory.
+
+No internal workspace dependencies — the Tarski invariant keeps this crate
+standalone. The version is lockstep with the workspace.
+
 ## License
 
-BUSL-1.1
+Business Source License 1.1 — see [LICENSE.md](https://github.com/Brahmastra-Labs/logicaffeine/blob/main/LICENSE.md).
+
+---
+[Docs index](https://github.com/Brahmastra-Labs/logicaffeine/blob/main/docs/README.md) · [Root README](https://github.com/Brahmastra-Labs/logicaffeine/blob/main/README.md) · [Changelog](https://github.com/Brahmastra-Labs/logicaffeine/blob/main/CHANGELOG.md)

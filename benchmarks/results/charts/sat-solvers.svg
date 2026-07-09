@@ -1,0 +1,123 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="880" height="707" viewBox="0 0 880 707" role="img" aria-label="LOGOS SAT/proof solving vs Z3, Kissat, SaDiCaL">
+<title>LOGOS SAT/proof solving vs Z3, Kissat, SaDiCaL</title>
+<defs><linearGradient id="g0" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#0a1224"/><stop offset="1" stop-color="#05070e"/></linearGradient><pattern id="to" patternUnits="userSpaceOnUse" width="7" height="7" patternTransform="rotate(45)"><rect width="7" height="7" fill="#ffffff" opacity="0.10"/><line x1="0" y1="0" x2="0" y2="7" stroke="#ffffff" stroke-width="2.2" opacity="0.5"/></pattern><linearGradient id="g1" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="#00d4ff"/><stop offset="1" stop-color="#05070e"/></linearGradient><linearGradient id="g2" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="#6be6ff"/><stop offset="1" stop-color="#00d4ff"/></linearGradient><linearGradient id="g3" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="#cbbbfc"/><stop offset="1" stop-color="#a78bfa"/></linearGradient><linearGradient id="g4" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="#fcbf8d"/><stop offset="1" stop-color="#fb923c"/></linearGradient><linearGradient id="g5" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="#c4cbd5"/><stop offset="1" stop-color="#9aa6b8"/></linearGradient></defs>
+<rect x="0" y="0" width="880" height="707" rx="16" fill="url(#g0)"/>
+<rect x="1" y="1" width="878" height="705" rx="16" fill="none" stroke="rgba(255,255,255,0.05)"/>
+<rect x="0" y="0" width="880" height="3.5" fill="url(#g1)"/>
+<text x="40.0" y="20.0" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="10" fill="#00d4ff" text-anchor="start" font-weight="700" letter-spacing="2">CERTIFIED · BROWSER-IDENTICAL</text>
+<rect x="24.0" y="30.0" width="6.0" height="19.0" rx="3.0" fill="url(#g2)"/>
+<text x="40.0" y="45.0" font-family="ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, sans-serif" font-size="19" fill="#eef2f8" text-anchor="start" font-weight="800">SAT &amp; proof solving — vs Z3, Kissat, SaDiCaL</text>
+<text x="40.0" y="64.0" font-family="ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, sans-serif" font-size="12.5" fill="#93a4bd" text-anchor="start">Structural UNSAT, decided &amp; certified in microseconds where resolution solvers hit the wall. Log scale.</text>
+<rect x="545.0" y="12.0" width="11.0" height="11.0" rx="3.0" fill="url(#g2)"/>
+<text x="561.0" y="21.0" font-family="ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, sans-serif" font-size="11.5" fill="#eef2f8" text-anchor="start">LOGOS</text>
+<rect x="607.0" y="12.0" width="11.0" height="11.0" rx="3.0" fill="url(#g3)"/>
+<text x="623.0" y="21.0" font-family="ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, sans-serif" font-size="11.5" fill="#eef2f8" text-anchor="start">Z3</text>
+<rect x="646.2" y="12.0" width="11.0" height="11.0" rx="3.0" fill="url(#g4)"/>
+<text x="662.2" y="21.0" font-family="ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, sans-serif" font-size="11.5" fill="#eef2f8" text-anchor="start">Kissat</text>
+<rect x="715.8" y="12.0" width="11.0" height="11.0" rx="3.0" fill="url(#g5)"/>
+<text x="731.8" y="21.0" font-family="ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, sans-serif" font-size="11.5" fill="#eef2f8" text-anchor="start">SaDiCaL</text>
+<text x="250.0" y="74.0" font-family="ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, sans-serif" font-size="10" fill="#5b6b86" text-anchor="start">← faster</text>
+<text x="838.0" y="74.0" font-family="ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, sans-serif" font-size="10" fill="#5b6b86" text-anchor="end">slower / timeout →</text>
+<line x1="275.0" y1="80.0" x2="275.0" y2="663.0" stroke="rgba(255,255,255,0.07)" stroke-width="1" stroke-dasharray="2,5"/>
+<text x="275.0" y="678.0" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="10.5" fill="#5b6b86" text-anchor="middle">10µs</text>
+<line x1="441.1" y1="80.0" x2="441.1" y2="663.0" stroke="rgba(255,255,255,0.07)" stroke-width="1" stroke-dasharray="2,5"/>
+<text x="441.1" y="678.0" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="10.5" fill="#5b6b86" text-anchor="middle">1ms</text>
+<line x1="607.2" y1="80.0" x2="607.2" y2="663.0" stroke="rgba(255,255,255,0.07)" stroke-width="1" stroke-dasharray="2,5"/>
+<text x="607.2" y="678.0" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="10.5" fill="#5b6b86" text-anchor="middle">100ms</text>
+<line x1="773.4" y1="80.0" x2="773.4" y2="663.0" stroke="rgba(255,255,255,0.07)" stroke-width="1" stroke-dasharray="2,5"/>
+<text x="773.4" y="678.0" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="10.5" fill="#5b6b86" text-anchor="middle">10s</text>
+<text x="22.0" y="115.5" font-family="ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, sans-serif" font-size="13" fill="#eef2f8" text-anchor="start" font-weight="700">Tseitin parity</text>
+<text x="22.0" y="131.5" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11" fill="#93a4bd" text-anchor="start">n = 110</text>
+<text x="238.0" y="126.5" font-family="ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, sans-serif" font-size="10" fill="#5b6b86" text-anchor="end">GF(2) Gaussian</text>
+<rect x="250.0" y="96.0" width="46.1" height="11.0" rx="3.0" fill="url(#g2)"/>
+<text x="302.1" y="105.5" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="10.5" fill="#00d4ff" text-anchor="start" font-weight="600">18µs</text>
+<rect x="250.0" y="110.0" width="523.4" height="11.0" rx="3.0" fill="url(#to)"/>
+<rect x="250.0" y="110.0" width="523.4" height="11.0" rx="3.0" fill="none" stroke="#a78bfa" stroke-width="1.3"/>
+<text x="767.4" y="119.5" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="10.5" fill="#eef2f8" text-anchor="end" font-weight="700">timeout • 10.01s</text>
+<rect x="250.0" y="124.0" width="538.0" height="11.0" rx="3.0" fill="url(#to)"/>
+<rect x="250.0" y="124.0" width="538.0" height="11.0" rx="3.0" fill="none" stroke="#fb923c" stroke-width="1.3"/>
+<text x="782.0" y="133.5" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="10.5" fill="#eef2f8" text-anchor="end" font-weight="700">timeout • 15.00s</text>
+<rect x="250.0" y="138.0" width="529.4" height="11.0" rx="3.0" fill="url(#g5)"/>
+<text x="785.4" y="147.5" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="10.5" fill="#9aa6b8" text-anchor="start" font-weight="600">11.83s</text>
+<text x="22.0" y="194.5" font-family="ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, sans-serif" font-size="13" fill="#eef2f8" text-anchor="start" font-weight="700">Mod-3 Tseitin</text>
+<text x="22.0" y="210.5" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11" fill="#93a4bd" text-anchor="start">n = 50</text>
+<text x="238.0" y="205.5" font-family="ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, sans-serif" font-size="10" fill="#5b6b86" text-anchor="end">GF(3) Gaussian</text>
+<rect x="250.0" y="175.0" width="111.5" height="11.0" rx="3.0" fill="url(#g2)"/>
+<text x="367.5" y="184.5" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="10.5" fill="#00d4ff" text-anchor="start" font-weight="600">110µs</text>
+<rect x="250.0" y="189.0" width="523.4" height="11.0" rx="3.0" fill="url(#to)"/>
+<rect x="250.0" y="189.0" width="523.4" height="11.0" rx="3.0" fill="none" stroke="#a78bfa" stroke-width="1.3"/>
+<text x="767.4" y="198.5" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="10.5" fill="#eef2f8" text-anchor="end" font-weight="700">timeout • 10.01s</text>
+<rect x="250.0" y="203.0" width="521.5" height="11.0" rx="3.0" fill="url(#g4)"/>
+<text x="777.5" y="212.5" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="10.5" fill="#fb923c" text-anchor="start" font-weight="600">9.49s</text>
+<rect x="250.0" y="217.0" width="544.6" height="11.0" rx="3.0" fill="url(#to)"/>
+<rect x="250.0" y="217.0" width="544.6" height="11.0" rx="3.0" fill="none" stroke="#9aa6b8" stroke-width="1.3"/>
+<text x="788.6" y="226.5" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="10.5" fill="#eef2f8" text-anchor="end" font-weight="700">timeout • 18.00s</text>
+<text x="22.0" y="273.5" font-family="ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, sans-serif" font-size="13" fill="#eef2f8" text-anchor="start" font-weight="700">Mod-5 Tseitin</text>
+<text x="22.0" y="289.5" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11" fill="#93a4bd" text-anchor="start">n = 40</text>
+<text x="238.0" y="284.5" font-family="ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, sans-serif" font-size="10" fill="#5b6b86" text-anchor="end">GF(5) Gaussian</text>
+<rect x="250.0" y="254.0" width="95.3" height="11.0" rx="3.0" fill="url(#g2)"/>
+<text x="351.3" y="263.5" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="10.5" fill="#00d4ff" text-anchor="start" font-weight="600">70µs</text>
+<rect x="250.0" y="268.0" width="523.4" height="11.0" rx="3.0" fill="url(#to)"/>
+<rect x="250.0" y="268.0" width="523.4" height="11.0" rx="3.0" fill="none" stroke="#a78bfa" stroke-width="1.3"/>
+<text x="767.4" y="277.5" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="10.5" fill="#eef2f8" text-anchor="end" font-weight="700">timeout • 10.01s</text>
+<rect x="250.0" y="282.0" width="538.0" height="11.0" rx="3.0" fill="url(#to)"/>
+<rect x="250.0" y="282.0" width="538.0" height="11.0" rx="3.0" fill="none" stroke="#fb923c" stroke-width="1.3"/>
+<text x="782.0" y="291.5" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="10.5" fill="#eef2f8" text-anchor="end" font-weight="700">timeout • 15.00s</text>
+<rect x="250.0" y="296.0" width="544.6" height="11.0" rx="3.0" fill="url(#to)"/>
+<rect x="250.0" y="296.0" width="544.6" height="11.0" rx="3.0" fill="none" stroke="#9aa6b8" stroke-width="1.3"/>
+<text x="788.6" y="305.5" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="10.5" fill="#eef2f8" text-anchor="end" font-weight="700">timeout • 18.00s</text>
+<text x="22.0" y="352.5" font-family="ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, sans-serif" font-size="13" fill="#eef2f8" text-anchor="start" font-weight="700">Mod-7 Tseitin</text>
+<text x="22.0" y="368.5" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11" fill="#93a4bd" text-anchor="start">n = 40</text>
+<text x="238.0" y="363.5" font-family="ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, sans-serif" font-size="10" fill="#5b6b86" text-anchor="end">GF(7) Gaussian</text>
+<rect x="250.0" y="333.0" width="92.8" height="11.0" rx="3.0" fill="url(#g2)"/>
+<text x="348.8" y="342.5" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="10.5" fill="#00d4ff" text-anchor="start" font-weight="600">65µs</text>
+<rect x="250.0" y="347.0" width="523.5" height="11.0" rx="3.0" fill="url(#to)"/>
+<rect x="250.0" y="347.0" width="523.5" height="11.0" rx="3.0" fill="none" stroke="#a78bfa" stroke-width="1.3"/>
+<text x="767.5" y="356.5" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="10.5" fill="#eef2f8" text-anchor="end" font-weight="700">timeout • 10.03s</text>
+<rect x="250.0" y="361.0" width="538.0" height="11.0" rx="3.0" fill="url(#to)"/>
+<rect x="250.0" y="361.0" width="538.0" height="11.0" rx="3.0" fill="none" stroke="#fb923c" stroke-width="1.3"/>
+<text x="782.0" y="370.5" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="10.5" fill="#eef2f8" text-anchor="end" font-weight="700">timeout • 15.00s</text>
+<rect x="250.0" y="375.0" width="544.6" height="11.0" rx="3.0" fill="url(#to)"/>
+<rect x="250.0" y="375.0" width="544.6" height="11.0" rx="3.0" fill="none" stroke="#9aa6b8" stroke-width="1.3"/>
+<text x="788.6" y="384.5" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="10.5" fill="#eef2f8" text-anchor="end" font-weight="700">timeout • 18.00s</text>
+<text x="22.0" y="431.5" font-family="ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, sans-serif" font-size="13" fill="#eef2f8" text-anchor="start" font-weight="700">Mutilated board</text>
+<text x="22.0" y="447.5" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11" fill="#93a4bd" text-anchor="start">n = 18</text>
+<text x="238.0" y="442.5" font-family="ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, sans-serif" font-size="10" fill="#5b6b86" text-anchor="end">Hall witness</text>
+<rect x="250.0" y="412.0" width="137.3" height="11.0" rx="3.0" fill="url(#g2)"/>
+<text x="393.3" y="421.5" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="10.5" fill="#00d4ff" text-anchor="start" font-weight="600">225µs</text>
+<rect x="250.0" y="426.0" width="523.4" height="11.0" rx="3.0" fill="url(#to)"/>
+<rect x="250.0" y="426.0" width="523.4" height="11.0" rx="3.0" fill="none" stroke="#a78bfa" stroke-width="1.3"/>
+<text x="767.4" y="435.5" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="10.5" fill="#eef2f8" text-anchor="end" font-weight="700">timeout • 10.01s</text>
+<rect x="250.0" y="440.0" width="538.0" height="11.0" rx="3.0" fill="url(#to)"/>
+<rect x="250.0" y="440.0" width="538.0" height="11.0" rx="3.0" fill="none" stroke="#fb923c" stroke-width="1.3"/>
+<text x="782.0" y="449.5" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="10.5" fill="#eef2f8" text-anchor="end" font-weight="700">timeout • 15.00s</text>
+<rect x="250.0" y="454.0" width="577.6" height="11.0" rx="3.0" fill="url(#to)"/>
+<rect x="250.0" y="454.0" width="577.6" height="11.0" rx="3.0" fill="none" stroke="#9aa6b8" stroke-width="1.3"/>
+<text x="821.6" y="463.5" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="10.5" fill="#eef2f8" text-anchor="end" font-weight="700">timeout • 45.00s</text>
+<text x="22.0" y="510.5" font-family="ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, sans-serif" font-size="13" fill="#eef2f8" text-anchor="start" font-weight="700">Pigeonhole PHP</text>
+<text x="22.0" y="526.5" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11" fill="#93a4bd" text-anchor="start">n = 40</text>
+<text x="238.0" y="521.5" font-family="ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, sans-serif" font-size="10" fill="#5b6b86" text-anchor="end">certified SR proof</text>
+<rect x="250.0" y="491.0" width="452.2" height="11.0" rx="3.0" fill="url(#g2)"/>
+<text x="708.2" y="500.5" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="10.5" fill="#00d4ff" text-anchor="start" font-weight="600">1.39s</text>
+<rect x="250.0" y="505.0" width="523.5" height="11.0" rx="3.0" fill="url(#to)"/>
+<rect x="250.0" y="505.0" width="523.5" height="11.0" rx="3.0" fill="none" stroke="#a78bfa" stroke-width="1.3"/>
+<text x="767.5" y="514.5" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="10.5" fill="#eef2f8" text-anchor="end" font-weight="700">timeout • 10.04s</text>
+<rect x="250.0" y="519.0" width="538.0" height="11.0" rx="3.0" fill="url(#to)"/>
+<rect x="250.0" y="519.0" width="538.0" height="11.0" rx="3.0" fill="none" stroke="#fb923c" stroke-width="1.3"/>
+<text x="782.0" y="528.5" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="10.5" fill="#eef2f8" text-anchor="end" font-weight="700">timeout • 15.00s</text>
+<rect x="250.0" y="533.0" width="507.9" height="11.0" rx="3.0" fill="url(#g5)"/>
+<text x="763.9" y="542.5" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="10.5" fill="#9aa6b8" text-anchor="start" font-weight="600">6.50s</text>
+<text x="22.0" y="589.5" font-family="ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, sans-serif" font-size="13" fill="#eef2f8" text-anchor="start" font-weight="700">Random 3-SAT</text>
+<text x="22.0" y="605.5" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11" fill="#93a4bd" text-anchor="start">n = 160</text>
+<text x="238.0" y="600.5" font-family="ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, sans-serif" font-size="10" fill="#5b6b86" text-anchor="end">CDCL — control</text>
+<rect x="250.0" y="570.0" width="320.3" height="11.0" rx="3.0" fill="url(#g2)"/>
+<text x="576.3" y="579.5" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="10.5" fill="#00d4ff" text-anchor="start" font-weight="600">35.9ms</text>
+<rect x="250.0" y="584.0" width="325.7" height="11.0" rx="3.0" fill="url(#g3)"/>
+<text x="581.7" y="593.5" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="10.5" fill="#a78bfa" text-anchor="start" font-weight="600">41.7ms</text>
+<rect x="250.0" y="598.0" width="340.5" height="11.0" rx="3.0" fill="url(#g4)"/>
+<text x="596.5" y="607.5" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="10.5" fill="#fb923c" text-anchor="start" font-weight="600">62.9ms</text>
+<rect x="250.0" y="612.0" width="577.6" height="11.0" rx="3.0" fill="url(#to)"/>
+<rect x="250.0" y="612.0" width="577.6" height="11.0" rx="3.0" fill="none" stroke="#9aa6b8" stroke-width="1.3"/>
+<text x="821.6" y="621.5" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="10.5" fill="#eef2f8" text-anchor="end" font-weight="700">timeout • 45.00s</text>
+<text x="24.0" y="693.0" font-family="ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, sans-serif" font-size="9.5" fill="#5b6b86" text-anchor="start">Measured: wall-clock time to solve + certify (log scale, shorter = faster). i9-14900K · LOGOS = median of 5 runs · Z3 10s / Kissat 15s / SaDiCaL 45s timeouts.</text>
+</svg>

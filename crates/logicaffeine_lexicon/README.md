@@ -1,303 +1,93 @@
 # logicaffeine-lexicon
 
-Linguistic type definitions and vocabulary management for the Logicaffeine English-to-First-Order-Logic transpiler.
+English vocabulary types plus compile-time and runtime lexicon lookup for the Logicaffeine English-to-First-Order-Logic transpiler. It defines the linguistic type system that lexicon lookups return, and optionally embeds and parses the lexicon JSON at runtime.
 
-Part of the [Logicaffeine](https://logicaffeine.com) project.
+Part of the [Logicaffeine](https://github.com/Brahmastra-Labs/logicaffeine/blob/main/README.md) workspace. Tier 1 — depends on logicaffeine_base. Consumed by logicaffeine_language.
 
-## Overview
+## Role in the workspace
 
-This crate provides:
+This crate is the vocabulary substrate for the Logic-mode pipeline (see [logic-mode.md](https://github.com/Brahmastra-Labs/logicaffeine/blob/main/docs/logic-mode.md)). In the default (compile-time) mode, `logicaffeine-language` generates Rust code from `crates/logicaffeine_language/assets/lexicon.json` at build time; the generated `lookup_verb`/`lookup_noun`/… functions hand back the `&'static` metadata structs declared here, so lookups carry zero parsing cost. The optional runtime mode parses that same JSON in-process for faster lexicon edit-compile cycles.
 
-- **Type definitions** for linguistic categories (verb classes, semantic sorts, grammatical features)
-- **Metadata structures** for zero-copy lexicon lookups
-- **Optional runtime lexicon** for development iteration (via `dynamic-lexicon` feature)
+## Public API
 
-## Quick Start
+All `types` items are re-exported at the crate root.
+
+Grammatical enums (all `Copy`): `Time` (Past/Present/Future/None), `Aspect` (Simple/Progressive/Perfect), `Number` (Singular/Plural), `Gender` (Male/Female/Neuter/Unknown), `Case` (Subject/Object/Possessive), `Definiteness` (Definite/Indefinite/Proximal/Distal), `Polarity` (Positive/Negative).
+
+`VerbClass` — Vendler's Aktionsart, 5 variants (`State`, `Activity` (`#[default]`), `Accomplishment`, `Achievement`, `Semelfactive`):
+
+```text
+pub fn is_stative(&self) -> bool;   // State only
+pub fn is_durative(&self) -> bool;  // State | Activity | Accomplishment
+pub fn is_telic(&self) -> bool;     // Accomplishment | Achievement
+```
+
+`Sort` — a 14-member semantic hierarchy (`Entity`, `Physical`, `Animate`, `Human`, `Plant`, `Place`, `Time`, `Abstract`, `Information`, `Event`, `Celestial`, `Value`, `Signal`, `Group`):
+
+```text
+pub fn is_compatible_with(self, other: Sort) -> bool;  // subsumption: Human/Plant ⊆ Animate ⊆ Physical ⊆ Entity; * ⊆ Entity
+pub fn is_occasion(self) -> bool;                      // soft-typed occurrences; true only for Event
+```
+
+`Feature` — 34 lexical features spanning verb transitivity (Transitive, Intransitive, Ditransitive), control theory (SubjectControl, ObjectControl, Raising), semantics (Opaque, Factive, Performative, Collective, Mixed, Distributive, Weather, Unaccusative, IntensionalPredicate, Resultative, Perception, Relevance), nouns (Count, Mass, Proper), gender (Masculine, Feminine, Neuter), animacy (Animate, Inanimate), and adjectives (Intersective, NonIntersective, Subsective, Gradable, EventModifier, Relational, Vague, Decreasing):
+
+```text
+pub fn from_str(s: &str) -> Option<Feature>;  // case-sensitive, by variant name
+```
+
+Lookup payloads — zero-copy `Copy` structs holding `&'static str` lemmas and `&'static [Feature]`:
+
+```text
+pub struct VerbMetadata { pub lemma: &'static str, pub class: VerbClass, pub time: Time, pub aspect: Aspect, pub features: &'static [Feature] }
+pub struct NounMetadata { pub lemma: &'static str, pub number: Number, pub features: &'static [Feature] }
+pub struct AdjectiveMetadata { pub lemma: &'static str, pub features: &'static [Feature] }
+```
+
+`VerbEntry` (in `types`) is the *owned* result of an inflected-form lookup (`lemma: String`, `time`, `aspect`, `class`). `CanonicalMapping` (synonym/antonym → `lemma` + `polarity`) and `MorphologicalRule` (`suffix` → `produces` category) round out the set.
 
 ```rust
 use logicaffeine_lexicon::{VerbClass, Feature, Sort};
 
-// Check verb aspectual properties (Vendler classification)
-let class = VerbClass::Activity;
-assert!(!class.is_stative());  // Activities are dynamic
-assert!(class.is_durative());   // Activities have duration
-assert!(!class.is_telic());     // Activities have no inherent endpoint
-
-// Parse features from strings
-let feature = Feature::from_str("Transitive");
-assert_eq!(feature, Some(Feature::Transitive));
-
-// Check semantic sort compatibility (subsumption hierarchy)
-assert!(Sort::Human.is_compatible_with(Sort::Animate));  // Human ⊆ Animate
-assert!(Sort::Human.is_compatible_with(Sort::Entity));   // Everything ⊆ Entity
-assert!(!Sort::Animate.is_compatible_with(Sort::Human)); // Not vice versa
-```
-
-## Core Types
-
-### Grammatical Enumerations
-
-| Type | Variants | Description |
-|------|----------|-------------|
-| `Time` | `Past`, `Present`, `Future`, `None` | Temporal reference for verb tense |
-| `Aspect` | `Simple`, `Progressive`, `Perfect` | Viewpoint aspect (grammatical) |
-| `Number` | `Singular`, `Plural` | Grammatical number |
-| `Gender` | `Male`, `Female`, `Neuter`, `Unknown` | Grammatical gender |
-| `Case` | `Subject`, `Object`, `Possessive` | Grammatical case (pronouns) |
-| `Definiteness` | `Definite`, `Indefinite`, `Proximal`, `Distal` | Article/demonstrative definiteness |
-| `Polarity` | `Positive`, `Negative` | For synonym/antonym canonical mappings |
-
-### VerbClass (Vendler Classification)
-
-Vendler's lexical aspect classes (Aktionsart) determine how verbs interact with temporal adverbials and aspect markers.
-
-| Class | Static | Durative | Telic | Examples |
-|-------|--------|----------|-------|----------|
-| `State` | + | + | - | know, love, exist |
-| `Activity` | - | + | - | run, swim, drive |
-| `Accomplishment` | - | + | + | build, draw, write |
-| `Achievement` | - | - | + | win, find, die |
-| `Semelfactive` | - | - | - | knock, cough, blink |
-
-```rust
-use logicaffeine_lexicon::VerbClass;
-
 let class = VerbClass::Accomplishment;
-assert!(!class.is_stative());  // Dynamic (involves change)
-assert!(class.is_durative());   // Takes time to complete
-assert!(class.is_telic());      // Has an inherent endpoint
-```
-
-### Sort (Semantic Type Hierarchy)
-
-Sorts provide semantic type checking. A `Human` can fill an `Animate` slot, but not vice versa.
-
-```
-                Entity
-               /      \
-          Physical    Abstract
-         /       \         \
-     Animate    Place    Information
-    /      \
-Human    Plant           Event
-
-(Also: Time, Celestial, Value, Group)
-```
-
-Compatibility follows subsumption:
-- `Human ⊆ Animate ⊆ Physical ⊆ Entity`
-- `Plant ⊆ Animate ⊆ Physical ⊆ Entity`
-- Everything ⊆ `Entity`
-
-```rust
-use logicaffeine_lexicon::Sort;
-
-// Human can be used where Animate is expected
+assert!(!class.is_stative() && class.is_durative() && class.is_telic());
+assert_eq!(Feature::from_str("Transitive"), Some(Feature::Transitive));
 assert!(Sort::Human.is_compatible_with(Sort::Animate));
-
-// But Animate cannot be used where Human is expected
 assert!(!Sort::Animate.is_compatible_with(Sort::Human));
 ```
 
-### Feature (27 Variants)
+### Runtime module (feature `dynamic-lexicon`)
 
-Lexical features encode grammatical and semantic properties of words.
+`LexiconIndex::new()` / `Default` parses the embedded JSON once into its own serde types — `LexiconData`, `NounEntry`, `VerbEntry`, `AdjectiveEntry`. These are deliberately distinct from the compile-time `types`; in particular `runtime::VerbEntry` (owned serde struct) and `types::VerbEntry` (owned lookup result) are different types sharing a name. Feature/sort/class matching is case-insensitive.
 
-**Transitivity**
-- `Transitive` — requires direct object: "see", "hit"
-- `Intransitive` — no object: "sleep", "arrive"
-- `Ditransitive` — two objects: "give", "tell"
+Query methods returning `Vec<&Entry>`: `proper_nouns`, `common_nouns`, `nouns_with_feature`, `nouns_with_sort`, `verbs_with_feature`, `verbs_with_class`, `intransitive_verbs`, `transitive_verbs` (Transitive ∪ Ditransitive), `adjectives_with_feature`, `intersective_adjectives`. Each has a matching `random_*` picker taking `&mut impl rand::Rng` and returning `Option<&Entry>`.
 
-**Control Theory**
-- `SubjectControl` — subject controls embedded PRO: "promise", "try"
-- `ObjectControl` — object controls embedded PRO: "persuade", "force"
-- `Raising` — no theta-role to surface subject: "seem", "appear"
-
-**Semantic**
-- `Opaque` — intensional context: "believe", "want"
-- `Factive` — presupposes complement truth: "know", "regret"
-- `Performative` — uttering performs the action: "promise", "declare"
-- `Collective` — requires group subject: "gather", "meet"
-- `Mixed` — collective or distributive: "lift", "carry"
-- `Distributive` — applies to each individual: "sleep", "smile"
-- `Weather` — impersonal, expletive subject: "rain", "snow"
-- `Unaccusative` — subject is underlying theme: "arrive", "melt"
-- `IntensionalPredicate` — operates on intensions: "believe", "hope"
-
-**Noun**
-- `Count` — individuated, takes numerals: "cat", "idea"
-- `Mass` — requires measure phrases: "water", "rice"
-- `Proper` — rigid designator: "Socrates", "Paris"
-
-**Gender**
-- `Masculine`, `Feminine`, `Neuter`
-
-**Animacy**
-- `Animate` — capable of self-initiated action
-- `Inanimate` — not sentient
-
-**Adjective**
-- `Intersective` — set intersection: "red ball" = red ∧ ball
-- `NonIntersective` — not intersection: "fake gun" ≠ fake ∧ gun
-- `Subsective` — relative to comparison class: "skillful surgeon"
-- `Gradable` — supports degree: "tall", "expensive"
-- `EventModifier` — modifies events: "careful", "deliberate"
-
-### Metadata Structs
-
-These structs provide zero-copy access to lexicon data:
-
-```rust
-use logicaffeine_lexicon::{VerbMetadata, VerbClass, Feature, Time, Aspect};
-
-// Returned from compile-time generated lookup functions
-let verb: VerbMetadata = VerbMetadata {
-    lemma: "give",
-    class: VerbClass::Achievement,
-    time: Time::None,
-    aspect: Aspect::Simple,
-    features: &[Feature::Ditransitive],
-};
-```
-
-| Struct | Fields |
-|--------|--------|
-| `VerbMetadata` | `lemma`, `class`, `time`, `aspect`, `features` |
-| `NounMetadata` | `lemma`, `number`, `features` |
-| `AdjectiveMetadata` | `lemma`, `features` |
-| `VerbEntry` | Owned version for irregular verb lookups |
-| `CanonicalMapping` | For synonym/antonym normalization |
-| `MorphologicalRule` | Derivational morphology patterns |
-
-## Features
-
-| Feature | Description |
-|---------|-------------|
-| (default) | Type definitions only, no dependencies beyond `logicaffeine-base` |
-| `dynamic-lexicon` | Runtime JSON loading, queries, morphology functions |
-
-```toml
-# Types only (for compile-time codegen)
-[dependencies]
-logicaffeine-lexicon = "0.6"
-
-# With runtime lexicon (for development)
-[dependencies]
-logicaffeine-lexicon = { version = "0.6", features = ["dynamic-lexicon"] }
-```
-
-## Runtime Lexicon (Optional)
-
-With the `dynamic-lexicon` feature, you get:
-
-### LexiconIndex
+Free morphology functions check the entry's irregular `forms` map first, then fall back to regular rules: `pluralize` (box→boxes, city→cities), `present_3s` (go→goes), `past_tense` (love→loved, carry→carried), `gerund` (make→making; no consonant doubling — supply an irregular form for verbs like "run").
 
 ```rust
 use logicaffeine_lexicon::runtime::LexiconIndex;
 
-let lexicon = LexiconIndex::new();
-
-// Query by feature
-let transitive = lexicon.verbs_with_feature("Transitive");
-let animate = lexicon.nouns_with_feature("Animate");
-
-// Query by category
-let proper_nouns = lexicon.proper_nouns();
-let common_nouns = lexicon.common_nouns();
-let state_verbs = lexicon.verbs_with_class("State");
-
-// Random selection (useful for testing/generation)
-let mut rng = rand::thread_rng();
-let random_verb = lexicon.random_transitive_verb(&mut rng);
+let lex = LexiconIndex::new();
+let transitive = lex.transitive_verbs();
+let proper = lex.proper_nouns();
+let states = lex.verbs_with_class("State");
 ```
 
-### Morphological Functions
+## Feature flags
 
-```rust
-use logicaffeine_lexicon::runtime::{NounEntry, VerbEntry, pluralize, present_3s, past_tense, gerund};
-use std::collections::HashMap;
+| Feature | Default | Gates |
+|---------|---------|-------|
+| (none) | ✓ | Type definitions only. No runtime parsing, no extra dependencies. |
+| `dynamic-lexicon` | | Enables the `runtime` module: pulls in `serde`, `serde_json`, `rand` and embeds `lexicon.json` via `include_str!`, parsing it at runtime. docs.rs builds with this on. |
 
-// Regular pluralization
-let dog = NounEntry {
-    lemma: "dog".to_string(),
-    forms: HashMap::new(),
-    features: vec![],
-    sort: None,
-};
-assert_eq!(pluralize(&dog), "dogs");
+## Dependencies
 
-// Irregular forms (via forms map)
-let mouse = NounEntry {
-    lemma: "mouse".to_string(),
-    forms: [("plural".to_string(), "mice".to_string())].into(),
-    features: vec![],
-    sort: None,
-};
-assert_eq!(pluralize(&mouse), "mice");
+Internal: `logicaffeine-base`.
 
-// Verb conjugation
-let walk = VerbEntry {
-    lemma: "walk".to_string(),
-    class: "Activity".to_string(),
-    forms: HashMap::new(),
-    features: vec![],
-};
-assert_eq!(present_3s(&walk), "walks");
-assert_eq!(past_tense(&walk), "walked");
-assert_eq!(gerund(&walk), "walking");
-```
-
-**Morphological rules applied:**
-
-| Function | Rule | Example |
-|----------|------|---------|
-| `pluralize` | sibilant + `-es` | box → boxes |
-| `pluralize` | consonant + y → `-ies` | city → cities |
-| `present_3s` | sibilant/o + `-es` | go → goes |
-| `past_tense` | e + `-d` | love → loved |
-| `past_tense` | consonant + y → `-ied` | carry → carried |
-| `gerund` | drop e + `-ing` | make → making |
-
-## Architecture
-
-```
-┌─────────────────────────────────────────────────────────────────┐
-│                    logicaffeine_language                         │
-│  ┌─────────────────────────────────────────────────────────────┐│
-│  │  build.rs: generates lexicon.rs from lexicon.json           ││
-│  │           (compile-time code generation)                    ││
-│  └─────────────────────────────────────────────────────────────┘│
-│                              │                                   │
-│                              ▼                                   │
-│                    lexicon.rs (generated)                        │
-│                    - lookup_verb("run") → VerbMetadata          │
-│                    - lookup_noun("cat") → NounMetadata          │
-└─────────────────────────────────────────────────────────────────┘
-                               │
-                               │ uses types from
-                               ▼
-┌─────────────────────────────────────────────────────────────────┐
-│                    logicaffeine_lexicon                          │
-│  ┌────────────────────────┐  ┌────────────────────────────────┐ │
-│  │  types.rs              │  │  runtime.rs (optional)         │ │
-│  │  - VerbClass           │  │  - LexiconIndex                │ │
-│  │  - Sort                │  │  - pluralize(), past_tense()   │ │
-│  │  - Feature             │  │  - JSON deserialization        │ │
-│  │  - *Metadata structs   │  │  (dynamic-lexicon feature)     │ │
-│  └────────────────────────┘  └────────────────────────────────┘ │
-└─────────────────────────────────────────────────────────────────┘
-```
-
-**Compile-time mode** (default): `logicaffeine_language`'s build script generates type-safe Rust lookup functions from `lexicon.json`. This crate provides only the type definitions those functions return.
-
-**Runtime mode** (`dynamic-lexicon`): Embeds `lexicon.json` and parses it at runtime. Useful during development when frequently editing the lexicon, as it avoids full recompilation.
+External (all `optional`, enabled only by `dynamic-lexicon`): `serde` (derive), `serde_json`, `rand` 0.8.
 
 ## License
 
-Business Source License 1.1 (BUSL-1.1)
+Business Source License 1.1 — see [LICENSE.md](https://github.com/Brahmastra-Labs/logicaffeine/blob/main/LICENSE.md).
 
-- **Free** for individuals and organizations with <25 employees
-- **Commercial license** required for organizations with 25+ employees offering Logic Services
-- **Converts to MIT** on December 24, 2029
-
-See [LICENSE](https://github.com/Brahmastra-Labs/logicaffeine/blob/main/LICENSE.md) for full terms.
+---
+[Docs index](https://github.com/Brahmastra-Labs/logicaffeine/blob/main/docs/README.md) · [Root README](https://github.com/Brahmastra-Labs/logicaffeine/blob/main/README.md) · [Changelog](https://github.com/Brahmastra-Labs/logicaffeine/blob/main/CHANGELOG.md)

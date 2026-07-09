@@ -60,13 +60,50 @@ use logicaffeine_language::{compile, compile_all_scopes};
 use rand::Rng;
 use rand::seq::SliceRandom;
 use std::collections::HashMap;
+#[cfg(not(target_arch = "wasm32"))]
+use std::sync::LazyLock;
+#[cfg(target_arch = "wasm32")]
+use std::sync::OnceLock;
+
+// The process-wide lexicon, parsed exactly once. Native builds parse the embedded
+// JSON on first use; wasm pins the copy fetched from /data/lexicon.json (staged by
+// scripts/stage-web-data.sh) so the 279 KB document never rides in the binary.
+#[cfg(not(target_arch = "wasm32"))]
+static LEXICON: LazyLock<LexiconIndex> = LazyLock::new(LexiconIndex::new);
+#[cfg(target_arch = "wasm32")]
+static LEXICON: OnceLock<LexiconIndex> = OnceLock::new();
+
+/// The pinned lexicon. `None` only on wasm before [`ensure_lexicon`] resolves —
+/// the `LexiconGate` component holds Learn content back until it has.
+pub fn lexicon() -> Option<&'static LexiconIndex> {
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        Some(&LEXICON)
+    }
+    #[cfg(target_arch = "wasm32")]
+    {
+        LEXICON.get()
+    }
+}
+
+/// Resolves once the lexicon is pinned — instant on native and on repeat calls.
+pub async fn ensure_lexicon() -> Result<(), String> {
+    #[cfg(target_arch = "wasm32")]
+    if LEXICON.get().is_none() {
+        let text = crate::ui::data_fetch::fetch_static_text("/data/lexicon.json").await?;
+        let index = LexiconIndex::from_json(&text)
+            .map_err(|e| format!("parsing /data/lexicon.json: {e}"))?;
+        let _ = LEXICON.set(index);
+    }
+    Ok(())
+}
 
 /// Exercise generator that fills templates with lexicon words.
 ///
 /// Holds a reference to the lexicon index for word selection.
 /// Stateless; create one instance and reuse for all exercise generation.
 pub struct Generator {
-    lexicon: LexiconIndex,
+    lexicon: &'static LexiconIndex,
 }
 
 /// A generated exercise instance ready for display and grading.
@@ -111,10 +148,16 @@ pub enum AnswerType {
 }
 
 impl Generator {
-    /// Creates a new generator with a fresh lexicon index.
+    /// How many sentences a generator may draw before giving up on an
+    /// exercise. Lexicon pools contain words the compiler rejects in some
+    /// frames, so generation rejection-samples; the bound keeps a
+    /// misconfigured template from looping forever.
+    const MAX_DRAWS: usize = 32;
+
+    /// Creates a new generator over the pinned lexicon index.
     pub fn new() -> Self {
         Self {
-            lexicon: LexiconIndex::new(),
+            lexicon: lexicon().expect("gated: LexiconGate resolves the lexicon before Learn content renders"),
         }
     }
 
@@ -134,18 +177,28 @@ impl Generator {
 
     fn generate_translation(&self, exercise: &ExerciseConfig, rng: &mut impl Rng) -> Option<Challenge> {
         let template = exercise.template.as_ref()?;
-        let sentence = self.fill_template(template, &exercise.constraints, rng)?;
 
-        let golden_logic = compile(&sentence).ok()?;
+        // Rejection sampling: a draw whose sentence the compiler rejects is
+        // discarded and redrawn, so one unparseable word in a pool can never
+        // sink the exercise.
+        for _ in 0..Self::MAX_DRAWS {
+            let Some(sentence) = self.fill_template(template, &exercise.constraints, rng) else {
+                return None;
+            };
+            let Ok(golden_logic) = compile(&sentence) else {
+                continue;
+            };
 
-        Some(Challenge {
-            exercise_id: exercise.id.clone(),
-            prompt: exercise.prompt.clone(),
-            sentence,
-            answer: AnswerType::FreeForm { golden_logic },
-            hint: exercise.hint.clone(),
-            explanation: exercise.explanation.clone(),
-        })
+            return Some(Challenge {
+                exercise_id: exercise.id.clone(),
+                prompt: exercise.prompt.clone(),
+                sentence,
+                answer: AnswerType::FreeForm { golden_logic },
+                hint: exercise.hint.clone(),
+                explanation: exercise.explanation.clone(),
+            });
+        }
+        None
     }
 
     fn generate_multiple_choice(&self, exercise: &ExerciseConfig, rng: &mut impl Rng) -> Option<Challenge> {
@@ -170,18 +223,25 @@ impl Generator {
 
     fn generate_ambiguity(&self, exercise: &ExerciseConfig, rng: &mut impl Rng) -> Option<Challenge> {
         let template = exercise.template.as_ref()?;
-        let sentence = self.fill_template(template, &exercise.constraints, rng)?;
 
-        let readings = compile_all_scopes(&sentence).ok()?;
+        for _ in 0..Self::MAX_DRAWS {
+            let Some(sentence) = self.fill_template(template, &exercise.constraints, rng) else {
+                return None;
+            };
+            let Ok(readings) = compile_all_scopes(&sentence) else {
+                continue;
+            };
 
-        Some(Challenge {
-            exercise_id: exercise.id.clone(),
-            prompt: exercise.prompt.clone(),
-            sentence,
-            answer: AnswerType::Ambiguity { readings },
-            hint: exercise.hint.clone(),
-            explanation: exercise.explanation.clone(),
-        })
+            return Some(Challenge {
+                exercise_id: exercise.id.clone(),
+                prompt: exercise.prompt.clone(),
+                sentence,
+                answer: AnswerType::Ambiguity { readings },
+                hint: exercise.hint.clone(),
+                explanation: exercise.explanation.clone(),
+            });
+        }
+        None
     }
 
     fn fill_template(&self, template: &str, constraints: &HashMap<String, Vec<String>>, rng: &mut impl Rng) -> Option<String> {
@@ -475,8 +535,10 @@ mod tests {
             }
         }
 
-        // Allow some failures for now, but ensure most work
-        let success_rate = successful as f64 / total_exercises as f64;
-        assert!(success_rate >= 0.8, "At least 80% of exercises should generate (got {:.1}%)", success_rate * 100.0);
+        assert!(
+            failed_exercises.is_empty(),
+            "every exercise must generate a challenge; failed: {:?}",
+            failed_exercises
+        );
     }
 }

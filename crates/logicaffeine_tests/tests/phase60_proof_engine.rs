@@ -2076,3 +2076,99 @@ Proof: Auto.
     // Check proof succeeded
     assert!(result.derivation.is_some(), "Butler theorem should prove via modus tollens chain");
 }
+
+// =============================================================================
+// MULTI-VARIABLE UNIVERSAL INSTANTIATION
+// =============================================================================
+// A rule with more than one universally bound variable — `∀x∀y∀z(...)` — must be
+// instantiable. The classic shapes are a grandparent rule (the middle term `y` is
+// pinned by the premises, no recursion) and transitivity (the rule recurses
+// through its own predicate). Both require the prover to (a) peel *all* leading
+// quantifiers and (b) discover the middle term by unifying the conjunctive
+// antecedent against the knowledge base, threading that binding across conjuncts.
+
+fn pred(name: &str, args: Vec<ProofTerm>) -> ProofExpr {
+    ProofExpr::Predicate { name: name.into(), args, world: None }
+}
+fn var(name: &str) -> ProofTerm {
+    ProofTerm::Variable(name.into())
+}
+fn konst(name: &str) -> ProofTerm {
+    ProofTerm::Constant(name.into())
+}
+/// `∀a∀b∀c ((p(a,b) ∧ p(b,c)) → q(a,c))` — a two-premise rule over a middle term.
+fn middle_term_rule(p: &str, q: &str) -> ProofExpr {
+    let body = ProofExpr::Implies(
+        Box::new(ProofExpr::And(
+            Box::new(pred(p, vec![var("a"), var("b")])),
+            Box::new(pred(p, vec![var("b"), var("c")])),
+        )),
+        Box::new(pred(q, vec![var("a"), var("c")])),
+    );
+    ProofExpr::ForAll {
+        variable: "a".into(),
+        body: Box::new(ProofExpr::ForAll {
+            variable: "b".into(),
+            body: Box::new(ProofExpr::ForAll { variable: "c".into(), body: Box::new(body) }),
+        }),
+    }
+}
+
+#[test]
+fn test_grandparent_three_variable_rule() {
+    // ∀x∀y∀z ((parent(x,y) ∧ parent(y,z)) → grandparent(x,z))
+    // parent(arthur, brenda), parent(brenda, colin)
+    // Goal: grandparent(arthur, colin) — the middle term `brenda` must be found.
+    let mut engine = BackwardChainer::new();
+    engine.add_axiom(middle_term_rule("parent", "grandparent"));
+    engine.add_axiom(pred("parent", vec![konst("arthur"), konst("brenda")]));
+    engine.add_axiom(pred("parent", vec![konst("brenda"), konst("colin")]));
+
+    let goal = pred("grandparent", vec![konst("arthur"), konst("colin")]);
+    let proof = engine
+        .prove(goal)
+        .expect("three-variable grandparent rule must instantiate and bind the middle term");
+    println!("Grandparent proof:\n{}", proof.display_tree());
+}
+
+#[test]
+fn test_transitivity_one_hop() {
+    // ∀x∀y∀z ((above(x,y) ∧ above(y,z)) → above(x,z))
+    // above(a,b), above(b,c)  ⊢  above(a,c)
+    let mut engine = BackwardChainer::new();
+    engine.add_axiom(middle_term_rule("above", "above"));
+    engine.add_axiom(pred("above", vec![konst("a"), konst("b")]));
+    engine.add_axiom(pred("above", vec![konst("b"), konst("c")]));
+
+    let goal = pred("above", vec![konst("a"), konst("c")]);
+    let proof = engine.prove(goal).expect("transitivity must prove above(a,c) from the chain");
+    println!("Transitivity (1 hop) proof:\n{}", proof.display_tree());
+}
+
+#[test]
+fn test_transitivity_three_hops() {
+    // A longer chain: above(a,b), above(b,c), above(c,d)  ⊢  above(a,d).
+    // Reaching `d` requires applying the transitivity rule recursively.
+    let mut engine = BackwardChainer::new();
+    engine.add_axiom(middle_term_rule("above", "above"));
+    engine.add_axiom(pred("above", vec![konst("a"), konst("b")]));
+    engine.add_axiom(pred("above", vec![konst("b"), konst("c")]));
+    engine.add_axiom(pred("above", vec![konst("c"), konst("d")]));
+
+    let goal = pred("above", vec![konst("a"), konst("d")]);
+    let proof = engine.prove(goal).expect("transitivity must chain to prove above(a,d)");
+    println!("Transitivity (3 hops) proof:\n{}", proof.display_tree());
+}
+
+#[test]
+fn test_transitivity_does_not_prove_false_ordering() {
+    // Soundness control: from above(a,b), above(b,c) the prover must NOT conclude
+    // a reversed ordering. No spurious middle-term binding may invent above(c,a).
+    let mut engine = BackwardChainer::new();
+    engine.add_axiom(middle_term_rule("above", "above"));
+    engine.add_axiom(pred("above", vec![konst("a"), konst("b")]));
+    engine.add_axiom(pred("above", vec![konst("b"), konst("c")]));
+
+    let goal = pred("above", vec![konst("c"), konst("a")]);
+    assert!(engine.prove(goal).is_err(), "above(c,a) must remain unprovable");
+}

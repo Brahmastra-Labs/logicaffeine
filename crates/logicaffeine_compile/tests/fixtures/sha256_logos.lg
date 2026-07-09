@@ -1,0 +1,156 @@
+## To sha256K -> Seq of Word32:
+    Let mutable kk be a new Seq of Word32.
+    Push word32(1116352408) to kk.
+    Push word32(1899447441) to kk.
+    Push word32(3049323471) to kk.
+    Push word32(3921009573) to kk.
+    Push word32(961987163) to kk.
+    Push word32(1508970993) to kk.
+    Push word32(2453635748) to kk.
+    Push word32(2870763221) to kk.
+    Push word32(3624381080) to kk.
+    Push word32(310598401) to kk.
+    Push word32(607225278) to kk.
+    Push word32(1426881987) to kk.
+    Push word32(1925078388) to kk.
+    Push word32(2162078206) to kk.
+    Push word32(2614888103) to kk.
+    Push word32(3248222580) to kk.
+    Push word32(3835390401) to kk.
+    Push word32(4022224774) to kk.
+    Push word32(264347078) to kk.
+    Push word32(604807628) to kk.
+    Push word32(770255983) to kk.
+    Push word32(1249150122) to kk.
+    Push word32(1555081692) to kk.
+    Push word32(1996064986) to kk.
+    Push word32(2554220882) to kk.
+    Push word32(2821834349) to kk.
+    Push word32(2952996808) to kk.
+    Push word32(3210313671) to kk.
+    Push word32(3336571891) to kk.
+    Push word32(3584528711) to kk.
+    Push word32(113926993) to kk.
+    Push word32(338241895) to kk.
+    Push word32(666307205) to kk.
+    Push word32(773529912) to kk.
+    Push word32(1294757372) to kk.
+    Push word32(1396182291) to kk.
+    Push word32(1695183700) to kk.
+    Push word32(1986661051) to kk.
+    Push word32(2177026350) to kk.
+    Push word32(2456956037) to kk.
+    Push word32(2730485921) to kk.
+    Push word32(2820302411) to kk.
+    Push word32(3259730800) to kk.
+    Push word32(3345764771) to kk.
+    Push word32(3516065817) to kk.
+    Push word32(3600352804) to kk.
+    Push word32(4094571909) to kk.
+    Push word32(275423344) to kk.
+    Push word32(430227734) to kk.
+    Push word32(506948616) to kk.
+    Push word32(659060556) to kk.
+    Push word32(883997877) to kk.
+    Push word32(958139571) to kk.
+    Push word32(1322822218) to kk.
+    Push word32(1537002063) to kk.
+    Push word32(1747873779) to kk.
+    Push word32(1955562222) to kk.
+    Push word32(2024104815) to kk.
+    Push word32(2227730452) to kk.
+    Push word32(2361852424) to kk.
+    Push word32(2428436474) to kk.
+    Push word32(2756734187) to kk.
+    Push word32(3204031479) to kk.
+    Push word32(3329325298) to kk.
+    Return kk.
+
+## To ssig0 (x: Word32) -> Word32:
+    Return rotr(x, 7) xor rotr(x, 18) xor word32Shr(x, 3).
+
+## To ssig1 (x: Word32) -> Word32:
+    Return rotr(x, 17) xor rotr(x, 19) xor word32Shr(x, 10).
+
+## To bsig0 (x: Word32) -> Word32:
+    Return rotr(x, 2) xor rotr(x, 13) xor rotr(x, 22).
+
+## To bsig1 (x: Word32) -> Word32:
+    Return rotr(x, 6) xor rotr(x, 11) xor rotr(x, 25).
+
+## To ch (x: Word32) and (y: Word32) and (z: Word32) -> Word32:
+    Return word_and(x, y) xor word_and(word_not(x), z).
+
+## To maj (x: Word32) and (y: Word32) and (z: Word32) -> Word32:
+    Return word_and(x, y) xor word_and(x, z) xor word_and(y, z).
+
+## To sha256Compress (state: Seq of Word32) and (m: Seq of Word32) and (kk: Seq of Word32) -> Seq of Word32:
+    Let mutable sched be a new Seq of Word32.
+    Repeat for x in m:
+        Push x to sched.
+    Repeat for t from 16 to 63:
+        Let s0 be ssig0(item (t - 14) of sched).
+        Let s1 be ssig1(item (t - 1) of sched).
+        Let nw be s1 + (item (t - 6) of sched) + s0 + (item (t - 15) of sched).
+        Push nw to sched.
+    Let mutable a be item 1 of state.
+    Let mutable b be item 2 of state.
+    Let mutable c be item 3 of state.
+    Let mutable d be item 4 of state.
+    Let mutable e be item 5 of state.
+    Let mutable f be item 6 of state.
+    Let mutable g be item 7 of state.
+    Let mutable h be item 8 of state.
+    Repeat for t from 0 to 63:
+        Let t1 be h + bsig1(e) + ch(e, f, g) + (item (t + 1) of kk) + (item (t + 1) of sched).
+        Let t2 be bsig0(a) + maj(a, b, c).
+        Set h to g.
+        Set g to f.
+        Set f to e.
+        Set e to d + t1.
+        Set d to c.
+        Set c to b.
+        Set b to a.
+        Set a to t1 + t2.
+    Let mutable out be a new Seq of Word32.
+    Push (item 1 of state) + a to out.
+    Push (item 2 of state) + b to out.
+    Push (item 3 of state) + c to out.
+    Push (item 4 of state) + d to out.
+    Push (item 5 of state) + e to out.
+    Push (item 6 of state) + f to out.
+    Push (item 7 of state) + g to out.
+    Push (item 8 of state) + h to out.
+    Return out.
+
+## Main
+    Let mutable state be a new Seq of Word32.
+    Push word32(1779033703) to state.
+    Push word32(3144134277) to state.
+    Push word32(1013904242) to state.
+    Push word32(2773480762) to state.
+    Push word32(1359893119) to state.
+    Push word32(2600822924) to state.
+    Push word32(528734635) to state.
+    Push word32(1541459225) to state.
+    Let mutable m be a new Seq of Word32.
+    Push word32(1633837952) to m.
+    Push word32(0) to m.
+    Push word32(0) to m.
+    Push word32(0) to m.
+    Push word32(0) to m.
+    Push word32(0) to m.
+    Push word32(0) to m.
+    Push word32(0) to m.
+    Push word32(0) to m.
+    Push word32(0) to m.
+    Push word32(0) to m.
+    Push word32(0) to m.
+    Push word32(0) to m.
+    Push word32(0) to m.
+    Push word32(0) to m.
+    Push word32(24) to m.
+    Let kk be sha256K().
+    Let result be sha256Compress(state, m, kk).
+    Repeat for w in result:
+        Show intOfWord32(w).

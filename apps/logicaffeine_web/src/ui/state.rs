@@ -207,40 +207,51 @@ async fn validate_license_async(license_key: &str) -> Result<(bool, LicensePlan)
 }
 
 fn load_license_from_storage() -> (Option<String>, LicensePlan, Option<f64>) {
-    if let Some(window) = web_sys::window() {
-        if let Ok(Some(storage)) = window.local_storage() {
-            let key = storage.get_item("logos_license_key").ok().flatten();
-            let plan_str = storage.get_item("logos_license_plan").ok().flatten().unwrap_or_default();
-            let validated_at = storage
-                .get_item("logos_license_validated_at")
-                .ok()
-                .flatten()
-                .and_then(|s| s.parse::<f64>().ok());
+    #[cfg(target_arch = "wasm32")]
+    {
+        if let Some(window) = web_sys::window() {
+            if let Ok(Some(storage)) = window.local_storage() {
+                let key = storage.get_item("logos_license_key").ok().flatten();
+                let plan_str = storage.get_item("logos_license_plan").ok().flatten().unwrap_or_default();
+                let validated_at = storage
+                    .get_item("logos_license_validated_at")
+                    .ok()
+                    .flatten()
+                    .and_then(|s| s.parse::<f64>().ok());
 
-            let plan = LicensePlan::from_str(&plan_str);
-            return (key, plan, validated_at);
+                let plan = LicensePlan::from_str(&plan_str);
+                return (key, plan, validated_at);
+            }
         }
     }
     (None, LicensePlan::None, None)
 }
 
 fn save_license_to_storage(key: &str, plan: &LicensePlan, validated_at: f64) {
-    if let Some(window) = web_sys::window() {
-        if let Ok(Some(storage)) = window.local_storage() {
-            let _ = storage.set_item("logos_license_key", key);
-            let plan_str = format!("{:?}", plan).to_lowercase();
-            let _ = storage.set_item("logos_license_plan", &plan_str);
-            let _ = storage.set_item("logos_license_validated_at", &validated_at.to_string());
+    #[cfg(target_arch = "wasm32")]
+    {
+        if let Some(window) = web_sys::window() {
+            if let Ok(Some(storage)) = window.local_storage() {
+                let _ = storage.set_item("logos_license_key", key);
+                let plan_str = format!("{:?}", plan).to_lowercase();
+                let _ = storage.set_item("logos_license_plan", &plan_str);
+                let _ = storage.set_item("logos_license_validated_at", &validated_at.to_string());
+            }
         }
     }
+    #[cfg(not(target_arch = "wasm32"))]
+    let _ = (key, plan, validated_at);
 }
 
 fn clear_license_from_storage() {
-    if let Some(window) = web_sys::window() {
-        if let Ok(Some(storage)) = window.local_storage() {
-            let _ = storage.remove_item("logos_license_key");
-            let _ = storage.remove_item("logos_license_plan");
-            let _ = storage.remove_item("logos_license_validated_at");
+    #[cfg(target_arch = "wasm32")]
+    {
+        if let Some(window) = web_sys::window() {
+            if let Ok(Some(storage)) = window.local_storage() {
+                let _ = storage.remove_item("logos_license_key");
+                let _ = storage.remove_item("logos_license_plan");
+                let _ = storage.remove_item("logos_license_validated_at");
+            }
         }
     }
 }
@@ -292,7 +303,7 @@ impl AppState {
     }
 
     fn process_logic(&mut self, input: String) {
-        let options = CompileOptions { format: OutputFormat::Unicode };
+        let options = CompileOptions { format: OutputFormat::Unicode, pragmatic: false };
 
         let response = match compile_with_options(&input, options) {
             Ok(logic) => ChatMessage {
@@ -502,6 +513,9 @@ pub enum StudioMode {
     Code,
     /// Visual formula builder with LaTeX preview
     Math,
+    /// English hardware specs to SystemVerilog Assertions with in-browser,
+    /// kernel-certified proving (no Z3 in the bundle).
+    Hardware,
 }
 
 impl StudioMode {
@@ -511,6 +525,7 @@ impl StudioMode {
             StudioMode::Logic => "logic",
             StudioMode::Code => "logos",
             StudioMode::Math => "math",
+            StudioMode::Hardware => "hw",
         }
     }
 
@@ -520,6 +535,7 @@ impl StudioMode {
             StudioMode::Logic => "Logic",
             StudioMode::Code => "Code",
             StudioMode::Math => "Math",
+            StudioMode::Hardware => "Hardware",
         }
     }
 
@@ -529,6 +545,7 @@ impl StudioMode {
             "logic" => Some(StudioMode::Logic),
             "logos" => Some(StudioMode::Code),
             "math" => Some(StudioMode::Math),
+            "hw" => Some(StudioMode::Hardware),
             _ => None,
         }
     }
@@ -705,5 +722,19 @@ mod tests {
         assert!(LicensePlan::Premium.is_paid());
         assert!(LicensePlan::Lifetime.is_paid());
         assert!(LicensePlan::Enterprise.is_paid());
+    }
+
+    #[test]
+    fn test_studio_mode_hardware() {
+        // Hardware is a first-class Studio mode alongside Logic/Code/Math.
+        assert_eq!(StudioMode::Hardware.extension(), "hw");
+        assert_eq!(StudioMode::Hardware.display_name(), "Hardware");
+        assert_eq!(StudioMode::from_extension("hw"), Some(StudioMode::Hardware));
+        assert_eq!(StudioMode::from_extension("HW"), Some(StudioMode::Hardware));
+        // The existing modes keep resolving unchanged.
+        assert_eq!(StudioMode::from_extension("logic"), Some(StudioMode::Logic));
+        assert_eq!(StudioMode::from_extension("logos"), Some(StudioMode::Code));
+        assert_eq!(StudioMode::from_extension("math"), Some(StudioMode::Math));
+        assert_eq!(StudioMode::from_extension("txt"), None);
     }
 }

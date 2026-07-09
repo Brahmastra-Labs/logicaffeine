@@ -10,31 +10,11 @@
 //!
 //! The imperative AST is used in LOGOS mode for generating executable Rust code.
 
-use std::collections::HashSet;
-
+use super::axiom::{AxiomBlock, TheoryBlock};
+use super::definition::DefinitionBlock;
 use super::logic::LogicExpr;
 use super::theorem::TheoremBlock;
 use logicaffeine_base::Symbol;
-
-/// Per-function optimization control flags.
-///
-/// Annotations placed above `## To` disable specific optimization passes
-/// for that function. This gives the programmer explicit control when
-/// an optimization hurts rather than helps (e.g., memoization on a function
-/// whose body is cheaper than a hash lookup).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub enum OptFlag {
-    /// `## No Memo` — disable auto-memoization (TLS FxHashMap cache)
-    NoMemo,
-    /// `## No TCO` — disable tail-call elimination (loop conversion)
-    NoTCO,
-    /// `## No Peephole` — disable peephole patterns (swap, vec-fill, for-range, etc.)
-    NoPeephole,
-    /// `## No Borrow` — disable readonly/mutable borrow analysis (&[T]/&mut [T] params)
-    NoBorrow,
-    /// `## No Optimize` — disable ALL of the above (master switch)
-    NoOptimize,
-}
 
 /// Type expression for explicit type annotations.
 ///
@@ -77,6 +57,19 @@ pub enum TypeExpr<'a> {
         /// The inner type (must be a Shared/CRDT type)
         inner: &'a TypeExpr<'a>,
     },
+    /// Mutable-parameter marker (Mutable Value Semantics escape hatch).
+    /// Example: `## To addItem (items: mutable Seq of Int):` →
+    /// `Mutable { inner: Generic { List, [Int] } }`.
+    /// Semantics: under value semantics collections pass by value by default; a
+    /// `Mutable` parameter passes by reference so the callee's mutations are
+    /// visible to the caller (the explicit, opt-in form of the void-mutate
+    /// idiom). Carried on the parameter's type so the `(Symbol, &TypeExpr)`
+    /// parameter representation is unchanged. For every purpose other than the
+    /// parameter-passing convention, `Mutable { inner }` behaves as `inner`.
+    Mutable {
+        /// The underlying parameter type.
+        inner: &'a TypeExpr<'a>,
+    },
 }
 
 /// Source for Read statements.
@@ -104,7 +97,23 @@ pub enum BinaryOpKind {
     Add,
     Subtract,
     Multiply,
+    /// `a ** b` — exponentiation. Integer power is EXACT (promotes to BigInt on
+    /// overflow); a Float operand uses `powf`; a negative integer exponent is a
+    /// loud error. Binds tighter than `* / %`, right-associative.
+    Pow,
     Divide,
+    /// EXACT division — the type-directed sibling of [`BinaryOpKind::Divide`].
+    /// `Divide` floors (`7 / 2 → 3`, the integer default); `ExactDivide` keeps the
+    /// quotient exact (`7 / 2 → 7/2`, a `Rational`). The `resolve_divisions` pass
+    /// rewrites `Divide → ExactDivide` only where the result flows into a `Rational`
+    /// context, so existing (floor) code is untouched.
+    ExactDivide,
+    /// `a // b` — FLOOR division, rounding toward negative infinity (`-7 // 2 → -4`).
+    /// Distinct from [`BinaryOpKind::Divide`], which truncates toward zero (`-7 / 2 →
+    /// -3`); the two agree when the operands share a sign. Exact (promotes to BigInt),
+    /// integer-producing, and immune to the `resolve_divisions` Rational rewrite — the
+    /// explicit spelling for "give me the floored integer quotient."
+    FloorDivide,
     Modulo,
     Eq,
     NotEq,
@@ -117,8 +126,19 @@ pub enum BinaryOpKind {
     Or,
     /// String concatenation ("X combined with Y")
     Concat,
-    /// Bitwise XOR: "x xor y" → `x ^ y`
+    /// Sequence concatenation ("A followed by B") — merge two sequences into one.
+    SeqConcat,
+    /// Tolerant float comparison ("a is approximately b") — Python-isclose
+    /// semantics (rel 1e-9, abs floor 1e-12). `==` stays IEEE bit-exact;
+    /// this is the EXPLICIT spelling for near-equality.
+    ApproxEq,
+    /// Bitwise XOR: `x ^ y` (the word `xor` is the English spelling); on
+    /// Sets, symmetric difference.
     BitXor,
+    /// Bitwise AND: `x & y`; on Sets, intersection.
+    BitAnd,
+    /// Bitwise OR: `x | y`; on Sets, union.
+    BitOr,
     /// Left shift: "x shifted left by y" → `x << y`
     Shl,
     /// Right shift: "x shifted right by y" → `x >> y`
@@ -137,10 +157,78 @@ pub struct MatchArm<'a> {
     pub body: Block<'a>,
 }
 
+/// The wire compression codec a `Send compressed [with <codec>]` selects. The
+/// transpiler maps this to the runtime's wire codec; bare `compressed` = `Deflate`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum CompressionCodec {
+    /// DEFLATE — the balanced default (bare `Send compressed`).
+    Deflate,
+    /// LZ4 — near-memcpy speed, lighter ratio.
+    Lz4,
+    /// Zstandard — the best ratio.
+    Zstd,
+}
+
+/// The wire LAYOUT a `Send` modifier picks — the size↔speed dial the sender chooses for
+/// their link. The transpiler maps this to the runtime's numeric codec. The sender knows
+/// their use case; this lets them express it in one word.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum SendLayout {
+    /// `compact` / `small` — smallest wire (LEB128 varint). For a bandwidth-bound link
+    /// (mobile, WAN, metered). This is also the default when no layout word is given.
+    Compact,
+    /// `fast` / `quickly` — fastest decode (fixed-width memcpy, zero parse). For a
+    /// latency-bound / fat link (LAN, datacenter, RDMA).
+    Fast,
+    /// `packed` — varint size with SIMD group-varint decode; the balanced middle.
+    Packed,
+    /// `smallest` / `best` — turn on the per-column compression menu (delta /
+    /// delta-of-delta / frame-of-reference / run-length / dictionary), auto-selecting
+    /// each column's smallest form and never exceeding plain varint. For a
+    /// bandwidth-bound link where CPU is cheap relative to bytes.
+    Smallest,
+    /// `redundant` / `tough` — forward error correction: the message is split into
+    /// Reed-Solomon shards and each is published as its own packet, so a receiver
+    /// reconstructs the exact message from any K even after some are lost. For a lossy
+    /// / one-way link (UDP, multicast, BLE, LoRa) where retransmit is impossible.
+    Redundant,
+}
+
+/// Backing-file source for a memory-mapped zone (`… mapped from <here>`).
+/// `Inside a zone called "D" mapped from "f.bin"` is [`ZoneSource::Literal`];
+/// `… mapped from path` (a runtime `Text` variable) is [`ZoneSource::Variable`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ZoneSource {
+    /// A string-literal path baked into the source.
+    Literal(Symbol),
+    /// A variable holding the path, resolved at runtime.
+    Variable(Symbol),
+}
+
 /// Imperative statement AST (LOGOS §15.0.0).
 ///
 /// Stmt is the primary AST node for imperative code blocks like `## Main`
 /// and function bodies. The Assert variant bridges to the Logic Kernel.
+/// Which end of the shared pad this peer draws from, for the PNP one-time-pad tier.
+/// `as initiator` sends on the first directional half; `as responder` sends on the second.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SecureRole {
+    /// Draws the send pad from the first directional half (`i2r`).
+    Initiator,
+    /// Draws the send pad from the second directional half (`r2i`).
+    Responder,
+}
+
+/// The `with pad "<path>" as <role>` binding on a `Connect`/`Listen` — activate the PNP one-time-pad
+/// session over the pad file at `pad`, with this peer taking `role`.
+#[derive(Debug, Clone, Copy)]
+pub struct SecurePad<'a> {
+    /// The pad file path (a string-literal or variable expression).
+    pub pad: &'a Expr<'a>,
+    /// Which directional half this peer sends on.
+    pub role: SecureRole,
+}
+
 #[derive(Debug, Clone)]
 pub enum Stmt<'a> {
     /// Variable binding: `Let x be 5.` or `Let x: Int be 5.`
@@ -206,10 +294,13 @@ pub enum Stmt<'a> {
         justification: Symbol,
     },
 
-    /// Runtime assertion with imperative condition
-    /// `Assert that condition.` (for imperative mode)
+    /// Runtime assertion with imperative condition.
+    /// `Assert that condition.` (`hard: false` → `debug_assert!`, a development check)
+    /// `Require that condition.` (`hard: true` → `assert!`, an enforced invariant that
+    /// survives release — the form a proven property lowers to).
     RuntimeAssert {
         condition: &'a Expr<'a>,
+        hard: bool,
     },
 
     /// Ownership transfer (move): `Give x to processor.`
@@ -254,10 +345,11 @@ pub enum Stmt<'a> {
         native_path: Option<Symbol>,
         /// Whether this function is exported for FFI (C ABI or WASM).
         is_exported: bool,
-        /// Export target: None = C ABI (#[no_mangle] extern "C"), Some("wasm") = #[wasm_bindgen].
+        /// Export target: None = C ABI (#\[no_mangle\] extern "C"), Some("wasm") = #\[wasm_bindgen\].
         export_target: Option<Symbol>,
-        /// Per-function optimization flags from `## No <X>` annotations.
-        opt_flags: HashSet<OptFlag>,
+        /// Per-function optimization config: each `## No <X>` annotation clears
+        /// that optimization's bit (default: all enabled).
+        opt_flags: crate::optimization::OptimizationConfig,
     },
 
     /// Pattern matching on sum types.
@@ -298,6 +390,18 @@ pub enum Stmt<'a> {
         value: &'a Expr<'a>,
     },
 
+    /// A SCOPE-TRANSPARENT statement sequence — parser-desugar output, never
+    /// written by users. One surface statement can lower to several primitive
+    /// statements (a nested place-write `Set item j of (item i of grid) to v`
+    /// becomes read → copy-on-write element write → write-back; a multi-push
+    /// `Push a, b, c to xs` becomes one Push per element). The body runs in
+    /// the ENCLOSING scope with no block of its own: temporaries inside are
+    /// gensym'd (`__place_*`), so they can never collide with user names, and
+    /// engines that execute blocks with scoping must NOT scope this one.
+    Splice {
+        body: Block<'a>,
+    },
+
     /// Memory arena block (Zone).
     /// "Inside a new zone called 'Scratch':"
     /// "Inside a zone called 'Buffer' of size 1 MB:"
@@ -307,8 +411,8 @@ pub enum Stmt<'a> {
         name: Symbol,
         /// Optional pre-allocated capacity in bytes (Heap zones only)
         capacity: Option<usize>,
-        /// Optional file path for memory-mapped zones (Mapped zones only)
-        source_file: Option<Symbol>,
+        /// Optional backing file for memory-mapped zones (literal path or runtime variable)
+        source_file: Option<ZoneSource>,
         /// The code block executed within this memory context
         body: Block<'a>,
     },
@@ -353,10 +457,47 @@ pub enum Stmt<'a> {
     },
 
     /// Send message to agent.
-    /// `Send Ping to "agent".`
+    /// `Send Ping to "agent".`, `Send compressed Ping to "agent".`,
+    /// `Send cached Point to "agent".`, or `Send cached compressed Report to "agent".`
     SendMessage {
         message: &'a Expr<'a>,
         destination: &'a Expr<'a>,
+        /// The wire compression codec. `None` for a plain `Send`; `Some(codec)` for
+        /// `Send compressed [with <codec>]` (bare `compressed` = deflate). Kept only
+        /// if it actually shrinks the body.
+        compression: Option<CompressionCodec>,
+        /// `Send cached …` — use the connection's schema dictionary, so a struct
+        /// schema is transmitted once and referenced thereafter (content-addressed,
+        /// footgun-free). `false` for a plain `Send`.
+        cached: bool,
+        /// `Send unchecked …` — drop the wire integrity checksum for the fastest path
+        /// (latency↔safety dial). `false` keeps the default checksum.
+        unchecked: bool,
+        /// `Send fast|compact|packed …` — the wire LAYOUT (size↔speed dial). `None` is
+        /// the default (compact / varint). The sender picks for their link.
+        layout: Option<SendLayout>,
+        /// `Send shared …` — OPT-IN type-id elision: drop struct/enum NAMES off the wire
+        /// (ship a small registry id both ends derive from their shared program type
+        /// defs). Only safe when the receiver runs the same program, so it is OFF by
+        /// default — the default `Send` stays self-describing for any peer / relay.
+        shared: bool,
+        /// `Send computed f …` — COMPUTE-SHIPPING: when the message is a pure single-arg
+        /// function, lower it to a sandboxed generator and ship the COMPUTATION, not data.
+        /// The receiver evaluates it in the bounded sandbox (never arbitrary code). OFF by
+        /// default; a non-lowerable function under `computed` is rejected at send.
+        computed: bool,
+        /// `Send indexed …` (alias `addressable`) — encode a record list in the random-access
+        /// struct-view LAYOUT (row + field offset tables), so the receiver reaches any
+        /// (row, field) in O(1) without decoding the rest — Cap'n Proto's home turf. Composes
+        /// with the other knobs (`compressed`, `cached`, `shared`, `unchecked`). OFF by default
+        /// (the dense columnar form is smaller); opt in when the peer does random field reads.
+        indexed: bool,
+        /// `Send deduped …` — Rc-DEDUP: a subtree the same value reaches more than once ships ONCE
+        /// (the first occurrence) plus a tiny backref for every repeat, and the receiver rebuilds the
+        /// SHARING (one aliased value, not N copies). OFF by default; opt in when the message has
+        /// shared sub-structure (a lookup table referenced by many records, one object aliased
+        /// across the payload). Self-describing by tag, so any peer decodes it.
+        deduped: bool,
     },
 
     /// Await response from agent.
@@ -364,6 +505,22 @@ pub enum Stmt<'a> {
     AwaitMessage {
         source: &'a Expr<'a>,
         into: Symbol,
+        /// `Await view from …`: hold a received record-list LAZILY (the zero-copy receive —
+        /// decode-on-touch, no rows materialized until a field is read) instead of fully decoding
+        /// it. Ignored for non-record-list shapes, which always decode eagerly.
+        view: bool,
+        /// `Await stream from …`: receive a batch STREAM message and deframe it into a list (the
+        /// values a peer `Stream`ed), rather than a single message.
+        stream: bool,
+    },
+
+    /// Stream a batch of values to a peer in one framed message.
+    /// `Stream readings to "sink".` — frames each element of `values` length-delimited so the
+    /// receiver (`Await stream from …`) deframes them incrementally; one relay publish ships the
+    /// whole batch (Kafka-style streaming that amortizes per-message overhead).
+    StreamMessage {
+        values: &'a Expr<'a>,
+        destination: &'a Expr<'a>,
     },
 
     /// Merge CRDT state.
@@ -428,6 +585,8 @@ pub enum Stmt<'a> {
     /// Semantics: Bind to address, start accepting connections via libp2p
     Listen {
         address: &'a Expr<'a>,
+        /// Optional PNP one-time-pad binding: `with pad "<path>" as initiator|responder`.
+        secure: Option<SecurePad<'a>>,
     },
 
     /// Connect to remote peer.
@@ -435,6 +594,8 @@ pub enum Stmt<'a> {
     /// Semantics: Dial peer via libp2p
     ConnectTo {
         address: &'a Expr<'a>,
+        /// Optional PNP one-time-pad binding: `with pad "<path>" as initiator|responder`.
+        secure: Option<SecurePad<'a>>,
     },
 
     /// Create PeerAgent remote handle.
@@ -576,6 +737,19 @@ pub enum Stmt<'a> {
     /// `Prove: Goal.`
     /// `Proof: Auto.`
     Theorem(TheoremBlock<'a>),
+
+    /// `## Define` block — a vernacular-logic predicate definition (Rung 0a).
+    /// `x is a bachelor if and only if x is unmarried and x is a man.`
+    /// Non-executable: like [`Stmt::Theorem`], it is a declaration the proof
+    /// layer consumes, not code the VM/AOT runs.
+    Definition(DefinitionBlock<'a>),
+
+    /// `## Axiom` block — a named first-order axiom in formal notation. Registers a
+    /// shared premise for later theorems (the seam for an axiomatic base like Tarski).
+    Axiom(AxiomBlock),
+
+    /// `## Theory` block — a named development grouping formal axioms and theorems.
+    Theory(TheoryBlock),
 
     /// Escape hatch: embed raw foreign code.
     /// `Escape to Rust:` followed by an indented block of raw code.

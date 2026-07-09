@@ -59,6 +59,7 @@ fn clone_term<'a>(term: &Term<'a>, arena: &'a Arena<Term<'a>>) -> Term<'a> {
         },
         Term::Sigma(predicate) => Term::Sigma(*predicate),
         Term::Intension(predicate) => Term::Intension(*predicate),
+        Term::Kind(kind) => Term::Kind(*kind),
         Term::Proposition(expr) => Term::Proposition(*expr),
         Term::Value { kind, unit, dimension } => Term::Value {
             kind: *kind,
@@ -486,6 +487,72 @@ fn group_scopal_by_island<'a>(elements: Vec<ScopalElement<'a>>) -> Vec<Vec<Scopa
     }
 
     by_island.into_values().collect()
+}
+
+/// Builds the CUMULATIVE reading (Scha 1981) for a two-cardinal transitive
+/// sentence — the reading irreducible to either nesting:
+///   "Three boys lifted five boxes." →
+///     ∃=3 x(Boy(x) ∧ ∃y(Box(y) ∧ Lift(x,y))) ∧ ∃=5 y(Box(y) ∧ ∃x(Boy(x) ∧ Lift(x,y)))
+/// i.e. exactly 3 boys each lifted some box AND exactly 5 boxes were each lifted
+/// by some boy. This is first-order over the Link lattice (no ⊕ term needed). It
+/// is produced only when there are exactly two cardinal quantifiers in the same
+/// island over a shared nucleus; otherwise returns `None`.
+pub fn cumulative_reading<'a>(
+    expr: &'a LogicExpr<'a>,
+    interner: &mut Interner,
+    expr_arena: &'a Arena<LogicExpr<'a>>,
+) -> Option<&'a LogicExpr<'a>> {
+    let mut elements = Vec::new();
+    let core = extract_scopal_elements(expr, &mut elements, interner, expr_arena);
+    if elements.len() != 2 {
+        return None;
+    }
+    let (q1, q2) = match (&elements[0], &elements[1]) {
+        (ScopalElement::Quantifier(a), ScopalElement::Quantifier(b)) => (a.clone(), b.clone()),
+        _ => return None,
+    };
+    // Both must be cardinal counts in the same island (cumulative is a relation
+    // between two counted groups, not a nesting).
+    if !matches!(q1.kind, QuantifierKind::Cardinal(_))
+        || !matches!(q2.kind, QuantifierKind::Cardinal(_))
+        || q1.island_id != q2.island_id
+    {
+        return None;
+    }
+
+    let and = |l: &'a LogicExpr<'a>, r: &'a LogicExpr<'a>| -> &'a LogicExpr<'a> {
+        expr_arena.alloc(LogicExpr::BinaryOp { left: l, op: TokenType::And, right: r })
+    };
+
+    // Conjunct 1: q1 x ( R1(x) ∧ ∃y( R2(y) ∧ core ) )
+    let exists_y = expr_arena.alloc(LogicExpr::Quantifier {
+        kind: QuantifierKind::Existential,
+        variable: q2.variable,
+        body: and(q2.restrictor, core),
+        island_id: q1.island_id,
+    });
+    let c1 = expr_arena.alloc(LogicExpr::Quantifier {
+        kind: q1.kind,
+        variable: q1.variable,
+        body: and(q1.restrictor, exists_y),
+        island_id: q1.island_id,
+    });
+
+    // Conjunct 2: q2 y ( R2(y) ∧ ∃x( R1(x) ∧ core ) )
+    let exists_x = expr_arena.alloc(LogicExpr::Quantifier {
+        kind: QuantifierKind::Existential,
+        variable: q1.variable,
+        body: and(q1.restrictor, core),
+        island_id: q2.island_id,
+    });
+    let c2 = expr_arena.alloc(LogicExpr::Quantifier {
+        kind: q2.kind,
+        variable: q2.variable,
+        body: and(q2.restrictor, exists_x),
+        island_id: q2.island_id,
+    });
+
+    Some(and(c1, c2))
 }
 
 fn extract_scopal_elements<'a>(
@@ -999,6 +1066,13 @@ pub fn enumerate_intensional_readings<'a>(
         return vec![de_re, expr];
     }
 
+    // Clausal attitude complement with an embedded existential
+    // ("believes ⟨∃x(Spy(x) ∧ Exist(x))⟩"): the de re reading raises the
+    // existential over the attitude — ∃x(Spy(x) ∧ Believe(s, ⟨Exist(x)⟩)).
+    if let Some(de_re) = raise_existential_from_proposition(expr, expr_arena, term_arena) {
+        return vec![expr, de_re];
+    }
+
     // Original logic: check for de re that can be converted to de dicto
     if let Some(ctx) = find_opaque_verb_context(expr, interner) {
         let de_dicto = build_de_dicto_reading(expr, &ctx, expr_arena, term_arena, role_arena);
@@ -1006,6 +1080,70 @@ pub fn enumerate_intensional_readings<'a>(
     } else {
         vec![expr]
     }
+}
+
+/// De re quantifier raising out of a clausal attitude complement:
+/// `V(s, ⟨∃x(R(x) ∧ P(x))⟩)` → `∃x(R(x) ∧ V(s, ⟨P(x)⟩))`. A `Temporal`
+/// wrapper on the attitude stays on the attitude.
+fn raise_existential_from_proposition<'a>(
+    expr: &'a LogicExpr<'a>,
+    expr_arena: &'a Arena<LogicExpr<'a>>,
+    term_arena: &'a Arena<Term<'a>>,
+) -> Option<&'a LogicExpr<'a>> {
+    use crate::token::TokenType;
+
+    let (temporal_op, attitude) = match expr {
+        LogicExpr::Temporal { operator, body } => (Some(*operator), *body),
+        other => (None, other),
+    };
+
+    let LogicExpr::Predicate { name, args, world } = attitude else {
+        return None;
+    };
+    if args.len() != 2 {
+        return None;
+    }
+    let Term::Proposition(LogicExpr::Quantifier {
+        kind: crate::ast::QuantifierKind::Existential,
+        variable,
+        body,
+        island_id,
+    }) = &args[1]
+    else {
+        return None;
+    };
+    let LogicExpr::BinaryOp {
+        left: restriction,
+        op: TokenType::And,
+        right: inner,
+    } = body
+    else {
+        return None;
+    };
+
+    let raised_attitude = expr_arena.alloc(LogicExpr::Predicate {
+        name: *name,
+        args: term_arena.alloc_slice([args[0].clone(), Term::Proposition(inner)]),
+        world: world.clone(),
+    });
+    let raised_attitude = match temporal_op {
+        Some(operator) => expr_arena.alloc(LogicExpr::Temporal {
+            operator,
+            body: raised_attitude,
+        }),
+        None => raised_attitude,
+    };
+    let raised_body = expr_arena.alloc(LogicExpr::BinaryOp {
+        left: restriction,
+        op: TokenType::And,
+        right: raised_attitude,
+    });
+    Some(expr_arena.alloc(LogicExpr::Quantifier {
+        kind: crate::ast::QuantifierKind::Existential,
+        variable: *variable,
+        body: raised_body,
+        island_id: *island_id,
+    }))
 }
 
 fn build_de_re_from_de_dicto<'a>(

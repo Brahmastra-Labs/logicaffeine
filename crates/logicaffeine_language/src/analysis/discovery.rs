@@ -195,19 +195,21 @@ impl<'a> DiscoveryPass<'a> {
             // "A User can publish the Document if..."
             self.advance(); // consume "can"
 
-            // Get action name (e.g., "publish")
-            let action = match self.consume_noun_or_proper() {
-                Some(sym) => sym,
-                None => {
-                    // Try verb token
-                    if let Some(Token { kind: TokenType::Verb { lemma, .. }, .. }) = self.peek() {
-                        let sym = *lemma;
-                        self.advance();
-                        sym
-                    } else {
-                        return;
-                    }
+            // Get action name (e.g., "publish", "edit"). For a verb action take its
+            // LEMMA — that is exactly what the `Check ... can <verb>` site resolves
+            // (parser), so the registered and looked-up symbols agree. Using
+            // `consume_noun_or_proper` first would capture the verb LEXEME instead and
+            // every capability check would miss ("No capability 'Edit' defined").
+            let action = match self.peek() {
+                Some(Token { kind: TokenType::Verb { lemma, .. }, .. }) => {
+                    let sym = *lemma;
+                    self.advance();
+                    sym
                 }
+                _ => match self.consume_noun_or_proper() {
+                    Some(sym) => sym,
+                    None => return,
+                },
             };
 
             // Skip "the" article if present
@@ -258,7 +260,10 @@ impl<'a> DiscoveryPass<'a> {
     /// Phase 50: Parse a policy condition
     /// Handles: field comparisons, predicate references, and OR/AND combinators
     fn parse_policy_condition(&mut self, subject_type: Symbol, object_type: Option<Symbol>) -> PolicyCondition {
-        let first = self.parse_atomic_condition(subject_type, object_type);
+        // Left-fold the FULL n-ary chain. Returning after the first connective
+        // silently dropped every conjunct/disjunct past the second atom, making
+        // an AND-policy over-permissive and an OR-policy over-restrictive.
+        let mut acc = self.parse_atomic_condition(subject_type, object_type);
 
         // Check for OR/AND combinators
         loop {
@@ -283,7 +288,7 @@ impl<'a> DiscoveryPass<'a> {
                     self.advance();
                 }
                 let right = self.parse_atomic_condition(subject_type, object_type);
-                return PolicyCondition::And(Box::new(first), Box::new(right));
+                acc = PolicyCondition::And(Box::new(acc), Box::new(right));
             } else if self.check_word("OR") {
                 self.advance();
                 // Skip newlines after OR
@@ -291,13 +296,13 @@ impl<'a> DiscoveryPass<'a> {
                     self.advance();
                 }
                 let right = self.parse_atomic_condition(subject_type, object_type);
-                return PolicyCondition::Or(Box::new(first), Box::new(right));
+                acc = PolicyCondition::Or(Box::new(acc), Box::new(right));
             } else {
                 break;
             }
         }
 
-        first
+        acc
     }
 
     /// Phase 50: Parse an atomic condition
@@ -335,7 +340,27 @@ impl<'a> DiscoveryPass<'a> {
             if self.check_word("equals") {
                 self.advance();
 
-                // Get value (string literal or identifier)
+                // First try an object-field RHS: `the document's owner`, giving a
+                // cross-field comparison `self.<field> == object.<obj_field>`. Only a
+                // literal/identifier RHS falls through to `FieldEquals`.
+                let checkpoint = self.pos;
+                if self.check_article() {
+                    self.advance();
+                }
+                if let Some(obj_ref) = self.consume_noun_or_proper() {
+                    if self.check_possessive() {
+                        self.advance(); // consume "'s"
+                        if let Some(obj_field) = self.consume_noun_or_proper() {
+                            return PolicyCondition::SubjectFieldEqualsObjectField {
+                                subject_field: field,
+                                object: obj_ref,
+                                object_field: obj_field,
+                            };
+                        }
+                    }
+                }
+                // Not an object-field reference — rewind and take a plain value.
+                self.pos = checkpoint;
                 let (value, is_string_literal) = self.consume_value();
 
                 return PolicyCondition::FieldEquals { field, value, is_string_literal };
@@ -947,7 +972,10 @@ impl<'a> DiscoveryPass<'a> {
 
             // Check if primitive
             match final_name_str {
-                "Int" | "Nat" | "Text" | "Bool" | "Real" | "Unit" => FieldType::Primitive(final_name),
+                "Int" | "Nat" | "Text" | "Bool" | "Real" | "Unit" | "Word8" | "Word16" | "Word32"
+                | "Word64" | "Lanes8Word32" | "Lanes4Word32" | "Lanes16Word8" | "Lanes4Word64" | "Lanes16Word16" => {
+                    FieldType::Primitive(final_name)
+                }
                 _ => FieldType::Named(final_name),
             }
         } else {
@@ -1379,7 +1407,10 @@ impl<'a> DiscoveryPass<'a> {
 
             // Check if primitive
             match final_name_str {
-                "Int" | "Nat" | "Text" | "Bool" | "Real" | "Unit" => FieldType::Primitive(final_name),
+                "Int" | "Nat" | "Text" | "Bool" | "Real" | "Unit" | "Word8" | "Word16" | "Word32"
+                | "Word64" | "Lanes8Word32" | "Lanes4Word32" | "Lanes16Word8" | "Lanes4Word64" | "Lanes16Word16" => {
+                    FieldType::Primitive(final_name)
+                }
                 _ => FieldType::Named(final_name),
             }
         } else {

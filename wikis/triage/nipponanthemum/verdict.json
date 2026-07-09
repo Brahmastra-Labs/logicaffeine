@@ -1,0 +1,19 @@
+{
+  "all_clean": false,
+  "article": "wikis/nipponanthemum.txt",
+  "by_category": {
+    "actionable_lexicon_gap": 6,
+    "ambiguity_human": 0,
+    "clean": 0,
+    "isolate_out_of_scope": 0,
+    "parser_gap": 2,
+    "semantic_lossy": 0
+  },
+  "clusters": 6,
+  "outcomes": {
+    "fail": 3,
+    "ok": 0,
+    "partial": 5
+  },
+  "sentences": 8
+}

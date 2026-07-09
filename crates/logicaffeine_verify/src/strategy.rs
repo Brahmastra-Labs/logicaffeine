@@ -180,7 +180,7 @@ fn expr_size(expr: &VerifyExpr) -> usize {
         VerifyExpr::Not(inner) => 1 + expr_size(inner),
         VerifyExpr::Iff(l, r) => 1 + expr_size(l) + expr_size(r),
         VerifyExpr::ForAll { body, .. } | VerifyExpr::Exists { body, .. } => 1 + expr_size(body),
-        VerifyExpr::Apply { args, .. } => 1 + args.iter().map(expr_size).sum::<usize>(),
+        VerifyExpr::Apply { args, .. } | VerifyExpr::ApplyInt { args, .. } => 1 + args.iter().map(expr_size).sum::<usize>(),
         VerifyExpr::BitVecBinary { left, right, .. } => 1 + expr_size(left) + expr_size(right),
         VerifyExpr::BitVecExtract { operand, .. } => 1 + expr_size(operand),
         VerifyExpr::BitVecConcat(l, r) => 1 + expr_size(l) + expr_size(r),

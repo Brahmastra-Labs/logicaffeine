@@ -6,9 +6,15 @@
 pub mod sva_model;
 pub mod sva_to_verify;
 pub mod fol_to_verify;
+pub mod sva_to_proof;
+pub mod bitblast;
+pub mod rtl;
 pub mod hw_pipeline;
 pub mod rtl_extract;
 pub mod fol_to_sva;
+pub mod signal_design;
+pub mod controller_gen;
+pub mod traffic_flow;
 pub mod coverage;
 pub mod sufficiency;
 pub mod rtl_kg;

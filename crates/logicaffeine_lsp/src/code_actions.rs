@@ -28,7 +28,13 @@ pub fn code_actions(
 
         let word = doc.source.get(start_offset..end_offset).unwrap_or("");
 
-        // Spelling fix suggestions
+        // Spelling fix suggestions — only for UN-CODED diagnostics (raw parse
+        // errors, where typos live), and never for one-character words (every
+        // one-char identifier is within distance 2 of something). A coded
+        // diagnostic is about semantics, not spelling: suggesting `a` for a
+        // moved `x` is noise, and `undefined-variable` has its own
+        // definition-aware suggester below.
+        if diagnostic.code.is_none() && word.chars().count() >= 2 {
         if let Some(suggestion) = find_similar(word, KNOWN_WORDS, 2) {
             let mut changes = HashMap::new();
             changes.insert(
@@ -49,6 +55,7 @@ pub fn code_actions(
                 }),
                 ..Default::default()
             }));
+        }
         }
 
         // "x is y" → "x equals y" fix
@@ -85,22 +92,31 @@ pub fn code_actions(
             }
         }
 
-        // UseAfterMove → suggest "copy of variable"
+        // UseAfterMove → suggest "copy of variable". The message names the
+        // variable ("Cannot use 'x' …"); the range can sit on statement
+        // punctuation on the parse path, so the edit retargets to the
+        // variable's own occurrence.
         let is_use_after_move = diagnostic.code.as_ref().map_or(false, |c| {
             matches!(c, tower_lsp::lsp_types::NumberOrString::String(s) if s == "use-after-move")
         });
         if is_use_after_move {
+            let variable = ownership_variable(&diagnostic.message, word);
+            let target = if variable == word {
+                diagnostic.range
+            } else {
+                last_word_range(doc, variable, end_offset).unwrap_or(diagnostic.range)
+            };
             let mut changes = HashMap::new();
             changes.insert(
                 uri.clone(),
                 vec![TextEdit {
-                    range: diagnostic.range,
-                    new_text: format!("a copy of {}", word),
+                    range: target,
+                    new_text: format!("a copy of {}", variable),
                 }],
             );
 
             actions.push(CodeActionOrCommand::CodeAction(CodeAction {
-                title: format!("Use 'a copy of {}' instead", word),
+                title: format!("Use 'a copy of {}' instead", variable),
                 kind: Some(CodeActionKind::QUICKFIX),
                 diagnostics: Some(vec![diagnostic.clone()]),
                 edit: Some(WorkspaceEdit {
@@ -160,16 +176,22 @@ pub fn code_actions(
 
         // DoubleMoved → suggest copying instead of second Give
         if matches!(diag_code_str, Some("double-move")) {
+            let variable = ownership_variable(&diagnostic.message, word);
+            let target = if variable == word {
+                diagnostic.range
+            } else {
+                last_word_range(doc, variable, end_offset).unwrap_or(diagnostic.range)
+            };
             let mut changes = HashMap::new();
             changes.insert(
                 uri.clone(),
                 vec![TextEdit {
-                    range: diagnostic.range,
-                    new_text: format!("a copy of {}", word),
+                    range: target,
+                    new_text: format!("a copy of {}", variable),
                 }],
             );
             actions.push(CodeActionOrCommand::CodeAction(CodeAction {
-                title: format!("Give 'a copy of {}' instead", word),
+                title: format!("Give 'a copy of {}' instead", variable),
                 kind: Some(CodeActionKind::QUICKFIX),
                 diagnostics: Some(vec![diagnostic.clone()]),
                 edit: Some(WorkspaceEdit {
@@ -200,6 +222,48 @@ pub fn code_actions(
                 }),
                 ..Default::default()
             }));
+        }
+
+        // Unused variable → remove the whole statement (through its newline)
+        if matches!(diag_code_str, Some("unused-variable")) {
+            let def_offset = doc.line_index.offset(diagnostic.range.start);
+            let stmt_span = doc
+                .symbol_index
+                .statement_spans
+                .iter()
+                .map(|(_, span)| span)
+                .filter(|span| span.start <= def_offset && def_offset <= span.end)
+                .min_by_key(|span| span.end - span.start);
+            if let Some(span) = stmt_span {
+                let mut delete_end = span.end;
+                let rest = doc.source.get(delete_end..).unwrap_or("");
+                if rest.starts_with("\r\n") {
+                    delete_end += 2;
+                } else if rest.starts_with('\n') {
+                    delete_end += 1;
+                }
+                let mut changes = HashMap::new();
+                changes.insert(
+                    uri.clone(),
+                    vec![TextEdit {
+                        range: Range {
+                            start: doc.line_index.position(span.start),
+                            end: doc.line_index.position(delete_end),
+                        },
+                        new_text: String::new(),
+                    }],
+                );
+                actions.push(CodeActionOrCommand::CodeAction(CodeAction {
+                    title: format!("Remove unused '{}'", word),
+                    kind: Some(CodeActionKind::QUICKFIX),
+                    diagnostics: Some(vec![diagnostic.clone()]),
+                    edit: Some(WorkspaceEdit {
+                        changes: Some(changes),
+                        ..Default::default()
+                    }),
+                    ..Default::default()
+                }));
+            }
         }
 
         // UndefinedVariable → suggest closest match from definitions
@@ -240,6 +304,43 @@ fn ranges_overlap(a: &Range, b: &Range) -> bool {
         || (b.end.line == a.start.line && b.end.character < a.start.character))
 }
 
+/// The variable an ownership diagnostic is about: the first 'quoted' name in
+/// its socratic message (the text always names it), else the range's text.
+fn ownership_variable<'a>(message: &'a str, range_word: &'a str) -> &'a str {
+    message
+        .split('\'')
+        .nth(1)
+        .filter(|name| {
+            !name.is_empty() && name.chars().all(|c| c.is_alphanumeric() || c == '_')
+        })
+        .unwrap_or(range_word)
+}
+
+/// The last whole-word occurrence of `name` at or before `before` — where an
+/// ownership fix must land when the diagnostic range sits on punctuation.
+fn last_word_range(doc: &DocumentState, name: &str, before: usize) -> Option<Range> {
+    let hay = doc.source.get(..before.min(doc.source.len()))?;
+    let bytes = hay.as_bytes();
+    let is_word = |b: u8| b.is_ascii_alphanumeric() || b == b'_';
+    let mut search_end = hay.len();
+    while let Some(pos) = hay[..search_end].rfind(name) {
+        let end = pos + name.len();
+        let boundary_before = pos == 0 || !is_word(bytes[pos - 1]);
+        let boundary_after = end >= hay.len() || !is_word(bytes[end]);
+        if boundary_before && boundary_after {
+            return Some(Range {
+                start: doc.line_index.position(pos),
+                end: doc.line_index.position(end),
+            });
+        }
+        if pos == 0 {
+            break;
+        }
+        search_end = pos;
+    }
+    None
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -255,7 +356,7 @@ mod tests {
 
     #[test]
     fn code_actions_returns_empty_for_valid_code() {
-        let doc = make_doc("## Main\n    Let x be 5.\n");
+        let doc = make_doc("## Main\n    Let x be 5.\n    Show x.\n");
         let range = Range::default();
         let actions = code_actions(&doc, range, &test_uri());
         assert!(doc.diagnostics.is_empty(), "Valid code should have no diagnostics");
@@ -335,6 +436,54 @@ mod tests {
             })
             .collect();
         assert!(!zero_actions.is_empty(), "Should have 'Use 1-based indexing' action");
+    }
+
+    #[test]
+    fn use_after_move_fix_names_the_moved_variable_not_the_span_text() {
+        // Real pipeline: the parse-path diagnostic's range can sit on the
+        // statement's period — the fix must still name and target 'x'.
+        let doc = make_doc("## Main\nLet x be 5.\nLet a be 0.\nGive x to a.\nShow x.\n");
+        let actions = code_actions(&doc, Range::default(), &test_uri());
+        let copy_fix = actions
+            .iter()
+            .find_map(|a| match a {
+                CodeActionOrCommand::CodeAction(ca) if ca.title.contains("copy of") => Some(ca),
+                _ => None,
+            })
+            .expect("use-after-move offers the copy fix");
+        assert_eq!(copy_fix.title, "Use 'a copy of x' instead");
+
+        let edits = copy_fix
+            .edit
+            .as_ref()
+            .and_then(|e| e.changes.as_ref())
+            .and_then(|c| c.values().next())
+            .expect("the fix edits the document");
+        assert_eq!(edits[0].new_text, "a copy of x");
+        let start = doc.line_index.offset(edits[0].range.start);
+        let end = doc.line_index.offset(edits[0].range.end);
+        assert_eq!(
+            &doc.source[start..end],
+            "x",
+            "the edit must replace the variable, never stray punctuation"
+        );
+    }
+
+    #[test]
+    fn spelling_suggestions_never_fire_on_coded_diagnostics() {
+        // A moved `x` must not draw "Did you mean 'a'?" — coded diagnostics
+        // are about semantics, not spelling.
+        let doc = make_doc("## Main\nLet x be 5.\nLet a be 0.\nGive x to a.\nShow x.\n");
+        let actions = code_actions(&doc, Range::default(), &test_uri());
+        for action in &actions {
+            if let CodeActionOrCommand::CodeAction(ca) = action {
+                assert!(
+                    !ca.title.starts_with("Did you mean"),
+                    "spelling noise on a coded diagnostic: {}",
+                    ca.title
+                );
+            }
+        }
     }
 
     #[test]

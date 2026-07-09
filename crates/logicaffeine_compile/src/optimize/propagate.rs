@@ -145,8 +145,9 @@ fn propagate_stmt<'a>(
             function,
             args: args.into_iter().map(|a| subst_and_fold(a, env, expr_arena, stmt_arena, interner)).collect(),
         },
-        Stmt::RuntimeAssert { condition } => Stmt::RuntimeAssert {
+        Stmt::RuntimeAssert { condition, hard } => Stmt::RuntimeAssert {
             condition: subst_and_fold(condition, env, expr_arena, stmt_arena, interner),
+            hard,
         },
         // Don't substitute into SetIndex index — preserves AST shape for
         // swap pattern detection in codegen (matching Expr::Index behavior)
@@ -212,7 +213,7 @@ fn subst_and_fold<'a>(
     interner: &mut Interner,
 ) -> &'a Expr<'a> {
     let substituted = substitute_identifiers(expr, env, expr_arena);
-    fold::fold_expr(substituted, expr_arena, stmt_arena, interner)
+    fold::fold_expr(substituted, expr_arena, stmt_arena, interner, &fold::BoolSyms::new())
 }
 
 /// Recursively substitute identifiers with their constant values from env.

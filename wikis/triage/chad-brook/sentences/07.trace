@@ -1,0 +1,21 @@
+CLASSIFICATION: ParserGap | subsystem Parser | gate Investigate | confidence 0.50
+
+═══ Sentence 7 ═══
+INPUT: The remains of some of its buildings are extant.
+
+TOKENS:
+    0..3   "The"        Determiner
+    4..11  "remains"    Verb
+   12..14  "of"         Preposition
+   15..19  "some"       Quantifier
+   20..22  "of"         Preposition
+   23..26  "its"        Pronoun
+   27..36  "buildings"  Adjective
+   37..40  "are"        Other
+   41..47  "extant"     Adjective
+   47..48  "."          Punctuation
+   48..48  ""           Other
+
+ERROR (Socratic):
+  I was looking for a noun, verb, or adjective at position 20, but found Some instead. The logic needs a content word to ground it.
+

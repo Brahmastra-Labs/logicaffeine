@@ -68,8 +68,13 @@ pub enum VerifyOp {
     Sub,
     /// Multiplication.
     Mul,
-    /// Integer division.
+    /// Integer division (Euclidean, matching Z3's `div`).
     Div,
+    /// Floor division (`a // b`) — the quotient rounded toward negative infinity, exactly.
+    /// Encoded as `to_int(to_real(a) / to_real(b))` (Z3's `to_int` is the floor function),
+    /// which is precise across every sign combination — unlike [`VerifyOp::Div`], whose
+    /// Euclidean rounding only coincides with floor when the divisor is positive.
+    FloorDiv,
 
     // ---- Comparison (Int × Int → Bool) ----
 
@@ -117,6 +122,10 @@ pub enum BitVecOp {
     Add,
     Sub,
     Mul,
+    /// Signed division, truncating toward zero (matches Rust `i64` `/`).
+    SDiv,
+    /// Signed remainder, sign following the dividend (matches Rust `i64` `%`).
+    SRem,
 
     // ---- Comparison ----
     /// Unsigned less than.
@@ -181,6 +190,16 @@ pub enum VerifyExpr {
         args: Vec<VerifyExpr>,
     },
 
+    /// Uninterpreted INT-valued function application: `Int^n → Int`.
+    ///
+    /// For function symbols in TERM position — `sum(a, b)` (the Link-lattice
+    /// join ⊕), `GovernmentOf(x)`, `has(x, y)` — where [`VerifyExpr::Apply`]
+    /// (which encodes as `Int^n → Bool`) would be ill-sorted.
+    ApplyInt {
+        name: String,
+        args: Vec<VerifyExpr>,
+    },
+
     // ---- Bitvector operations (hardware verification) ----
 
     /// Bitvector constant with explicit width.
@@ -193,7 +212,7 @@ pub enum VerifyExpr {
         right: Box<VerifyExpr>,
     },
 
-    /// Bitvector bit extraction: operand[high:low].
+    /// Bitvector bit extraction: operand\[high:low\].
     BitVecExtract {
         high: u32,
         low: u32,
@@ -219,13 +238,13 @@ pub enum VerifyExpr {
 
     // ---- Array theory ----
 
-    /// Array select: array[index].
+    /// Array select: array\[index\].
     Select {
         array: Box<VerifyExpr>,
         index: Box<VerifyExpr>,
     },
 
-    /// Array store: array[index] := value.
+    /// Array store: array\[index\] := value.
     Store {
         array: Box<VerifyExpr>,
         index: Box<VerifyExpr>,
@@ -350,6 +369,16 @@ impl VerifyExpr {
     /// ```
     pub fn apply(name: impl Into<String>, args: Vec<VerifyExpr>) -> Self {
         VerifyExpr::Apply {
+            name: name.into(),
+            args,
+        }
+    }
+
+    /// Create an uninterpreted INT-valued function application (`Int^n → Int`)
+    /// for function symbols in term position, e.g. the lattice join
+    /// `sum(a, b)`.
+    pub fn apply_int(name: impl Into<String>, args: Vec<VerifyExpr>) -> Self {
+        VerifyExpr::ApplyInt {
             name: name.into(),
             args,
         }

@@ -1,0 +1,15 @@
+{
+  "id": "N_14.11",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "You want Carol to harm you",
+  "options": [
+    "$ \\underline{u}:Hcu $",
+    "$ u:Hcu $",
+    "$ u:H\\underline{c} u $",
+    "$ \\underline{u}:H\\underline{c} u $"
+  ],
+  "correct": 2,
+  "hint": "In belief/desire logic, who is the AGENT having the desire? What do they desire?",
+  "explanation": "Desires work like beliefs: u:P means 'you (agent u) want P'. The underlined letter marks who has the desire. The content after the colon is what they want."
+}

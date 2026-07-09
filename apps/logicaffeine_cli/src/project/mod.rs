@@ -38,6 +38,9 @@ pub mod credentials;
 pub mod registry;
 
 pub use manifest::{Manifest, ManifestError};
-pub use build::{build, find_project_root, run, BuildConfig, BuildError, BuildResult};
+pub use build::{
+    build, classify_cargo_failure, find_project_root, run, BuildConfig, BuildError, BuildResult,
+    CargoFailure, CargoFailureKind,
+};
 pub use credentials::{Credentials, get_token as get_registry_token};
 pub use registry::{RegistryClient, create_tarball, is_git_dirty};

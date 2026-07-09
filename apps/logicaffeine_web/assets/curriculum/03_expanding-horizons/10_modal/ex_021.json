@@ -1,0 +1,15 @@
+{
+  "id": "J_4.27",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "If Einstein is a foreigner, then Einstein must be clean",
+  "options": [
+    "Ambiguous between 2 & 4",
+    "$ (F \\supset \\square C) $",
+    "$ \\square F \\supset C $",
+    "$ \\square (F \\supset C) $"
+  ],
+  "correct": 0,
+  "hint": "Does 'must' attach to the whole statement, or to part of it? What exactly is being required?",
+  "explanation": "Scope-ambiguous. 'Must be clean' is □C. NARROW scope gives F ⊃ □C, 'if Einstein is a foreigner then he must be clean' (option 2); WIDE scope gives □(F ⊃ C), 'necessarily, foreigners are clean' (option 4). Both readings are defensible. (□F ⊃ C, necessity on the antecedent, is not natural.)"
+}

@@ -138,13 +138,15 @@ fn modal_scope_few_can_narrow() {
 
 #[test]
 fn modal_scope_cannot_narrow() {
-    // "Some birds cannot fly" → ∃x(Bird(x) ∧ □₀Fly(x))
-    // Cannot uses □ (necessity) with force 0, meaning impossibility
+    // "Some birds cannot fly" → ∃x(Bird(x) ∧ ◇₀Fly(x))
+    // Cannot is impossibility: the possibility operator ◇ with force 0 ("0%
+    // possible"), the low-force/weak side of the modal scale — consistent with
+    // the `force` doc (0.5 = ◇, 1.0 = □) and the Deontic `force <= 0.5` branch.
     let output = compile("Some birds cannot fly.").unwrap();
 
     let quant_pos = output.find('∃').expect(&format!("Should have ∃. Got: {}", output));
-    // Cannot produces □ with force 0
-    let modal_pos = output.find('□').expect(&format!("Should have □. Got: {}", output));
+    // Cannot produces ◇ with force 0
+    let modal_pos = output.find('◇').expect(&format!("Should have ◇. Got: {}", output));
     assert!(
         quant_pos < modal_pos,
         "Root modal 'cannot' should have narrow scope. Got: {}",

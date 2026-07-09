@@ -1,8 +1,8 @@
 {
   "name": "logicaffeine",
-  "displayName": "LogicAffeine",
-  "description": "Language support for LogicAffeine (.lg files)",
-  "version": "0.9.5",
+  "displayName": "LOGOS",
+  "description": "The English programming language: literate-Markdown programs, socratic errors, kernel-certified theorem proving, and Rust's borrow checker speaking English.",
+  "version": "0.10.0",
   "publisher": "brahmastra-labs",
   "repository": {
     "type": "git",
@@ -12,12 +12,16 @@
     "vscode": "^1.75.0"
   },
   "categories": [
-    "Programming Languages"
+    "Programming Languages",
+    "Snippets",
+    "Linters",
+    "Formatters"
   ],
   "activationEvents": [
-    "onLanguage:logicaffeine"
+    "onLanguage:logicaffeine",
+    "workspaceContains:**/Largo.toml"
   ],
-  "main": "./out/extension.js",
+  "main": "./dist/extension.js",
   "contributes": {
     "languages": [
       {
@@ -30,7 +34,11 @@
         "extensions": [
           ".lg"
         ],
-        "configuration": "./language-configuration.json"
+        "configuration": "./language-configuration.json",
+        "icon": {
+          "light": "./icons/logicaffeine-file.svg",
+          "dark": "./icons/logicaffeine-file.svg"
+        }
       }
     ],
     "grammars": [
@@ -38,6 +46,68 @@
         "language": "logicaffeine",
         "scopeName": "source.logicaffeine",
         "path": "./syntaxes/logicaffeine.tmLanguage.json"
+      },
+      {
+        "scopeName": "markdown.logicaffeine.codeblock",
+        "path": "./syntaxes/logicaffeine.markdown-injection.json",
+        "injectTo": [
+          "text.html.markdown"
+        ],
+        "embeddedLanguages": {
+          "meta.embedded.block.logicaffeine": "logicaffeine"
+        }
+      }
+    ],
+    "semanticTokenScopes": [
+      {
+        "language": "logicaffeine",
+        "scopes": {
+          "keyword": [
+            "keyword.control.logicaffeine"
+          ],
+          "type": [
+            "entity.name.type.logicaffeine"
+          ],
+          "function": [
+            "entity.name.function.logicaffeine"
+          ],
+          "variable": [
+            "variable.other.readwrite.logicaffeine"
+          ],
+          "variable.declaration": [
+            "variable.other.readwrite.definition.logicaffeine"
+          ],
+          "variable.readonly": [
+            "variable.other.constant.logicaffeine"
+          ],
+          "string": [
+            "string.quoted.double.logicaffeine"
+          ],
+          "number": [
+            "constant.numeric.logicaffeine"
+          ],
+          "operator": [
+            "keyword.operator.logicaffeine"
+          ],
+          "namespace": [
+            "entity.name.section.logicaffeine"
+          ],
+          "modifier": [
+            "storage.modifier.logicaffeine"
+          ],
+          "property": [
+            "variable.other.property.logicaffeine"
+          ],
+          "comment": [
+            "comment.line.number-sign.logicaffeine"
+          ],
+          "parameter": [
+            "variable.parameter.logicaffeine"
+          ],
+          "enumMember": [
+            "variable.other.enummember.logicaffeine"
+          ]
+        }
       }
     ],
     "configuration": {
@@ -46,29 +116,253 @@
         "logicaffeine.lsp.path": {
           "type": "string",
           "default": "logicaffeine-lsp",
-          "description": "Path to the logicaffeine-lsp binary"
+          "description": "Path to the logicaffeine-lsp binary. When unset, the extension uses the server bundled for your platform, falling back to PATH."
         },
         "logicaffeine.lsp.args": {
           "type": "array",
-          "default": [
-            "--stdio"
+          "default": [],
+          "description": "Extra arguments passed to the LSP server."
+        },
+        "logicaffeine.trace.server": {
+          "type": "string",
+          "enum": [
+            "off",
+            "messages",
+            "verbose"
           ],
-          "description": "Arguments passed to the LSP server"
+          "default": "off",
+          "description": "Trace the LSP protocol traffic in the LOGOS Language Server output channel."
+        },
+        "logicaffeine.largo.path": {
+          "type": "string",
+          "default": "largo",
+          "description": "Path to the largo build tool. Install it with: curl -fsSL https://logicaffeine.com/install.sh | sh"
+        },
+        "logicaffeine.run.mode": {
+          "type": "string",
+          "enum": [
+            "interpret",
+            "debug",
+            "release"
+          ],
+          "enumDescriptions": [
+            "Tree-walking interpreter \u2014 sub-second feedback (largo run --interpret)",
+            "Compile to Rust without optimizations (largo run)",
+            "Compile to Rust with optimizations (largo run --release)"
+          ],
+          "default": "interpret",
+          "description": "How the Run command executes the project."
+        },
+        "logicaffeine.prove.trace": {
+          "type": "boolean",
+          "default": false,
+          "description": "Show the rendered derivation tree under each proved theorem (largo prove --trace)."
+        },
+        "logicaffeine.flycheck.enable": {
+          "type": "boolean",
+          "default": true,
+          "description": "On save, run Rust's borrow checker over the compiled form of the program and report findings in English (requires a Rust toolchain; degrades silently without one)."
         }
       }
-    }
+    },
+    "commands": [
+      {
+        "command": "logicaffeine.run",
+        "title": "Run Project",
+        "category": "LOGOS",
+        "icon": "$(play)"
+      },
+      {
+        "command": "logicaffeine.verify",
+        "title": "Verify Project (preview)",
+        "category": "LOGOS"
+      },
+      {
+        "command": "logicaffeine.prove",
+        "title": "Prove Theorems",
+        "category": "LOGOS"
+      },
+      {
+        "command": "logicaffeine.checkProof",
+        "title": "Check Proof",
+        "category": "LOGOS"
+      },
+      {
+        "command": "logicaffeine.setLicense",
+        "title": "Set Verification License Key",
+        "category": "LOGOS"
+      },
+      {
+        "command": "logicaffeine.restartServer",
+        "title": "Restart Language Server",
+        "category": "LOGOS"
+      },
+      {
+        "command": "logicaffeine.showServerLog",
+        "title": "Show Language Server Log",
+        "category": "LOGOS"
+      }
+    ],
+    "menus": {
+      "editor/title/run": [
+        {
+          "command": "logicaffeine.run",
+          "when": "editorLangId == logicaffeine",
+          "group": "navigation"
+        }
+      ],
+      "editor/context": [
+        {
+          "command": "logicaffeine.run",
+          "when": "editorLangId == logicaffeine",
+          "group": "logicaffeine@1"
+        },
+        {
+          "command": "logicaffeine.prove",
+          "when": "editorLangId == logicaffeine",
+          "group": "logicaffeine@2"
+        }
+      ]
+    },
+    "keybindings": [
+      {
+        "command": "logicaffeine.run",
+        "key": "ctrl+alt+r",
+        "mac": "cmd+alt+r",
+        "when": "editorLangId == logicaffeine"
+      },
+      {
+        "command": "logicaffeine.verify",
+        "key": "ctrl+alt+v",
+        "mac": "cmd+alt+v",
+        "when": "editorLangId == logicaffeine"
+      }
+    ],
+    "taskDefinitions": [
+      {
+        "type": "largo",
+        "properties": {
+          "args": {
+            "type": "array",
+            "description": "Arguments passed to largo."
+          }
+        }
+      }
+    ],
+    "snippets": [
+      {
+        "language": "logicaffeine",
+        "path": "./snippets/logicaffeine.json"
+      }
+    ],
+    "walkthroughs": [
+      {
+        "id": "logicaffeine.gettingStarted",
+        "title": "Get started with LOGOS",
+        "description": "Install the build tool, create a project, run English code, and prove your first theorem.",
+        "steps": [
+          {
+            "id": "installLargo",
+            "title": "Install largo",
+            "description": "The build tool that runs and proves LOGOS programs.\n[Open install docs](https://logicaffeine.com)",
+            "media": {
+              "markdown": "media/walkthrough/install-largo.md"
+            }
+          },
+          {
+            "id": "newProject",
+            "title": "Create a project",
+            "description": "``largo new hello`` scaffolds a manifest and an entry point.",
+            "media": {
+              "markdown": "media/walkthrough/new-project.md"
+            }
+          },
+          {
+            "id": "runAndProve",
+            "title": "Run code, prove theorems",
+            "description": "Code lenses run ``## Main`` and prove ``## Theorem`` blocks.\n[Run Project](command:logicaffeine.run)",
+            "media": {
+              "markdown": "media/walkthrough/run-and-prove.md"
+            },
+            "completionEvents": [
+              "onCommand:logicaffeine.run"
+            ]
+          },
+          {
+            "id": "diagnostics",
+            "title": "Socratic errors + the borrow checker",
+            "description": "Errors explain and suggest \u2014 and on save, rustc double-checks your ownership story in English.",
+            "media": {
+              "markdown": "media/walkthrough/diagnostics.md"
+            }
+          }
+        ]
+      }
+    ]
   },
   "scripts": {
-    "vscode:prepublish": "npm run compile",
-    "compile": "tsc -p ./",
-    "watch": "tsc -watch -p ./"
+    "vscode:prepublish": "npm run build:prod",
+    "build": "node esbuild.mjs",
+    "build:prod": "node esbuild.mjs --production",
+    "watch": "node esbuild.mjs --watch",
+    "typecheck": "tsc --noEmit -p ./",
+    "lint": "eslint src test",
+    "compile:tests": "tsc -p tsconfig.test.json",
+    "test:unit": "npm run build && npm run compile:tests && mocha \"out-test/test/unit/**/*.test.js\"",
+    "test:grammar": "npm run compile:tests && mocha \"out-test/test/grammar/**/*.test.js\" && vscode-tmgrammar-snap -s source.logicaffeine -g syntaxes/logicaffeine.tmLanguage.json \"test/grammar/corpus/*.lg\"",
+    "test:integration": "npm run build && npm run compile:tests && node out-test/test/integration/runTests.js",
+    "package": "vsce package --no-dependencies -o logicaffeine.vsix",
+    "test:vsix-gate": "npm run compile:tests && node out-test/test/integration/runInstalledVsix.js"
   },
   "dependencies": {
     "vscode-languageclient": "^9.0.1"
   },
   "devDependencies": {
+    "@types/mocha": "^10.0.10",
     "@types/node": "^20.0.0",
     "@types/vscode": "^1.75.0",
-    "typescript": "^5.3.0"
+    "@vscode/test-electron": "^2.4.1",
+    "@vscode/vsce": "^3.2.1",
+    "esbuild": "^0.25.0",
+    "eslint": "^9.17.0",
+    "mocha": "^10.8.2",
+    "typescript": "^5.3.0",
+    "typescript-eslint": "^8.18.0"
+  },
+  "icon": "icon.png",
+  "license": "SEE LICENSE IN LICENSE.md",
+  "homepage": "https://logicaffeine.com",
+  "bugs": {
+    "url": "https://github.com/Brahmastra-Labs/logicaffeine/issues"
+  },
+  "qna": "https://github.com/Brahmastra-Labs/logicaffeine/discussions",
+  "galleryBanner": {
+    "color": "#1e1e2e",
+    "theme": "dark"
+  },
+  "keywords": [
+    "english programming language",
+    "logos",
+    "natural language",
+    "theorem prover",
+    "formal verification",
+    "literate programming",
+    "logic",
+    "borrow checker"
+  ],
+  "capabilities": {
+    "untrustedWorkspaces": {
+      "supported": "limited",
+      "description": "In untrusted workspaces the bundled language server still runs, but workspace settings cannot redirect which binaries execute.",
+      "restrictedConfigurations": [
+        "logicaffeine.lsp.path",
+        "logicaffeine.lsp.args",
+        "logicaffeine.largo.path"
+      ]
+    },
+    "virtualWorkspaces": {
+      "supported": "limited",
+      "description": "Syntax highlighting only; the language server requires a local file system."
+    }
   }
 }

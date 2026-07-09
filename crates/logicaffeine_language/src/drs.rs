@@ -284,12 +284,6 @@ impl WorldState {
         let can_access_modal = self.in_modal_context();
 
         #[cfg(debug_assertions)]
-        eprintln!("[TELESCOPE DEBUG] can_access_modal={}, candidates={:?}",
-            can_access_modal,
-            self.telescope_candidates.iter()
-                .map(|c| (c.in_modal_scope, c.gender))
-                .collect::<Vec<_>>()
-        );
 
         // Apply same Gender Accommodation rules as resolve_pronoun:
         // - Exact match (Male=Male, Female=Female, etc)
@@ -300,7 +294,6 @@ impl WorldState {
             if candidate.in_modal_scope && !can_access_modal {
                 // Wolf in imagination cannot be referenced from reality
                 #[cfg(debug_assertions)]
-                eprintln!("[TELESCOPE DEBUG] BLOCKED modal candidate: {:?}", candidate.gender);
                 continue;
             }
 
@@ -482,6 +475,16 @@ impl BoxType {
     }
 }
 
+/// Two modifier sets match when they contain exactly the same symbols
+/// (order-independent). A description with NO modifier never matches one WITH a
+/// modifier — the distinguishing modifier is what does the referring.
+fn modifier_sets_match(a: &[Symbol], b: &[Symbol]) -> bool {
+    if a.len() != b.len() || a.is_empty() {
+        return false;
+    }
+    a.iter().all(|m| b.contains(m)) && b.iter().all(|m| a.contains(m))
+}
+
 #[derive(Debug, Clone)]
 pub struct Referent {
     pub variable: Symbol,
@@ -491,6 +494,13 @@ pub struct Referent {
     pub source: ReferentSource,
     pub used_by_pronoun: bool,
     pub ownership: OwnershipState,
+    /// The distinguishing modifier(s) of the description that introduced this
+    /// referent — the adjective/gerund that does the REFERRING in "the
+    /// \[modifier\] \[head\]". For "the hunting vacation" this holds `Hunt`. Empty
+    /// for bare descriptions ("the vacation"). Used by context-driven
+    /// coreference: two definite descriptions that share their distinguishing
+    /// modifier AND have sort-compatible head nouns denote the same entity.
+    pub modifiers: Vec<Symbol>,
 }
 
 impl Referent {
@@ -503,7 +513,22 @@ impl Referent {
             source,
             used_by_pronoun: false,
             ownership: OwnershipState::Owned,
+            modifiers: Vec::new(),
         }
+    }
+
+    /// Construct a referent carrying its distinguishing modifier(s).
+    pub fn with_modifiers(
+        variable: Symbol,
+        noun_class: Symbol,
+        gender: Gender,
+        number: Number,
+        source: ReferentSource,
+        modifiers: Vec<Symbol>,
+    ) -> Self {
+        let mut referent = Self::new(variable, noun_class, gender, number, source);
+        referent.modifiers = modifiers;
+        referent
     }
 
     pub fn should_be_universal(&self) -> bool {
@@ -533,6 +558,14 @@ pub struct Drs {
     boxes: Vec<DrsBox>,
     main_box: usize,
     current_box: usize,
+    /// Maps a declared ITEM to the CATEGORY noun it was declared under. A
+    /// category declaration ("2001, 2002, 2003, and 2004 are four different
+    /// years.") records `2001 → Year`, `2002 → Year`, … so a later definite
+    /// LABEL ("the 2003 holiday") can recover the item's category and un-fuse
+    /// to the SAME relation the prepositional-phrase form produces ("the
+    /// holiday was in 2003" → In(x, 2003)). Persisting in the shared discourse
+    /// DRS is what makes the two surface forms converge across sentences.
+    item_categories: std::collections::HashMap<Symbol, Symbol>,
 }
 
 impl Drs {
@@ -542,6 +575,7 @@ impl Drs {
             boxes: vec![main],
             main_box: 0,
             current_box: 0,
+            item_categories: std::collections::HashMap::new(),
         }
     }
 
@@ -584,10 +618,59 @@ impl Drs {
         self.boxes[self.current_box].universe.push(referent);
     }
 
+    /// Introduce a referent carrying its distinguishing modifier(s) (the
+    /// adjective/gerund that does the referring in "the \[modifier\] \[head\]").
+    /// These modifiers feed context-driven coreference for definite
+    /// descriptions — see [`Drs::resolve_definite_by_modifier`].
+    pub fn introduce_referent_with_modifiers(
+        &mut self,
+        variable: Symbol,
+        noun_class: Symbol,
+        gender: Gender,
+        number: Number,
+        source: ReferentSource,
+        modifiers: Vec<Symbol>,
+    ) {
+        let referent =
+            Referent::with_modifiers(variable, noun_class, gender, number, source, modifiers);
+        self.boxes[self.current_box].universe.push(referent);
+    }
+
+    /// Accommodate a referent at the MAIN (highest) box. Definites presuppose
+    /// existence, so they project globally even when first mentioned inside
+    /// an embedded box (Van der Sandt global accommodation).
+    pub fn introduce_referent_global(&mut self, variable: Symbol, noun_class: Symbol, gender: Gender, number: Number, source: ReferentSource) {
+        let referent = Referent::new(variable, noun_class, gender, number, source);
+        self.boxes[self.main_box].universe.push(referent);
+    }
+
     pub fn introduce_proper_name(&mut self, variable: Symbol, name: Symbol, gender: Gender) {
         // Proper names are always singular
         let referent = Referent::new(variable, name, gender, Number::Singular, ReferentSource::ProperName);
         self.boxes[self.current_box].universe.push(referent);
+    }
+
+    /// Is this symbol a RIGID referent (proper name or deictic constant)?
+    /// A pronoun resolving to a rigid referent denotes the constant itself,
+    /// not a discourse-bound variable.
+    pub fn is_rigid_referent(&self, symbol: Symbol) -> bool {
+        self.boxes.iter().any(|b| {
+            b.universe
+                .iter()
+                .any(|r| r.variable == symbol && r.source == ReferentSource::ProperName)
+        })
+    }
+
+    /// Record that `item` was declared under category noun `category`. Called
+    /// for each member of a coordinated category declaration; read back by a
+    /// definite-description label to drive category-based un-fusing.
+    pub fn register_item_category(&mut self, item: Symbol, category: Symbol) {
+        self.item_categories.insert(item, category);
+    }
+
+    /// The category noun `item` was declared under, if any.
+    pub fn item_category(&self, item: Symbol) -> Option<Symbol> {
+        self.item_categories.get(&item).copied()
     }
 
     /// Check if a referent in box `from_box` can access referents in box `target_box`
@@ -767,6 +850,82 @@ impl Drs {
         None
     }
 
+    /// Context-driven coreference for MODIFIED definite descriptions.
+    ///
+    /// When an exact head-noun match fails, two definite descriptions still
+    /// corefer when (a) their distinguishing modifier matches AND (b) their
+    /// head nouns are of a COMPATIBLE occasion sort. This is the
+    /// modifier-does-the-referring principle: in "the hunting vacation" /
+    /// "the hunting trip" the modifier `Hunt` identifies the entity and the
+    /// head noun (vacation/trip) is a soft type, so both descriptions denote
+    /// the same discourse referent.
+    ///
+    /// This is NOT synonymy — no `Vacation ↔ Trip` axiom is asserted; the FOL
+    /// keeps `Vacation(x)` and `Trip(x)` literally. Coreference is purely a
+    /// referent-resolution step: the later description reuses the earlier
+    /// referent's variable.
+    ///
+    /// Guardrails (enforced here):
+    /// - The modifier sets must match EXACTLY (differing modifiers — "the
+    ///   hunting trip" vs "the skydiving trip" — never corefer), and a bare
+    ///   (modifier-less) description never coreferes through this path.
+    /// - BOTH head nouns must be of an OCCASION sort (`Sort::is_occasion`)
+    ///   and mutually sort-compatible. Concrete objects ("the red box" / "the
+    ///   red ball", both `Physical`) are excluded, so a shared modifier on
+    ///   non-occasion nouns never triggers coreference.
+    pub fn resolve_definite_by_modifier(
+        &self,
+        interner: &crate::Interner,
+        from_box: usize,
+        noun_class: Symbol,
+        modifiers: &[Symbol],
+    ) -> Option<Symbol> {
+        use crate::lexicon::lookup_sort;
+
+        // A modifier-less description cannot refer through its (absent)
+        // modifier. Conservative: no modifier ⇒ no coreference via this path.
+        if modifiers.is_empty() {
+            return None;
+        }
+
+        // The new description's head noun must itself be an occasion sort —
+        // otherwise the modifier-does-the-referring principle does not apply.
+        let new_sort = lookup_sort(interner.resolve(noun_class))?;
+        if !new_sort.is_occasion() {
+            return None;
+        }
+
+        for (box_idx, drs_box) in self.boxes.iter().enumerate() {
+            if !self.is_accessible(box_idx, from_box) {
+                continue;
+            }
+            for referent in drs_box.universe.iter().rev() {
+                // The distinguishing modifier(s) must match exactly. Order is
+                // irrelevant; the set of modifier symbols must be equal.
+                if !modifier_sets_match(&referent.modifiers, modifiers) {
+                    continue;
+                }
+
+                // The prior referent's head noun must also be an occasion sort
+                // and mutually sort-compatible with the new description's head.
+                let Some(prior_sort) = lookup_sort(interner.resolve(referent.noun_class)) else {
+                    continue;
+                };
+                if !prior_sort.is_occasion() {
+                    continue;
+                }
+                if !new_sort.is_compatible_with(prior_sort)
+                    && !prior_sort.is_compatible_with(new_sort)
+                {
+                    continue;
+                }
+
+                return Some(referent.variable);
+            }
+        }
+        None
+    }
+
     /// Check if a referent exists by variable name (for imperative mode variable validation)
     pub fn has_referent_by_variable(&self, var: Symbol) -> bool {
         for drs_box in &self.boxes {
@@ -808,7 +967,11 @@ impl Drs {
         let mut result = Vec::new();
         for drs_box in &self.boxes {
             for referent in &drs_box.universe {
-                if referent.should_be_universal() {
+                // Proper names are rigid constants, never universally bound — a
+                // counterfactual "If John had studied…" must not become ∀John.
+                if referent.should_be_universal()
+                    && !matches!(referent.source, ReferentSource::ProperName)
+                {
                     result.push(referent.variable);
                 }
             }
@@ -997,6 +1160,7 @@ impl Drs {
         self.boxes.push(main);
         self.main_box = 0;
         self.current_box = 0;
+        self.item_categories.clear();
     }
 }
 

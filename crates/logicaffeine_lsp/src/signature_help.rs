@@ -28,12 +28,18 @@ pub fn signature_help(doc: &DocumentState, position: Position) -> Option<Signatu
     let func_name_token = doc.tokens.get(call_idx + 1)?;
     let func_name = doc.source.get(func_name_token.span.start..func_name_token.span.end)?;
 
-    // Look up the function definition
+    // Look up the function definition; stdlib prelude names answer when the
+    // document defines nothing by that name.
     let defs = doc.symbol_index.definitions_of(func_name);
-    let func_def = defs.iter().find(|d| d.kind == DefinitionKind::Function)?;
-
-    // Extract detail string to build signature
-    let detail = func_def.detail.as_ref()?;
+    let func_def = defs.iter().find(|d| d.kind == DefinitionKind::Function);
+    let (detail, documentation) = match func_def {
+        Some(def) => (def.detail.clone()?, def.doc.clone()),
+        None => {
+            let entry = crate::stdlib_docs::stdlib_doc(func_name).filter(|e| !e.is_type)?;
+            (entry.signature.trim_start_matches("## ").to_string(), entry.doc.clone())
+        }
+    };
+    let detail = &detail;
 
     // Count parameter separators after Call to determine active parameter.
     // "with" introduces the parameter list, only "and" and "," separate params.
@@ -64,7 +70,14 @@ pub fn signature_help(doc: &DocumentState, position: Position) -> Option<Signatu
     Some(SignatureHelp {
         signatures: vec![SignatureInformation {
             label: detail.clone(),
-            documentation: None,
+            documentation: documentation.map(|d| {
+                tower_lsp::lsp_types::Documentation::MarkupContent(
+                    tower_lsp::lsp_types::MarkupContent {
+                        kind: tower_lsp::lsp_types::MarkupKind::Markdown,
+                        value: d,
+                    },
+                )
+            }),
             parameters: if params.is_empty() {
                 None
             } else {
@@ -79,34 +92,32 @@ pub fn signature_help(doc: &DocumentState, position: Position) -> Option<Signatu
 
 /// Extract parameter names and types from a function signature detail string.
 ///
-/// Expects format: `"To name(param1: Type1, param2: Type2) -> ReturnType"`
-/// Returns a list of `(param_name, param_type)` pairs.
+/// Handles both the comma style (`"To name(a: Int, b: Int) -> Ret"`) and the
+/// stdlib's prepositional groups (`"To native f (a: Int) and (b: Int) -> R"`):
+/// every parenthesized group before the arrow contributes its parameters.
 fn extract_params_from_signature(detail: &str) -> Vec<(String, String)> {
-    let open = match detail.find('(') {
-        Some(i) => i,
-        None => return vec![],
-    };
-    let close = match detail.find(')') {
-        Some(i) => i,
-        None => return vec![],
-    };
-    if close <= open + 1 {
-        return vec![];
-    }
-    let params_str = &detail[open + 1..close];
-    params_str
-        .split(',')
-        .filter_map(|part| {
+    let head = detail.split("->").next().unwrap_or(detail);
+    let mut params = Vec::new();
+    let mut rest = head;
+    while let Some(open) = rest.find('(') {
+        let Some(close) = rest[open + 1..].find(')') else { break };
+        let group = &rest[open + 1..open + 1 + close];
+        for part in group.split(',') {
             let part = part.trim();
             if part.is_empty() {
-                return None;
+                continue;
             }
             let mut split = part.splitn(2, ':');
-            let name = split.next()?.trim().to_string();
-            let ty = split.next().map(|s| s.trim().to_string()).unwrap_or_else(|| "auto".to_string());
-            Some((name, ty))
-        })
-        .collect()
+            let Some(name) = split.next().map(|s| s.trim().to_string()) else { continue };
+            let ty = split
+                .next()
+                .map(|s| s.trim().to_string())
+                .unwrap_or_else(|| "auto".to_string());
+            params.push((name, ty));
+        }
+        rest = &rest[open + 1 + close + 1..];
+    }
+    params
 }
 
 #[cfg(test)]
@@ -232,6 +243,44 @@ mod tests {
             let active = help.active_parameter.unwrap_or(99);
             assert_eq!(active, 0, "Before 'and', active_parameter should be 0 (with not counted), got {}", active);
         }
+    }
+
+    #[test]
+    fn signature_help_documents_from_the_note_prose() {
+        let source = "## Note\nAdds two integers.\n\n## To compute (a: Int, b: Int) -> Int:\n    Return a + b.\n\n## Main\n    Let r be Call compute with 1 and 2.\n";
+        let doc = make_doc(source);
+        let pos = Position { line: 7, character: 34 };
+        let help = signature_help(&doc, pos).expect("documented function signature");
+        let sig = &help.signatures[0];
+        let Some(tower_lsp::lsp_types::Documentation::MarkupContent(content)) =
+            &sig.documentation
+        else {
+            panic!("the ## Note prose must document the signature");
+        };
+        assert!(content.value.contains("Adds two integers."), "{}", content.value);
+    }
+
+    #[test]
+    fn signature_help_falls_back_to_the_stdlib() {
+        let source = "## Main\n    Let r be Call randomInt with 1 and 6.\n";
+        let doc = make_doc(source);
+        let pos = Position { line: 1, character: 32 };
+        let help = signature_help(&doc, pos).expect("stdlib names answer signature help");
+        let sig = &help.signatures[0];
+        assert!(sig.label.contains("randomInt"), "{}", sig.label);
+        let params = sig.parameters.as_ref().expect("min and max parameters");
+        assert_eq!(params.len(), 2, "prepositional groups both count: {params:?}");
+        assert!(sig.documentation.is_some(), "the literate Note teaches");
+    }
+
+    #[test]
+    fn multi_group_signatures_yield_every_parameter() {
+        let params = extract_params_from_signature(
+            "To native write (path: Text) and (content: Text) -> Result of Unit and Text",
+        );
+        assert_eq!(params.len(), 2);
+        assert_eq!(params[0].0, "path");
+        assert_eq!(params[1].0, "content");
     }
 
     #[test]

@@ -1,0 +1,15 @@
+{
+  "id": "L_12.6",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "Sing, Tom",
+  "options": [
+    "$ OS\\underline{t} $",
+    "$ S\\underline{t} $",
+    "$ St $",
+    "$ S\\underline{u}t $"
+  ],
+  "correct": 1,
+  "hint": "Identify WHO is being commanded or permitted (the agent, marked with underline) and WHAT action they must/may do.",
+  "explanation": "A command addressed to Tom: he is the agent, so his letter is underlined — S͟t ('Tom, sing'). The verb is intransitive, so only the agent appears, with no deontic operator (a direct order just IS the action)."
+}

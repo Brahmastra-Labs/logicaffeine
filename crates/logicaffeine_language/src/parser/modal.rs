@@ -20,8 +20,10 @@
 
 use super::clause::ClauseParsing;
 use super::noun::NounParsing;
+use super::pragmatics::PragmaticsParsing;
+use super::quantifier::QuantifierParsing;
 use super::{ParseResult, Parser};
-use crate::ast::{AspectOperator, LogicExpr, ModalDomain, ModalFlavor, ModalVector, NeoEventData, ThematicRole, VoiceOperator, Term};
+use crate::ast::{AspectOperator, LogicExpr, ModalDomain, ModalFlavor, ModalVector, NeoEventData, QuantifierKind, ThematicRole, VoiceOperator, Term};
 use crate::drs::TimeRelation;
 use crate::error::{ParseError, ParseErrorKind};
 use logicaffeine_base::Symbol;
@@ -129,6 +131,8 @@ impl<'a, 'ctx, 'int> ModalParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int> {
                                     domain: ModalDomain::Alethic,
                                     force: 0.5, // ability = possibility
                                     flavor: ModalFlavor::Root, // "be able to" = Root modal (ability)
+                                    modal_base: None,
+                                    ordering_source: None,
                                 });
                             }
                         }
@@ -187,6 +191,57 @@ impl<'a, 'ctx, 'int> ModalParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int> {
             }
         }
 
+        // Presupposition trigger under the modal/aspect chain: "Mary might
+        // regret lying." The presupposition PROJECTS out of the modal (Van
+        // der Sandt global accommodation) — the modal wraps only the
+        // assertion: Presup(◇Regret(m), ⟨Lied(m)⟩).
+        if self.check_presup_trigger()
+            && !self.is_followed_by_np_object()
+            && self.is_followed_by_gerund()
+        {
+            if let Term::Constant(subj_sym) = subject_term {
+                let presup_kind = match self.advance().kind {
+                    TokenType::PresupTrigger(kind) => kind,
+                    TokenType::Verb { lemma, .. } => {
+                        let s = self.interner.resolve(lemma).to_lowercase();
+                        crate::lexicon::lookup_presup_trigger(&s).expect(
+                            "Lexicon mismatch: Verb flagged as trigger but lookup failed",
+                        )
+                    }
+                    _ => unreachable!("guarded by check_presup_trigger"),
+                };
+                let subject_np = crate::ast::NounPhrase::simple(subj_sym);
+                let parsed =
+                    self.parse_presupposition(&subject_np, presup_kind, has_negation)?;
+                if has_modal {
+                    self.drs.exit_box();
+                }
+                if let LogicExpr::Presupposition {
+                    assertion,
+                    presupposition,
+                } = parsed
+                {
+                    let mut asserted: &'a LogicExpr<'a> = assertion;
+                    if has_modal {
+                        if let Some(vector) = modal_vector {
+                            asserted = self.ctx.modal(vector, asserted);
+                        }
+                    }
+                    return Ok(self.ctx.exprs.alloc(LogicExpr::Presupposition {
+                        assertion: asserted,
+                        presupposition,
+                    }));
+                }
+                let mut result: &'a LogicExpr<'a> = parsed;
+                if has_modal {
+                    if let Some(vector) = modal_vector {
+                        result = self.ctx.modal(vector, result);
+                    }
+                }
+                return Ok(result);
+            }
+        }
+
         let verb = if self.check_verb() {
             self.consume_verb()
         } else if self.check_content_word() {
@@ -204,24 +259,111 @@ impl<'a, 'ctx, 'int> ModalParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int> {
             ThematicRole::Agent
         };
         let mut roles: Vec<(ThematicRole, Term<'a>)> = vec![(subject_role, subject_term)];
+        let mut object_quant: Option<(QuantifierKind, Symbol, &'a LogicExpr<'a>)> = None;
+        // A DESCRIPTIVE perfect-passive by-agent ("…has been caught by the local
+        // police") becomes its own restrictor-carrying entity scoping the whole
+        // event; captured here, the wrap is applied to the finished `result` below
+        // so the Agent variable it binds stays in scope. Bare agents → None.
+        let mut agent_restr: Option<(Symbol, &'a LogicExpr<'a>)> = None;
 
         if has_passive && self.check_preposition() {
             if let TokenType::Preposition(sym) = self.peek().kind {
                 if self.interner.resolve(sym) == "by" {
                     self.advance();
                     let agent_np = self.parse_noun_phrase(true)?;
-                    let agent_term = self.noun_phrase_to_term(&agent_np);
+                    let (agent_term, restr) = self.possessor_entity(&agent_np);
+                    agent_restr = restr;
                     roles.push((ThematicRole::Agent, agent_term));
                 }
             }
+        } else if !has_passive && self.counting_np_lookahead().is_some() {
+            // A counting-NP object under a perfect/modal ("has done 49 previous
+            // jumps"): a ∃=n entity that is the Theme, keeping the count AND the
+            // adjectives (the noun-only object_quant path below drops them).
+            let n = self.counting_np_lookahead().unwrap();
+            self.advance(); // the number
+            let var = self.next_var_name();
+            self.nominal_np_context = true;
+            let obj_np_result = self.parse_noun_phrase(false);
+            self.nominal_np_context = false;
+            let obj_np = obj_np_result?;
+            let mut restriction: &'a LogicExpr<'a> = self.ctx.exprs.alloc(LogicExpr::Predicate {
+                name: obj_np.noun,
+                args: self.ctx.terms.alloc_slice([Term::Variable(var)]),
+                world: None,
+            });
+            for &adj in obj_np.adjectives {
+                let adj_pred = self.adjective_restriction(adj, var, obj_np.noun);
+                restriction = self.ctx.exprs.alloc(LogicExpr::BinaryOp {
+                    left: restriction,
+                    op: TokenType::And,
+                    right: adj_pred,
+                });
+            }
+            for pp in obj_np.pps {
+                let pp_sub = self.substitute_pp_placeholder(pp, var);
+                restriction = self.ctx.exprs.alloc(LogicExpr::BinaryOp {
+                    left: restriction,
+                    op: TokenType::And,
+                    right: pp_sub,
+                });
+            }
+            roles.push((ThematicRole::Theme, Term::Variable(var)));
+            object_quant = Some((QuantifierKind::Cardinal(n), var, restriction));
+        } else if !has_passive
+            && matches!(
+                self.peek().kind,
+                TokenType::All | TokenType::Some | TokenType::Cardinal(_)
+            )
+        {
+            // Quantified object under a modal ("shall acknowledge every
+            // request", "shall never drop two consecutive bytes"): the
+            // object raises past the root modal —
+            // ∀x(Request(x) → MODAL(event with Theme x)).
+            let kind = match self.advance().kind {
+                TokenType::All => QuantifierKind::Universal,
+                TokenType::Cardinal(n) => QuantifierKind::Cardinal(n),
+                _ => QuantifierKind::Existential,
+            };
+            let obj_np = self.parse_noun_phrase(false)?;
+            let var = self.next_var_name();
+            roles.push((ThematicRole::Theme, Term::Variable(var)));
+            let restriction = self.ctx.exprs.alloc(LogicExpr::Predicate {
+                name: obj_np.noun,
+                args: self.ctx.terms.alloc_slice([Term::Variable(var)]),
+                world: None,
+            });
+            object_quant = Some((kind, var, restriction));
         } else if !has_passive && (self.check_content_word() || self.check_article()) {
             let obj_np = self.parse_noun_phrase(false)?;
             let obj_term = self.noun_phrase_to_term(&obj_np);
+            roles.push((ThematicRole::Theme, obj_term));
+        } else if !has_passive && self.check_pronoun() {
+            // Pronoun object ("A wolf would eat you."): person deictics resolve
+            // to discourse roles, third person to the discourse referent.
+            let token = self.advance().clone();
+            let plex = self.interner.resolve(token.lexeme).to_lowercase();
+            let obj_term = match plex.as_str() {
+                "you" | "yourself" => Term::Constant(self.interner.intern("Addressee")),
+                "i" | "me" | "myself" => Term::Constant(self.interner.intern("Speaker")),
+                _ => {
+                    let (gender, number) = match &token.kind {
+                        TokenType::Pronoun { gender, number, .. } => (*gender, *number),
+                        _ => (crate::drs::Gender::Unknown, crate::drs::Number::Singular),
+                    };
+                    match self.resolve_pronoun(gender, number)? {
+                        super::ResolvedPronoun::Variable(s) => Term::Variable(s),
+                        super::ResolvedPronoun::Constant(s) => Term::Constant(s),
+                    }
+                }
+            };
             roles.push((ThematicRole::Theme, obj_term));
         }
 
         let event_var = self.get_event_var();
         let mut modifiers: Vec<Symbol> = Vec::new();
+        // Manner adverbs under the modal ("would spread quickly").
+        modifiers.extend(self.collect_adverbs());
         if let Some(pending) = self.pending_time {
             match pending {
                 Time::Past => modifiers.push(self.interner.intern("Past")),
@@ -238,6 +380,89 @@ impl<'a, 'ctx, 'int> ModalParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int> {
             suppress_existential,
             world: None,
         })));
+
+        // PPs and clause-final particles under the modal ("might walk in",
+        // "would go to the store") modify the same event.
+        let mut base_pred: &'a LogicExpr<'a> = base_pred;
+        while self.check_preposition() {
+            let prep_name = if let TokenType::Preposition(sym) = self.peek().kind {
+                sym
+            } else {
+                break;
+            };
+            // A measure object ("can fly FOR 40 minutes", "runs at 5 mph") — the
+            // amount is the PP's object, kept so the duration/rate isn't dropped.
+            // "with 190 degree WATER" — a measure-premodified noun (head two
+            // tokens past the number, i.e. after the unit) is ONE folded entity,
+            // routed to the NP branch, not a bare measure with the head stranded.
+            let head_after_unit = matches!(
+                self.tokens.get(self.current + 3).map(|t| &t.kind),
+                Some(TokenType::Noun(_)) | Some(TokenType::Ambiguous { .. })
+            );
+            let measure_follows = matches!(
+                self.tokens.get(self.current + 1).map(|t| &t.kind),
+                Some(TokenType::Number(_) | TokenType::Cardinal(_))
+            ) && !head_after_unit;
+            let np_follows = head_after_unit || match self.tokens.get(self.current + 1).map(|t| &t.kind) {
+                Some(TokenType::Noun(_) | TokenType::ProperName(_) | TokenType::Article(_)) => true,
+                // A noun READING suffices ("during transfer" — "transfer"
+                // lexes Ambiguous{Verb|Noun}); the NP parse commits it.
+                Some(TokenType::Ambiguous { primary, alternatives }) => {
+                    matches!(**primary, TokenType::Noun(_))
+                        || alternatives.iter().any(|t| matches!(t, TokenType::Noun(_)))
+                }
+                _ => false,
+            };
+            let pp_pred = if measure_follows {
+                self.advance(); // preposition
+                let measure = self.parse_measure_phrase()?;
+                self.ctx.exprs.alloc(LogicExpr::Predicate {
+                    name: prep_name,
+                    args: self.ctx.terms.alloc_slice([Term::Variable(event_var), *measure]),
+                    world: None,
+                })
+            } else if np_follows {
+                self.advance(); // preposition
+                let saved_ctx = self.nominal_np_context;
+                self.nominal_np_context = true;
+                let pp_np_result = self.parse_noun_phrase(false);
+                self.nominal_np_context = saved_ctx;
+                let pp_np = pp_np_result?;
+                let pred: &'a LogicExpr<'a> = self.ctx.exprs.alloc(LogicExpr::Predicate {
+                    name: prep_name,
+                    args: self.ctx.terms.alloc_slice([
+                        Term::Variable(event_var),
+                        Term::Constant(pp_np.noun),
+                    ]),
+                    world: None,
+                });
+                // "be caught by the LOCAL police" → By(e, Police) ∧ Local(Police):
+                // the PP object's modifiers survive via the shared helper.
+                self.attach_pp_object_modifiers(pred, &pp_np)
+            } else {
+                self.advance(); // preposition
+                if !self.at_clause_boundary()
+                    || !crate::lexicon::is_particle(
+                        &self.interner.resolve(prep_name).to_lowercase(),
+                    )
+                {
+                    // Not a lexical particle at a clause end — hand it back.
+                    self.current -= 1;
+                    break;
+                }
+                // Intransitive particle/directional: event modifier.
+                self.ctx.exprs.alloc(LogicExpr::Predicate {
+                    name: prep_name,
+                    args: self.ctx.terms.alloc_slice([Term::Variable(event_var)]),
+                    world: None,
+                })
+            };
+            base_pred = self.ctx.exprs.alloc(LogicExpr::BinaryOp {
+                left: base_pred,
+                op: TokenType::And,
+                right: pp_pred,
+            });
+        }
 
         // Capture template for ellipsis reconstruction
         self.capture_event_template(verb, &roles, &modifiers);
@@ -304,6 +529,26 @@ impl<'a, 'ctx, 'int> ModalParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int> {
             }
         }
 
+        if let Some((kind, var, restriction)) = object_quant {
+            let connective = if matches!(kind, QuantifierKind::Universal) {
+                TokenType::Implies
+            } else {
+                TokenType::And
+            };
+            let body = self.ctx.exprs.alloc(LogicExpr::BinaryOp {
+                left: restriction,
+                op: connective,
+                right: result,
+            });
+            result = self.ctx.exprs.alloc(LogicExpr::Quantifier {
+                kind,
+                variable: var,
+                body,
+                island_id: self.current_island,
+            });
+        }
+
+        let result = self.wrap_in_possessor_entity(agent_restr, result);
         Ok(result)
     }
 
@@ -317,12 +562,12 @@ impl<'a, 'ctx, 'int> ModalParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int> {
             TokenType::Must => ModalVector {
                 domain: ModalDomain::Alethic,
                 force: 1.0,
-                flavor: ModalFlavor::Root,
+                flavor: ModalFlavor::Root, modal_base: None, ordering_source: None
             },
             TokenType::Cannot => ModalVector {
                 domain: ModalDomain::Alethic,
                 force: 0.0,
-                flavor: ModalFlavor::Root,
+                flavor: ModalFlavor::Root, modal_base: None, ordering_source: None
             },
 
             // Polysemous modal: CAN
@@ -335,7 +580,7 @@ impl<'a, 'ctx, 'int> ModalParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int> {
                         ModalVector {
                             domain: ModalDomain::Deontic,
                             force: 0.5,
-                            flavor: ModalFlavor::Root,
+                            flavor: ModalFlavor::Root, modal_base: None, ordering_source: None
                         }
                     }
                     _ => {
@@ -343,7 +588,7 @@ impl<'a, 'ctx, 'int> ModalParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int> {
                         ModalVector {
                             domain: ModalDomain::Alethic,
                             force: 0.5,
-                            flavor: ModalFlavor::Root,
+                            flavor: ModalFlavor::Root, modal_base: None, ordering_source: None
                         }
                     }
                 }
@@ -359,7 +604,7 @@ impl<'a, 'ctx, 'int> ModalParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int> {
                         ModalVector {
                             domain: ModalDomain::Alethic,
                             force: 0.5,
-                            flavor: ModalFlavor::Epistemic,
+                            flavor: ModalFlavor::Epistemic, modal_base: None, ordering_source: None
                         }
                     }
                     _ => {
@@ -367,7 +612,7 @@ impl<'a, 'ctx, 'int> ModalParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int> {
                         ModalVector {
                             domain: ModalDomain::Alethic,
                             force: 0.5,
-                            flavor: ModalFlavor::Root,
+                            flavor: ModalFlavor::Root, modal_base: None, ordering_source: None
                         }
                     }
                 }
@@ -376,17 +621,17 @@ impl<'a, 'ctx, 'int> ModalParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int> {
             TokenType::Would => ModalVector {
                 domain: ModalDomain::Alethic,
                 force: 0.5,
-                flavor: ModalFlavor::Root,
+                flavor: ModalFlavor::Root, modal_base: None, ordering_source: None
             },
             TokenType::Shall => ModalVector {
                 domain: ModalDomain::Deontic,
                 force: 0.9,
-                flavor: ModalFlavor::Root,
+                flavor: ModalFlavor::Root, modal_base: None, ordering_source: None
             },
             TokenType::Should => ModalVector {
                 domain: ModalDomain::Deontic,
                 force: 0.6,
-                flavor: ModalFlavor::Root,
+                flavor: ModalFlavor::Root, modal_base: None, ordering_source: None
             },
 
             // Epistemic modals → Wide Scope (De Dicto)
@@ -394,7 +639,7 @@ impl<'a, 'ctx, 'int> ModalParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int> {
             TokenType::Might => ModalVector {
                 domain: ModalDomain::Alethic,
                 force: 0.3,
-                flavor: ModalFlavor::Epistemic,
+                flavor: ModalFlavor::Epistemic, modal_base: None, ordering_source: None
             },
 
             // Polysemous modal: MAY
@@ -407,7 +652,7 @@ impl<'a, 'ctx, 'int> ModalParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int> {
                         ModalVector {
                             domain: ModalDomain::Alethic,
                             force: 0.5,
-                            flavor: ModalFlavor::Epistemic,
+                            flavor: ModalFlavor::Epistemic, modal_base: None, ordering_source: None
                         }
                     }
                     _ => {
@@ -415,7 +660,7 @@ impl<'a, 'ctx, 'int> ModalParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int> {
                         ModalVector {
                             domain: ModalDomain::Deontic,
                             force: 0.5,
-                            flavor: ModalFlavor::Root,
+                            flavor: ModalFlavor::Root, modal_base: None, ordering_source: None
                         }
                     }
                 }

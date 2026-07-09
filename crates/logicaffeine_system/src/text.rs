@@ -1,4 +1,8 @@
+// Intentionally camelCase to match the LOGOS surface builtins `parseInt`/`parseFloat`
+// (codegen emits these exact names), so the non-snake-case lint is suppressed rather
+// than renamed — and so compiled programs that link this crate keep a clean stderr.
 #[inline]
+#[allow(non_snake_case)]
 pub fn parseInt(s: String) -> i64 {
     s.trim()
         .parse::<i64>()
@@ -6,6 +10,7 @@ pub fn parseInt(s: String) -> i64 {
 }
 
 #[inline]
+#[allow(non_snake_case)]
 pub fn parseFloat(s: String) -> f64 {
     s.trim()
         .parse::<f64>()

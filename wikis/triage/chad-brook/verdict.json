@@ -1,0 +1,19 @@
+{
+  "all_clean": false,
+  "article": "wikis/chad-brook.txt",
+  "by_category": {
+    "actionable_lexicon_gap": 6,
+    "ambiguity_human": 0,
+    "clean": 0,
+    "isolate_out_of_scope": 0,
+    "parser_gap": 3,
+    "semantic_lossy": 0
+  },
+  "clusters": 7,
+  "outcomes": {
+    "fail": 3,
+    "ok": 0,
+    "partial": 6
+  },
+  "sentences": 9
+}

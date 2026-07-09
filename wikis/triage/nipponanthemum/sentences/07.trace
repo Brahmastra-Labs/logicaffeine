@@ -1,0 +1,34 @@
+CLASSIFICATION: ActionableLexiconGap | subsystem Lexicon | gate Auto | confidence 0.75
+ISOLATED: "(3 inches)"(Parenthetical)
+
+═══ Sentence 7 ═══
+INPUT: Flower heads are up to 8 cm (3 inches) across and are borne singly.
+
+TOKENS:
+    0..6   "Flower"     Proper
+    7..12  "heads"      Verb
+   13..16  "are"        Other
+   17..19  "up"         Other
+   20..22  "to"         Preposition
+   23..24  "8"          Other
+   25..27  "cm"         Adjective
+   28..29  "("          Other
+   29..30  "3"          Other
+   31..37  "inches"     Adjective
+   37..38  ")"          Other
+   39..45  "across"     Preposition
+   46..49  "and"        Connective
+   50..53  "are"        Other
+   54..59  "borne"      Adjective
+   60..66  "singly"     Other
+   66..67  "."          Punctuation
+   67..67  ""           Other
+
+FOL:
+  unicode: HAB(∃e(Head(e) ∧ Agent(e, Flower)))
+  simple : Head(Flower)
+  kripke : HAB(Exists e(Head(e, w0)  And  Agent(e, Flower, w0)))
+
+AST (1 nodes, 1 unhandled):
+  └─ Aspectual { operator: Habitual, body: NeoEvent(NeoEventData { event_var: Symbol(37), verb: Symbol(2), roles: [(Agent, Constant(Symbol(1)))], modifiers: [], suppress_existential: false, world: None }) } [other]
+

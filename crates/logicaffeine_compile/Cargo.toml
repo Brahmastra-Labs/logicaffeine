@@ -1,6 +1,6 @@
 [package]
 name = "logicaffeine-compile"
-version = "0.9.16"
+version.workspace = true
 edition.workspace = true
 authors.workspace = true
 repository.workspace = true
@@ -16,22 +16,48 @@ readme = "README.md"
 default = ["codegen"]
 codegen = []
 interpreter-only = []
-verification = ["dep:logicaffeine-verify"]
+verification = ["dep:logicaffeine-verify", "logicaffeine-proof/verification"]
+# WS-F representation overhaul: the VM register-file `Value` wraps the 8-byte
+# NaN-boxed `Narrow` (vm/nanbox.rs) instead of the 16-byte `RuntimeValue`. Off
+# by default — the default build is the unchanged `Value(RuntimeValue)` path.
+narrow-value = []
+# WS6 (FINISH_INTERPRETER Phase 13): the browser WASM-JIT backend — a second JIT codegen
+# that emits a WebAssembly module per hot region from VM bytecode. Off by default; the
+# native x86 copy-and-patch JIT (logicaffeine_forge) is unchanged. Lives here, not in forge,
+# because forge is `#![cfg(not(wasm32))]` and this backend must build for and run on wasm32.
+wasm-jit = ["dep:wasmi"]
 
 [dependencies]
-logicaffeine-base = { version = "0.9.16", path = "../logicaffeine_base" }
-logicaffeine-language = { version = "0.9.16", path = "../logicaffeine_language" }
-logicaffeine-kernel = { version = "0.9.16", path = "../logicaffeine_kernel" }
-logicaffeine-data = { version = "0.9.16", path = "../logicaffeine_data" }
-logicaffeine-system = { version = "0.9.16", path = "../logicaffeine_system", features = ["persistence"] }
-logicaffeine-proof = { version = "0.9.16", path = "../logicaffeine_proof" }
-logicaffeine-verify = { version = "0.9.16", path = "../logicaffeine_verify", optional = true }
+# WS6 WASM-JIT runtime host: a pure-Rust wasm interpreter that instantiates + runs the
+# modules the backend emits (compiles on native AND wasm32). Optional, off by default;
+# only pulled in with `wasm-jit`. (A browser build would later swap to the host's native
+# `WebAssembly` via js-sys — a perf refinement, not a correctness change.)
+wasmi = { version = "0.31", optional = true }
+indexmap = { version = "2", features = ["serde"] }
+logicaffeine-base = { workspace = true }
+logicaffeine-language = { workspace = true }
+logicaffeine-kernel = { workspace = true }
+logicaffeine-data = { workspace = true }
+logicaffeine-system = { workspace = true, features = ["persistence"] }
+logicaffeine-proof = { workspace = true }
+logicaffeine-runtime = { workspace = true }
+logicaffeine-verify = { workspace = true, optional = true }
 
 # Runtime dependencies
 async-recursion = "1.1"
 futures = "0.3"
+rustc-hash = "2"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
+bincode = "1.3"
+# Wire-codec compression dial. deflate (miniz_oxide) is the balanced default; lz4
+# (lz4_flex, pure-Rust) is the near-memcpy-speed codec; zstd is the best-ratio
+# codec — its C encoder is native-only (below), and ruzstd is the pure-Rust zstd
+# *decoder* so a wasm peer can receive native-sent zstd (and for the native
+# C-vs-ruzstd parity test).
+miniz_oxide = "0.8"
+lz4_flex = "0.11"
+ruzstd = "0.7"
 
 # Standard library
 include_dir = "0.7"
@@ -39,6 +65,31 @@ include_dir = "0.7"
 # WASM async sleep support
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 gloo-timers = { version = "0.3", features = ["futures"] }
+# WS6 browser-native WASM-JIT host: instantiate + call emitted modules through the host's
+# real `WebAssembly` (V8 in the browser / node), not the wasmi interpreter. Always present
+# on wasm32 (tiny; the web app already pulls them transitively); the WASM-JIT code that uses
+# them is `#[cfg(all(target_arch = "wasm32", feature = "wasm-jit"))]`.
+js-sys = "0.3"
+wasm-bindgen = "0.2"
+
+# AOT-native tier (HOTSWAP Axis-3): dlopen the rustc-built cdylib. Native-only — a
+# browser can't load native libraries (it uses pre-bundled wasm instead).
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+libloading = "0.8"
+# zstd's C encoder+decoder — native only. It cannot build for wasm32-unknown-unknown
+# (no libc), so the browser uses the pure-Rust ruzstd decoder and falls back to lz4
+# for encode. Compiled OUT of the wasm bundle entirely → zero browser-size cost.
+zstd = "0.13"
+# The thin relay (tokio-tungstenite, NO libp2p) so the interpreter can network
+# over the relay. wasm uses the browser WebSocket client, which needs no feature.
+logicaffeine-system = { workspace = true, features = ["relay"] }
 
 [dev-dependencies]
 tempfile = "3.10"
+memmap2 = "0.9"
+
+# Headless-browser test for the interpreter's networking (run via `wasm-pack test
+# --headless --test wasm_interp_net` against a native relay host).
+[target.'cfg(target_arch = "wasm32")'.dev-dependencies]
+wasm-bindgen-test = "0.3"
+futures = "0.3"

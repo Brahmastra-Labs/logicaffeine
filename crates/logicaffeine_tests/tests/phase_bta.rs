@@ -724,3 +724,47 @@ fn scc_topological_order() {
 "#;
     common::assert_exact_output(source, "12");
 }
+
+// =============================================================================
+// Effectful rebinds clobber the binding-time to Dynamic.
+//
+// A variable rebound by a channel receive, a Mount, a console read, or a peer message
+// carries a runtime value — its binding-time is Dynamic regardless of any prior static
+// binding. Leaving a stale `Static` in the division would let a downstream consumer fold
+// or specialize on a value it does not actually know (PROPER_FUTAMURA Sprint 19).
+// =============================================================================
+
+#[test]
+fn bta_receive_rebind_is_dynamic() {
+    let source = r#"## Main
+    Let ch be a Pipe of Int.
+    Let x be 5.
+    Receive x from ch.
+    Show x.
+"#;
+    let mut env = BtaEnv::analyze_source(source).unwrap();
+    let result = env.analyze_main();
+    let x = env.lookup("x").unwrap();
+    assert!(
+        result.division[&x].is_dynamic(),
+        "x was rebound by `Receive x from ch` — its binding-time must be Dynamic, not the \
+         stale Static(5). Got: {:?}",
+        result.division[&x]
+    );
+}
+
+#[test]
+fn bta_mount_makes_var_dynamic() {
+    let source = r#"## Main
+    Mount counter at "data/counter.journal".
+    Show counter.
+"#;
+    let mut env = BtaEnv::analyze_source(source).unwrap();
+    let result = env.analyze_main();
+    let counter = env.lookup("counter").unwrap();
+    assert_eq!(
+        result.division.get(&counter),
+        Some(&BindingTime::Dynamic),
+        "Mount binds a runtime value — `counter` must be Dynamic in the division",
+    );
+}

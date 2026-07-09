@@ -1,0 +1,113 @@
+[
+  {
+    "signature": "semantics:lossy",
+    "category": "semantic_lossy",
+    "subsystem": "semantics",
+    "gate": "investigate",
+    "count": 2,
+    "members": [
+      4,
+      5
+    ],
+    "example": "He completed a BSc in Psychology (1989) and an MSc in Psychology with First Class Honours (1991) at the University of Auckland."
+  },
+  {
+    "signature": "lexicon:academic",
+    "category": "actionable_lexicon_gap",
+    "subsystem": "lexicon",
+    "gate": "auto",
+    "count": 1,
+    "members": [
+      3
+    ],
+    "example": "Corballis is the son of academic psychologist Michael Corballis."
+  },
+  {
+    "signature": "lexicon:cognitive",
+    "category": "actionable_lexicon_gap",
+    "subsystem": "lexicon",
+    "gate": "auto",
+    "count": 1,
+    "members": [
+      1
+    ],
+    "example": "Paul Michael Corballis is a New Zealand cognitive neuroscientist and professor of Psychology at the University of Auckland."
+  },
+  {
+    "signature": "lexicon:doctorate",
+    "category": "actionable_lexicon_gap",
+    "subsystem": "lexicon",
+    "gate": "auto",
+    "count": 1,
+    "members": [
+      6
+    ],
+    "example": "After his doctorate, Corballis held a postdoctoral position in the Department of Psychological and Brain Sciences at Dartmouth College."
+  },
+  {
+    "signature": "lexicon:faculty",
+    "category": "actionable_lexicon_gap",
+    "subsystem": "lexicon",
+    "gate": "auto",
+    "count": 1,
+    "members": [
+      7
+    ],
+    "example": "He joined the faculty at the University of Auckland School of Psychology, where he is a professor of Psychology."
+  },
+  {
+    "signature": "lexicon:neural",
+    "category": "actionable_lexicon_gap",
+    "subsystem": "lexicon",
+    "gate": "auto",
+    "count": 1,
+    "members": [
+      9
+    ],
+    "example": "Corballis studies the neural mechanisms that support selective attention and visual perception, often using event-related potentials such as the N2pc, together with other EEG and neuroimaging techniques."
+  },
+  {
+    "signature": "lexicon:noninvasive",
+    "category": "actionable_lexicon_gap",
+    "subsystem": "lexicon",
+    "gate": "auto",
+    "count": 1,
+    "members": [
+      10
+    ],
+    "example": "Early in his career he co-authored work demonstrating noninvasive optical imaging of human brain responses during visual stimulation."
+  },
+  {
+    "signature": "lexicon:publications",
+    "category": "actionable_lexicon_gap",
+    "subsystem": "lexicon",
+    "gate": "auto",
+    "count": 1,
+    "members": [
+      11
+    ],
+    "example": "His later publications and collaborations include work on lateralized ERP components associated with attentional selection."
+  },
+  {
+    "signature": "lexicon:visual",
+    "category": "actionable_lexicon_gap",
+    "subsystem": "lexicon",
+    "gate": "auto",
+    "count": 1,
+    "members": [
+      2
+    ],
+    "example": "His research focuses on visual perception and attention, and uses electrophysiology (EEG/ERPs) and neuroimaging methods."
+  },
+  {
+    "signature": "parser:expected_content_word",
+    "category": "parser_gap",
+    "subsystem": "parser",
+    "gate": "investigate",
+    "count": 1,
+    "members": [
+      8
+    ],
+    "example": "In an inaugural lecture hosted by the Faculty of Science, he discussed \"brain mechanisms of constructive perception.\""
+  }
+]

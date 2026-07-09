@@ -26,6 +26,11 @@ pub struct TheoremBlock<'a> {
     /// Premises (Given statements) - logical expressions to assume true
     pub premises: Vec<&'a LogicExpr<'a>>,
 
+    /// Optional names for the premises, parallel to `premises`. A `Given (h): …`
+    /// names that premise `h`, so a `Proof:` script can refer to it as `cases h`
+    /// rather than the positional `hp0`. `None` for an unnamed `Given:`.
+    pub premise_names: Vec<Option<String>>,
+
     /// The goal to prove (Prove statement)
     pub goal: &'a LogicExpr<'a>,
 
@@ -47,6 +52,11 @@ pub enum ProofStrategy {
     /// Direct application of a specific rule.
     /// Example: `Proof: ModusPonens.`
     ByRule(String),
+
+    /// An explicit tactic-script proof, written in the English-esque vernacular and
+    /// run by the tactic framework. Example:
+    /// `Proof: Assume h. By cases on h, right, by assumption. Left, by assumption.`
+    Script(String),
 }
 
 impl Default for ProofStrategy {

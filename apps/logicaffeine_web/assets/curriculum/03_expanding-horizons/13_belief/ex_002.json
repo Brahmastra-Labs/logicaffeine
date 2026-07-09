@@ -1,0 +1,15 @@
+{
+  "id": "N_14.2",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "Believe that P is false",
+  "options": [
+    "$ u:\\sim \\underline{P} $",
+    "$ \\underline{u} :\\sim \\underline{P} $",
+    "$ \\underline{u} :\\sim P $",
+    "$ u:\\sim P $"
+  ],
+  "correct": 2,
+  "hint": "Who holds this belief? Look for the underline \u2014 it marks the believer. How do we symbolize believing something FALSE?",
+  "explanation": "In belief logic, 'believe that P is false' becomes u:~P \u2014 the agent (underlined u) believes NOT-P. The underline marks who holds the belief, the colon connects believer to belief content."
+}

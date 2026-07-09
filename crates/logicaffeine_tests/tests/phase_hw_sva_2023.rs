@@ -1,7 +1,7 @@
 //! SVA 2023 Upgrade — IEEE 1800-2023 Compliance Tests
 //!
 //! Sprint-organized tests for upgrading from IEEE 1800-2017 to IEEE 1800-2023.
-//! Spec: SVA_2023_UPGRADE.md. All existing 858 tests must pass unchanged.
+//! Spec: work/SVA_2023_UPGRADE.md. All existing 858 tests must pass unchanged.
 
 use logicaffeine_compile::codegen_sva::sva_model::{
     parse_sva, parse_sva_directive, sva_expr_to_string, sva_exprs_structurally_equivalent,
@@ -916,6 +916,7 @@ fn real_literal_negative_exp() {
 
 // ── VerifyType::Real ──
 
+#[cfg(feature = "verification")]
 #[test]
 fn verify_type_real_exists() {
     use logicaffeine_verify::ir::VerifyType;
@@ -923,6 +924,7 @@ fn verify_type_real_exists() {
     assert!(matches!(t, VerifyType::Real));
 }
 
+#[cfg(feature = "verification")]
 #[test]
 fn verify_type_real_distinct() {
     use logicaffeine_verify::ir::VerifyType;
@@ -1085,6 +1087,7 @@ fn cross_real_with_local_var() {
     assert!(matches!(rv.var_type, RandVarType::Real));
 }
 
+#[cfg(feature = "verification")]
 #[test]
 fn cross_all_2023_compose() {
     // Single test exercising all Sprint 22-24 features together

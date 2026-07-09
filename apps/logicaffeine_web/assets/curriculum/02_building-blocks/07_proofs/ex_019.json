@@ -1,0 +1,15 @@
+{
+  "id": "P_1.19",
+  "type": "multiple_choice",
+  "difficulty": 3,
+  "prompt": "From 'P ∨ Q' and 'P', can you validly conclude '¬Q'?",
+  "options": [
+    "Yes, by Disjunctive Syllogism",
+    "No — an inclusive 'or' lets both P and Q be true at once",
+    "Yes, because only one disjunct can hold",
+    "Yes, since P is already true"
+  ],
+  "correct": 1,
+  "hint": "In logic '∨' is INCLUSIVE: 'P or Q' allows the case where both are true.",
+  "explanation": "No — this is the fallacy of affirming a disjunct. Logic's '∨' is inclusive, so 'P ∨ Q' is compatible with both P and Q being true; knowing P tells you nothing about Q. Disjunctive Syllogism is the valid pattern: from 'P ∨ Q' and '¬P', conclude Q."
+}

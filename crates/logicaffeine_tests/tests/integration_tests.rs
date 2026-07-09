@@ -541,6 +541,7 @@ fn latex_format_uses_latex_operators() {
     use logicaffeine_language::{compile_with_options, CompileOptions, OutputFormat};
     let options = CompileOptions {
         format: OutputFormat::LaTeX,
+        pragmatic: false,
     };
     let result = compile_with_options("All men are mortal.", options).unwrap();
     assert_snapshot!("latex_all_men_mortal", result);

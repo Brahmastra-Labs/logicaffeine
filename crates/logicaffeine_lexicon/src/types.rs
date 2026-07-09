@@ -139,6 +139,19 @@ impl Sort {
             _ => false,
         }
     }
+
+    /// Whether this sort denotes an OCCASION — an occurrence or happening whose
+    /// head noun behaves as a soft type. For occasion sorts, "the \[modifier\]
+    /// \[head\]" lets the modifier do the referring (the same event can be a
+    /// "trip", a "vacation", or a "holiday"), so two such definite descriptions
+    /// corefer when their modifier matches and their head sorts agree.
+    ///
+    /// Concrete physical objects (box, ball) are NOT occasions: "the red box"
+    /// and "the red ball" are distinct things even though both are `Physical`,
+    /// so they must never corefer through a shared modifier.
+    pub fn is_occasion(self) -> bool {
+        matches!(self, Sort::Event)
+    }
 }
 
 /// Grammatical number for nouns and agreement.
@@ -331,6 +344,29 @@ pub enum Feature {
     /// Examples: "believe", "know", "hope", "doubt"
     IntensionalPredicate,
 
+    /// Causative change-of-state verb that licenses a RESULTATIVE secondary
+    /// predicate: the object's resulting state is brought about by the event.
+    /// "paint the door RED" (the door becomes red), "hammer the metal FLAT".
+    /// Verbs without this feature take a post-object AP as a DEPICTIVE instead
+    /// ("eat the meat RAW" — the meat is raw during, not caused by, the eating).
+    ///
+    /// Examples: "paint", "dye", "break", "flatten", "freeze"
+    Resultative,
+
+    /// Perception verb (see, hear, watch, …) taking a small-clause complement
+    /// "NP bare-VP" that denotes the PERCEIVED EVENT (§3.2): "Mary heard the bell
+    /// RING" → Hear(mary, ⟨Ring(bell)⟩).
+    ///
+    /// Examples: "see", "hear", "watch", "feel", "notice", "observe"
+    Perception,
+
+    /// Addressee-oriented attitude verb that, in an "if you V …" antecedent, marks a
+    /// BISCUIT / relevance conditional (§4.2): the consequent is asserted and the
+    /// if-clause restricts relevance, not truth ("If you WANT tea, the kettle is hot").
+    ///
+    /// Examples: "want", "need", "wonder", "care", "desire", "wish", "like"
+    Relevance,
+
     // -------------------------------------------------------------------------
     // Noun Features
     // -------------------------------------------------------------------------
@@ -460,6 +496,33 @@ pub enum Feature {
     ///
     /// Examples: "careful", "slow", "quick", "deliberate"
     EventModifier,
+
+    /// Denominal, non-predicating adjective denoting a relation to a base noun.
+    ///
+    /// Relational (pertainymic) adjectives — "dental" ← tooth, "coastal" ← coast,
+    /// "nuclear" ← nucleus — are NOT intersective: "a dental procedure" is not
+    /// {dental things} ∩ {procedures}; the adjective relates the procedure to
+    /// teeth. They are predicates of KINDS (McNally & Boleda 2004), modeled as
+    /// `Noun(x) ∧ Rel(x, ^Base)` (kind-level, default) or
+    /// `Noun(x) ∧ ∃y(Base(y) ∧ Rel(x, y))` (instance-level override).
+    ///
+    /// Examples: "dental", "coastal", "nuclear", "marine", "postal", "solar"
+    Relational,
+
+    /// Gradable adjective with borderline cases and sorites behavior (§8.5): the
+    /// threshold has a PENUMBRA (a vague region θ_low < d < θ_high), not a sharp
+    /// cutoff. Implies a degree-standard reading plus a borderline marker.
+    ///
+    /// Examples: "bald", "tall", "heavy", "rich", "old", "big"
+    Vague,
+
+    /// Negative-pole (decreasing) gradable adjective: the comparative denotes a
+    /// SMALLER value on the canonical measured scale, so an arithmetic comparative
+    /// subtracts rather than adds ("narrower" → less wingspan, "lighter" → less
+    /// weight). The unmarked positive pole ("wide", "long", "heavy") increases.
+    ///
+    /// Examples: "narrow", "short", "small", "light", "cheap", "slow", "young"
+    Decreasing,
 }
 
 impl Feature {
@@ -484,6 +547,9 @@ impl Feature {
             "Weather" => Some(Feature::Weather),
             "Unaccusative" => Some(Feature::Unaccusative),
             "IntensionalPredicate" => Some(Feature::IntensionalPredicate),
+            "Resultative" => Some(Feature::Resultative),
+            "Perception" => Some(Feature::Perception),
+            "Relevance" => Some(Feature::Relevance),
             "Count" => Some(Feature::Count),
             "Mass" => Some(Feature::Mass),
             "Proper" => Some(Feature::Proper),
@@ -497,6 +563,9 @@ impl Feature {
             "Subsective" => Some(Feature::Subsective),
             "Gradable" => Some(Feature::Gradable),
             "EventModifier" => Some(Feature::EventModifier),
+            "Relational" => Some(Feature::Relational),
+            "Vague" => Some(Feature::Vague),
+            "Decreasing" => Some(Feature::Decreasing),
             _ => None,
         }
     }

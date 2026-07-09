@@ -46,13 +46,13 @@ pub enum BoundedExpr {
     BitVecVar(String, u32),
     /// Bitvector binary operation
     BitVecBinary { op: BitVecBoundedOp, left: Box<BoundedExpr>, right: Box<BoundedExpr> },
-    /// Bitvector extraction: operand[high:low]
+    /// Bitvector extraction: operand\[high:low\]
     BitVecExtract { high: u32, low: u32, operand: Box<BoundedExpr> },
     /// Bitvector concatenation
     BitVecConcat(Box<BoundedExpr>, Box<BoundedExpr>),
-    /// Array select: array[index]
+    /// Array select: array\[index\]
     ArraySelect { array: Box<BoundedExpr>, index: Box<BoundedExpr> },
-    /// Array store: array[index] := value
+    /// Array store: array\[index\] := value
     ArrayStore { array: Box<BoundedExpr>, index: Box<BoundedExpr>, value: Box<BoundedExpr> },
     /// Integer arithmetic binary operation
     IntBinary { op: ArithBoundedOp, left: Box<BoundedExpr>, right: Box<BoundedExpr> },
@@ -1786,7 +1786,11 @@ pub fn bounded_to_verify(expr: &BoundedExpr) -> logicaffeine_verify::VerifyExpr 
 
         // ---- Multi-sorted extensions ----
         BoundedExpr::BitVecConst { width, value } => VerifyExpr::bv_const(*width, *value),
-        BoundedExpr::BitVecVar(name, _width) => VerifyExpr::Var(name.clone()),
+        // Encode the bitvector width into the variable name (`name_bv<width>`), the convention
+        // the Z3 equivalence encoder uses to recover a var's width. Dropping the width let the
+        // encoder default to 8 — silently checking the wrong width for non-8-bit obligations,
+        // and crashing (null AST) when a sized constant forced a width mismatch.
+        BoundedExpr::BitVecVar(name, width) => VerifyExpr::Var(format!("{name}_bv{width}")),
         BoundedExpr::BitVecBinary { op, left, right } => {
             use logicaffeine_verify::BitVecOp;
             let vop = match op {

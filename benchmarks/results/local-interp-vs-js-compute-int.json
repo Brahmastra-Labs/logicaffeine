@@ -1,0 +1,236 @@
+{
+  "schema_version": 1,
+  "metadata": {
+    "date": "2026-06-16T14:38:01Z",
+    "commit": "4d31c18",
+    "logos_version": "0.9.17",
+    "node": "v22.22.3",
+    "cpu": "Intel(R) Core(TM) i9-14900K",
+    "os": "Ubuntu 24.04.2 LTS x86_64",
+    "warmup": 1,
+    "runs": 6
+  },
+  "languages": [
+    {
+      "id": "logos_interp",
+      "label": "LOGOS (interpreted)",
+      "color": "#ff8c00",
+      "tier": "interpreted"
+    },
+    {
+      "id": "js",
+      "label": "Node v22.22.3",
+      "color": "#f7df1e",
+      "tier": "interpreted"
+    }
+  ],
+  "benchmarks": [
+    {
+      "id": "loop_sum",
+      "name": "Loop Sum",
+      "reference_size": "100000000",
+      "interpreter_engine": "vm+jit",
+      "sizes": [
+        "100000000",
+        "500000000",
+        "1000000000"
+      ],
+      "logos_source": "## To native args () -> Seq of Text\n## To native parseInt (s: Text) -> Int\n\n## Main\nLet arguments be args().\nLet n be parseInt(item 2 of arguments).\nLet mutable sum be 0.\nLet mutable i be 1.\nWhile i is at most n:\n    Set sum to (sum + i) % 1000000007.\n    Set i to i + 1.\nShow sum.",
+      "js_source": "const n = parseInt(process.argv[2]);\nlet sum = 0;\nfor (let i = 1; i <= n; i++) {\n    sum = (sum + i) % 1000000007;\n}\nconsole.log(sum);",
+      "scaling": {
+        "100000000": {
+          "logos_interp": {
+            "mean_ms": 215.13495693999998000,
+            "median_ms": 214.12537044000002000,
+            "stddev_ms": 2.4589617473902065000,
+            "min_ms": 213.04612344000,
+            "max_ms": 219.04496844000002000,
+            "cv": 0.01142985678555251314,
+            "runs": 6,
+            "user_ms": 213.68788000000002000,
+            "system_ms": 1.2157333333333332000
+          },
+          "js": {
+            "mean_ms": 238.53173016666665000,
+            "median_ms": 239.31119750000002000,
+            "stddev_ms": 4.000227136714679000,
+            "min_ms": 233.14510100000002000,
+            "max_ms": 243.20139600000001000,
+            "cv": 0.01677020970719343849,
+            "runs": 6,
+            "user_ms": 231.7485000,
+            "system_ms": 7.822999999999998000
+          }
+        }
+      },
+      "compilation": {},
+      "timeouts": {}
+    },
+    {
+      "id": "fib_iterative",
+      "name": "Iterative Fibonacci",
+      "reference_size": "100000000",
+      "interpreter_engine": "vm+jit",
+      "sizes": [
+        "100000000",
+        "500000000",
+        "1000000000"
+      ],
+      "logos_source": "## To native args () -> Seq of Text\n## To native parseInt (s: Text) -> Int\n\n## Main\nLet arguments be args().\nLet n be parseInt(item 2 of arguments).\nLet mutable a be 0.\nLet mutable b be 1.\nLet mutable i be 0.\nWhile i is less than n:\n    Let temp be b.\n    Set b to (a + b) % 1000000007.\n    Set a to temp.\n    Set i to i + 1.\nShow a.",
+      "js_source": "const n = parseInt(process.argv[2]);\nlet a = 0, b = 1;\nfor (let i = 0; i < n; i++) {\n    const temp = b;\n    b = (a + b) % 1000000007;\n    a = temp;\n}\nconsole.log(a);",
+      "scaling": {
+        "100000000": {
+          "logos_interp": {
+            "mean_ms": 482.8321188533334000,
+            "median_ms": 482.55440952000006000,
+            "stddev_ms": 2.1788394138863364000,
+            "min_ms": 479.79561102000007000,
+            "max_ms": 486.18611402000006000,
+            "cv": 0.00451262318476411777,
+            "runs": 6,
+            "user_ms": 481.38082666666665000,
+            "system_ms": 1.1636933333333333000
+          },
+          "js": {
+            "mean_ms": 239.24587066666667000,
+            "median_ms": 237.6663625000,
+            "stddev_ms": 7.118113600361906000,
+            "min_ms": 233.40538200000002000,
+            "max_ms": 252.390747000,
+            "cv": 0.02975229449322173421,
+            "runs": 6,
+            "user_ms": 234.0915000,
+            "system_ms": 6.175166666666666000
+          }
+        }
+      },
+      "compilation": {},
+      "timeouts": {}
+    },
+    {
+      "id": "sieve",
+      "name": "Sieve of Eratosthenes",
+      "reference_size": "20000000",
+      "interpreter_engine": "vm+jit",
+      "sizes": [
+        "5000000",
+        "10000000",
+        "100000000"
+      ],
+      "logos_source": "## To native args () -> Seq of Text\n## To native parseInt (s: Text) -> Int\n\n## To sieve (limit: Int) -> Int:\n    Let mutable flags be a new Seq of Bool.\n    Let mutable i be 0.\n    While i is at most limit:\n        Push false to flags.\n        Set i to i + 1.\n    Let mutable count be 0.\n    Set i to 2.\n    While i is at most limit:\n        If item (i + 1) of flags equals false:\n            Set count to count + 1.\n            Let mutable j be i * i.\n            While j is at most limit:\n                Set item (j + 1) of flags to true.\n                Set j to j + i.\n        Set i to i + 1.\n    Return count.\n\n## Main\nLet arguments be args().\nLet limit be parseInt(item 2 of arguments).\nShow sieve(limit).",
+      "js_source": "const limit = parseInt(process.argv[2]);\nconst sieve = new Uint8Array(limit + 1);\nlet count = 0;\nfor (let i = 2; i <= limit; i++) {\n    if (!sieve[i]) {\n        count++;\n        for (let j = i * i; j <= limit; j += i)\n            sieve[j] = 1;\n    }\n}\nconsole.log(count);",
+      "scaling": {
+        "20000000": {
+          "logos_interp": {
+            "mean_ms": 316.58642322000,
+            "median_ms": 320.15836272000,
+            "stddev_ms": 16.92768888792452000,
+            "min_ms": 283.29994722000,
+            "max_ms": 329.06423222000003000,
+            "cv": 0.05346940881340716895,
+            "runs": 6,
+            "user_ms": 310.5250666666666000,
+            "system_ms": 5.761733333333334000
+          },
+          "js": {
+            "mean_ms": 94.55764066666666000,
+            "median_ms": 92.181496000,
+            "stddev_ms": 6.756763449809492000,
+            "min_ms": 90.615663000,
+            "max_ms": 108.168705000,
+            "cv": 0.07145655710286115158,
+            "runs": 6,
+            "user_ms": 86.09816666666666000,
+            "system_ms": 11.726666666666668000
+          }
+        }
+      },
+      "compilation": {},
+      "timeouts": {}
+    },
+    {
+      "id": "counting_sort",
+      "name": "Counting Sort",
+      "reference_size": "15000000",
+      "interpreter_engine": "vm+jit",
+      "sizes": [
+        "1000000",
+        "40000000"
+      ],
+      "logos_source": "## To native args () -> Seq of Text\n## To native parseInt (s: Text) -> Int\n\n## Main\nLet arguments be args().\nLet n be parseInt(item 2 of arguments).\nLet mutable arr be a new Seq of Int.\nLet mutable seed be 42.\nLet mutable i be 0.\nWhile i is less than n:\n    Set seed to (seed * 1103515245 + 12345) % 2147483648.\n    Push (seed / 65536) % 1000 to arr.\n    Set i to i + 1.\nLet mutable counts be a new Seq of Int.\nSet i to 0.\nWhile i is less than 1000:\n    Push 0 to counts.\n    Set i to i + 1.\nSet i to 1.\nWhile i is at most n:\n    Let v be item i of arr.\n    Set item (v + 1) of counts to (item (v + 1) of counts) + 1.\n    Set i to i + 1.\nLet mutable sorted be a new Seq of Int.\nLet mutable v be 0.\nWhile v is less than 1000:\n    Let mutable c be 0.\n    While c is less than item (v + 1) of counts:\n        Push v to sorted.\n        Set c to c + 1.\n    Set v to v + 1.\nLet mutable checksum be 0.\nSet i to 1.\nWhile i is at most n:\n    Set checksum to (checksum + item i of sorted) % 1000000007.\n    Set i to i + 1.\nShow \"\" + item 1 of sorted + \" \" + item n of sorted + \" \" + checksum.",
+      "js_source": "const n = parseInt(process.argv[2]);\nconst arr = new Array(n);\nlet seed = 42;\nfor (let i = 0; i < n; i++) {\n    seed = ((Math.imul(seed, 1103515245) + 12345) >>> 0) % 2147483648;\n    arr[i] = (seed >> 16) % 1000;\n}\nconst counts = new Array(1000).fill(0);\nfor (const v of arr) counts[v]++;\nconst sorted = [];\nfor (let v = 0; v < 1000; v++)\n    for (let c = 0; c < counts[v]; c++)\n        sorted.push(v);\nlet checksum = 0;\nfor (const v of sorted) checksum = (checksum + v) % 1000000007;\nconsole.log(`${sorted[0]} ${sorted[n - 1]} ${checksum}`);",
+      "scaling": {
+        "15000000": {
+          "logos_interp": {
+            "mean_ms": 438.5267855600001000,
+            "median_ms": 436.79787956000005000,
+            "stddev_ms": 6.32126502568847000,
+            "min_ms": 433.55038356000003000,
+            "max_ms": 450.70212556000,
+            "cv": 0.01441477518326775514,
+            "runs": 6,
+            "user_ms": 384.9562866666667000,
+            "system_ms": 53.37126666666667000
+          },
+          "js": {
+            "mean_ms": 490.5707766666667000,
+            "median_ms": 494.3617215000,
+            "stddev_ms": 29.752127891947835000,
+            "min_ms": 453.290846000,
+            "max_ms": 520.3487440000001000,
+            "cv": 0.06064798252783782747,
+            "runs": 6,
+            "user_ms": 338.7625000,
+            "system_ms": 180.70333333333333000
+          }
+        }
+      },
+      "compilation": {},
+      "timeouts": {}
+    },
+    {
+      "id": "two_sum",
+      "name": "Two Sum",
+      "reference_size": "15000000",
+      "interpreter_engine": "vm+jit",
+      "sizes": [
+        "1000000",
+        "10000000",
+        "60000000"
+      ],
+      "logos_source": "## To native args () -> Seq of Text\n## To native parseInt (s: Text) -> Int\n\n## Main\nLet arguments be args().\nLet n be parseInt(item 2 of arguments).\nLet target be n.\nLet mutable arr be a new Seq of Int.\nLet mutable seed be 42.\nLet mutable i be 0.\nWhile i is less than n:\n    Set seed to (seed * 1103515245 + 12345) % 2147483648.\n    Push ((seed / 65536) % 32768) % n to arr.\n    Set i to i + 1.\nLet mutable seen be a new Map of Int to Int.\nLet mutable count be 0.\nSet i to 1.\nWhile i is at most n:\n    Let x be item i of arr.\n    Let complement be target - x.\n    If complement is at least 0:\n        If seen contains complement:\n            Set count to count + 1.\n    Set seen at x to 1.\n    Set i to i + 1.\nShow count.",
+      "js_source": "const n = parseInt(process.argv[2]);\nconst arr = new Array(n);\nlet seed = 42;\nfor (let i = 0; i < n; i++) { seed=((Math.imul(seed,1103515245)+12345)>>>0)%2147483648; arr[i]=((seed>>16)&0x7fff)%n; }\nconst seen = new Set();\nlet count = 0;\nfor (const x of arr) { if (n-x>=0 && seen.has(n-x)) count++; seen.add(x); }\nconsole.log(count);",
+      "scaling": {
+        "15000000": {
+          "logos_interp": {
+            "mean_ms": 477.58145622000,
+            "median_ms": 478.05347522000,
+            "stddev_ms": 5.094267785229872000,
+            "min_ms": 471.43617222000,
+            "max_ms": 484.24200622000,
+            "cv": 0.01066680399517684606,
+            "runs": 6,
+            "user_ms": 446.9138133333333000,
+            "system_ms": 30.35816000
+          },
+          "js": {
+            "mean_ms": 596.7980053333334000,
+            "median_ms": 594.566299000,
+            "stddev_ms": 5.990536775930461000,
+            "min_ms": 590.8343650000001000,
+            "max_ms": 607.02553000,
+            "cv": 0.01003779624327753617,
+            "runs": 6,
+            "user_ms": 561.7221666666666000,
+            "system_ms": 38.370499999999995000
+          }
+        }
+      },
+      "compilation": {},
+      "timeouts": {}
+    }
+  ],
+  "summary": {
+    "geometric_mean_logos_interp_over_node": 1.342
+  }
+}

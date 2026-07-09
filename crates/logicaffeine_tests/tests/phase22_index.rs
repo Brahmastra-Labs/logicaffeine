@@ -91,3 +91,37 @@ fn slice_rejects_zero_end() {
     let result = compile_to_rust(source);
     assert!(result.is_err(), "Should reject 'items 2 through 0': {:?}", result);
 }
+
+// `item`/`items` is the indexing keyword in imperative code regardless of the
+// index form (a VARIABLE index `item i of arr` is the whole point of indexing),
+// and in declarative text only when an explicit index number follows. Declarative
+// prose nouns ("the blue item", "the item made of gold") stay nouns so the head is
+// not stranded after its adjective. Mode separates code from prose; the number is
+// the finer signal within prose.
+#[test]
+fn item_keyword_gating_by_mode_and_context() {
+    let cases = [
+        ("## Main\nLet x be item i of arr.", true),
+        ("## Main\nLet x be item 1 of arr.", true),
+        ("item 1 of list", true),
+        ("items 2 through 5 of list", true),
+        ("The blue item is here.", false),
+        ("the item made of gold", false),
+        ("each item", false),
+    ];
+    for (src, want_keyword) in cases {
+        let mut interner = Interner::new();
+        let mut lexer = Lexer::new(src, &mut interner);
+        let toks = lexer.tokenize();
+        let has_keyword = toks
+            .iter()
+            .any(|t| matches!(t.kind, TokenType::Item | TokenType::Items));
+        assert_eq!(has_keyword, want_keyword, "src={src:?} tokens={toks:?}");
+    }
+}
+
+#[test]
+fn variable_index_compiles_in_imperative() {
+    let result = compile_to_rust("## Main\nLet x be item i of arr.");
+    assert!(result.is_ok(), "variable index `item i of arr` should compile: {result:?}");
+}

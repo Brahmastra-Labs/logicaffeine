@@ -226,9 +226,12 @@ fn test_eval_church_application() {
         .expect("Define");
 
     let result = repl.execute("Eval result.").expect("Eval");
-    // After full evaluation: (g a) = SApp (SVar 11) (SVar 20)
-    // g gets lifted when entering lambdas
-    assert_eq!(result, "((SApp (SVar 11)) (SVar 20))");
+    // After full evaluation: (g a) = SApp (SVar 10) (SVar 20).
+    // g (SVar 10) is lifted to SVar 11 entering the inner λ during the first
+    // beta, then decremented back to SVar 10 when that λ's binder is removed by
+    // the second beta — the faithful de Bruijn round-trip. a (SVar 20) lands at
+    // index 0 unchanged.
+    assert_eq!(result, "((SApp (SVar 10)) (SVar 20))");
 }
 
 // =============================================================================

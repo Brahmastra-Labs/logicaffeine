@@ -1,0 +1,18 @@
+{
+  "id": "Q_3.2",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "A tent is a movable dwelling made of canvas.",
+  "options": [
+    "Too broad",
+    "Too narrow",
+    "Circular",
+    "Uses poorly understood terms",
+    "Poor match in vagueness",
+    "Poor match in emotional tone",
+    "Has non-essential properties"
+  ],
+  "correct": 1,
+  "hint": "Can you think of a genuine tent that this definition would wrongly EXCLUDE?",
+  "explanation": "Tents can be made of nylon, hide, or animal skins — a nylon tent is still a tent. Restricting the material to canvas leaves out genuine tents, so the definition is TOO NARROW."
+}

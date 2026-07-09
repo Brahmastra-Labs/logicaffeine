@@ -1,6 +1,8 @@
 //! Individual news article page.
 
 use dioxus::prelude::*;
+#[cfg(all(feature = "split", target_arch = "wasm32"))]
+use dioxus::wasm_split;
 use crate::ui::components::main_nav::{MainNav, ActivePage};
 use crate::ui::components::footer::Footer;
 use crate::ui::seo::{JsonLdMultiple, PageHead, organization_schema, breadcrumb_schema, article_schema, BreadcrumbItem};
@@ -276,7 +278,7 @@ const ARTICLE_STYLES: &str = r#"
 }
 "#;
 
-#[component]
+#[component(lazy)]
 pub fn NewsArticle(slug: String) -> Element {
     let article = get_article_by_slug(&slug);
     let (page_title, page_desc) = match article {
@@ -322,7 +324,7 @@ pub fn NewsArticle(slug: String) -> Element {
                             JsonLdMultiple { schemas }
 
                             main { class: "article-content",
-                                Link { to: Route::News {}, class: "article-back",
+                                Link { to: Route::News { tag: None }, class: "article-back",
                                     "← Back to News"
                                 }
 
@@ -358,10 +360,9 @@ pub fn NewsArticle(slug: String) -> Element {
                                                         let tag_str = *tag;
                                                         let tag_display = format_tag(tag_str);
                                                         let is_current = current_tags.contains(&tag_str);
-                                                        let href = format!("/news?tag={}", tag_str);
                                                         rsx! {
-                                                            a {
-                                                                href: "{href}",
+                                                            Link {
+                                                                to: Route::News { tag: Some(tag_str.to_string()) },
                                                                 class: if is_current { "article-browse-tag current" } else { "article-browse-tag" },
                                                                 "{tag_display}"
                                                             }
@@ -381,7 +382,7 @@ pub fn NewsArticle(slug: String) -> Element {
                     div { class: "article-not-found",
                         h1 { "Article Not Found" }
                         p { "The article you're looking for doesn't exist." }
-                        Link { to: Route::News {}, "Back to News" }
+                        Link { to: Route::News { tag: None }, "Back to News" }
                     }
                 }
             }

@@ -31,64 +31,9 @@ use crate::term::{Literal, Term};
 
 type TermId = usize;
 
-// =============================================================================
-// UNION-FIND DATA STRUCTURE
-// =============================================================================
-
-/// Union-Find data structure with path compression and union by rank.
-///
-/// Maintains equivalence classes over term IDs. Supports near-constant time
-/// operations for `find` (amortized) and `union`.
-pub struct UnionFind {
-    /// Parent pointer for each element (element is its own parent if root).
-    parent: Vec<TermId>,
-    /// Rank (approximate tree depth) for union by rank optimization.
-    rank: Vec<usize>,
-}
-
-impl UnionFind {
-    pub fn new() -> Self {
-        UnionFind {
-            parent: Vec::new(),
-            rank: Vec::new(),
-        }
-    }
-
-    /// Add a new element, returns its ID
-    pub fn make_set(&mut self) -> TermId {
-        let id = self.parent.len();
-        self.parent.push(id);
-        self.rank.push(0);
-        id
-    }
-
-    /// Find representative with path compression
-    pub fn find(&mut self, x: TermId) -> TermId {
-        if self.parent[x] != x {
-            self.parent[x] = self.find(self.parent[x]);
-        }
-        self.parent[x]
-    }
-
-    /// Union by rank, returns true if a merge occurred
-    pub fn union(&mut self, x: TermId, y: TermId) -> bool {
-        let rx = self.find(x);
-        let ry = self.find(y);
-        if rx == ry {
-            return false;
-        }
-
-        if self.rank[rx] < self.rank[ry] {
-            self.parent[rx] = ry;
-        } else if self.rank[rx] > self.rank[ry] {
-            self.parent[ry] = rx;
-        } else {
-            self.parent[ry] = rx;
-            self.rank[rx] += 1;
-        }
-        true
-    }
-}
+/// The shared Union-Find — one equivalence engine underneath the kernel's
+/// congruence closure and the compiler's e-graph.
+pub use logicaffeine_base::union_find::UnionFind;
 
 // =============================================================================
 // E-GRAPH DATA STRUCTURE

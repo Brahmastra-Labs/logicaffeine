@@ -16,6 +16,8 @@
 //! Accessed via [`Route::Workspace`](crate::ui::router::Route::Workspace).
 
 use dioxus::prelude::*;
+#[cfg(all(feature = "split", target_arch = "wasm32"))]
+use dioxus::wasm_split;
 use crate::ui::state::AppState;
 use crate::ui::components::chat::ChatDisplay;
 use crate::ui::components::input::InputArea;
@@ -156,7 +158,7 @@ const WORKSPACE_STYLE: &str = r#"
 }
 "#;
 
-#[component]
+#[component(lazy)]
 pub fn Workspace(subject: String) -> Element {
     let mut state = use_context_provider(|| Signal::new(AppState::new()));
 

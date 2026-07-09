@@ -2,12 +2,32 @@
 # Requires bash 4+ for associative arrays (macOS: brew install bash)
 # LOGICAFFEINE Quick Benchmark Suite
 #
-# Runs ALL 32 benchmarks at their reference size with enough runs for
-# statistically accurate results. Produces results/latest.json identical
-# in format to run.sh output. Skips debug builds, compilation benchmarks,
-# and multi-size scaling sweeps.
+# Runs ALL 32 benchmarks across ALL languages at configurable sizes and
+# prints a full coverage matrix (benchmark x language) so gaps, failures,
+# and timeouts are immediately visible. Produces a results JSON in the same
+# schema as run.sh, written to results/local.json by default so the
+# CI-produced results/latest.json is never clobbered.
 #
 # Usage: bash benchmarks/run-quick.sh
+#
+# Environment knobs:
+#   SIZE=quick|ref|max   Size profile (default: quick).
+#                          quick = small sizes, full suite in minutes
+#                          ref   = run.sh reference sizes
+#                          max   = largest size in each sizes.txt
+#   SIZE_<bench>=N       Per-benchmark size override (e.g. SIZE_fib=32).
+#                        Sizes without an expected_<N>.txt are verified by
+#                        cross-language output agreement (C is the reference).
+#   ONLY=fib,sieve       Comma-separated subset of benchmarks to run.
+#   RUNS=10              Timed runs per benchmark per language.
+#   WARMUP=3             Warmup runs per benchmark per language.
+#   SKIP_LANGS=zig,nim   Comma-separated language ids to skip.
+#   FORCE_BUILD=1        Rebuild every binary. By default a binary newer than
+#                        its source is reused; LOGOS binaries additionally
+#                        rebuild whenever largo itself was rebuilt.
+#   OUT=results/local.json  Output JSON path (relative to benchmarks/).
+#                           Set OUT=results/latest.json to preview results
+#                           in the web frontend (revert before committing).
 
 set -euo pipefail
 
@@ -17,7 +37,7 @@ cd "$SCRIPT_DIR"
 BIN_DIR="$SCRIPT_DIR/bin"
 PROGRAMS_DIR="$SCRIPT_DIR/programs"
 RESULTS_DIR="$SCRIPT_DIR/results"
-RAW_DIR="$RESULTS_DIR/raw"
+RAW_DIR="$RESULTS_DIR/raw-local"
 GENERATED_DIR="$SCRIPT_DIR/generated"
 
 BENCHMARKS=(
@@ -33,13 +53,117 @@ BENCHMARKS=(
     loop_sum fib_iterative graph_bfs string_search
 )
 
-# Quick mode: reference sizes, enough runs for statistical accuracy
-WARMUP=3
-RUNS=10
+LOG_DIR="$SCRIPT_DIR/../logs/optimization"
+mkdir -p "$LOG_DIR"
+exec > >(tee "$LOG_DIR/quick-matrix.log") 2>&1
+
+SIZE="${SIZE:-quick}"
+WARMUP="${WARMUP:-3}"
+RUNS="${RUNS:-10}"
 TIMEOUT=120
 BUILD_TIMEOUT=60
-HYPERFINE_TIMEOUT=300  # 5 min safety net per hyperfine invocation (quick mode)
+HYPERFINE_TIMEOUT=300  # 5 min safety net per hyperfine invocation
 SKIP_LANGS="${SKIP_LANGS:-}"
+OUT="${OUT:-results/local.json}"
+
+LANG_IDS=(c cpp rust zig go java js python ruby nim logos_release)
+
+lang_label() {
+    case "$1" in
+        c) echo "C" ;; cpp) echo "C++" ;; rust) echo "Rust" ;; zig) echo "Zig" ;;
+        go) echo "Go" ;; java) echo "Java" ;; js) echo "JavaScript" ;;
+        python) echo "Python" ;; ruby) echo "Ruby" ;; nim) echo "Nim" ;;
+        logos_release) echo "LOGOS (release)" ;;
+    esac
+}
+
+lang_color() {
+    case "$1" in
+        c) echo "#555555" ;; cpp) echo "#f34b7d" ;; rust) echo "#dea584" ;; zig) echo "#f7a41d" ;;
+        go) echo "#3fb950" ;; java) echo "#b07219" ;; js) echo "#f7df1e" ;;
+        python) echo "#3776ab" ;; ruby) echo "#cc342d" ;; nim) echo "#ffe953" ;;
+        logos_release) echo "#00d4ff" ;;
+    esac
+}
+
+lang_tier() {
+    case "$1" in
+        c|cpp|rust|zig|logos_release) echo "systems" ;;
+        go|java|js) echo "managed" ;;
+        python|ruby) echo "interpreted" ;;
+        nim) echo "transpiled" ;;
+    esac
+}
+
+lang_tool() {
+    case "$1" in
+        c) echo gcc ;; cpp) echo g++ ;; rust) echo rustc ;; zig) echo zig ;;
+        go) echo go ;; java) echo javac ;; js) echo node ;;
+        python) echo python3 ;; ruby) echo ruby ;; nim) echo nim ;;
+        logos_release) echo cargo ;;
+    esac
+}
+
+lang_src() {
+    case "$1" in
+        c) echo main.c ;; cpp) echo main.cpp ;; rust) echo main.rs ;; zig) echo main.zig ;;
+        go) echo main.go ;; java) echo Main.java ;; js) echo main.js ;;
+        python) echo main.py ;; ruby) echo main.rb ;; nim) echo main.nim ;;
+        logos_release) echo main.lg ;;
+    esac
+}
+
+# Build artifact for benchmark $1 in language $2 (empty = nothing to build).
+bin_path() {
+    local bench="$1" lid="$2"
+    case "$lid" in
+        c)    echo "$BIN_DIR/${bench}_c" ;;
+        cpp)  echo "$BIN_DIR/${bench}_cpp" ;;
+        rust) echo "$BIN_DIR/${bench}_rs" ;;
+        zig)  echo "$BIN_DIR/${bench}_zig" ;;
+        go)   echo "$BIN_DIR/${bench}_go" ;;
+        java) echo "$BIN_DIR/java/$bench/Main.class" ;;
+        nim)  echo "$BIN_DIR/${bench}_nim" ;;
+        logos_release) echo "$BIN_DIR/${bench}_logos_release" ;;
+        js|python|ruby) echo "" ;;
+    esac
+}
+
+# A cached binary is reusable when it is newer than its source — and for
+# LOGOS, newer than the largo compiler too, so iterating on the compiler
+# invalidates exactly the LOGOS binaries and nothing else. FORCE_BUILD=1
+# rebuilds everything.
+build_cached() {
+    local bench="$1" lid="$2"
+    [ "${FORCE_BUILD:-}" = "1" ] && return 1
+    local bin src
+    bin="$(bin_path "$bench" "$lid")"
+    [ -z "$bin" ] && return 0
+    src="$PROGRAMS_DIR/$bench/$(lang_src "$lid")"
+    [ -f "$bin" ] && [ "$bin" -nt "$src" ] || return 1
+    if [ "$lid" = "logos_release" ]; then
+        [ "$bin" -nt "$LARGO" ] || return 1
+    fi
+    return 0
+}
+
+# Command that runs benchmark $1 in language $2 (size appended by caller).
+lang_cmd() {
+    local bench="$1" lid="$2"
+    case "$lid" in
+        c)    echo "$BIN_DIR/${bench}_c" ;;
+        cpp)  echo "$BIN_DIR/${bench}_cpp" ;;
+        rust) echo "$BIN_DIR/${bench}_rs" ;;
+        zig)  echo "$BIN_DIR/${bench}_zig" ;;
+        go)   echo "$BIN_DIR/${bench}_go" ;;
+        java) echo "java -cp $BIN_DIR/java/$bench Main" ;;
+        js)   echo "node $PROGRAMS_DIR/$bench/main.js" ;;
+        python) echo "python3 $PROGRAMS_DIR/$bench/main.py" ;;
+        ruby) echo "RUBY_THREAD_VM_STACK_SIZE=67108864 ruby $PROGRAMS_DIR/$bench/main.rb" ;;
+        nim)  echo "$BIN_DIR/${bench}_nim" ;;
+        logos_release) echo "$BIN_DIR/${bench}_logos_release" ;;
+    esac
+}
 
 skip_lang() {
     local lang="$1"
@@ -105,144 +229,281 @@ quick_size() {
     esac
 }
 
+# Reference sizes — mirrors ref_size() in run.sh.
+ref_size() {
+    case "$1" in
+        fib) echo 30 ;; ackermann) echo 10 ;; nqueens) echo 11 ;;
+        bubble_sort) echo 2000 ;; mergesort) echo 10000 ;; quicksort) echo 10000 ;;
+        counting_sort) echo 100000 ;; heap_sort) echo 10000 ;;
+        nbody) echo 10000 ;; mandelbrot) echo 500 ;; spectral_norm) echo 1000 ;; pi_leibniz) echo 10000000 ;;
+        gcd) echo 2000 ;; collatz) echo 1000000 ;; primes) echo 100000 ;;
+        sieve) echo 1000000 ;; matrix_mult) echo 200 ;; prefix_sum) echo 1000000 ;;
+        array_reverse) echo 1000000 ;; array_fill) echo 5000000 ;;
+        collect) echo 50000 ;; two_sum) echo 10000 ;; histogram) echo 1000000 ;;
+        knapsack) echo 1000 ;; coins) echo 10000 ;;
+        fannkuch) echo 9 ;;
+        strings) echo 50000 ;; binary_trees) echo 16 ;;
+        loop_sum) echo 100000000 ;; fib_iterative) echo 100000000 ;;
+        graph_bfs) echo 10000 ;; string_search) echo 100000 ;;
+    esac
+}
+
+max_size() {
+    tr ' ' '\n' < "$PROGRAMS_DIR/$1/sizes.txt" | tail -1
+}
+
+# Size resolution: SIZE_<bench> override first, then the SIZE profile.
+bench_size() {
+    local bench="$1"
+    local override_var="SIZE_${bench}"
+    if [ -n "${!override_var:-}" ]; then
+        echo "${!override_var}"
+        return
+    fi
+    case "$SIZE" in
+        quick) quick_size "$bench" ;;
+        ref)   ref_size "$bench" ;;
+        max)   max_size "$bench" ;;
+        *)     fail "Unknown SIZE profile '$SIZE' (expected quick|ref|max)"; exit 1 ;;
+    esac
+}
+
+if [ -n "${ONLY:-}" ]; then
+    SELECTED=()
+    IFS=',' read -ra WANTED <<< "$ONLY"
+    for want in "${WANTED[@]}"; do
+        found=false
+        for b in "${BENCHMARKS[@]}"; do
+            [ "$b" = "$want" ] && found=true && break
+        done
+        if [ "$found" = true ]; then
+            SELECTED+=("$want")
+        else
+            fail "Unknown benchmark in ONLY: '$want'"
+            exit 1
+        fi
+    done
+    BENCHMARKS=("${SELECTED[@]}")
+fi
+
+# ===========================================================================
+# Phase 0: Preflight — toolchains and source coverage
+# ===========================================================================
+info "Phase 0: Preflight checks..."
+
+if ! command -v hyperfine &>/dev/null; then
+    fail "hyperfine not found — run: bash benchmarks/setup-local.sh"
+    exit 1
+fi
+
+declare -A LANG_AVAILABLE
+echo
+printf "  %-12s %-10s %s\n" "Language" "Status" "Toolchain"
+printf "  %-12s %-10s %s\n" "--------" "------" "---------"
+for lid in "${LANG_IDS[@]}"; do
+    tool="$(lang_tool "$lid")"
+    if skip_lang "$lid"; then
+        printf "  %-12s ${YELLOW}%-10s${NC} %s\n" "$(lang_label "$lid")" "SKIPPED" "via SKIP_LANGS"
+    elif [ "$lid" = "java" ] && ! command -v java &>/dev/null; then
+        printf "  %-12s ${RED}%-10s${NC} %s\n" "$(lang_label "$lid")" "MISSING" "java runtime not on PATH"
+    elif command -v "$tool" &>/dev/null; then
+        LANG_AVAILABLE[$lid]=1
+        printf "  %-12s ${GREEN}%-10s${NC} %s\n" "$(lang_label "$lid")" "ok" "$tool"
+    else
+        printf "  %-12s ${RED}%-10s${NC} %s\n" "$(lang_label "$lid")" "MISSING" "$tool not on PATH — run benchmarks/setup-local.sh"
+    fi
+done
+echo
+
+MISSING_SOURCES=0
+for bench in "${BENCHMARKS[@]}"; do
+    for lid in "${LANG_IDS[@]}"; do
+        src="$PROGRAMS_DIR/$bench/$(lang_src "$lid")"
+        if [ ! -f "$src" ]; then
+            warn "Missing source: $src"
+            MISSING_SOURCES=$((MISSING_SOURCES + 1))
+        fi
+    done
+done
+if [ "$MISSING_SOURCES" -eq 0 ]; then
+    ok "Source coverage complete: ${#BENCHMARKS[@]} benchmarks x ${#LANG_IDS[@]} languages"
+else
+    warn "$MISSING_SOURCES missing source files (marked in the matrix)"
+fi
+
+info "Profile: SIZE=$SIZE  RUNS=$RUNS  WARMUP=$WARMUP  OUT=$OUT"
+
+# STATUS[bench|lang]: notool skip nofile build_fail verify_fail timeout ok
+declare -A STATUS
+declare -A MEAN_MS
+declare -A HAS_RESULT
+
+for bench in "${BENCHMARKS[@]}"; do
+    for lid in "${LANG_IDS[@]}"; do
+        if skip_lang "$lid"; then
+            STATUS["$bench|$lid"]=skip
+        elif [ -z "${LANG_AVAILABLE[$lid]:-}" ]; then
+            STATUS["$bench|$lid"]=notool
+        elif [ ! -f "$PROGRAMS_DIR/$bench/$(lang_src "$lid")" ]; then
+            STATUS["$bench|$lid"]=nofile
+        else
+            STATUS["$bench|$lid"]=pending
+        fi
+    done
+done
+
+runnable() {
+    [ "${STATUS[$1|$2]:-}" = "pending" ]
+}
+
 # ===========================================================================
 # Phase 1: Build Everything
 # ===========================================================================
 info "Phase 1: Building all implementations..."
 
-info "Building largo..."
-cargo build -p logicaffeine-cli --release --manifest-path "$SCRIPT_DIR/../Cargo.toml" 2>/dev/null
-LARGO="$LOGOS_TARGET_DIR/release/logicaffeine-cli"
-if [ ! -f "$LARGO" ]; then
-    LARGO="$LOGOS_TARGET_DIR/release/largo"
-fi
-if [ ! -f "$LARGO" ]; then
-    LARGO="$SCRIPT_DIR/../target/release/logicaffeine-cli"
-fi
-if [ ! -f "$LARGO" ]; then
-    LARGO="$SCRIPT_DIR/../target/release/largo"
-fi
-if [ ! -f "$LARGO" ]; then
-    fail "Could not find largo binary"
-    exit 1
-fi
-ok "largo built"
-
-for bench in "${BENCHMARKS[@]}"; do
-    info "Building $bench..."
-
-    [ -f "$PROGRAMS_DIR/$bench/main.c" ] && \
-        gcc -O2 -o "$BIN_DIR/${bench}_c" "$PROGRAMS_DIR/$bench/main.c" -lm 2>/dev/null && \
-        ok "  C" || true
-
-    [ -f "$PROGRAMS_DIR/$bench/main.cpp" ] && \
-        g++ -O2 -std=c++17 -o "$BIN_DIR/${bench}_cpp" "$PROGRAMS_DIR/$bench/main.cpp" -lm 2>/dev/null && \
-        ok "  C++" || true
-
-    [ -f "$PROGRAMS_DIR/$bench/main.rs" ] && \
-        rustc --edition 2021 -O -o "$BIN_DIR/${bench}_rs" "$PROGRAMS_DIR/$bench/main.rs" 2>/dev/null && \
-        ok "  Rust" || true
-
-    if [ -f "$PROGRAMS_DIR/$bench/main.zig" ] && command -v zig &>/dev/null && ! skip_lang zig; then
-        run_timeout "$BUILD_TIMEOUT" zig build-exe -O ReleaseFast --name "${bench}_zig" "$PROGRAMS_DIR/$bench/main.zig" 2>/dev/null && \
-            mv "${bench}_zig" "$BIN_DIR/" 2>/dev/null && ok "  Zig" || true
+LARGO=""
+if [ -n "${LANG_AVAILABLE[logos_release]:-}" ]; then
+    info "Building largo..."
+    cargo build -p logicaffeine-cli --release --manifest-path "$SCRIPT_DIR/../Cargo.toml" 2>/dev/null
+    for candidate in \
+        "$LOGOS_TARGET_DIR/release/logicaffeine-cli" \
+        "$LOGOS_TARGET_DIR/release/largo" \
+        "$SCRIPT_DIR/../target/release/logicaffeine-cli" \
+        "$SCRIPT_DIR/../target/release/largo"; do
+        [ -f "$candidate" ] && LARGO="$candidate" && break
+    done
+    if [ -z "$LARGO" ]; then
+        fail "Could not find largo binary"
+        exit 1
     fi
+    ok "largo built"
+fi
 
-    [ -f "$PROGRAMS_DIR/$bench/main.go" ] && \
-        go build -o "$BIN_DIR/${bench}_go" "$PROGRAMS_DIR/$bench/main.go" 2>/dev/null && \
-        ok "  Go" || true
-
-    if [ -f "$PROGRAMS_DIR/$bench/Main.java" ]; then
-        mkdir -p "$BIN_DIR/java/$bench"
-        javac -d "$BIN_DIR/java/$bench" "$PROGRAMS_DIR/$bench/Main.java" 2>/dev/null && ok "  Java" || true
-    fi
-
-    if [ -f "$PROGRAMS_DIR/$bench/main.nim" ] && command -v nim &>/dev/null; then
-        nim c -d:release --hints:off -o:"$BIN_DIR/${bench}_nim" "$PROGRAMS_DIR/$bench/main.nim" 2>/dev/null && ok "  Nim" || true
-    fi
-
-    if [ -f "$PROGRAMS_DIR/$bench/main.lg" ]; then
-        LOGOS_TMP=$(mktemp -d)
-        mkdir -p "$LOGOS_TMP/src"
-        cp "$PROGRAMS_DIR/$bench/main.lg" "$LOGOS_TMP/src/main.lg"
-        cat > "$LOGOS_TMP/Largo.toml" << 'TOML'
+build_lang() {
+    local bench="$1" lid="$2"
+    case "$lid" in
+        c)
+            gcc -O2 -o "$BIN_DIR/${bench}_c" "$PROGRAMS_DIR/$bench/main.c" -lm 2>/dev/null ;;
+        cpp)
+            g++ -O2 -std=c++17 -o "$BIN_DIR/${bench}_cpp" "$PROGRAMS_DIR/$bench/main.cpp" -lm 2>/dev/null ;;
+        rust)
+            rustc --edition 2021 -O -o "$BIN_DIR/${bench}_rs" "$PROGRAMS_DIR/$bench/main.rs" 2>/dev/null ;;
+        zig)
+            run_timeout "$BUILD_TIMEOUT" zig build-exe -O ReleaseFast --name "${bench}_zig" "$PROGRAMS_DIR/$bench/main.zig" 2>/dev/null && \
+                mv "${bench}_zig" "$BIN_DIR/" 2>/dev/null ;;
+        go)
+            go build -o "$BIN_DIR/${bench}_go" "$PROGRAMS_DIR/$bench/main.go" 2>/dev/null ;;
+        java)
+            mkdir -p "$BIN_DIR/java/$bench"
+            javac -d "$BIN_DIR/java/$bench" "$PROGRAMS_DIR/$bench/Main.java" 2>/dev/null ;;
+        nim)
+            nim c -d:release --hints:off -o:"$BIN_DIR/${bench}_nim" "$PROGRAMS_DIR/$bench/main.nim" 2>/dev/null ;;
+        js|python|ruby)
+            return 0 ;;
+        logos_release)
+            local logos_tmp rc=1
+            logos_tmp=$(mktemp -d)
+            mkdir -p "$logos_tmp/src"
+            cp "$PROGRAMS_DIR/$bench/main.lg" "$logos_tmp/src/main.lg"
+            cat > "$logos_tmp/Largo.toml" << 'TOML'
 [package]
 name = "bench"
 version = "0.1.0"
 entry = "src/main.lg"
 TOML
-        (cd "$LOGOS_TMP" && "$LARGO" build --release 2>/dev/null) && {
-            LOGOS_BIN=""
-            if [ -n "${CARGO_TARGET_DIR:-}" ] && [ -f "$CARGO_TARGET_DIR/release/bench" ]; then
-                LOGOS_BIN="$CARGO_TARGET_DIR/release/bench"
-            elif [[ "$(uname -s)" == "Darwin" ]]; then
-                LOGOS_BIN=$(find "$LOGOS_TMP/target/release" -type f -perm +111 -name "bench" 2>/dev/null | head -1)
-            else
-                LOGOS_BIN=$(find "$LOGOS_TMP/target/release" -type f -executable -name "bench" 2>/dev/null | head -1)
+            if (cd "$logos_tmp" && "$LARGO" build --release 2>/dev/null); then
+                local logos_bin=""
+                if [ -n "${CARGO_TARGET_DIR:-}" ] && [ -f "$CARGO_TARGET_DIR/release/bench" ]; then
+                    logos_bin="$CARGO_TARGET_DIR/release/bench"
+                elif [[ "$(uname -s)" == "Darwin" ]]; then
+                    logos_bin=$(find "$logos_tmp/target/release" -type f -perm +111 -name "bench" 2>/dev/null | head -1)
+                else
+                    logos_bin=$(find "$logos_tmp/target/release" -type f -executable -name "bench" 2>/dev/null | head -1)
+                fi
+                if [ -n "$logos_bin" ]; then
+                    cp "$logos_bin" "$BIN_DIR/${bench}_logos_release"
+                    rc=0
+                fi
+                local generated_rs
+                generated_rs=$(find "$logos_tmp" -name "main.rs" -path "*/build/src/*" 2>/dev/null | head -1)
+                [ -n "$generated_rs" ] && cp "$generated_rs" "$GENERATED_DIR/$bench.rs" 2>/dev/null || true
             fi
-            [ -n "$LOGOS_BIN" ] && cp "$LOGOS_BIN" "$BIN_DIR/${bench}_logos_release" && ok "  LOGOS (release)" || true
-            GENERATED_RS=$(find "$LOGOS_TMP" -name "main.rs" -path "*/build/src/*" 2>/dev/null | head -1)
-            [ -n "$GENERATED_RS" ] && cp "$GENERATED_RS" "$GENERATED_DIR/$bench.rs" 2>/dev/null || true
-        } || true
-        rm -rf "$LOGOS_TMP"
-    fi
+            rm -rf "$logos_tmp"
+            return $rc ;;
+    esac
+}
+
+for bench in "${BENCHMARKS[@]}"; do
+    info "Building $bench..."
+    for lid in "${LANG_IDS[@]}"; do
+        runnable "$bench" "$lid" || continue
+        if build_cached "$bench" "$lid"; then
+            ok "  $(lang_label "$lid") (cached)"
+        elif build_lang "$bench" "$lid"; then
+            ok "  $(lang_label "$lid")"
+        else
+            STATUS["$bench|$lid"]=build_fail
+            fail "  $(lang_label "$lid") build failed"
+        fi
+    done
 done
 
 ok "Phase 1 complete"
 
 # ===========================================================================
-# Phase 2: Verify + Benchmark (combined — quick mode)
+# Phase 2: Verify — expected file when present, else cross-language agreement
 # ===========================================================================
-info "Phase 2: Verifying and benchmarking at quick sizes..."
+info "Phase 2: Verifying correctness..."
 
 ERRORS=0
 
-verify() {
-    local bench="$1" name="$2" cmd="$3" size="$4" expected="$5"
-    local output
-    output=$(run_timeout "$TIMEOUT" bash -c "$cmd $size" 2>/dev/null | tr -d '[:space:]') || true
-    expected=$(echo "$expected" | tr -d '[:space:]')
-    if [ "$output" = "$expected" ]; then
-        ok "  $name: $output"
-    else
-        fail "  $name: got '$output', expected '$expected'"
-        ERRORS=$((ERRORS + 1))
-    fi
-}
-
 for bench in "${BENCHMARKS[@]}"; do
-    size="$(quick_size "$bench")"
+    size="$(bench_size "$bench")"
+    expected=""
+    expected_source=""
     expected_file="$PROGRAMS_DIR/$bench/expected_${size}.txt"
-    if [ ! -f "$expected_file" ]; then
-        warn "No expected output for $bench at size $size"
-        continue
+    if [ -f "$expected_file" ]; then
+        expected=$(tr -d '[:space:]' < "$expected_file")
+        expected_source="expected_${size}.txt"
     fi
-    expected=$(cat "$expected_file")
     info "Verifying $bench (n=$size)..."
 
-    [ -f "$BIN_DIR/${bench}_c" ]   && verify "$bench" "C" "$BIN_DIR/${bench}_c" "$size" "$expected"
-    [ -f "$BIN_DIR/${bench}_cpp" ] && verify "$bench" "C++" "$BIN_DIR/${bench}_cpp" "$size" "$expected"
-    [ -f "$BIN_DIR/${bench}_rs" ]  && verify "$bench" "Rust" "$BIN_DIR/${bench}_rs" "$size" "$expected"
-    [ -f "$BIN_DIR/${bench}_zig" ] && verify "$bench" "Zig" "$BIN_DIR/${bench}_zig" "$size" "$expected"
-    [ -f "$BIN_DIR/${bench}_go" ]  && verify "$bench" "Go" "$BIN_DIR/${bench}_go" "$size" "$expected"
-    [ -d "$BIN_DIR/java/$bench" ]  && verify "$bench" "Java" "java -cp $BIN_DIR/java/$bench Main" "$size" "$expected"
-    [ -f "$PROGRAMS_DIR/$bench/main.js" ]  && verify "$bench" "JavaScript" "node $PROGRAMS_DIR/$bench/main.js" "$size" "$expected"
-    [ -f "$PROGRAMS_DIR/$bench/main.py" ]  && verify "$bench" "Python" "python3 $PROGRAMS_DIR/$bench/main.py" "$size" "$expected"
-    [ -f "$PROGRAMS_DIR/$bench/main.rb" ]  && verify "$bench" "Ruby" "RUBY_THREAD_VM_STACK_SIZE=67108864 ruby $PROGRAMS_DIR/$bench/main.rb" "$size" "$expected"
-    [ -f "$BIN_DIR/${bench}_nim" ] && verify "$bench" "Nim" "$BIN_DIR/${bench}_nim" "$size" "$expected"
-    [ -f "$BIN_DIR/${bench}_logos_release" ] && verify "$bench" "LOGOS (release)" "$BIN_DIR/${bench}_logos_release" "$size" "$expected"
+    for lid in "${LANG_IDS[@]}"; do
+        runnable "$bench" "$lid" || continue
+        cmd="$(lang_cmd "$bench" "$lid")"
+        output=$(run_timeout "$TIMEOUT" bash -c "$cmd $size" 2>/dev/null | tr -d '[:space:]') || true
+        if [ -z "$expected" ]; then
+            if [ -n "$output" ]; then
+                expected="$output"
+                expected_source="$(lang_label "$lid") output (cross-language agreement)"
+                ok "  $(lang_label "$lid"): $output (reference)"
+            else
+                STATUS["$bench|$lid"]=verify_fail
+                fail "  $(lang_label "$lid"): no output"
+                ERRORS=$((ERRORS + 1))
+            fi
+            continue
+        fi
+        if [ "$output" = "$expected" ]; then
+            ok "  $(lang_label "$lid"): $output"
+        else
+            STATUS["$bench|$lid"]=verify_fail
+            fail "  $(lang_label "$lid"): got '$output', expected '$expected' (ref: $expected_source)"
+            ERRORS=$((ERRORS + 1))
+        fi
+    done
 done
 
 if [ "$ERRORS" -gt 0 ]; then
-    fail "Verification failed: $ERRORS errors"
-    exit 1
+    warn "Phase 2: $ERRORS verification failures — those entries are excluded from benchmarking"
+else
+    ok "Phase 2 complete: all verified"
 fi
-ok "Phase 2 complete: all verified"
 
 # ===========================================================================
-# Phase 3: Quick Benchmark — per-language timeout isolation
+# Phase 3: Benchmark — per-language timeout isolation
 # ===========================================================================
-info "Phase 3: Quick benchmarking..."
+info "Phase 3: Benchmarking..."
 
 PER_LANG_DIR="$RAW_DIR/per_lang"
 mkdir -p "$PER_LANG_DIR"
@@ -259,59 +520,55 @@ merge_hyperfine_results() {
     jq -s '{ results: [.[].results[]] }' "${files[@]}" > "$output_file"
 }
 
-declare -A LANG_TIMEOUTS
-
 try_bench() {
-    local lang_id="$1" label="$2" cmd="$3"
+    local lid="$1"
+    local label cmd pf rc=0
+    label="$(lang_label "$lid")"
+    cmd="$(lang_cmd "$bench" "$lid") $size"
+    pf="$PER_LANG_DIR/${bench}_${size}_${lid}.json"
 
-    if [[ "${LANG_TIMEOUTS[${bench}_${lang_id}]:-}" == "1" ]]; then
-        warn "  Skipping $label (timed out at smaller size)"
-        return
-    fi
-
-    local pf="$PER_LANG_DIR/${bench}_${size}_${lang_id}.json"
-    local rc=0
     run_timeout "$HYPERFINE_TIMEOUT" hyperfine \
         --warmup "$WARMUP" --runs "$RUNS" \
         --export-json "$pf" --time-unit millisecond \
         -n "$label" "$cmd" || rc=$?
 
     if [ "$rc" -eq 124 ] || [ "$rc" -eq 143 ]; then
-        LANG_TIMEOUTS["${bench}_${lang_id}"]=1
-        warn "  $label timed out for $bench at $size — skipping larger sizes"
-        echo "$HYPERFINE_TIMEOUT" > "$RAW_DIR/${bench}_${size}_${lang_id}.timeout"
+        STATUS["$bench|$lid"]=timeout
+        warn "  $label timed out for $bench at $size"
+        echo "$HYPERFINE_TIMEOUT" > "$RAW_DIR/${bench}_${size}_${lid}.timeout"
+        rm -f "$pf"
+        return
     elif [ "$rc" -ne 0 ]; then
+        STATUS["$bench|$lid"]=run_fail
         warn "  $label benchmark failed for $bench at $size"
+        rm -f "$pf"
+        return
     fi
 
-    [ -f "$pf" ] && MERGE_FILES+=("$pf")
+    if [ -f "$pf" ]; then
+        STATUS["$bench|$lid"]=ok
+        MEAN_MS["$bench|$lid"]=$(jq -r '.results[0].mean * 1000' "$pf")
+        HAS_RESULT[$lid]=1
+        MERGE_FILES+=("$pf")
+    fi
 }
 
 for bench in "${BENCHMARKS[@]}"; do
-    size="$(quick_size "$bench")"
+    size="$(bench_size "$bench")"
     info "Benchmarking $bench at n=$size..."
     MERGE_FILES=()
 
-    [ -f "$BIN_DIR/${bench}_c" ]   && try_bench c "C" "$BIN_DIR/${bench}_c $size"
-    [ -f "$BIN_DIR/${bench}_cpp" ] && try_bench cpp "C++" "$BIN_DIR/${bench}_cpp $size"
-    [ -f "$BIN_DIR/${bench}_rs" ]  && try_bench rust "Rust" "$BIN_DIR/${bench}_rs $size"
-    [ -f "$BIN_DIR/${bench}_zig" ] && try_bench zig "Zig" "$BIN_DIR/${bench}_zig $size"
-    [ -f "$BIN_DIR/${bench}_go" ]  && try_bench go "Go" "$BIN_DIR/${bench}_go $size"
-    [ -d "$BIN_DIR/java/$bench" ]  && try_bench java "Java" "java -cp $BIN_DIR/java/$bench Main $size"
-    [ -f "$PROGRAMS_DIR/$bench/main.js" ]  && try_bench js "JavaScript" "node $PROGRAMS_DIR/$bench/main.js $size"
-    [ -f "$PROGRAMS_DIR/$bench/main.py" ]  && try_bench python "Python" "python3 $PROGRAMS_DIR/$bench/main.py $size"
-    [ -f "$PROGRAMS_DIR/$bench/main.rb" ]  && try_bench ruby "Ruby" "RUBY_THREAD_VM_STACK_SIZE=67108864 ruby $PROGRAMS_DIR/$bench/main.rb $size"
-    [ -f "$BIN_DIR/${bench}_nim" ] && try_bench nim "Nim" "$BIN_DIR/${bench}_nim $size"
-    [ -f "$BIN_DIR/${bench}_logos_release" ] && try_bench logos_release "LOGOS (release)" "$BIN_DIR/${bench}_logos_release $size"
+    for lid in "${LANG_IDS[@]}"; do
+        runnable "$bench" "$lid" || continue
+        try_bench "$lid"
+    done
 
-    # Merge per-language results into the combined file Phase 4 expects
     if [ ${#MERGE_FILES[@]} -gt 0 ]; then
         merge_hyperfine_results "$RAW_DIR/${bench}_${size}.json" "${MERGE_FILES[@]}"
     else
         echo '{"results":[]}' > "$RAW_DIR/${bench}_${size}.json"
     fi
 
-    # Collect per-language timeout markers
     has_timeout=false
     for tf in "$RAW_DIR/${bench}_${size}_"*.timeout; do
         [ -f "$tf" ] && has_timeout=true && break
@@ -366,7 +623,7 @@ OS=$(detect_os)
 if [ -n "${LOGOS_VERSION:-}" ]; then
     LOGOS_VER="$LOGOS_VERSION"
 else
-    LOGOS_VER=$(grep '^version' "$SCRIPT_DIR/../apps/logicaffeine_cli/Cargo.toml" | head -1 | sed 's/.*"\(.*\)".*/\1/')
+    LOGOS_VER=$(grep '^version' "$SCRIPT_DIR/../Cargo.toml" | head -1 | sed 's/.*"\(.*\)".*/\1/')
 fi
 
 get_version() {
@@ -397,19 +654,17 @@ VERSIONS=$(jq -n \
     --arg nim "$(get_version nim)" \
     '{c: $c, cpp: $cpp, rust: $rust, zig: $zig, go: $go, java: $java, node: $node, python: $python, ruby: $ruby, nim: $nim}')
 
-LANGUAGES='[
-  {"id":"c","label":"C","color":"#555555","tier":"systems"},
-  {"id":"cpp","label":"C++","color":"#f34b7d","tier":"systems"},
-  {"id":"rust","label":"Rust","color":"#dea584","tier":"systems"},
-  {"id":"zig","label":"Zig","color":"#f7a41d","tier":"systems"},
-  {"id":"logos_release","label":"LOGOS","color":"#00d4ff","tier":"systems"},
-  {"id":"go","label":"Go","color":"#00ADD8","tier":"managed"},
-  {"id":"java","label":"Java","color":"#b07219","tier":"managed"},
-  {"id":"js","label":"JavaScript","color":"#f7df1e","tier":"managed"},
-  {"id":"python","label":"Python","color":"#3776ab","tier":"interpreted"},
-  {"id":"ruby","label":"Ruby","color":"#cc342d","tier":"interpreted"},
-  {"id":"nim","label":"Nim","color":"#ffe953","tier":"transpiled"}
-]'
+# Only languages that actually produced at least one result this run.
+LANGUAGES="[]"
+for lid in "${LANG_IDS[@]}"; do
+    [ "${HAS_RESULT[$lid]:-}" = "1" ] || continue
+    LANGUAGES=$(echo "$LANGUAGES" | jq \
+        --arg id "$lid" \
+        --arg label "$(lang_label "$lid" | sed 's/ (release)//')" \
+        --arg color "$(lang_color "$lid")" \
+        --arg tier "$(lang_tier "$lid")" \
+        '. + [{id: $id, label: $label, color: $color, tier: $tier}]')
+done
 
 lang_id() {
     case "$1" in
@@ -483,7 +738,7 @@ extract_name() {
 
 assemble_benchmark() {
     local bench="$1"
-    local size="$(quick_size "$bench")"
+    local size="$(bench_size "$bench")"
     local logos_src=""
     local gen_rust=""
 
@@ -598,7 +853,7 @@ compute_geometric_mean() {
     for lang in $all_langs; do
         local log_sum=0 count=0
         for bench in "${BENCHMARKS[@]}"; do
-            local ref="$(quick_size "$bench")"
+            local ref="$(bench_size "$bench")"
             local c_mean lang_mean
             c_mean=$(echo "$benchmarks_json" | jq -r --arg ref "$ref" --arg bench "$bench" \
                 '.[] | select(.id == $bench) | .scaling[$ref].c.mean_ms // 0')
@@ -631,6 +886,8 @@ GEO_MEAN=$(compute_geometric_mean "$BENCHMARKS_JSON")
 BENCHMARKS_JSON_FILE=$(mktemp)
 printf '%s\n' "$BENCHMARKS_JSON" > "$BENCHMARKS_JSON_FILE"
 
+mkdir -p "$(dirname "$OUT")"
+
 jq -n \
     --arg date "$DATE" \
     --arg commit "$COMMIT" \
@@ -660,9 +917,69 @@ jq -n \
         summary: {
             geometric_mean_speedup_vs_c: $geo_mean
         }
-    }' > "$RESULTS_DIR/latest.json"
+    }' > "$OUT"
 
 rm -f "$BENCHMARKS_JSON_FILE"
 
-ok "Results written to $RESULTS_DIR/latest.json"
-info "Quick benchmark suite complete!"
+ok "Results written to $OUT"
+
+# ===========================================================================
+# Phase 5: Coverage Matrix
+# ===========================================================================
+echo
+info "Coverage matrix (mean ms; SIZE=$SIZE):"
+echo
+
+matrix_cell() {
+    case "${STATUS[$1|$2]:-}" in
+        ok)          printf "%10.1f" "${MEAN_MS[$1|$2]}" ;;
+        timeout)     printf "%10s" "T/O" ;;
+        verify_fail) printf "%10s" "FAIL" ;;
+        run_fail)    printf "%10s" "ERR" ;;
+        build_fail)  printf "%10s" "BUILD" ;;
+        nofile)      printf "%10s" "NOSRC" ;;
+        notool|skip) printf "%10s" "-" ;;
+        *)           printf "%10s" "?" ;;
+    esac
+}
+
+printf "%-14s %12s" "benchmark" "n"
+for lid in "${LANG_IDS[@]}"; do
+    case "$lid" in
+        c) h="C" ;; cpp) h="C++" ;; rust) h="Rust" ;; zig) h="Zig" ;;
+        go) h="Go" ;; java) h="Java" ;; js) h="JS" ;;
+        python) h="Py" ;; ruby) h="Rb" ;; nim) h="Nim" ;;
+        logos_release) h="LOGOS" ;;
+    esac
+    printf "%10s" "$h"
+done
+echo
+printf '%.0s-' $(seq 1 $((26 + 10 * ${#LANG_IDS[@]}))); echo
+
+for bench in "${BENCHMARKS[@]}"; do
+    printf "%-14s %12s" "$bench" "$(bench_size "$bench")"
+    for lid in "${LANG_IDS[@]}"; do
+        matrix_cell "$bench" "$lid"
+    done
+    echo
+done
+
+echo
+echo "Legend: T/O=timed out  FAIL=wrong output  ERR=run failed  BUILD=compile failed  NOSRC=missing source  -=toolchain missing/skipped"
+echo
+info "Geometric mean speedup vs C (>1 means faster than C):"
+echo "$GEO_MEAN" | jq -r 'to_entries | sort_by(-.value) | .[] | "  \(.key): \(.value)x"'
+
+TOTAL_BAD=0
+for key in "${!STATUS[@]}"; do
+    case "${STATUS[$key]}" in
+        verify_fail|run_fail|build_fail|nofile) TOTAL_BAD=$((TOTAL_BAD + 1)) ;;
+    esac
+done
+
+echo
+if [ "$TOTAL_BAD" -gt 0 ]; then
+    fail "Quick benchmark suite finished with $TOTAL_BAD broken benchmark/language pairs (see matrix)"
+    exit 1
+fi
+ok "Quick benchmark suite complete!"

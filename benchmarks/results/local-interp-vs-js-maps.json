@@ -1,0 +1,196 @@
+{
+  "schema_version": 1,
+  "metadata": {
+    "date": "2026-06-12T22:39:16Z",
+    "commit": "4d31c18",
+    "logos_version": "0.9.17",
+    "node": "v22.22.3",
+    "cpu": "Intel(R) Core(TM) i9-14900K",
+    "os": "Ubuntu 24.04.2 LTS x86_64",
+    "warmup": 1,
+    "runs": 5
+  },
+  "languages": [
+    {
+      "id": "logos_interp",
+      "label": "LOGOS (interpreted)",
+      "color": "#ff8c00",
+      "tier": "interpreted"
+    },
+    {
+      "id": "js",
+      "label": "Node v22.22.3",
+      "color": "#f7df1e",
+      "tier": "interpreted"
+    }
+  ],
+  "benchmarks": [
+    {
+      "id": "two_sum",
+      "name": "Two Sum",
+      "reference_size": "1091287",
+      "interpreter_engine": "vm+jit",
+      "sizes": [
+        "1000000",
+        "10000000",
+        "60000000"
+      ],
+      "logos_source": "## To native args () -> Seq of Text\n## To native parseInt (s: Text) -> Int\n\n## Main\nLet arguments be args().\nLet n be parseInt(item 2 of arguments).\nLet target be n.\nLet mutable arr be a new Seq of Int.\nLet mutable seed be 42.\nLet mutable i be 0.\nWhile i is less than n:\n    Set seed to (seed * 1103515245 + 12345) % 2147483648.\n    Push ((seed / 65536) % 32768) % n to arr.\n    Set i to i + 1.\nLet mutable seen be a new Map of Int to Int.\nLet mutable count be 0.\nSet i to 1.\nWhile i is at most n:\n    Let x be item i of arr.\n    Let complement be target - x.\n    If complement is at least 0:\n        If seen contains complement:\n            Set count to count + 1.\n    Set seen at x to 1.\n    Set i to i + 1.\nShow count.",
+      "js_source": "const n = parseInt(process.argv[2]);\nconst arr = new Array(n);\nlet seed = 42;\nfor (let i = 0; i < n; i++) { seed=((Math.imul(seed,1103515245)+12345)>>>0)%2147483648; arr[i]=((seed>>16)&0x7fff)%n; }\nconst seen = new Set();\nlet count = 0;\nfor (const x of arr) { if (n-x>=0 && seen.has(n-x)) count++; seen.add(x); }\nconsole.log(count);",
+      "scaling": {
+        "1091287": {
+          "logos_interp": {
+            "mean_ms": 46.92255086000001000,
+            "median_ms": 46.313218860000005000,
+            "stddev_ms": 5.249925040181383000,
+            "min_ms": 39.72820886000,
+            "max_ms": 53.28283486000,
+            "cv": 0.11188490275912893711,
+            "runs": 5,
+            "user_ms": 42.44198000,
+            "system_ms": 4.36154000
+          },
+          "js": {
+            "mean_ms": 61.34922000,
+            "median_ms": 60.40886000,
+            "stddev_ms": 2.427543573802433000,
+            "min_ms": 59.224713000000005000,
+            "max_ms": 65.23767000,
+            "cv": 0.03956926549029365002,
+            "runs": 5,
+            "user_ms": 53.0702000,
+            "system_ms": 11.3168000
+          }
+        }
+      },
+      "compilation": {},
+      "timeouts": {}
+    },
+    {
+      "id": "collect",
+      "name": "Collection Operations",
+      "reference_size": "917499",
+      "interpreter_engine": "vm+jit",
+      "sizes": [
+        "500000",
+        "5000000",
+        "30000000"
+      ],
+      "logos_source": "## To native args () -> Seq of Text\n## To native parseInt (s: Text) -> Int\n\n## Main\nLet arguments be args().\nLet n be parseInt(item 2 of arguments).\nLet mutable m be a new Map of Int to Int with capacity n.\nLet mutable i be 1.\nWhile i is less than n + 1:\n    Set item i of m to i * 2.\n    Set i to i + 1.\nLet mutable found be 0.\nSet i to 1.\nWhile i is less than n + 1:\n    If item i of m equals i * 2:\n        Set found to found + 1.\n    Set i to i + 1.\nShow found.",
+      "js_source": "const n = parseInt(process.argv[2]);\nconst map = new Map();\nfor (let i = 0; i < n; i++)\n    map.set(i, i * 2);\nlet found = 0;\nfor (let i = 0; i < n; i++)\n    if (map.get(i) === i * 2) found++;\nconsole.log(found);",
+      "scaling": {
+        "917499": {
+          "logos_interp": {
+            "mean_ms": 82.56377042000002000,
+            "median_ms": 84.51107922000001000,
+            "stddev_ms": 5.4333664552008816000,
+            "min_ms": 76.24120222000001000,
+            "max_ms": 87.44784622000001000,
+            "cv": 0.06580811931869717395,
+            "runs": 5,
+            "user_ms": 63.42302000,
+            "system_ms": 18.958959999999997000
+          },
+          "js": {
+            "mean_ms": 85.37400200000002000,
+            "median_ms": 85.64044300000001000,
+            "stddev_ms": 0.6463026901866484000,
+            "min_ms": 84.30059000000001000,
+            "max_ms": 85.916249000,
+            "cv": 0.00757025177508544402,
+            "runs": 5,
+            "user_ms": 63.7854000,
+            "system_ms": 23.733399999999998000
+          }
+        }
+      },
+      "compilation": {},
+      "timeouts": {}
+    },
+    {
+      "id": "graph_bfs",
+      "name": "Graph BFS",
+      "reference_size": "138652",
+      "interpreter_engine": "vm+jit",
+      "sizes": [
+        "50000",
+        "100000",
+        "3000000"
+      ],
+      "logos_source": "## To native args () -> Seq of Text\n## To native parseInt (s: Text) -> Int\n\n## Main\nLet arguments be args().\nLet n be parseInt(item 2 of arguments).\nLet mutable adj be a new Seq of Int.\nLet mutable adjStarts be a new Seq of Int.\nLet mutable adjCounts be a new Seq of Int.\nLet mutable i be 0.\nWhile i is less than n:\n    Push i * 5 to adjStarts.\n    Push 0 to adjCounts.\n    Push 0 to adj. Push 0 to adj. Push 0 to adj. Push 0 to adj. Push 0 to adj.\n    Set i to i + 1.\nLet mutable primes be a new Seq of Int.\nPush 31 to primes. Push 37 to primes. Push 41 to primes. Push 43 to primes. Push 47 to primes.\nLet mutable offsets be a new Seq of Int.\nPush 7 to offsets. Push 13 to offsets. Push 17 to offsets. Push 23 to offsets. Push 29 to offsets.\nLet mutable p be 1.\nWhile p is at most 5:\n    Set i to 0.\n    While i is less than n:\n        Let neighbor be (i * item p of primes + item p of offsets) % n.\n        If neighbor is not i:\n            Let start be item (i + 1) of adjStarts.\n            Let cnt be item (i + 1) of adjCounts.\n            Set item (start + cnt + 1) of adj to neighbor.\n            Set item (i + 1) of adjCounts to cnt + 1.\n        Set i to i + 1.\n    Set p to p + 1.\nLet mutable queue be a new Seq of Int.\nLet mutable dist be a new Seq of Int.\nSet i to 0.\nWhile i is less than n:\n    Push 0 - 1 to dist.\n    Set i to i + 1.\nPush 0 to queue.\nSet item 1 of dist to 0.\nLet mutable front be 1.\nWhile front is at most length of queue:\n    Let v be item front of queue.\n    Let start be item (v + 1) of adjStarts.\n    Let cnt be item (v + 1) of adjCounts.\n    Let mutable e be 0.\n    While e is less than cnt:\n        Let u be item (start + e + 1) of adj.\n        If item (u + 1) of dist equals 0 - 1:\n            Set item (u + 1) of dist to item (v + 1) of dist + 1.\n            Push u to queue.\n        Set e to e + 1.\n    Set front to front + 1.\nLet mutable reachable be 0.\nLet mutable totalDist be 0.\nSet i to 0.\nWhile i is less than n:\n    If item (i + 1) of dist is at least 0:\n        Set reachable to reachable + 1.\n        Set totalDist to totalDist + item (i + 1) of dist.\n    Set i to i + 1.\nShow \"\" + reachable + \" \" + totalDist.",
+      "js_source": "const MAX_EDGES = 5;\nconst n = parseInt(process.argv[2]);\nconst primes = [31, 37, 41, 43, 47];\nconst offsets = [7, 13, 17, 23, 29];\nconst adj = new Int32Array(n * MAX_EDGES);\nconst adjCount = new Int32Array(n);\nfor (let p = 0; p < MAX_EDGES; p++) {\n    for (let i = 0; i < n; i++) {\n        const neighbor = (i * primes[p] + offsets[p]) % n;\n        if (neighbor !== i) {\n            adj[i * MAX_EDGES + adjCount[i]] = neighbor;\n            adjCount[i]++;\n        }\n    }\n}\nconst queue = new Int32Array(n);\nconst dist = new Int32Array(n).fill(-1);\nlet front = 0, back = 0;\nqueue[back++] = 0;\ndist[0] = 0;\nwhile (front < back) {\n    const v = queue[front++];\n    for (let e = 0; e < adjCount[v]; e++) {\n        const u = adj[v * MAX_EDGES + e];\n        if (dist[u] === -1) { dist[u] = dist[v] + 1; queue[back++] = u; }\n    }\n}\nlet reachable = 0, totalDist = 0;\nfor (let i = 0; i < n; i++) {\n    if (dist[i] >= 0) { reachable++; totalDist += dist[i]; }\n}\nconsole.log(reachable + \" \" + totalDist);",
+      "scaling": {
+        "138652": {
+          "logos_interp": {
+            "mean_ms": 42.707111740000005000,
+            "median_ms": 39.73814974000,
+            "stddev_ms": 5.150401798426267000,
+            "min_ms": 38.02023474000,
+            "max_ms": 49.524104740000005000,
+            "cv": 0.12059822330720476853,
+            "runs": 5,
+            "user_ms": 37.116159999999995000,
+            "system_ms": 5.47306000
+          },
+          "js": {
+            "mean_ms": 29.1199684000,
+            "median_ms": 25.890858000000003000,
+            "stddev_ms": 6.71557062243599000,
+            "min_ms": 23.69837000,
+            "max_ms": 39.351111000,
+            "cv": 0.23061737328107780501,
+            "runs": 5,
+            "user_ms": 28.5306000,
+            "system_ms": 6.9536000
+          }
+        }
+      },
+      "compilation": {},
+      "timeouts": {}
+    },
+    {
+      "id": "histogram",
+      "name": "Histogram",
+      "reference_size": "1517134",
+      "interpreter_engine": "vm+jit",
+      "sizes": [
+        "5000000",
+        "10000000",
+        "100000000"
+      ],
+      "logos_source": "## To native args () -> Seq of Text\n## To native parseInt (s: Text) -> Int\n\n## Main\nLet arguments be args().\nLet n be parseInt(item 2 of arguments).\nLet mutable counts be a new Seq of Int.\nLet mutable idx be 0.\nWhile idx is less than 1000:\n    Push 0 to counts.\n    Set idx to idx + 1.\nLet mutable seed be 42.\nLet mutable i be 0.\nWhile i is less than n:\n    Set seed to (seed * 1103515245 + 12345) % 2147483648.\n    Let v be ((seed / 65536) % 32768) % 1000.\n    Set item (v + 1) of counts to (item (v + 1) of counts) + 1.\n    Set i to i + 1.\nLet mutable maxFreq be 0.\nLet mutable maxIndex be 0.\nLet mutable distinct be 0.\nSet i to 0.\nWhile i is less than 1000:\n    If item (i + 1) of counts is greater than 0:\n        Set distinct to distinct + 1.\n    If item (i + 1) of counts is greater than maxFreq:\n        Set maxFreq to item (i + 1) of counts.\n        Set maxIndex to i.\n    Set i to i + 1.\nShow \"\" + maxFreq + \" \" + maxIndex + \" \" + distinct.",
+      "js_source": "const n = parseInt(process.argv[2]);\nconst counts = new Array(1000).fill(0);\nlet seed = 42;\nfor (let i = 0; i < n; i++) {\n    seed = ((Math.imul(seed, 1103515245) + 12345) >>> 0) % 2147483648;\n    counts[((seed >> 16) & 0x7fff) % 1000]++;\n}\nlet maxFreq = 0, maxIdx = 0, distinct = 0;\nfor (let i = 0; i < 1000; i++) {\n    if (counts[i] > 0) distinct++;\n    if (counts[i] > maxFreq) { maxFreq = counts[i]; maxIdx = i; }\n}\nconsole.log(`${maxFreq} ${maxIdx} ${distinct}`);",
+      "scaling": {
+        "1517134": {
+          "logos_interp": {
+            "mean_ms": 29.69372328000,
+            "median_ms": 28.81011868000,
+            "stddev_ms": 2.3189510521689125000,
+            "min_ms": 27.16526968000,
+            "max_ms": 32.451719680000005000,
+            "cv": 0.07809566453833109540,
+            "runs": 5,
+            "user_ms": 28.991839999999998000,
+            "system_ms": 0.7747279999999998000
+          },
+          "js": {
+            "mean_ms": 25.3127742000,
+            "median_ms": 23.965199000000003000,
+            "stddev_ms": 3.8383542251087506000,
+            "min_ms": 20.889904000,
+            "max_ms": 30.820342000,
+            "cv": 0.15163704281408833489,
+            "runs": 5,
+            "user_ms": 19.6396000,
+            "system_ms": 7.0837999999999995000
+          }
+        }
+      },
+      "compilation": {},
+      "timeouts": {}
+    }
+  ],
+  "summary": {
+    "geometric_mean_logos_interp_over_node": 1.062
+  }
+}

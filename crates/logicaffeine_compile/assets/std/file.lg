@@ -2,6 +2,12 @@
 
 Standard library for file I/O operations.
 
+## Note
+Reads a whole file into Text.
+
 ## To native read (path: Text) -> Result of Text and Text
+
+## Note
+Writes Text to a file, replacing its contents.
 
 ## To native write (path: Text) and (content: Text) -> Result of Unit and Text

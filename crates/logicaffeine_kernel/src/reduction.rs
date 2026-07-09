@@ -42,7 +42,7 @@
 
 use crate::context::Context;
 use crate::omega;
-use crate::term::{Literal, Term, Universe};
+use crate::term::{int_lit, lit_bigint, Literal, Term, Universe};
 use crate::type_checker::substitute;
 
 /// Normalize a term to its normal form.
@@ -77,6 +77,19 @@ fn reduce_step(ctx: &Context, term: &Term) -> Term {
         // Literals are in normal form
         Term::Lit(_) => term.clone(),
 
+        // Delta for a universe-polymorphic reference: unfold its body with the universe
+        // parameters instantiated by the level arguments.
+        Term::Const { name, levels } => {
+            if let Some((params, _ty, body)) = ctx.get_universe_poly(name) {
+                if params.len() == levels.len() {
+                    let subst: std::collections::HashMap<String, crate::term::Universe> =
+                        params.iter().cloned().zip(levels.iter().cloned()).collect();
+                    return crate::term::instantiate_universes(body, &subst);
+                }
+            }
+            term.clone()
+        }
+
         // Beta: (λx. body) arg → body[x := arg]
         Term::App(func, arg) => {
             // First try primitive reduction (add, sub, mul, etc.)
@@ -86,6 +99,23 @@ fn reduce_step(ctx: &Context, term: &Term) -> Term {
 
             // Try reflection builtins (syn_size, syn_max_var)
             if let Some(result) = try_reflection_reduce(ctx, func, arg) {
+                return result;
+            }
+
+            // Native reduction: `reduceBool t` evaluates `t` with the fast CBV evaluator
+            // (the `native_decide` engine). This is the ONLY place the trusted evaluator
+            // enters kernel reduction — gated behind the `reduceBool` primitive, which only
+            // a `native_decide` proof (via the `ofReduceBool` axiom) ever mentions.
+            if let Term::Global(name) = func.as_ref() {
+                if name == "reduceBool" {
+                    if let Some(b) = crate::eval::eval_bool(ctx, arg) {
+                        return Term::Global(if b { "true" } else { "false" }.to_string());
+                    }
+                }
+            }
+
+            // Quotient computation: `Quot_lift A r B f h (Quot_mk A r a) ⤳ f a`.
+            if let Some(result) = try_quot_lift_reduce(func, arg) {
                 return result;
             }
 
@@ -108,6 +138,27 @@ fn reduce_step(ctx: &Context, term: &Term) -> Term {
                         Term::App(Box::new(unfolded), arg.clone())
                     } else {
                         // Try reducing the argument first
+                        let reduced_arg = reduce_step(ctx, arg);
+                        if reduced_arg != **arg {
+                            Term::App(func.clone(), Box::new(reduced_arg))
+                        } else {
+                            term.clone()
+                        }
+                    }
+                }
+                // Mutual fix application: (mutualfix { fⱼ := bⱼ }.i) arg. When `arg` is a
+                // constructor, unfold the i-th body, substituting EACH sibling name by its
+                // own projection of the block, then apply — the mutual analog of the Fix
+                // unfold above (so `Even.rec`'s call to `Odd.rec` computes).
+                Term::MutualFix { defs, index } => {
+                    if is_constructor_form(ctx, arg) {
+                        let mut unfolded = defs[*index].1.clone();
+                        for (j, (name_j, _)) in defs.iter().enumerate() {
+                            let proj = Term::MutualFix { defs: defs.clone(), index: j };
+                            unfolded = substitute(&unfolded, name_j, &proj);
+                        }
+                        Term::App(Box::new(unfolded), arg.clone())
+                    } else {
                         let reduced_arg = reduce_step(ctx, arg);
                         if reduced_arg != **arg {
                             Term::App(func.clone(), Box::new(reduced_arg))
@@ -223,6 +274,31 @@ fn reduce_step(ctx: &Context, term: &Term) -> Term {
             }
         }
 
+        // Reduce under a MutualFix (each body once; sibling names are free Vars here, so
+        // no unfolding happens — this only normalizes the bodies' own redexes).
+        Term::MutualFix { defs, index } => {
+            let mut new_defs = Vec::with_capacity(defs.len());
+            let mut changed = false;
+            for (n, b) in defs {
+                let rb = reduce_step(ctx, b);
+                if rb != *b {
+                    changed = true;
+                }
+                new_defs.push((n.clone(), rb));
+            }
+            if changed {
+                Term::MutualFix { defs: new_defs, index: *index }
+            } else {
+                term.clone()
+            }
+        }
+
+        // Zeta: `let x := v in b` → `b[x := v]`. The local definition is
+        // unfolded (the value is transparent), matching how the body was typed.
+        Term::Let { name, value, body, .. } => {
+            crate::type_checker::substitute(body, name, value)
+        }
+
         // Base cases: already in normal form
         Term::Sort(_) | Term::Var(_) | Term::Hole => term.clone(),
 
@@ -251,6 +327,23 @@ fn is_constructor_form(ctx: &Context, term: &Term) -> bool {
 ///
 /// For polymorphic constructors like `Cons A h t`, this returns only [h, t], not [A, h, t].
 fn extract_constructor(ctx: &Context, term: &Term) -> Option<(usize, Vec<Term>)> {
+    // Peano bridge (K6): a `Nat` literal is constructor-form — `Nat(0)` is `Zero`,
+    // `Nat(n)` is `Succ (Nat (n-1))` — so a `match`/recursor computes on it, peeling one
+    // `Succ` per step. The indices are `Nat`'s own `Zero`/`Succ` registration positions.
+    if let Term::Lit(Literal::Nat(n)) = term {
+        let ctors = ctx.get_constructors("Nat");
+        let idx_of = |name: &str| ctors.iter().position(|(c, _)| *c == name);
+        // `n ≤ 0` is `Zero` (a well-formed Nat is non-negative; a negative literal — only
+        // reachable from untrusted input — collapses to `Zero` so the peel TERMINATES
+        // rather than descending toward −∞).
+        return if *n <= logicaffeine_base::BigInt::from_i64(0) {
+            idx_of("Zero").map(|i| (i, Vec::new()))
+        } else {
+            let pred = n.sub(&logicaffeine_base::BigInt::from_i64(1));
+            idx_of("Succ").map(|i| (i, vec![Term::Lit(Literal::Nat(pred))]))
+        };
+    }
+
     let mut args = Vec::new();
     let mut current = term;
 
@@ -267,8 +360,15 @@ fn extract_constructor(ctx: &Context, term: &Term) -> Option<(usize, Vec<Term>)>
             let ctors = ctx.get_constructors(inductive);
             for (idx, (ctor_name, ctor_type)) in ctors.iter().enumerate() {
                 if *ctor_name == name {
-                    // Count type parameters (leading Pis where param_type is a Sort)
-                    let num_type_params = count_type_params(ctor_type);
+                    // The number of leading constructor arguments that are the inductive's
+                    // PARAMETERS (dropped before the case binders). For an indexed family
+                    // that declared its split we skip exactly those (`refl A x` → 2, so no
+                    // phantom value argument survives); otherwise fall back to the legacy
+                    // syntactic heuristic (leading Sort-typed Πs), leaving every existing
+                    // inductive's ι-reduction untouched.
+                    let num_type_params = ctx
+                        .inductive_declared_params(inductive)
+                        .unwrap_or_else(|| count_type_params(ctor_type));
 
                     // Skip type arguments, return only value arguments
                     let value_args = if num_type_params < args.len() {
@@ -310,6 +410,34 @@ fn is_sort(term: &Term) -> bool {
     matches!(term, Term::Sort(_))
 }
 
+/// The head and argument spine of an application, by reference (`f a b c` → `(f, [a,b,c])`).
+fn app_spine(t: &Term) -> (&Term, Vec<&Term>) {
+    let mut args = Vec::new();
+    let mut cur = t;
+    while let Term::App(f, a) = cur {
+        args.push(a.as_ref());
+        cur = f.as_ref();
+    }
+    args.reverse();
+    (cur, args)
+}
+
+/// The quotient computation rule: `Quot_lift A r B f h (Quot_mk A r a) ⤳ f a`. Here `func`
+/// is `Quot_lift A r B f h` (5 args) and `arg` is `Quot_mk A r a` (3 args); the lifted
+/// function `f` is applied to the representative `a`, discarding the proof `h` and the class
+/// constructor (sound because `h` witnesses that `f` respects the relation).
+fn try_quot_lift_reduce(func: &Term, arg: &Term) -> Option<Term> {
+    let (fh, fargs) = app_spine(func);
+    if !matches!(fh, Term::Global(n) if n == "Quot_lift") || fargs.len() != 5 {
+        return None;
+    }
+    let (qh, qargs) = app_spine(arg);
+    if !matches!(qh, Term::Global(n) if n == "Quot_mk") || qargs.len() != 3 {
+        return None;
+    }
+    Some(Term::App(Box::new(fargs[3].clone()), Box::new(qargs[2].clone())))
+}
+
 /// Try to reduce a primitive operation.
 ///
 /// Returns Some(result) if this is a fully applied primitive like (add 3 4).
@@ -318,18 +446,68 @@ fn try_primitive_reduce(func: &Term, arg: &Term) -> Option<Term> {
     // We need func = (op x) and arg = y
     if let Term::App(op_term, x) = func {
         if let Term::Global(op_name) = op_term.as_ref() {
-            if let (Term::Lit(Literal::Int(x_val)), Term::Lit(Literal::Int(y_val))) =
-                (x.as_ref(), arg)
-            {
-                let result = match op_name.as_str() {
-                    "add" => x_val.checked_add(*y_val)?,
-                    "sub" => x_val.checked_sub(*y_val)?,
-                    "mul" => x_val.checked_mul(*y_val)?,
-                    "div" => x_val.checked_div(*y_val)?,
-                    "mod" => x_val.checked_rem(*y_val)?,
-                    _ => return None,
-                };
-                return Some(Term::Lit(Literal::Int(result)));
+            if let (Term::Lit(xl), Term::Lit(yl)) = (x.as_ref(), arg) {
+                let bool_term =
+                    |b: bool| Term::Global(if b { "true" } else { "false" }.to_string());
+
+                // FAST PATH: both operands fit `i64`. Arithmetic is machine-checked; a
+                // comparison is decided directly. Only an OVERFLOWING arithmetic op falls
+                // through — to be redone exactly in BigInt below.
+                if let (Literal::Int(a), Literal::Int(b)) = (xl, yl) {
+                    let fast = match op_name.as_str() {
+                        "add" => a.checked_add(*b),
+                        "sub" => a.checked_sub(*b),
+                        "mul" => a.checked_mul(*b),
+                        "div" => a.checked_div(*b),
+                        "mod" => a.checked_rem(*b),
+                        _ => None,
+                    };
+                    if let Some(r) = fast {
+                        return Some(Term::Lit(Literal::Int(r)));
+                    }
+                    // Bool-valued comparison primitives: ground order decided by
+                    // computation, so `Eq Bool (le m n) true` holds by `refl` exactly when
+                    // `m ≤ n` — the sound substrate for linear-arithmetic certificates.
+                    let fast_bool = match op_name.as_str() {
+                        "le" => Some(a <= b),
+                        "lt" => Some(a < b),
+                        "ge" => Some(a >= b),
+                        "gt" => Some(a > b),
+                        _ => None,
+                    };
+                    if let Some(bl) = fast_bool {
+                        return Some(bool_term(bl));
+                    }
+                }
+
+                // EXACT PATH (K6): arbitrary-precision integer arithmetic, reached when an
+                // operand is a `BigInt` or an `i64` op overflowed. Results are canonicalised
+                // by `int_lit` (demote to `Int` when they fit), so a value has ONE literal
+                // and definitional equality of literals stays sound. `div`/`mod` by zero
+                // yield no result (the fixpoint stays stuck — unprovable, sound).
+                if let (Some(xb), Some(yb)) = (lit_bigint(xl), lit_bigint(yl)) {
+                    let big = match op_name.as_str() {
+                        "add" => Some(xb.add(&yb)),
+                        "sub" => Some(xb.sub(&yb)),
+                        "mul" => Some(xb.mul(&yb)),
+                        "div" => xb.div_rem(&yb).map(|(q, _)| q),
+                        "mod" => xb.div_rem(&yb).map(|(_, r)| r),
+                        _ => None,
+                    };
+                    if let Some(r) = big {
+                        return Some(Term::Lit(int_lit(r)));
+                    }
+                    let bool_result = match op_name.as_str() {
+                        "le" => Some(xb <= yb),
+                        "lt" => Some(xb < yb),
+                        "ge" => Some(xb >= yb),
+                        "gt" => Some(xb > yb),
+                        _ => None,
+                    };
+                    if let Some(b) = bool_result {
+                        return Some(bool_term(b));
+                    }
+                }
             }
         }
     }
@@ -878,6 +1056,25 @@ fn try_syn_subst_reduce(
     index: i64,
     term: &Term,
 ) -> Option<Term> {
+    // Plain substitution (no de Bruijn decrement): used by recursor / induction
+    // handling where the binder is NOT eliminated.
+    syn_subst_impl(ctx, replacement, index, term, false)
+}
+
+/// Substitute `replacement` for de Bruijn variable `index` in a Syntax term.
+///
+/// When `decrement` is true this implements the variable part of a BETA step:
+/// because the binder is eliminated, surviving free variables `k` with
+/// `k > index` are lowered to `k - 1`. With `decrement` false it is a plain
+/// substitution that leaves non-matching variables untouched (the semantics the
+/// recursor/induction call sites rely on).
+fn syn_subst_impl(
+    ctx: &Context,
+    replacement: &Term,
+    index: i64,
+    term: &Term,
+    decrement: bool,
+) -> Option<Term> {
     // Check for unary constructor: (Ctor arg)
     if let Term::App(ctor_term, inner_arg) = term {
         if let Term::Global(ctor_name) = ctor_term.as_ref() {
@@ -885,8 +1082,15 @@ fn try_syn_subst_reduce(
                 "SVar" => {
                     if let Term::Lit(Literal::Int(k)) = inner_arg.as_ref() {
                         if *k == index {
-                            // Match! Return replacement
+                            // Match! Return replacement (already lifted to this depth).
                             return Some(replacement.clone());
+                        } else if decrement && *k > index {
+                            // Beta: the binder was removed, so a surviving free
+                            // variable above it drops by one level.
+                            return Some(Term::App(
+                                Box::new(Term::Global("SVar".to_string())),
+                                Box::new(Term::Lit(Literal::Int(*k - 1))),
+                            ));
                         } else {
                             // No match, return unchanged
                             return Some(term.clone());
@@ -907,8 +1111,8 @@ fn try_syn_subst_reduce(
                 match ctor_name.as_str() {
                     "SApp" => {
                         // No binding, same index and replacement
-                        let a_subst = try_syn_subst_reduce(ctx, replacement, index, a)?;
-                        let b_subst = try_syn_subst_reduce(ctx, replacement, index, inner_arg)?;
+                        let a_subst = syn_subst_impl(ctx, replacement, index, a, decrement)?;
+                        let b_subst = syn_subst_impl(ctx, replacement, index, inner_arg, decrement)?;
                         return Some(Term::App(
                             Box::new(Term::App(
                                 Box::new(Term::Global("SApp".to_string())),
@@ -920,15 +1124,16 @@ fn try_syn_subst_reduce(
                     "SLam" | "SPi" => {
                         // Binder: param type at current index, body at index+1
                         // Lift replacement when going under binder
-                        let param_subst = try_syn_subst_reduce(ctx, replacement, index, a)?;
+                        let param_subst = syn_subst_impl(ctx, replacement, index, a, decrement)?;
 
                         // Lift the replacement by 1 when going under the binder
                         let lifted_replacement = try_syn_lift_reduce(ctx, 1, 0, replacement)?;
-                        let body_subst = try_syn_subst_reduce(
+                        let body_subst = syn_subst_impl(
                             ctx,
                             &lifted_replacement,
                             index + 1,
                             inner_arg,
+                            decrement,
                         )?;
 
                         return Some(Term::App(
@@ -952,12 +1157,18 @@ fn try_syn_subst_reduce(
 // Computation Builtins
 // -------------------------------------------------------------------------
 
-/// Beta reduction: substitute arg for variable 0 in body.
+/// Beta reduction: substitute arg for variable 0 in body, with the de Bruijn
+/// decrement that removing the binder requires.
 ///
-/// syn_beta body arg = syn_subst arg 0 body
+/// `syn_beta body arg` reflects the kernel's real beta step: substitute `arg`
+/// for index 0 in `body`, AND shift every surviving free variable `k > 0` down
+/// to `k - 1` (the λ binder is gone, so references that pointed PAST it must
+/// drop one level). Without the decrement the reflection would be unfaithful —
+/// `reflected_beta_decrements_surviving_free_vars` pins it: `(λT. SVar 1)(SVar 7)
+/// → SVar 0`. (`syn_subst` itself is the raw, non-shifting substitution
+/// primitive — `syn_beta` is `syn_subst` at index 0 composed with that shift.)
 fn try_syn_beta_reduce(ctx: &Context, body: &Term, arg: &Term) -> Option<Term> {
-    // syn_beta is just syn_subst with index 0
-    try_syn_subst_reduce(ctx, arg, 0, body)
+    syn_subst_impl(ctx, arg, 0, body, true)
 }
 
 /// Try to reduce arithmetic on Syntax literals.
@@ -1776,6 +1987,8 @@ fn term_to_syntax(term: &Term) -> Option<Term> {
     match term {
         Term::Global(name) => Some(make_sname(name)),
 
+        Term::Const { name, .. } => Some(make_sname(name)),
+
         Term::Var(name) => {
             // Named variables become SName in syntax representation
             Some(make_sname(name))
@@ -1799,18 +2012,7 @@ fn term_to_syntax(term: &Term) -> Option<Term> {
             Some(make_slam(sp, sb))
         }
 
-        Term::Sort(Universe::Type(n)) => {
-            let u = Term::App(
-                Box::new(Term::Global("UType".to_string())),
-                Box::new(Term::Lit(Literal::Int(*n as i64))),
-            );
-            Some(make_ssort(u))
-        }
-
-        Term::Sort(Universe::Prop) => {
-            let u = Term::Global("UProp".to_string());
-            Some(make_ssort(u))
-        }
+        Term::Sort(univ) => Some(make_ssort(univ_to_syntax(univ))),
 
         Term::Lit(Literal::Int(n)) => Some(make_slit(*n)),
 
@@ -1820,10 +2022,14 @@ fn term_to_syntax(term: &Term) -> Option<Term> {
         Term::Lit(Literal::Float(_))
         | Term::Lit(Literal::Duration(_))
         | Term::Lit(Literal::Date(_))
-        | Term::Lit(Literal::Moment(_)) => None,
+        | Term::Lit(Literal::Moment(_))
+        // Neither a BigInt nor a Nat literal fits the syntax layer's machine-int `SLit`.
+        | Term::Lit(Literal::BigInt(_))
+        | Term::Lit(Literal::Nat(_)) => None,
 
-        // Match expressions, Fix, and Hole are complex - skip for now
-        Term::Match { .. } | Term::Fix { .. } | Term::Hole => None,
+        // Match expressions, Fix, Let, and Hole are complex - skip for now
+        Term::Match { .. } | Term::Fix { .. } | Term::MutualFix { .. } | Term::Let { .. }
+        | Term::Hole => None,
     }
 }
 
@@ -2084,12 +2290,14 @@ fn try_try_ring_reduce(ctx: &Context, goal: &Term) -> Option<Term> {
             return Some(make_error_derivation());
         }
 
-        // Reify both sides to polynomials
-        let poly_left = match ring::reify(&left) {
+        // Reify both sides to polynomials (one interner: both sides must
+        // agree on which named global is which variable)
+        let mut vars = crate::reify::VarInterner::new();
+        let poly_left = match ring::reify(&left, &mut vars) {
             Ok(p) => p,
             Err(_) => return Some(make_error_derivation()),
         };
-        let poly_right = match ring::reify(&right) {
+        let poly_right = match ring::reify(&right, &mut vars) {
             Ok(p) => p,
             Err(_) => return Some(make_error_derivation()),
         };
@@ -2121,12 +2329,13 @@ fn try_dring_solve_conclude(ctx: &Context, goal: &Term) -> Option<Term> {
             return Some(make_sname_error());
         }
 
-        // Reify and verify
-        let poly_left = match ring::reify(&left) {
+        // Reify and verify (one interner across both sides)
+        let mut vars = crate::reify::VarInterner::new();
+        let poly_left = match ring::reify(&left, &mut vars) {
             Ok(p) => p,
             Err(_) => return Some(make_sname_error()),
         };
-        let poly_right = match ring::reify(&right) {
+        let poly_right = match ring::reify(&right, &mut vars) {
             Ok(p) => p,
             Err(_) => return Some(make_sname_error()),
         };
@@ -2178,12 +2387,13 @@ fn try_try_lia_reduce(ctx: &Context, goal: &Term) -> Option<Term> {
 
     // Extract comparison: (SApp (SApp (SName "Lt"|"Le"|etc) a) b)
     if let Some((rel, lhs_term, rhs_term)) = lia::extract_comparison(&norm_goal) {
-        // Reify both sides to linear expressions
-        let lhs = match lia::reify_linear(&lhs_term) {
+        // Reify both sides to linear expressions (one interner across both)
+        let mut vars = crate::reify::VarInterner::new();
+        let lhs = match lia::reify_linear(&lhs_term, &mut vars) {
             Ok(l) => l,
             Err(_) => return Some(make_error_derivation()),
         };
-        let rhs = match lia::reify_linear(&rhs_term) {
+        let rhs = match lia::reify_linear(&rhs_term, &mut vars) {
             Ok(r) => r,
             Err(_) => return Some(make_error_derivation()),
         };
@@ -2213,12 +2423,13 @@ fn try_dlia_solve_conclude(ctx: &Context, goal: &Term) -> Option<Term> {
 
     // Extract comparison and verify
     if let Some((rel, lhs_term, rhs_term)) = lia::extract_comparison(&norm_goal) {
-        // Reify both sides
-        let lhs = match lia::reify_linear(&lhs_term) {
+        // Reify both sides (one interner across both)
+        let mut vars = crate::reify::VarInterner::new();
+        let lhs = match lia::reify_linear(&lhs_term, &mut vars) {
             Ok(l) => l,
             Err(_) => return Some(make_sname_error()),
         };
-        let rhs = match lia::reify_linear(&rhs_term) {
+        let rhs = match lia::reify_linear(&rhs_term, &mut vars) {
             Ok(r) => r,
             Err(_) => return Some(make_sname_error()),
         };
@@ -2342,56 +2553,17 @@ fn try_try_omega_reduce(ctx: &Context, goal: &Term) -> Option<Term> {
 
     // Handle implications: extract hypotheses and check conclusion
     if let Some((hyps, conclusion)) = extract_implications(&norm_goal) {
-        // Convert hypotheses to constraints
-        let mut constraints = Vec::new();
-
-        for hyp in &hyps {
-            // Try to extract a comparison from the hypothesis
-            if let Some((rel, lhs_term, rhs_term)) = omega::extract_comparison(hyp) {
-                if let (Some(lhs), Some(rhs)) =
-                    (omega::reify_int_linear(&lhs_term), omega::reify_int_linear(&rhs_term))
-                {
-                    // Add hypothesis as a constraint (it's given, so it's a fact)
-                    // For Lt(a, b): a - b < 0, i.e., (a - b) < 0
-                    // Constraint form: (a - b + 1) <= 0 for integers (since a < b means a <= b - 1)
-                    match rel.as_str() {
-                        "Lt" | "lt" => {
-                            // a < b means a - b <= -1, i.e., (a - b + 1) <= 0
-                            let mut expr = lhs.sub(&rhs);
-                            expr.constant += 1;
-                            constraints.push(omega::IntConstraint { expr, strict: false });
-                        }
-                        "Le" | "le" => {
-                            // a <= b means a - b <= 0
-                            constraints.push(omega::IntConstraint {
-                                expr: lhs.sub(&rhs),
-                                strict: false,
-                            });
-                        }
-                        "Gt" | "gt" => {
-                            // a > b means a - b >= 1, i.e., (b - a + 1) <= 0
-                            let mut expr = rhs.sub(&lhs);
-                            expr.constant += 1;
-                            constraints.push(omega::IntConstraint { expr, strict: false });
-                        }
-                        "Ge" | "ge" => {
-                            // a >= b means b - a <= 0
-                            constraints.push(omega::IntConstraint {
-                                expr: rhs.sub(&lhs),
-                                strict: false,
-                            });
-                        }
-                        _ => {}
-                    }
-                }
-            }
-        }
+        // Convert hypotheses to constraints. ONE interner spans hypotheses
+        // and conclusion: a named global must be the same variable everywhere.
+        let mut vars = crate::reify::VarInterner::new();
+        let constraints = omega_hyp_constraints(&hyps, &mut vars);
 
         // Now check if the conclusion is provable given the constraints
         if let Some((rel, lhs_term, rhs_term)) = omega::extract_comparison(&conclusion) {
-            if let (Some(lhs), Some(rhs)) =
-                (omega::reify_int_linear(&lhs_term), omega::reify_int_linear(&rhs_term))
-            {
+            if let (Some(lhs), Some(rhs)) = (
+                omega::reify_int_linear(&lhs_term, &mut vars),
+                omega::reify_int_linear(&rhs_term, &mut vars),
+            ) {
                 // To prove the conclusion, check if its negation is unsat
                 if let Some(neg_constraint) = omega::goal_to_negated_constraint(&rel, &lhs, &rhs) {
                     let mut all_constraints = constraints;
@@ -2413,9 +2585,11 @@ fn try_try_omega_reduce(ctx: &Context, goal: &Term) -> Option<Term> {
 
     // Direct comparison (no hypotheses)
     if let Some((rel, lhs_term, rhs_term)) = omega::extract_comparison(&norm_goal) {
-        if let (Some(lhs), Some(rhs)) =
-            (omega::reify_int_linear(&lhs_term), omega::reify_int_linear(&rhs_term))
-        {
+        let mut vars = crate::reify::VarInterner::new();
+        if let (Some(lhs), Some(rhs)) = (
+            omega::reify_int_linear(&lhs_term, &mut vars),
+            omega::reify_int_linear(&rhs_term, &mut vars),
+        ) {
             if let Some(constraint) = omega::goal_to_negated_constraint(&rel, &lhs, &rhs) {
                 if omega::omega_unsat(&[constraint]) {
                     return Some(Term::App(
@@ -2430,6 +2604,59 @@ fn try_try_omega_reduce(ctx: &Context, goal: &Term) -> Option<Term> {
     Some(make_error_derivation())
 }
 
+/// Convert comparison hypotheses to omega constraints (facts).
+///
+/// A hypothesis is given, so it enters the system directly with integer
+/// strict-to-nonstrict tightening: `a < b` becomes `a - b + 1 <= 0`.
+fn omega_hyp_constraints(
+    hyps: &[Term],
+    vars: &mut crate::reify::VarInterner,
+) -> Vec<omega::IntConstraint> {
+    let one = omega::IntExpr::constant(1);
+    let mut constraints = Vec::new();
+    for hyp in hyps {
+        if let Some((rel, lhs_term, rhs_term)) = omega::extract_comparison(hyp) {
+            if let (Some(lhs), Some(rhs)) = (
+                omega::reify_int_linear(&lhs_term, vars),
+                omega::reify_int_linear(&rhs_term, vars),
+            ) {
+                match rel.as_str() {
+                    "Lt" | "lt" => {
+                        // a < b means a - b <= -1, i.e., (a - b + 1) <= 0
+                        constraints.push(omega::IntConstraint {
+                            expr: lhs.sub(&rhs).add(&one),
+                            strict: false,
+                        });
+                    }
+                    "Le" | "le" => {
+                        // a <= b means a - b <= 0
+                        constraints.push(omega::IntConstraint {
+                            expr: lhs.sub(&rhs),
+                            strict: false,
+                        });
+                    }
+                    "Gt" | "gt" => {
+                        // a > b means a - b >= 1, i.e., (b - a + 1) <= 0
+                        constraints.push(omega::IntConstraint {
+                            expr: rhs.sub(&lhs).add(&one),
+                            strict: false,
+                        });
+                    }
+                    "Ge" | "ge" => {
+                        // a >= b means b - a <= 0
+                        constraints.push(omega::IntConstraint {
+                            expr: rhs.sub(&lhs),
+                            strict: false,
+                        });
+                    }
+                    _ => {}
+                }
+            }
+        }
+    }
+    constraints
+}
+
 /// Verify DOmegaSolve proof.
 ///
 /// DOmegaSolve goal → goal (if verified)
@@ -2439,46 +2666,14 @@ fn try_domega_solve_conclude(ctx: &Context, goal: &Term) -> Option<Term> {
     // Re-verify using omega test
     // Handle implications
     if let Some((hyps, conclusion)) = extract_implications(&norm_goal) {
-        let mut constraints = Vec::new();
-
-        for hyp in &hyps {
-            if let Some((rel, lhs_term, rhs_term)) = omega::extract_comparison(hyp) {
-                if let (Some(lhs), Some(rhs)) =
-                    (omega::reify_int_linear(&lhs_term), omega::reify_int_linear(&rhs_term))
-                {
-                    match rel.as_str() {
-                        "Lt" | "lt" => {
-                            let mut expr = lhs.sub(&rhs);
-                            expr.constant += 1;
-                            constraints.push(omega::IntConstraint { expr, strict: false });
-                        }
-                        "Le" | "le" => {
-                            constraints.push(omega::IntConstraint {
-                                expr: lhs.sub(&rhs),
-                                strict: false,
-                            });
-                        }
-                        "Gt" | "gt" => {
-                            let mut expr = rhs.sub(&lhs);
-                            expr.constant += 1;
-                            constraints.push(omega::IntConstraint { expr, strict: false });
-                        }
-                        "Ge" | "ge" => {
-                            constraints.push(omega::IntConstraint {
-                                expr: rhs.sub(&lhs),
-                                strict: false,
-                            });
-                        }
-                        _ => {}
-                    }
-                }
-            }
-        }
+        let mut vars = crate::reify::VarInterner::new();
+        let constraints = omega_hyp_constraints(&hyps, &mut vars);
 
         if let Some((rel, lhs_term, rhs_term)) = omega::extract_comparison(&conclusion) {
-            if let (Some(lhs), Some(rhs)) =
-                (omega::reify_int_linear(&lhs_term), omega::reify_int_linear(&rhs_term))
-            {
+            if let (Some(lhs), Some(rhs)) = (
+                omega::reify_int_linear(&lhs_term, &mut vars),
+                omega::reify_int_linear(&rhs_term, &mut vars),
+            ) {
                 if let Some(neg_constraint) = omega::goal_to_negated_constraint(&rel, &lhs, &rhs) {
                     let mut all_constraints = constraints;
                     all_constraints.push(neg_constraint);
@@ -2495,9 +2690,11 @@ fn try_domega_solve_conclude(ctx: &Context, goal: &Term) -> Option<Term> {
 
     // Direct comparison
     if let Some((rel, lhs_term, rhs_term)) = omega::extract_comparison(&norm_goal) {
-        if let (Some(lhs), Some(rhs)) =
-            (omega::reify_int_linear(&lhs_term), omega::reify_int_linear(&rhs_term))
-        {
+        let mut vars = crate::reify::VarInterner::new();
+        if let (Some(lhs), Some(rhs)) = (
+            omega::reify_int_linear(&lhs_term, &mut vars),
+            omega::reify_int_linear(&rhs_term, &mut vars),
+        ) {
             if let Some(constraint) = omega::goal_to_negated_constraint(&rel, &lhs, &rhs) {
                 if omega::omega_unsat(&[constraint]) {
                     return Some(norm_goal);
@@ -4337,11 +4534,36 @@ fn kernel_type_to_syntax(term: &Term) -> Term {
 
 /// Convert a Universe to Syntax.
 fn univ_to_syntax(univ: &crate::term::Universe) -> Term {
+    use crate::term::Universe;
     match univ {
-        crate::term::Universe::Prop => Term::Global("UProp".to_string()),
-        crate::term::Universe::Type(n) => Term::App(
+        Universe::SProp => Term::Global("USProp".to_string()),
+        Universe::Prop => Term::Global("UProp".to_string()),
+        Universe::Type(n) => Term::App(
             Box::new(Term::Global("UType".to_string())),
             Box::new(Term::Lit(Literal::Int(*n as i64))),
+        ),
+        // Universe-polymorphic levels: deeply-embedded so reflection stays total.
+        Universe::Var(v) => Term::App(
+            Box::new(Term::Global("UVar".to_string())),
+            Box::new(Term::Global(v.clone())),
+        ),
+        Universe::Succ(l) => Term::App(
+            Box::new(Term::Global("USucc".to_string())),
+            Box::new(univ_to_syntax(l)),
+        ),
+        Universe::Max(a, b) => Term::App(
+            Box::new(Term::App(
+                Box::new(Term::Global("UMax".to_string())),
+                Box::new(univ_to_syntax(a)),
+            )),
+            Box::new(univ_to_syntax(b)),
+        ),
+        Universe::IMax(a, b) => Term::App(
+            Box::new(Term::App(
+                Box::new(Term::Global("UIMax".to_string())),
+                Box::new(univ_to_syntax(a)),
+            )),
+            Box::new(univ_to_syntax(b)),
         ),
     }
 }

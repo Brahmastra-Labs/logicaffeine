@@ -1,0 +1,15 @@
+{
+  "id": "L_12.35",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "Let no one boast",
+  "options": [
+    "$ O\\sim (\\exists x)B\\underline{x} $",
+    "$ (\\exists x)Bx $",
+    "$ \\sim (\\exists x)Bx $",
+    "$ \\sim (\\exists x)B\\underline{x} $"
+  ],
+  "correct": 3,
+  "hint": "Is this about a specific person, or about EVERYONE being prohibited?",
+  "explanation": "Universal prohibitions use quantifiers with deontic operators. 'Let no one talk' means: there should not exist anyone who talks. We negate the existential quantifier over underlined agents."
+}

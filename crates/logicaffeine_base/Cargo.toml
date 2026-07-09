@@ -1,6 +1,6 @@
 [package]
 name = "logicaffeine-base"
-version = "0.9.16"
+version.workspace = true
 edition.workspace = true
 authors.workspace = true
 repository.workspace = true
@@ -9,8 +9,15 @@ keywords.workspace = true
 categories.workspace = true
 rust-version.workspace = true
 license = "BUSL-1.1"
-description = "Pure structural atoms for logicaffeine - arena, tokens, spans"
+description = "Tier-0 foundation for logicaffeine: arena, interner, spans, the exact numeric/quantity/money/time/UUID value-type tower, and the shared MD5/SHA-1 hash oracle"
 readme = "README.md"
 
 [dependencies]
 bumpalo = "3.19"
+
+[dev-dependencies]
+# Oracles for differential testing — our own MD5/SHA-1/UUID are validated bit-exact against the
+# reference crates (and benchmarked against them to prove we are faster). Test/bench only.
+md-5 = "0.10"
+sha1 = "0.10"
+uuid = { version = "1", features = ["v3", "v4", "v5", "v7"] }

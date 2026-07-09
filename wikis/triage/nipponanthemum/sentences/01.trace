@@ -1,0 +1,36 @@
+CLASSIFICATION: ActionableLexiconGap | subsystem Lexicon | gate Auto | confidence 0.75
+ISOLATED: "\"Nippon daisy\""(Quote), "\"Montauk daisy,\""(Quote)
+
+═══ Sentence 1 ═══
+INPUT: Nipponanthemum nipponicum, commonly called "Nippon daisy" or "Montauk daisy," is a species of flowering plant in the family Asteraceae.
+
+TOKENS:
+    0..14  "Nipponanthemum" Proper
+   15..25  "nipponicum" Adjective
+   25..26  ","          Punctuation
+   27..35  "commonly"   Other
+   36..42  "called"     Verb
+   43..57  ""Nippon daisy"" Other
+   58..60  "or"         Connective
+   61..77  ""Montauk daisy,"" Other
+   78..80  "is"         Other
+   81..82  "a"          Determiner
+   83..90  "species"    Noun
+   91..93  "of"         Preposition
+   94..103 "flowering"  Verb
+  104..109 "plant"      Other
+  110..112 "in"         Preposition
+  113..116 "the"        Determiner
+  117..123 "family"     Other
+  124..134 "Asteraceae" Proper
+  134..135 "."          Punctuation
+  135..135 ""           Other
+
+FOL:
+  unicode: Nipponanthemum
+  simple : Nipponanthemum
+  kripke : Nipponanthemum
+
+AST (1 nodes, 1 unhandled):
+  └─ Atom(Symbol(1)) [other]
+

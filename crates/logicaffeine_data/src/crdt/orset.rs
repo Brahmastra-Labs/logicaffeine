@@ -278,11 +278,25 @@ impl<T: Hash + Eq + Clone + Serialize + DeserializeOwned + Send + 'static, B: Se
             return None;
         }
 
-        // Return full state as delta
-        Some(ORSetDelta {
-            entries: self.entries.clone(),
-            context: self.context.clone(),
-        })
+        // A TRUE incremental delta (δ-CRDT): ship only the dots NEWER than `since`, with a MINIMAL
+        // context covering exactly those dots. Two reasons this beats "full state as delta":
+        //   • size — a one-element add on a 10k-element set ships one dot, not all 10k;
+        //   • CORRECTNESS — a full context would `has_seen` the receiver's existing dots while the
+        //     partial entries omit them, so the merge would treat them as observed-removed and DROP
+        //     them. A context scoped to just the new dots adds the new entries and disturbs nothing.
+        let mut entries: HashMap<T, HashSet<Dot>> = HashMap::new();
+        let mut context = DotContext::new();
+        for (value, dots) in &self.entries {
+            let fresh: HashSet<Dot> =
+                dots.iter().filter(|d| d.counter > since.get(d.replica)).copied().collect();
+            if !fresh.is_empty() {
+                for d in &fresh {
+                    context.add(*d);
+                }
+                entries.insert(value.clone(), fresh);
+            }
+        }
+        Some(ORSetDelta { entries, context })
     }
 
     fn apply_delta(&mut self, delta: &Self::Delta) {

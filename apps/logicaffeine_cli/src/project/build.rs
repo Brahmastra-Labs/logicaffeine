@@ -85,8 +85,11 @@ pub enum BuildError {
     Compile(CompileError),
     /// File system operation failed.
     Io(String),
-    /// Cargo build command failed.
-    Cargo(String),
+    /// Cargo build command failed (classified; the raw output already
+    /// streamed to the user's terminal live).
+    Cargo(CargoFailure),
+    /// Cargo itself was not found on PATH (no Rust toolchain installed).
+    Toolchain(String),
     /// A required file or directory was not found.
     NotFound(String),
 }
@@ -97,13 +100,88 @@ impl std::fmt::Display for BuildError {
             BuildError::Manifest(e) => write!(f, "{}", e),
             BuildError::Compile(e) => write!(f, "{}", e),
             BuildError::Io(e) => write!(f, "IO error: {}", e),
-            BuildError::Cargo(e) => write!(f, "Cargo error: {}", e),
+            BuildError::Cargo(e) => write!(f, "{}", e),
+            BuildError::Toolchain(e) => write!(f, "{}", e),
             BuildError::NotFound(e) => write!(f, "Not found: {}", e),
         }
     }
 }
 
 impl std::error::Error for BuildError {}
+
+/// What actually went wrong when `cargo build` failed, judged from its
+/// stderr tail.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CargoFailureKind {
+    /// A dependency could not be resolved or fetched — a `## Requires`
+    /// problem (bad crate name/version, or no network), not a compiler bug.
+    DependencyResolution,
+    /// rustc rejected the generated code — a LOGOS compiler bug, never the
+    /// user's fault.
+    GeneratedCode,
+}
+
+/// A classified `cargo build` failure. The full output already streamed to
+/// the terminal; this carries the verdict plus the retained tail for
+/// programmatic callers.
+#[derive(Debug)]
+pub struct CargoFailure {
+    /// The classification verdict.
+    pub kind: CargoFailureKind,
+    /// The last portion of cargo's stderr (bounded).
+    pub tail: String,
+    /// The generated Cargo project the failure occurred in.
+    pub project_dir: PathBuf,
+}
+
+impl std::fmt::Display for CargoFailure {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self.kind {
+            CargoFailureKind::DependencyResolution => write!(
+                f,
+                "a `## Requires` dependency could not be resolved (cargo's output above has the details)"
+            ),
+            CargoFailureKind::GeneratedCode => write!(
+                f,
+                "the generated Rust failed to compile — this is a LOGOS compiler bug, not an error in your program (generated project: {})",
+                self.project_dir.display()
+            ),
+        }
+    }
+}
+
+/// Whether a `## Requires` crate name / version / feature is safe to write
+/// into the generated Cargo.toml verbatim: strictly alphanumerics plus the
+/// characters cargo specs actually use. Anything else (quotes, newlines,
+/// brackets) could smuggle TOML structure into the manifest.
+pub fn requires_component_is_safe(s: &str) -> bool {
+    !s.is_empty()
+        && s.chars().all(|c| {
+            c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.' | '^' | '~' | '*' | '<' | '>' | '=' | '+' | ',' | ' ')
+        })
+}
+
+/// Judge a failed `cargo build` from its stderr tail.
+///
+/// Dependency-resolution failures (unknown crate, impossible version
+/// requirement, index/network fetch trouble) are the user-actionable class;
+/// everything else — above all rustc errors in the generated code — is a
+/// compiler bug on our side and is framed that way.
+pub fn classify_cargo_failure(stderr_tail: &str) -> CargoFailureKind {
+    const DEPENDENCY_MARKERS: [&str; 6] = [
+        "no matching package",
+        "failed to select a version",
+        "failed to get ",
+        "failed to fetch",
+        "failed to load source for dependency",
+        "unable to get packages from source",
+    ];
+    if DEPENDENCY_MARKERS.iter().any(|m| stderr_tail.contains(m)) {
+        CargoFailureKind::DependencyResolution
+    } else {
+        CargoFailureKind::GeneratedCode
+    }
+}
 
 impl From<ManifestError> for BuildError {
     fn from(e: ManifestError) -> Self {
@@ -199,6 +277,15 @@ fn build_with_entry(
     manifest: &Manifest,
     entry_path: &Path,
 ) -> Result<BuildResult, BuildError> {
+    let started = std::time::Instant::now();
+    crate::ui::phase(
+        "Compiling",
+        format!(
+            "{} v{} (LOGOS → Rust)",
+            manifest.package.name, manifest.package.version
+        ),
+    );
+
     // Create target directory structure
     let target_dir = config.project_dir.join("target");
     let build_dir = if config.release {
@@ -276,13 +363,21 @@ edition = "2021"
         }
     }
 
-    // Release profile: maximize optimization for compiled programs
-    let _ = writeln!(cargo_toml, "\n[profile.release]\nlto = true\nopt-level = 3\ncodegen-units = 1\npanic = \"abort\"\nstrip = true");
-
-    // Append user-declared dependencies from ## Requires blocks
+    // Append user-declared dependencies from ## Requires blocks — these must
+    // stay inside [dependencies], before any later section header, and every
+    // component must be manifest-safe (no TOML structure smuggled in).
     for dep in &output.dependencies {
         if dep.name == "wasm-bindgen" && has_wasm_bindgen {
             continue; // Already injected
+        }
+        if !requires_component_is_safe(&dep.name)
+            || !requires_component_is_safe(&dep.version)
+            || dep.features.iter().any(|f| !requires_component_is_safe(f))
+        {
+            return Err(BuildError::Compile(CompileError::Io(format!(
+                "`## Requires` declaration for '{}' contains characters that are not valid in a Cargo manifest",
+                dep.name
+            ))));
         }
         if dep.features.is_empty() {
             let _ = writeln!(cargo_toml, "{} = \"{}\"", dep.name, dep.version);
@@ -298,6 +393,9 @@ edition = "2021"
             );
         }
     }
+
+    // Release profile: maximize optimization for compiled programs
+    let _ = writeln!(cargo_toml, "\n[profile.release]\nlto = true\nopt-level = 3\ncodegen-units = 1\npanic = \"abort\"\nstrip = true");
 
     fs::write(rust_project_dir.join("Cargo.toml"), &cargo_toml)
         .map_err(|e| BuildError::Io(e.to_string()))?;
@@ -318,7 +416,10 @@ edition = "2021"
     // Copy runtime crates
     copy_runtime_crates(&rust_project_dir)?;
 
-    // Run cargo build
+    // Run cargo build: stdout inherits, stderr streams through a tee so the
+    // user watches cargo's progress live while we retain a bounded tail for
+    // failure classification.
+    crate::ui::phase("Building", "generated Rust (cargo)");
     let mut cmd = Command::new("cargo");
     cmd.arg("build").current_dir(&rust_project_dir);
     if config.release {
@@ -327,13 +428,78 @@ edition = "2021"
     if let Some(target) = resolved_target {
         cmd.arg("--target").arg(target);
     }
-
-    let cmd_output = cmd.output().map_err(|e| BuildError::Io(e.to_string()))?;
-
-    if !cmd_output.status.success() {
-        let stderr = String::from_utf8_lossy(&cmd_output.stderr);
-        return Err(BuildError::Cargo(stderr.to_string()));
+    // Cargo sees a pipe on stderr and would disable its own color; pass the
+    // resolved choice explicitly so cargo and largo agree.
+    let color_arg = match anstream::AutoStream::choice(&std::io::stderr()) {
+        anstream::ColorChoice::Never => "never",
+        _ => "always",
+    };
+    cmd.arg("--color").arg(color_arg);
+    if crate::ui::is_quiet() {
+        cmd.arg("--quiet");
+    } else if crate::ui::verbosity() > 0 {
+        cmd.arg("--verbose");
     }
+    cmd.stdout(std::process::Stdio::inherit());
+    cmd.stderr(std::process::Stdio::piped());
+
+    let mut child = cmd.spawn().map_err(|e| {
+        if e.kind() == std::io::ErrorKind::NotFound {
+            BuildError::Toolchain(
+                "cargo was not found on PATH — a Rust toolchain is required for `largo build`"
+                    .to_string(),
+            )
+        } else {
+            BuildError::Io(e.to_string())
+        }
+    })?;
+
+    // Tee thread: copy raw bytes (cargo redraws progress with `\r`, so no
+    // line buffering) to our stderr while retaining the last TAIL_CAP bytes.
+    const TAIL_CAP: usize = 64 * 1024;
+    let mut child_err = child.stderr.take().expect("stderr was piped");
+    let tee = std::thread::spawn(move || {
+        use std::io::{Read, Write};
+        let mut tail: Vec<u8> = Vec::new();
+        let mut buf = [0u8; 8192];
+        let mut err_out = std::io::stderr();
+        loop {
+            match child_err.read(&mut buf) {
+                Ok(0) | Err(_) => break,
+                Ok(n) => {
+                    let _ = err_out.write_all(&buf[..n]);
+                    let _ = err_out.flush();
+                    tail.extend_from_slice(&buf[..n]);
+                    if tail.len() > TAIL_CAP {
+                        let cut = tail.len() - TAIL_CAP;
+                        tail.drain(..cut);
+                    }
+                }
+            }
+        }
+        tail
+    });
+
+    let status = child.wait().map_err(|e| BuildError::Io(e.to_string()))?;
+    let tail_bytes = tee.join().unwrap_or_default();
+
+    if !status.success() {
+        let tail = String::from_utf8_lossy(&tail_bytes).into_owned();
+        return Err(BuildError::Cargo(CargoFailure {
+            kind: classify_cargo_failure(&tail),
+            tail,
+            project_dir: rust_project_dir,
+        }));
+    }
+
+    crate::ui::phase(
+        "Finished",
+        format!(
+            "{} profile in {:.1}s",
+            if config.release { "release" } else { "dev" },
+            started.elapsed().as_secs_f64()
+        ),
+    );
 
     // Determine binary/library path
     let cargo_target_str = if config.release { "release" } else { "debug" };
@@ -444,6 +610,67 @@ pub fn run(build_result: &BuildResult, args: &[String]) -> Result<i32, BuildErro
 mod tests {
     use super::*;
     use tempfile::tempdir;
+
+    #[test]
+    fn requires_components_reject_toml_structure() {
+        assert!(requires_component_is_safe("itoa"));
+        assert!(requires_component_is_safe("1.0.11"));
+        assert!(requires_component_is_safe(">=1.2, <2.0"));
+        assert!(requires_component_is_safe("wasm-bindgen"));
+        assert!(!requires_component_is_safe("evil\"\n[patch.crates-io]"));
+        assert!(!requires_component_is_safe("x = { path"));
+        assert!(!requires_component_is_safe(""));
+    }
+
+    #[test]
+    fn classify_missing_package_is_dependency_resolution() {
+        let stderr = "    Updating crates.io index\n\
+                      error: no matching package named `nonexistent-xyz` found\n\
+                      location searched: registry `crates-io`\n\
+                      required by package `demo v0.1.0`\n";
+        assert_eq!(
+            classify_cargo_failure(stderr),
+            CargoFailureKind::DependencyResolution
+        );
+    }
+
+    #[test]
+    fn classify_version_selection_is_dependency_resolution() {
+        let stderr = "error: failed to select a version for the requirement `itoa = \"^99\"`\n\
+                      candidate versions found which didn't match: 1.0.11, 1.0.10\n\
+                      location searched: crates.io index\n";
+        assert_eq!(
+            classify_cargo_failure(stderr),
+            CargoFailureKind::DependencyResolution
+        );
+    }
+
+    #[test]
+    fn classify_network_fetch_is_dependency_resolution() {
+        let stderr = "error: failed to get `itoa` as a dependency of package `demo v0.1.0`\n\
+                      Caused by:\n  failed to fetch `https://github.com/rust-lang/crates.io-index`\n";
+        assert_eq!(
+            classify_cargo_failure(stderr),
+            CargoFailureKind::DependencyResolution
+        );
+    }
+
+    #[test]
+    fn classify_rustc_error_is_generated_code() {
+        let stderr = "   Compiling demo v0.1.0\n\
+                      error[E0425]: cannot find value `undefined_x` in this scope\n\
+                        --> src/main.rs:10:5\n\
+                      error: could not compile `demo` (bin \"demo\") due to 1 previous error\n";
+        assert_eq!(classify_cargo_failure(stderr), CargoFailureKind::GeneratedCode);
+    }
+
+    #[test]
+    fn classify_unknown_output_defaults_to_generated_code() {
+        assert_eq!(
+            classify_cargo_failure("something exploded"),
+            CargoFailureKind::GeneratedCode
+        );
+    }
 
     #[test]
     fn find_project_root_finds_largo_toml() {

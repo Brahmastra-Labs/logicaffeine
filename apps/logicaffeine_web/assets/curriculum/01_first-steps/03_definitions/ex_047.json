@@ -1,0 +1,18 @@
+{
+  "id": "Q_3.59",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "\"Metaphysics\" means \"any sleep-inducing subject\".",
+  "options": [
+    "Too broad",
+    "Too narrow",
+    "Circular",
+    "Uses poorly understood terms",
+    "Poor match in vagueness",
+    "Poor match in emotional tone",
+    "Has non-essential properties"
+  ],
+  "correct": 0,
+  "hint": "Can you think of something that fits this definition but ISN'T actually a Metaphysics?",
+  "explanation": "'Any sleep-inducing subject' would take in dull lectures of every kind, not just metaphysics, so the definition is TOO BROAD — and it drips with a dismissive EMOTIONAL TONE the neutral term lacks."
+}

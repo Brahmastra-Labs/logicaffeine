@@ -1,0 +1,15 @@
+{
+  "id": "C_6.116",
+  "type": "multiple_choice",
+  "difficulty": 2,
+  "prompt": "Which of these formulas is a contradiction (false in every row of its truth table)?",
+  "options": [
+    "P ∨ ¬P",
+    "P → P",
+    "P ∧ ¬P",
+    "P ↔ P"
+  ],
+  "correct": 2,
+  "hint": "A contradiction can never be true. Which formula asserts something AND its own negation?",
+  "explanation": "P ∧ ¬P claims P and not-P at once, which is impossible, so it is false in every row — a contradiction. P ∨ ¬P, P → P, and P ↔ P are all tautologies (always true)."
+}

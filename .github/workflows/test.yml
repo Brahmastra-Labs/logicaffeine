@@ -5,71 +5,285 @@ on:
     branches: [main]
   pull_request:
     branches: [main]
+  # Nightly (and on-demand) FULL run: everything per-PR runs PLUS the #[ignore]d
+  # multi-minute fuzz/bench monsters, so nothing in the suite ever goes unrun in
+  # CI. Per-PR stays fast; `schedule`/`workflow_dispatch` flip on `--run-ignored
+  # all` (and `--include-ignored` for doctests) in the steps below.
+  schedule:
+    - cron: '0 7 * * *'   # 07:00 UTC daily
+  workflow_dispatch: {}
+
+# Architecture: archive once, run partitioned.
+#
+#   archive — compile every test binary ONCE and package them into a single
+#             ~3 GB nextest archive (NOT the 115 GB target/ dir, which blows
+#             past the 10 GB cache limit). Uploaded as a short-lived artifact.
+#   test    — 3 jobs download the archive and run `--partition hash:K/3` against
+#             it via `--workspace-remap` (so the cargo-spawning e2e tests still
+#             resolve the checked-out source at runtime). nextest splits the
+#             suite into 3 disjoint shards whose union is the whole thing, so
+#             every test runs exactly once across the matrix.
+#   extras  — web tests + doctests (the doc harness can't be archived).
+#   badge   — main only; publishes the test-count (suite-size) badge. Depends on
+#             `archive` alone (which computes the count), NOT on the test/extras
+#             passing — so the count never freezes behind a red suite.
+#
+# Why an archive, not a target/ cache: target/ is ~115 GB (84 GB of test-binary
+# deps); GitHub silently drops caches over 10 GB, which would degrade a
+# "build once" cache into "every job rebuilds cold". The archive is the
+# compiled test binaries only, compressed to a few GB — cheap to ship.
+#
+# Dependency builds are cached by Swatinem/rust-cache (registry + dep artifacts,
+# size-pruned — never the 115 GB of final binaries). The e2e /tmp shard caches
+# are deliberately NOT persisted across runs, so a generated build can never go
+# stale (each run warms them fresh; see tests/common/mod.rs).
+#
+# #[ignore]d tests split into two kinds:
+#   - the multi-minute FUZZ/BENCH monsters (jit_mega_fuzz, vm_fuzz_overnight,
+#     bench_wire_throughput, exhaustive_edge_completeness_audit, aot_native_corpus)
+#     are NOT run here — they're overnight-scale; run them via
+#     scripts/run-all-tests-fast.sh (no --no-ignored) on the dedicated box.
+#   - the forge `mul` grounding GATES (*_heavy) are `#[ignore]`d only to keep them
+#     out of the LOCAL fast loop; they're correctness gates (~280s), so the `test`
+#     job runs them explicitly (partition 1, `ignored-only` + name filter).
 
 env:
   CARGO_TERM_COLOR: always
+  # The `z3` crate links the system libz3 (no bundled feature); libz3-dev puts
+  # the header here. Explicit so verification never depends on a runner preinstall.
+  Z3_SYS_Z3_HEADER: /usr/include/z3.h
+  # Wire the mold linker (clang driver) for x86_64 Linux — matches the local
+  # .cargo/config.toml, which is gitignored and so absent in CI.
+  CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_LINKER: clang
+  CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_RUSTFLAGS: -Clink-arg=-fuse-ld=mold
+  # Feature set for the main suite (kept in one place so every job agrees).
+  SUITE_FEATURES: logicaffeine-tests/ffi-link-tests,logicaffeine-tests/verification
+  ARCHIVE: nextest-archive.tar.zst
 
 jobs:
-  test:
+  archive:
     runs-on: ubuntu-latest-m
-    permissions:
-      contents: write
+    timeout-minutes: 60
+    outputs:
+      test_count: ${{ steps.count.outputs.count }}
     steps:
       - uses: actions/checkout@v4
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
 
-      - name: Install mold linker
-        run: sudo apt-get update && sudo apt-get install -y mold
-
-      - name: Cache cargo
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.cargo/bin/
-            ~/.cargo/registry/index/
-            ~/.cargo/registry/cache/
-            ~/.cargo/git/db/
-            target/
-          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+      - name: Install Z3, mold, clang
+        run: sudo apt-get update && sudo apt-get install -y z3 libz3-dev mold clang jq
 
       - name: Install nextest
         uses: taiki-e/install-action@nextest
 
-      - name: Build workspace
-        run: cargo build --workspace --verbose
+      - name: Cache dependencies
+        uses: Swatinem/rust-cache@v2
+
+      - name: Build nextest archive
+        run: |
+          set -o pipefail
+          cargo nextest archive --workspace --features "$SUITE_FEATURES" \
+            --profile full --archive-file "$ARCHIVE"
+
+      - name: Count tests (for badge)
+        id: count
+        run: |
+          N=$(cargo nextest list --archive-file "$ARCHIVE" --workspace-remap "$PWD" \
+                --message-format json 2>/dev/null | jq '."test-count"' 2>/dev/null || true)
+          if [ -z "$N" ] || [ "$N" = "null" ]; then N=0; fi
+          echo "count=$N" >> "$GITHUB_OUTPUT"
+          echo "Suite size: $N tests"
+
+      - name: Upload archive
+        uses: actions/upload-artifact@v4
+        with:
+          name: nextest-archive
+          path: ${{ env.ARCHIVE }}
+          retention-days: 1
 
       - name: Build LSP binary
         run: cargo build -p logicaffeine-lsp --release
 
-      - name: Run all tests
+  test:
+    needs: archive
+    runs-on: ubuntu-latest-m
+    # 45m covers per-PR; the nightly --run-ignored all adds the multi-minute
+    # monsters (split across the 3 partitions), so allow more headroom.
+    timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      matrix:
+        partition: [1, 2, 3]
+    steps:
+      # Source is required: the e2e tests spawn `cargo build` at runtime against
+      # the checked-out path deps, and --workspace-remap points the archive at it.
+      - uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install Z3, mold, clang
+        run: sudo apt-get update && sudo apt-get install -y z3 libz3-dev mold clang
+
+      - name: Install nextest
+        uses: taiki-e/install-action@nextest
+
+      - name: Cache dependencies
+        uses: Swatinem/rust-cache@v2
+
+      - name: Download archive
+        uses: actions/download-artifact@v4
+        with:
+          name: nextest-archive
+
+      - name: Run tests — partition ${{ matrix.partition }}/3
         run: |
           set -o pipefail
-          cargo nextest run --workspace --features logicaffeine-tests/ffi-link-tests --profile ci 2>&1 | tee test_output.txt
+          # Nightly/on-demand: --run-ignored all so the fuzz/bench monsters run too.
+          IGNORED=""
+          case "${{ github.event_name }}" in
+            schedule|workflow_dispatch) IGNORED="--run-ignored all" ;;
+          esac
+          cargo nextest run --archive-file "$ARCHIVE" --workspace-remap "$PWD" \
+            --profile full --retries 1 $IGNORED \
+            --partition hash:${{ matrix.partition }}/3
+
+      # The forge `mul` grounding gate is `#[ignore]`d so the LOCAL --no-ignored
+      # fast loop skips its ~280s Z3 bit-blast — but it is a correctness gate, not
+      # a fuzz monster, so per-PR CI must still run it. Run it ONCE (partition 1)
+      # via the archive. Skipped on the nightly/on-demand runs, where the step
+      # above already covers it via `--run-ignored all`.
+      - name: Run re-tiered heavy correctness gates (forge mul)
+        if: matrix.partition == 1 && github.event_name != 'schedule' && github.event_name != 'workflow_dispatch'
+        run: |
+          set -o pipefail
+          cargo nextest run --archive-file "$ARCHIVE" --workspace-remap "$PWD" \
+            --profile full --run-ignored ignored-only \
+            -E 'test(witness_three_way_agreement_heavy) + test(all_specs_satisfiable_heavy)'
+
+  extras:
+    runs-on: ubuntu-latest-m
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install Z3, mold, clang
+        run: sudo apt-get update && sudo apt-get install -y z3 libz3-dev mold clang
+
+      - name: Install nextest
+        uses: taiki-e/install-action@nextest
+
+      - name: Cache dependencies
+        uses: Swatinem/rust-cache@v2
 
       - name: Run web tests
         run: |
           set -o pipefail
-          cargo nextest run -p logicaffeine-tests --features web-tests --profile ci 2>&1 | tee -a test_output.txt
+          cargo nextest run -p logicaffeine-tests --features web-tests --profile full --retries 1
+
+      # The CLI's verification feature (largo-full's substrate) must keep
+      # compiling — release.yml builds it only on tags, so gate it per-PR
+      # here (cheap: dynamic system Z3, check only).
+      - name: Check largo verification wiring
+        env:
+          Z3_SYS_Z3_HEADER: /usr/include/z3.h
+        run: cargo check -p logicaffeine-cli --features verification
 
       - name: Run doctests
         run: |
           set -o pipefail
-          cargo test --workspace --doc 2>&1 | tee -a test_output.txt
+          DOC_IGNORED=""
+          case "${{ github.event_name }}" in
+            schedule|workflow_dispatch) DOC_IGNORED="-- --include-ignored" ;;
+          esac
+          cargo test --workspace --features verification --doc $DOC_IGNORED
 
-      - name: Extract test count
-        if: github.ref == 'refs/heads/main'
-        id: test_count
+      # WASM-JIT codegen + differential. Built ISOLATED (scoped to
+      # logicaffeine-compile + `--features wasm-jit`) because enabling wasm-jit
+      # workspace-wide perturbs feature unification — so it can't ride the main
+      # archive and must run as its own step, exactly like the local runner's
+      # pass-1b. Without this, the wasm-jit path was never CI-tested.
+      - name: Run WASM-JIT codegen + differential (isolated --features wasm-jit)
         run: |
-          NEXTEST=$(grep -oP '\d+ passed' test_output.txt | awk '{s+=$1} END {print s}')
-          echo "count=$NEXTEST" >> "$GITHUB_OUTPUT"
-          echo "Total tests: $NEXTEST"
+          set -o pipefail
+          IGNORED=""
+          case "${{ github.event_name }}" in
+            schedule|workflow_dispatch) IGNORED="--run-ignored all" ;;
+          esac
+          cargo nextest run -p logicaffeine-compile --features wasm-jit --profile full --retries 1 $IGNORED \
+            -E 'binary(wasm_jit_differential) + test(wasm_jit)'
 
+  # VSCode extension: lint, typecheck, packaging/version locks (vsce ls — no
+  # VSCode download), then the real editor under xvfb against a debug LSP build.
+  extension:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    defaults:
+      run:
+        working-directory: editors/vscode/logicaffeine
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: editors/vscode/logicaffeine/package-lock.json
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install mold, clang
+        run: sudo apt-get update && sudo apt-get install -y mold clang
+
+      - name: Cache dependencies
+        uses: Swatinem/rust-cache@v2
+
+      - name: Build LSP server (debug — integration tests spawn it)
+        working-directory: .
+        run: cargo build -p logicaffeine-lsp
+
+      - name: Install extension dependencies
+        run: npm ci
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Unit tests (packaging + version-lockstep locks)
+        run: npm run test:unit
+
+      - name: Grammar tests (quickguide ratchet + corpus snapshots)
+        run: npm run test:grammar
+
+      - name: Integration tests (VSCode under xvfb)
+        run: xvfb-run -a npm run test:integration
+        env:
+          LOGICAFFEINE_LSP_PATH: ${{ github.workspace }}/target/debug/logicaffeine-lsp
+
+  # The count is a SUITE-SIZE badge, not a pass/fail badge (CI status has its own
+  # badge). It's computed in `archive` (compile + `nextest list`), which succeeds
+  # independently of whether every test passes — so publish off `archive` alone.
+  # Gating this on `test`/`extras` would freeze the count at the last all-green run
+  # (which is exactly how it got stuck reporting a stale number).
+  badge:
+    needs: [archive]
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
       - name: Push badge to badges branch
-        if: github.ref == 'refs/heads/main'
         run: |
-          echo '{"schemaVersion":1,"label":"tests","message":"${{ steps.test_count.outputs.count }}+","color":"brightgreen"}' > /tmp/badge.json
+          COUNT="${{ needs.archive.outputs.test_count }}"
+          echo "{\"schemaVersion\":1,\"label\":\"tests\",\"message\":\"${COUNT}+\",\"color\":\"brightgreen\"}" > /tmp/badge.json
           cd "$(mktemp -d)"
           git init
           git checkout -b badges
@@ -77,5 +291,5 @@ jobs:
           git add logicaffeine_test_count.json
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git commit -m "Update test count badge: ${{ steps.test_count.outputs.count }} tests"
+          git commit -m "Update test count badge: ${COUNT} tests"
           git push --force "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}.git" badges

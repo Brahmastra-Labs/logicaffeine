@@ -6,11 +6,17 @@
 //!
 //! Use the `.with(interner)` method to create a displayable wrapper:
 //!
-//! ```ignore
+//! ```
+//! use logicaffeine_base::Interner;
+//! use logicaffeine_language::ast::{LogicExpr, Term};
 //! use logicaffeine_language::debug::DisplayWith;
 //!
-//! let expr: LogicExpr = ...;
-//! println!("{}", expr.with(&interner));
+//! let mut interner = Interner::new();
+//! let mortal = interner.intern("Mortal");
+//! let socrates = interner.intern("Socrates");
+//! let args = [Term::Constant(socrates)];
+//! let expr = LogicExpr::Predicate { name: mortal, args: &args, world: None };
+//! assert_eq!(expr.with(&interner).to_string(), "Mortal(Socrates)");
 //! ```
 
 use std::fmt;
@@ -96,6 +102,9 @@ impl<'a> DisplayWith for Term<'a> {
             }
             Term::Intension(predicate) => {
                 write!(f, "^{}", interner.resolve(*predicate))
+            }
+            Term::Kind(kind) => {
+                write!(f, "^{}", interner.resolve(*kind))
             }
             Term::Proposition(expr) => {
                 write!(f, "[{:?}]", expr)
@@ -184,7 +193,10 @@ impl<'a> DisplayWith for LogicExpr<'a> {
                 write!(f, "{}({}, {})", interner.resolve(data.verb), data.subject.with(interner), data.object.with(interner))
             }
             LogicExpr::Modal { vector, operand } => {
-                let op = match (vector.domain, vector.force >= 0.5) {
+                // Boundary must match the formatter (formatter.rs) and the Kripke
+                // lowering (semantics/kripke.rs): force == 0.5 (ability/epistemic
+                // can/could/may) is the weak/possibility side (◇), not necessity.
+                let op = match (vector.domain, vector.force > 0.5) {
                     (crate::ast::ModalDomain::Alethic, true) => "□",
                     (crate::ast::ModalDomain::Alethic, false) => "◇",
                     (crate::ast::ModalDomain::Deontic, true) => "O",
@@ -272,6 +284,16 @@ impl<'a> DisplayWith for LogicExpr<'a> {
             LogicExpr::Imperative { action } => {
                 write!(f, "!({})", action.with(interner))
             }
+            LogicExpr::Exclamative { degree_var, body } => {
+                write!(f, "Exclaim(∃{}({} ∧ {} ≫ θ))",
+                    interner.resolve(*degree_var), body.with(interner), interner.resolve(*degree_var))
+            }
+            LogicExpr::Optative { wish } => {
+                write!(f, "Wish(Speaker, ⟨{}⟩)", wish.with(interner))
+            }
+            LogicExpr::Implicature { assertion, implicature } => {
+                write!(f, "{} +> Implicature({})", assertion.with(interner), implicature.with(interner))
+            }
             LogicExpr::SpeechAct { performer, act_type, content } => {
                 write!(f, "{}:{}({})", interner.resolve(*performer), interner.resolve(*act_type), content.with(interner))
             }
@@ -281,7 +303,10 @@ impl<'a> DisplayWith for LogicExpr<'a> {
             LogicExpr::Causal { effect, cause } => {
                 write!(f, "Cause({}, {})", cause.with(interner), effect.with(interner))
             }
-            LogicExpr::Comparative { adjective, subject, object, difference } => {
+            LogicExpr::Concessive { main, concession } => {
+                write!(f, "{} ∧ Concessive({})", main.with(interner), concession.with(interner))
+            }
+            LogicExpr::Comparative { adjective, subject, object, difference, .. } => {
                 if let Some(diff) = difference {
                     write!(f, "{}({}, {}, by: {})", interner.resolve(*adjective), subject.with(interner), object.with(interner), diff.with(interner))
                 } else {
@@ -311,6 +336,7 @@ impl<'a> DisplayWith for LogicExpr<'a> {
                     crate::token::FocusKind::Only => "ONLY",
                     crate::token::FocusKind::Even => "EVEN",
                     crate::token::FocusKind::Just => "JUST",
+                    crate::token::FocusKind::Cleft => "CLEFT",
                 };
                 write!(f, "{}[", k)?;
                 focused.fmt_with(interner, f)?;
@@ -519,10 +545,31 @@ mod tests {
             vector: crate::ast::ModalVector {
                 domain: crate::ast::ModalDomain::Alethic,
                 force: 1.0,
-                flavor: crate::ast::ModalFlavor::Root,
+                flavor: crate::ast::ModalFlavor::Root, modal_base: None, ordering_source: None
             },
             operand: expr_arena.alloc(LogicExpr::Atom(p)),
         };
         assert_eq!(expr.with(&interner).to_string(), "□(Rain)");
+    }
+
+    /// BUG-033: force == 0.5 (ability/epistemic can/could/may) is the
+    /// possibility side (◇), as the formatter and Kripke lowering both treat it.
+    /// The debug display must agree, not render □.
+    #[test]
+    fn expr_modal_display_force_half_is_possibility_not_necessity() {
+        let mut interner = Interner::new();
+        let expr_arena: Arena<LogicExpr> = Arena::new();
+        let fly = interner.intern("Fly");
+        let expr = LogicExpr::Modal {
+            vector: crate::ast::ModalVector {
+                domain: crate::ast::ModalDomain::Alethic,
+                force: 0.5,
+                flavor: crate::ast::ModalFlavor::Root,
+                modal_base: None,
+                ordering_source: None,
+            },
+            operand: expr_arena.alloc(LogicExpr::Atom(fly)),
+        };
+        assert_eq!(expr.with(&interner).to_string(), "◇(Fly)");
     }
 }

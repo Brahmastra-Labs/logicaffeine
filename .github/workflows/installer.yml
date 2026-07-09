@@ -1,0 +1,87 @@
+name: Installers
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'apps/logicaffeine_web/public/install.sh'
+      - 'apps/logicaffeine_web/public/install.ps1'
+      - 'scripts/test-installers.sh'
+      - '.github/workflows/installer.yml'
+  pull_request:
+    paths:
+      - 'apps/logicaffeine_web/public/install.sh'
+      - 'apps/logicaffeine_web/public/install.ps1'
+      - 'scripts/test-installers.sh'
+      - '.github/workflows/installer.yml'
+  workflow_dispatch:
+
+jobs:
+  lint:
+    name: shellcheck
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: shellcheck install.sh (POSIX sh)
+        run: shellcheck -s sh apps/logicaffeine_web/public/install.sh
+      - name: shellcheck test harness
+        run: shellcheck -s bash scripts/test-installers.sh
+
+  sh-smoke:
+    name: harness (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    steps:
+      - uses: actions/checkout@v4
+      # dash is preinstalled on ubuntu; absent on macOS (the harness skips it there).
+      - name: Run the offline installer harness
+        run: ./scripts/test-installers.sh
+
+  ps1-smoke:
+    name: install.ps1 smoke (windows)
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Offline install.ps1 harness
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          # Fake release layout: a dummy largo.exe (a stub cmd shim is enough
+          # for --version), zipped with LICENSE/README + SHA256SUMS.
+          $site = Join-Path $env:TEMP "largo-site"
+          $tag = "v0.10.0"
+          $dl = Join-Path $site "releases/download/$tag"
+          New-Item -ItemType Directory -Force $dl | Out-Null
+          $stage = Join-Path $env:TEMP "stage"
+          New-Item -ItemType Directory -Force $stage | Out-Null
+          # A real tiny executable: compile a stub with csc (preinstalled).
+          $src = Join-Path $env:TEMP "stub.cs"
+          Set-Content $src 'class P { static void Main(string[] a) { System.Console.WriteLine("largo 0.10.0"); } }'
+          $csc = Get-ChildItem "$env:WINDIR\Microsoft.NET\Framework64" -Recurse -Filter csc.exe | Select-Object -Last 1
+          & $csc.FullName /nologo /out:(Join-Path $stage "largo.exe") $src
+          Set-Content (Join-Path $stage "LICENSE.md") "license"
+          Compress-Archive -Path "$stage\*" -DestinationPath (Join-Path $dl "largo-win32-x64.zip") -Force
+          $hash = (Get-FileHash -Algorithm SHA256 (Join-Path $dl "largo-win32-x64.zip")).Hash.ToLower()
+          Set-Content (Join-Path $dl "SHA256SUMS") "$hash  largo-win32-x64.zip"
+          # Serve it: file:// URLs don't follow the redirect path, so pin --Version.
+          $port = 8123
+          $job = Start-Job -ScriptBlock {
+            param($site, $port)
+            Set-Location $site
+            python -m http.server $port
+          } -ArgumentList $site, $port
+          Start-Sleep -Seconds 3
+          try {
+            $env:LARGO_BASE_URL = "http://127.0.0.1:$port"
+            $installDir = Join-Path $env:TEMP "largo-bin"
+            & ([scriptblock]::Create((Get-Content -Raw apps/logicaffeine_web/public/install.ps1))) -Version $tag -To $installDir
+            $out = & (Join-Path $installDir "largo.exe") --version
+            if ($out -ne "largo 0.10.0") { throw "unexpected --version output: $out" }
+            Write-Host "ps1 smoke: OK ($out)"
+          } finally {
+            Stop-Job $job -ErrorAction SilentlyContinue
+            Remove-Job $job -Force -ErrorAction SilentlyContinue
+          }

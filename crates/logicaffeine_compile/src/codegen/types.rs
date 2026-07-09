@@ -5,8 +5,117 @@ use crate::analysis::registry::{FieldDef, FieldType, TypeDef, TypeRegistry, Vari
 use crate::ast::stmt::{Expr, Stmt, TypeExpr};
 use crate::intern::{Interner, Symbol};
 
+thread_local! {
+    /// When on, every emitted `enum` also gets `WireEncode`/`WireDecode` impls (the shared
+    /// `logicaffeine_data::wire` codec). Off by default so ordinary programs' generated Rust is
+    /// unchanged; enabled only for the compile-once native partial evaluator, whose types must
+    /// receive a program as data over the same fast codec the interpreter uses.
+    static EMIT_WIRE_IMPLS: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+
+/// Run `f` with `WireEncode`/`WireDecode` codegen forced on/off, restoring the prior value.
+pub fn with_wire_impls<T>(on: bool, f: impl FnOnce() -> T) -> T {
+    let prev = EMIT_WIRE_IMPLS.with(|c| c.replace(on));
+    let out = f();
+    EMIT_WIRE_IMPLS.with(|c| c.set(prev));
+    out
+}
+
+#[inline]
+fn wire_impls_enabled() -> bool {
+    EMIT_WIRE_IMPLS.with(|c| c.get())
+}
+
+/// The Rust type string of a variant field, matching how [`codegen_enum_def`] declares it —
+/// a self-referential field is `Box<Enum>`. Used to emit the field's wire (de)serialization.
+fn wire_field_type(f: &FieldDef, enum_name: &str, interner: &Interner) -> String {
+    let rust_type = codegen_field_type(&f.ty, interner);
+    if is_recursive_field(&f.ty, enum_name, interner) {
+        format!("Box<{}>", rust_type)
+    } else {
+        rust_type
+    }
+}
+
+/// Whether a field type has a `logicaffeine_data::wire` impl: the primitives we implement
+/// (`i64`/`String`/`bool`/`f64`), any `Named` user type (assumed a fellow wire-ok enum — a wrong
+/// guess is a loud compile error in the generated crate, never silent corruption), or a `Seq`/`List`
+/// of such. `Map`, CRDTs, temporal/quantity primitives, and type params are NOT serializable, so an
+/// enum carrying one (e.g. the PE's runtime `PEState`/`CVal`) is skipped.
+fn field_wire_ok(ty: &FieldType, interner: &Interner) -> bool {
+    match ty {
+        FieldType::Primitive(sym) => matches!(
+            interner.resolve(*sym),
+            "Int" | "Text" | "Bool" | "Boolean" | "Real" | "Float"
+        ),
+        FieldType::Named(_) => true,
+        FieldType::Generic { base, params } => {
+            matches!(interner.resolve(*base), "Seq" | "List")
+                && params.iter().all(|p| field_wire_ok(p, interner))
+        }
+        FieldType::TypeParam(_) => false,
+    }
+}
+
+/// An enum is wire-serializable iff every field of every variant is [`field_wire_ok`].
+fn enum_is_wire_ok(variants: &[VariantDef], interner: &Interner) -> bool {
+    variants.iter().all(|v| v.fields.iter().all(|f| field_wire_ok(&f.ty, interner)))
+}
+
+/// Emit `WireEncode`/`WireDecode` impls for a non-generic enum, byte-compatible with the peer
+/// codec (proven by `concurrency::marshal::tests::peer_and_wire_core_produce_identical_bytes`).
+/// Each value is an `Inductive`: header (`type_name`, `constructor`, arg count) then each field.
+fn emit_enum_wire_impls(output: &mut String, enum_name: &str, variants: &[VariantDef], interner: &Interner) {
+    let w = "logicaffeine_data::wire";
+    // ── WireEncode ──
+    writeln!(output, "impl {w}::WireEncode for {enum_name} {{").unwrap();
+    writeln!(output, "    fn wire_encode(&self, __out: &mut Vec<u8>) {{").unwrap();
+    writeln!(output, "        match self {{").unwrap();
+    for variant in variants {
+        let vname = interner.resolve(variant.name);
+        if variant.fields.is_empty() {
+            writeln!(output, "            {enum_name}::{vname} => {w}::write_inductive_header(__out, \"{enum_name}\", \"{vname}\", 0),").unwrap();
+        } else {
+            let binds: Vec<String> = variant.fields.iter().map(|f| interner.resolve(f.name).to_string()).collect();
+            writeln!(output, "            {enum_name}::{vname} {{ {} }} => {{", binds.join(", ")).unwrap();
+            writeln!(output, "                {w}::write_inductive_header(__out, \"{enum_name}\", \"{vname}\", {}u64);", variant.fields.len()).unwrap();
+            for b in &binds {
+                writeln!(output, "                {w}::WireEncode::wire_encode({b}, __out);").unwrap();
+            }
+            writeln!(output, "            }}").unwrap();
+        }
+    }
+    writeln!(output, "        }}").unwrap();
+    writeln!(output, "    }}").unwrap();
+    writeln!(output, "}}").unwrap();
+    // ── WireDecode ──
+    writeln!(output, "impl {w}::WireDecode for {enum_name} {{").unwrap();
+    writeln!(output, "    fn wire_decode(__buf: &[u8], __pos: &mut usize) -> Option<Self> {{").unwrap();
+    writeln!(output, "        let (_ty, __ctor, _n) = {w}::read_inductive_header(__buf, __pos)?;").unwrap();
+    writeln!(output, "        Some(match __ctor.as_str() {{").unwrap();
+    for variant in variants {
+        let vname = interner.resolve(variant.name);
+        if variant.fields.is_empty() {
+            writeln!(output, "            \"{vname}\" => {enum_name}::{vname},").unwrap();
+        } else {
+            let fields: Vec<String> = variant.fields.iter().map(|f| {
+                let fname = interner.resolve(f.name);
+                let fty = wire_field_type(f, enum_name, interner);
+                format!("{fname}: <{fty} as {w}::WireDecode>::wire_decode(__buf, __pos)?")
+            }).collect();
+            writeln!(output, "            \"{vname}\" => {enum_name}::{vname} {{ {} }},", fields.join(", ")).unwrap();
+        }
+    }
+    writeln!(output, "            _ => return None,").unwrap();
+    writeln!(output, "        }})").unwrap();
+    writeln!(output, "    }}").unwrap();
+    writeln!(output, "}}\n").unwrap();
+}
+
 pub(super) fn codegen_type_expr(ty: &TypeExpr, interner: &Interner) -> String {
     match ty {
+        // A `mutable` parameter codegens as its underlying type.
+        TypeExpr::Mutable { inner } => codegen_type_expr(inner, interner),
         TypeExpr::Primitive(sym) => {
             map_type_to_rust(interner.resolve(*sym))
         }
@@ -22,6 +131,10 @@ pub(super) fn codegen_type_expr(ty: &TypeExpr, interner: &Interner) -> String {
                 .collect();
 
             match base_name {
+                // A dimensioned quantity erases its dimension at runtime: `Quantity of Length`
+                // lowers to a plain `LogosQuantity` (the dimension was a compile-time refinement).
+                "Quantity" => "LogosQuantity".to_string(),
+                "Money" => "LogosMoney".to_string(),
                 "Result" => {
                     if params_str.len() == 2 {
                         format!("Result<{}, {}>", params_str[0], params_str[1])
@@ -54,9 +167,9 @@ pub(super) fn codegen_type_expr(ty: &TypeExpr, interner: &Interner) -> String {
                 }
                 "Set" | "HashSet" => {
                     if !params_str.is_empty() {
-                        format!("FxHashSet<{}>", params_str[0])
+                        format!("Set<{}>", params_str[0])
                     } else {
-                        "FxHashSet<()>".to_string()
+                        "Set<()>".to_string()
                     }
                 }
                 other => {
@@ -88,20 +201,78 @@ pub(super) fn codegen_type_expr(ty: &TypeExpr, interner: &Interner) -> String {
     }
 }
 
-/// Infer return type from function body by looking at Return statements.
-pub(super) fn infer_return_type_from_body(body: &[Stmt], _interner: &Interner) -> Option<String> {
-    for stmt in body {
-        if let Stmt::Return { value: Some(_) } = stmt {
-            // For now, assume i64 for any expression return
-            // TODO: Implement proper type inference
-            return Some("i64".to_string());
+/// Infer a function's return type from its body — REAL inference via the
+/// analysis layer, seeded with the typed params and the body's `Let`
+/// bindings in order, then unified over every reachable `Return` (nested
+/// blocks included). Falls back to `i64` only when inference can't name the
+/// type — never a silent wrong signature for Text/Bool/Float returns.
+pub(super) fn infer_return_type_from_body(
+    body: &[Stmt],
+    params: &[(Symbol, &TypeExpr)],
+    interner: &Interner,
+) -> Option<String> {
+    use crate::analysis::types::{LogosType, TypeEnv};
+
+    let mut env = TypeEnv::new();
+    for (sym, ty) in params {
+        env.register(*sym, LogosType::from_type_expr(ty, interner));
+    }
+
+    fn walk(
+        stmts: &[Stmt],
+        env: &mut TypeEnv,
+        interner: &Interner,
+        found: &mut Option<LogosType>,
+    ) {
+        for stmt in stmts {
+            match stmt {
+                Stmt::Let { var, ty, value, .. } => {
+                    let t = ty
+                        .map(|t| LogosType::from_type_expr(t, interner))
+                        .unwrap_or_else(|| env.infer_expr(value, interner));
+                    env.register(*var, t);
+                }
+                Stmt::Return { value: Some(v) } => {
+                    let t = env.infer_expr(v, interner);
+                    match found {
+                        None => *found = Some(t),
+                        // Disagreeing returns keep the FIRST inference; a
+                        // genuinely polymorphic body needs an annotation.
+                        Some(_) => {}
+                    }
+                }
+                Stmt::If { then_block, else_block, .. } => {
+                    walk(then_block, env, interner, found);
+                    if let Some(b) = else_block {
+                        walk(b, env, interner, found);
+                    }
+                }
+                Stmt::While { body, .. } | Stmt::Repeat { body, .. } | Stmt::Zone { body, .. } => {
+                    walk(body, env, interner, found)
+                }
+                Stmt::Inspect { arms, .. } => {
+                    for arm in arms {
+                        walk(arm.body, env, interner, found);
+                    }
+                }
+                _ => {}
+            }
         }
     }
-    None
+
+    let mut found = None;
+    walk(body, &mut env, interner, &mut found);
+    let has_return = found.is_some()
+        || body.iter().any(|s| matches!(s, Stmt::Return { value: Some(_) }));
+    match found {
+        Some(t) => Some(t.to_rust_type()),
+        None if has_return => Some("i64".to_string()),
+        None => None,
+    }
 }
 
 /// Map LOGOS type names to Rust types.
-pub(super) fn map_type_to_rust(ty: &str) -> String {
+pub(crate) fn map_type_to_rust(ty: &str) -> String {
     match ty {
         "Int" => "i64".to_string(),
         "Nat" => "u64".to_string(),
@@ -110,8 +281,42 @@ pub(super) fn map_type_to_rust(ty: &str) -> String {
         "Real" | "Float" => "f64".to_string(),
         "Char" => "char".to_string(),
         "Byte" => "u8".to_string(),
-        "Unit" | "()" => "()".to_string(),
+        // The unit value `Nothing` lowers to Rust's unit; its runtime `type_name()` is "Nothing".
+        "Nothing" | "Unit" | "()" => "()".to_string(),
+        // Fixed-width machine words — the ℤ/2ⁿ wrapping ring. Crypto computes here. These are the
+        // `#[repr(transparent)]` newtypes from logicaffeine_base (zero-cost over u8/u16/u32/u64),
+        // whose operator impls wrap, so emitted `a + b` / `a ^ b` is ring-correct as written.
+        "Word8" => "Word8".to_string(),
+        "Word16" => "Word16".to_string(),
+        "Word32" => "Word32".to_string(),
+        "Word64" => "Word64".to_string(),
+        // A SIMD lane vector — 8 lanes of Word32 in one `__m256i`. The `logicaffeine_base` newtype
+        // carries `[u32; 8]`; its lane-op trait impls lower `v ^ w` to the AVX2 intrinsic.
+        "Lanes8Word32" => "Lanes8Word32".to_string(),
+        // 4 lanes of Word32 (one `__m128i`) — the SHA-1 SHA-NI config; the four SHA ops
+        // lower `sha1rnds4`/`sha1msg1/2`/`sha1nexte` to the hardware instructions.
+        "Lanes4Word32" => "Lanes4Word32".to_string(),
+        "Lanes16Word8" => "Lanes16Word8".to_string(),
+        // 4 lanes of Word64 (one `__m256i`) — the Poly1305 accumulator config.
+        "Lanes4Word64" => "Lanes4Word64".to_string(),
+        // 16 lanes of Word16 (one `__m256i`) — the NTT coefficient config.
+        "Lanes16Word16" => "Lanes16Word16".to_string(),
+        "Rational" => "LogosRational".to_string(),
+        "Decimal" => "LogosDecimal".to_string(),
+        "Complex" => "LogosComplex".to_string(),
+        "Modular" => "LogosModular".to_string(),
         "Duration" => "std::time::Duration".to_string(),
+        // Temporal value types — first-class as function params, fields, and locals.
+        "Moment" => "LogosMoment".to_string(),
+        "Date" => "LogosDate".to_string(),
+        "Time" => "LogosTime".to_string(),
+        "Span" => "LogosSpan".to_string(),
+        // Dimensioned physical quantity (the dimension is runtime-tagged on the value).
+        "Quantity" => "LogosQuantity".to_string(),
+        // Money (the currency is runtime-tagged on the value).
+        "Money" => "LogosMoney".to_string(),
+        // A 128-bit UUID — a Copy newtype over `[u8; 16]`, alloc-free in compiled code.
+        "Uuid" | "UUID" => "LogosUuid".to_string(),
         other => other.to_string(),
     }
 }
@@ -307,6 +512,13 @@ pub(super) fn codegen_enum_def(name: Symbol, variants: &[VariantDef], generics: 
     }
     }
 
+    // Opt-in shared-wire codec impls (native partial evaluator only). Non-generic, fully
+    // wire-serializable enums only — a generic enum would need per-parameter bounds, and a
+    // Map/CRDT-carrying enum (the PE's runtime PEState/CVal) has no wire form.
+    if wire_impls_enabled() && generics.is_empty() && enum_is_wire_ok(variants, interner) {
+        emit_enum_wire_impls(&mut output, enum_name_str, variants, interner);
+    }
+
     output
 }
 
@@ -324,6 +536,13 @@ pub(super) fn codegen_field_type(ty: &FieldType, interner: &Interner) -> String 
                 "Byte" => "u8".to_string(),
                 "Unit" => "()".to_string(),
                 "Duration" => "std::time::Duration".to_string(),
+                // Temporal value types as struct fields.
+                "Moment" => "LogosMoment".to_string(),
+                "Date" => "LogosDate".to_string(),
+                "Time" => "LogosTime".to_string(),
+                "Span" => "LogosSpan".to_string(),
+                "Quantity" => "LogosQuantity".to_string(),
+                "Money" => "LogosMoney".to_string(),
                 other => other.to_string(),
             }
         }
@@ -359,9 +578,15 @@ pub(super) fn codegen_field_type(ty: &FieldType, interner: &Interner) -> String 
                 _ => {}
             }
 
+            // A dimensioned quantity erases its dimension at runtime — `Quantity of Length` is just
+            // a `LogosQuantity` (the dimension was a compile-time-only refinement).
+            if base_name == "Quantity" {
+                return "LogosQuantity".to_string();
+            }
+
             let base_str = match base_name {
                 "List" | "Seq" => "LogosSeq",
-                "Set" => "FxHashSet",
+                "Set" => "Set",
                 "Map" => "LogosMap",
                 "Option" | "Maybe" => "Option",
                 "Result" => "Result",
@@ -499,4 +724,20 @@ pub(super) fn infer_numeric_type(
         crate::analysis::types::LogosType::Float => "f64",
         _ => "unknown",
     }
+}
+
+/// Full [`LogosType`] inference for an expression (same temporary-TypeEnv
+/// delegation as [`infer_numeric_type`], without the string flattening) —
+/// the truthiness lowering needs Bool vs everything-else, not just numerics.
+pub(super) fn infer_logos_type(
+    expr: &Expr,
+    interner: &Interner,
+    variable_types: &HashMap<Symbol, String>,
+) -> crate::analysis::types::LogosType {
+    let mut env = crate::analysis::types::TypeEnv::new();
+    for (sym, ty_str) in variable_types {
+        let ty = crate::analysis::types::LogosType::from_rust_type_str(ty_str);
+        env.register(*sym, ty);
+    }
+    env.infer_expr(expr, interner)
 }

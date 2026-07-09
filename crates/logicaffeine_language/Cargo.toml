@@ -1,6 +1,6 @@
 [package]
 name = "logicaffeine-language"
-version = "0.9.16"
+version.workspace = true
 edition.workspace = true
 authors.workspace = true
 repository.workspace = true
@@ -14,9 +14,9 @@ readme = "README.md"
 build = "build.rs"
 
 [dependencies]
-logicaffeine-base = { version = "0.9.16", path = "../logicaffeine_base" }
-logicaffeine-lexicon = { version = "0.9.16", path = "../logicaffeine_lexicon" }
-logicaffeine-proof = { version = "0.9.16", path = "../logicaffeine_proof" }
+logicaffeine-base = { workspace = true }
+logicaffeine-lexicon = { workspace = true }
+logicaffeine-proof = { workspace = true }
 
 # Arena allocation
 bumpalo = "3.19"

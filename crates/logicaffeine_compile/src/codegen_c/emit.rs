@@ -55,11 +55,42 @@ pub(super) fn codegen_expr(expr: &Expr, ctx: &CContext) -> String {
 
             let l = codegen_expr(left, ctx);
             let r = codegen_expr(right, ctx);
+            // Tolerant comparison — the shared isclose semantics
+            // (`logos_approx_eq`), self-contained C (fabs/fmax from math.h).
+            if matches!(op, BinaryOpKind::ApproxEq) {
+                return format!(
+                    "(({l}) == ({r}) || fabs(({l}) - ({r})) <= fmax(1e-9 * fmax(fabs({l}), fabs({r})), 1e-12))",
+                    l = l, r = r
+                );
+            }
+            // `**` has no C operator. The C stub tier is int64/double only (no
+            // BigInt): exact for small integer powers via `llround(pow(...))`,
+            // `pow` from math.h for a Float operand. Large-exponent fidelity is
+            // the Rust AOT path's, like `followed by`.
+            if matches!(op, BinaryOpKind::Pow) {
+                if lt == CType::Float64 || rt == CType::Float64 {
+                    return format!("pow((double)({}), (double)({}))", l, r);
+                }
+                return format!("((int64_t)llround(pow((double)({}), (double)({}))))", l, r);
+            }
+            // `//` floors toward negative infinity; C's `/` truncates toward zero, so the
+            // integer case corrects by one when the operands differ in sign and the
+            // remainder is nonzero. A Float operand floors the double quotient.
+            if matches!(op, BinaryOpKind::FloorDivide) {
+                if lt == CType::Float64 || rt == CType::Float64 {
+                    return format!("floor((double)({}) / (double)({}))", l, r);
+                }
+                return format!(
+                    "((({l}) / ({r})) - ((((({l}) % ({r})) != 0) && (((({l}) % ({r})) < 0) != (({r}) < 0))) ? 1 : 0))",
+                    l = l, r = r
+                );
+            }
             let op_str = match op {
                 BinaryOpKind::Add => "+",
                 BinaryOpKind::Subtract => "-",
                 BinaryOpKind::Multiply => "*",
-                BinaryOpKind::Divide => "/",
+                // ExactDivide is not yet specialized in the C backend; lowers like Divide.
+                BinaryOpKind::Divide | BinaryOpKind::ExactDivide => "/",
                 BinaryOpKind::Modulo => "%",
                 BinaryOpKind::Eq => "==",
                 BinaryOpKind::NotEq => "!=",
@@ -67,13 +98,19 @@ pub(super) fn codegen_expr(expr: &Expr, ctx: &CContext) -> String {
                 BinaryOpKind::LtEq => "<=",
                 BinaryOpKind::Gt => ">",
                 BinaryOpKind::GtEq => ">=",
-                BinaryOpKind::And => {
-                    if lt == CType::Bool && rt == CType::Bool { "&&" } else { "&" }
-                },
-                BinaryOpKind::Or => {
-                    if lt == CType::Bool && rt == CType::Bool { "||" } else { "|" }
-                },
+                // Logical — C's `&&`/`||` are truthiness-correct for ints too
+                // (0/1 result, short-circuit); the bitwise spellings are `&`/`|`.
+                BinaryOpKind::And => "&&",
+                BinaryOpKind::Or => "||",
                 BinaryOpKind::Concat => "+",
+                // The C backend has no real concat (Concat itself is a stub); `followed by` is
+                // unsupported here — it lowers via the Rust AOT path, not C.
+                BinaryOpKind::SeqConcat => "+",
+                BinaryOpKind::ApproxEq => unreachable!("handled above"),
+                BinaryOpKind::Pow => unreachable!("handled above"),
+                BinaryOpKind::FloorDivide => unreachable!("handled above"),
+                BinaryOpKind::BitAnd => "&",
+                BinaryOpKind::BitOr => "|",
                 BinaryOpKind::BitXor => "^",
                 BinaryOpKind::Shl => "<<",
                 BinaryOpKind::Shr => ">>",
@@ -141,17 +178,34 @@ pub(super) fn codegen_expr(expr: &Expr, ctx: &CContext) -> String {
                     format!("(int64_t)round({})", arg)
                 }
                 "pow" => {
-                    let base = if let Some(a) = args.first() {
-                        codegen_expr(a, ctx)
+                    let base_arg = args.first();
+                    let exp_arg = args.get(1);
+                    let base = base_arg
+                        .map(|a| codegen_expr(a, ctx))
+                        .unwrap_or_else(|| "0.0".to_string());
+                    let exp = exp_arg
+                        .map(|a| codegen_expr(a, ctx))
+                        .unwrap_or_else(|| "1.0".to_string());
+                    // Integer pow must be exact and wrapping (matching the
+                    // interpreter's `wrapping_pow`), not a lossy float `pow`. When
+                    // both operands are integer-typed, compute integer
+                    // exponentiation-by-squaring in uint64_t (defined
+                    // two's-complement wrapping) and reinterpret as int64_t.
+                    let is_int_pow = matches!(
+                        (base_arg, exp_arg),
+                        (Some(b), Some(e))
+                            if !matches!(infer_expr_type(b, ctx), CType::Float64)
+                                && !matches!(infer_expr_type(e, ctx), CType::Float64)
+                    );
+                    if is_int_pow {
+                        format!(
+                            "({{ int64_t __pe = (int64_t)({exp}); uint64_t __pb = (uint64_t)(int64_t)({base}); uint64_t __pr = 1; while (__pe > 0) {{ if (__pe & 1) {{ __pr *= __pb; }} __pb *= __pb; __pe >>= 1; }} (int64_t)__pr; }})",
+                            base = base,
+                            exp = exp
+                        )
                     } else {
-                        "0.0".to_string()
-                    };
-                    let exp = if let Some(a) = args.get(1) {
-                        codegen_expr(a, ctx)
-                    } else {
-                        "1.0".to_string()
-                    };
-                    format!("pow((double)({}), (double)({}))", base, exp)
+                        format!("pow((double)({}), (double)({}))", base, exp)
+                    }
                 }
                 "min" => {
                     let a_str = if let Some(a) = args.first() {
@@ -164,7 +218,14 @@ pub(super) fn codegen_expr(expr: &Expr, ctx: &CContext) -> String {
                     } else {
                         "0".to_string()
                     };
-                    format!("(({a}) < ({b}) ? ({a}) : ({b}))", a = a_str, b = b_str)
+                    // Evaluate each argument EXACTLY once (a plain ternary
+                    // double-evaluates the selected operand, duplicating any side
+                    // effects). A GCC statement expression with __typeof__ binds
+                    // each operand to a temp first and works for int and float.
+                    format!(
+                        "({{ __typeof__({a}) __lhs = ({a}); __typeof__({b}) __rhs = ({b}); __lhs < __rhs ? __lhs : __rhs; }})",
+                        a = a_str, b = b_str
+                    )
                 }
                 "max" => {
                     let a_str = if let Some(a) = args.first() {
@@ -177,7 +238,11 @@ pub(super) fn codegen_expr(expr: &Expr, ctx: &CContext) -> String {
                     } else {
                         "0".to_string()
                     };
-                    format!("(({a}) > ({b}) ? ({a}) : ({b}))", a = a_str, b = b_str)
+                    // Evaluate each argument EXACTLY once (see `min`).
+                    format!(
+                        "({{ __typeof__({a}) __lhs = ({a}); __typeof__({b}) __rhs = ({b}); __lhs > __rhs ? __lhs : __rhs; }})",
+                        a = a_str, b = b_str
+                    )
                 }
                 _ => {
                     let fname = escape_c_ident(raw_name);

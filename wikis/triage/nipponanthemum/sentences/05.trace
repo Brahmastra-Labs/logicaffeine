@@ -1,0 +1,32 @@
+CLASSIFICATION: ActionableLexiconGap | subsystem Lexicon | gate Auto | confidence 0.75
+ISOLATED: "(40 inches)"(Parenthetical)
+
+═══ Sentence 5 ═══
+INPUT: Nipponanthemum nipponicum is a shrub up to 100 cm (40 inches) tall.
+
+TOKENS:
+    0..14  "Nipponanthemum" Proper
+   15..25  "nipponicum" Adjective
+   26..28  "is"         Other
+   29..30  "a"          Determiner
+   31..36  "shrub"      Adjective
+   37..39  "up"         Other
+   40..42  "to"         Preposition
+   43..46  "100"        Other
+   47..49  "cm"         Adjective
+   50..51  "("          Other
+   51..53  "40"         Other
+   54..60  "inches"     Adjective
+   60..61  ")"          Other
+   62..66  "tall"       Adjective
+   66..67  "."          Punctuation
+   67..67  ""           Other
+
+FOL:
+  unicode: Nipponanthemum
+  simple : Nipponanthemum
+  kripke : Nipponanthemum
+
+AST (1 nodes, 1 unhandled):
+  └─ Atom(Symbol(1)) [other]
+

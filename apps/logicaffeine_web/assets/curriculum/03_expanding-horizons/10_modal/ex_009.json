@@ -1,0 +1,15 @@
+{
+  "id": "J_4.12",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "P doesn't entail S",
+  "options": [
+    "Ambiguous between 2 & 4",
+    "$ (P \\supset \\square \\sim S) $",
+    "$ \\sim \\square (P \\supset S) $",
+    "$ \\square (P \\supset \\sim S) $"
+  ],
+  "correct": 2,
+  "hint": "Think about what world(s) this statement is claiming something about. Is it all worlds, some worlds, or the actual world?",
+  "explanation": "Entailment is NECESSARY implication, □(P ⊃ S). To deny entailment you negate the whole thing: ∼□(P ⊃ S) — it is not necessary that P implies S, so some possible world has P true and S false."
+}

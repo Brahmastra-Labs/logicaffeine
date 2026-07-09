@@ -1,0 +1,15 @@
+{
+  "id": "J_4.24",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "If D is true, then S couldn't be true",
+  "options": [
+    "$ \\square (D \\supset \\sim S) $",
+    "$ \\square D \\supset \\sim S $",
+    "Ambiguous between 1 & 4",
+    "$ (D \\supset \\square \\sim S) $"
+  ],
+  "correct": 2,
+  "hint": "Does 'couldn't' mean 'not possible' or 'not necessary'? Think about what's being ruled out.",
+  "explanation": "Scope-ambiguous. 'S couldn't be true' is □∼S. NARROW scope gives D ⊃ □∼S, 'if D then S is impossible' (option 4); WIDE scope gives □(D ⊃ ∼S), 'necessarily, if D then not S' (option 1). English supports either. (□D ⊃ ∼S, necessity on the antecedent, is not natural.)"
+}

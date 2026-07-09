@@ -417,7 +417,7 @@ fn collect_call_sites_from_expr(expr: &Expr<'_>, sites: &mut Vec<(Symbol, Vec<Op
 /// Additional requirement: the function must return the parameter as its
 /// sole return value, so the call site can drop the assignment.
 pub struct MutableBorrowParams {
-    /// fn_sym → set of param symbols eligible for &mut [T] borrow.
+    /// fn_sym → set of param symbols eligible for &mut \[T\] borrow.
     pub mutable_borrow: HashMap<Symbol, HashSet<Symbol>>,
 }
 
@@ -847,7 +847,7 @@ fn check_callsite_compat_expr(
 
 /// Detect consume-alias pattern: finds exactly one `Let mutable <alias> be <param>`
 /// at the top level of the function body. Returns the alias symbol if found.
-fn detect_consume_alias(body: &[Stmt<'_>], param_sym: Symbol) -> Option<Symbol> {
+pub(crate) fn detect_consume_alias(body: &[Stmt<'_>], param_sym: Symbol) -> Option<Symbol> {
     let mut alias = None;
     for stmt in body {
         if let Stmt::Let { var, mutable: true, value, .. } = stmt {
@@ -957,7 +957,7 @@ fn is_param_dead_after_consume(body: &[Stmt<'_>], param_sym: Symbol, alias: Symb
 }
 
 /// Check if a statement references a given symbol anywhere (expressions, collections, etc.).
-fn stmt_references_symbol(stmt: &Stmt<'_>, sym: Symbol) -> bool {
+pub(crate) fn stmt_references_symbol(stmt: &Stmt<'_>, sym: Symbol) -> bool {
     match stmt {
         Stmt::Let { value, .. } => expr_references_symbol(value, sym),
         Stmt::Set { target, value } => *target == sym || expr_references_symbol(value, sym),

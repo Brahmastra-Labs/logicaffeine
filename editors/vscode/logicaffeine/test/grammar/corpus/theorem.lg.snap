@@ -1,0 +1,111 @@
+># Logic surface: theorems, quantified prose, contracts.
+#^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ source.logicaffeine comment.line.number-sign.logicaffeine
+>
+>## Theorem: Socrates
+#^^ source.logicaffeine punctuation.definition.heading.logicaffeine
+#  ^ source.logicaffeine
+#   ^^^^^^^ source.logicaffeine keyword.control.section.logicaffeine
+#          ^ source.logicaffeine punctuation.separator.logicaffeine
+#           ^ source.logicaffeine
+#            ^^^^^^^^ source.logicaffeine entity.name.section.logicaffeine
+>
+>Given: All men are mortal. Socrates is a man.
+#^^^^^ source.logicaffeine keyword.control.logicaffeine
+#     ^^ source.logicaffeine
+#       ^^^ source.logicaffeine keyword.control.quantifier.logicaffeine
+#          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ source.logicaffeine
+>Prove: Socrates is mortal.
+#^^^^^ source.logicaffeine keyword.control.logicaffeine
+#     ^^^^^^^^^^^^^^^^^^^^^^ source.logicaffeine
+>Proof: Auto.
+#^^^^^^^ source.logicaffeine
+#       ^^^^ source.logicaffeine keyword.control.logicaffeine
+#           ^^ source.logicaffeine
+>
+>## Main
+#^^ source.logicaffeine punctuation.definition.heading.logicaffeine
+#  ^ source.logicaffeine
+#   ^^^^ source.logicaffeine keyword.control.section.logicaffeine
+>Let x: Int where x > 0 be 5.
+#^^^ source.logicaffeine keyword.control.logicaffeine
+#   ^ source.logicaffeine
+#    ^ source.logicaffeine variable.other.readwrite.definition.logicaffeine
+#     ^^ source.logicaffeine
+#       ^^^ source.logicaffeine entity.name.type.logicaffeine
+#          ^ source.logicaffeine
+#           ^^^^^ source.logicaffeine keyword.operator.word.logicaffeine
+#                ^^^ source.logicaffeine
+#                   ^ source.logicaffeine keyword.operator.logicaffeine
+#                    ^ source.logicaffeine
+#                     ^ source.logicaffeine constant.numeric.logicaffeine
+#                      ^ source.logicaffeine
+#                       ^^ source.logicaffeine keyword.control.logicaffeine
+#                         ^ source.logicaffeine
+#                          ^ source.logicaffeine constant.numeric.logicaffeine
+#                           ^^ source.logicaffeine
+>Assert that x is equal to 5.
+#^^^^^^ source.logicaffeine keyword.control.logicaffeine
+#      ^^^^^^^^ source.logicaffeine
+#              ^^^^^^^^^^^ source.logicaffeine keyword.operator.word.comparison.logicaffeine
+#                         ^ source.logicaffeine
+#                          ^ source.logicaffeine constant.numeric.logicaffeine
+#                           ^^ source.logicaffeine
+>Trust that x is greater than 0 because "set to 5 above".
+#^^^^^ source.logicaffeine keyword.control.logicaffeine
+#     ^^^^^^^^ source.logicaffeine
+#             ^^^^^^^^^^^^^^^ source.logicaffeine keyword.operator.word.comparison.logicaffeine
+#                            ^ source.logicaffeine
+#                             ^ source.logicaffeine constant.numeric.logicaffeine
+#                              ^ source.logicaffeine
+#                               ^^^^^^^ source.logicaffeine keyword.operator.logical.logicaffeine
+#                                      ^ source.logicaffeine
+#                                       ^ source.logicaffeine string.quoted.double.logicaffeine
+#                                        ^^^^^^^^^^^^^^ source.logicaffeine string.quoted.double.logicaffeine
+#                                                      ^ source.logicaffeine string.quoted.double.logicaffeine
+#                                                       ^^ source.logicaffeine
+>Check that x is at least 1.
+#^^^^^ source.logicaffeine keyword.control.logicaffeine
+#     ^^^^^^^^ source.logicaffeine
+#             ^^^^^^^^^^^ source.logicaffeine keyword.operator.word.comparison.logicaffeine
+#                        ^ source.logicaffeine
+#                         ^ source.logicaffeine constant.numeric.logicaffeine
+#                          ^^ source.logicaffeine
+>If x is between 1 and 10:
+#^^ source.logicaffeine keyword.control.logicaffeine
+#  ^^^ source.logicaffeine
+#     ^^^^^^^^^^ source.logicaffeine keyword.operator.word.comparison.logicaffeine
+#               ^ source.logicaffeine
+#                ^ source.logicaffeine constant.numeric.logicaffeine
+#                 ^ source.logicaffeine
+#                  ^^^ source.logicaffeine keyword.operator.logical.logicaffeine
+#                     ^ source.logicaffeine
+#                      ^^ source.logicaffeine constant.numeric.logicaffeine
+#                        ^^ source.logicaffeine
+>    Show "small".
+#^^^^ source.logicaffeine
+#    ^^^^ source.logicaffeine keyword.control.logicaffeine
+#        ^ source.logicaffeine
+#         ^ source.logicaffeine string.quoted.double.logicaffeine
+#          ^^^^^ source.logicaffeine string.quoted.double.logicaffeine
+#               ^ source.logicaffeine string.quoted.double.logicaffeine
+#                ^^ source.logicaffeine
+>If x is even or x is divisible by 3:
+#^^ source.logicaffeine keyword.control.logicaffeine
+#  ^^^ source.logicaffeine
+#     ^^^^^^^ source.logicaffeine keyword.operator.word.comparison.logicaffeine
+#            ^ source.logicaffeine
+#             ^^ source.logicaffeine keyword.operator.logical.logicaffeine
+#               ^^^ source.logicaffeine
+#                  ^^^^^^^^^^^^^^^ source.logicaffeine keyword.operator.word.comparison.logicaffeine
+#                                 ^ source.logicaffeine
+#                                  ^ source.logicaffeine constant.numeric.logicaffeine
+#                                   ^^ source.logicaffeine
+>    Show "structured".
+#^^^^ source.logicaffeine
+#    ^^^^ source.logicaffeine keyword.control.logicaffeine
+#        ^ source.logicaffeine
+#         ^ source.logicaffeine string.quoted.double.logicaffeine
+#          ^^^^^^^^^^ source.logicaffeine string.quoted.double.logicaffeine
+#                    ^ source.logicaffeine string.quoted.double.logicaffeine
+#                     ^^ source.logicaffeine
+>

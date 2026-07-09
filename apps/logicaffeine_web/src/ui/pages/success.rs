@@ -208,15 +208,6 @@ const SUCCESS_STYLE: &str = r#"
 
 const STRIPE_CUSTOMER_PORTAL: &str = "https://billing.stripe.com/p/login/8x200l3VN98D7qa1SMe3e00";
 
-fn get_session_id_from_url() -> Option<String> {
-    let window = web_sys::window()?;
-    let location = window.location();
-    let search = location.search().ok()?;
-
-    let params = web_sys::UrlSearchParams::new_with_str(&search).ok()?;
-    params.get("session_id")
-}
-
 fn save_license_to_storage(license_key: &str, plan: &str) {
     if let Some(window) = web_sys::window() {
         if let Ok(Some(storage)) = window.local_storage() {
@@ -281,16 +272,23 @@ async fn fetch_license_from_session(session_id: String) -> LicenseStatus {
 }
 
 #[component]
-pub fn Success() -> Element {
+pub fn Success(session_id: Option<String>) -> Element {
     let mut license_status = use_signal(|| LicenseStatus::Loading);
     let mut copied = use_signal(|| false);
     let mut saved = use_signal(|| false);
     let license_state = use_context::<LicenseState>();
 
     use_effect(move || {
+        // Sessionless visits serialize as `/success?` — keep the bar canonical.
+        #[cfg(target_arch = "wasm32")]
+        if session_id.is_none() {
+            crate::ui::router::replace_bar_url("/success");
+        }
+
         let mut license_state = license_state.clone();
+        let session_id = session_id.clone();
         spawn(async move {
-            if let Some(session_id) = get_session_id_from_url() {
+            if let Some(session_id) = session_id {
                 let result = fetch_license_from_session(session_id).await;
                 if let LicenseStatus::Success { ref subscription_id, ref plan } = result {
                     save_license_to_storage(subscription_id, plan);
@@ -327,6 +325,8 @@ pub fn Success() -> Element {
             description: "Your payment was successful. License activation and key retrieval.",
             canonical_path: "/success",
         }
+        // Session-specific post-checkout page: never indexed, never in the sitemap.
+        document::Meta { name: "robots", content: "noindex" }
         style { "{SUCCESS_STYLE}" }
 
         MainNav { active: ActivePage::Pricing, subtitle: Some("Payment Complete"), show_nav_links: false }
@@ -376,7 +376,7 @@ pub fn Success() -> Element {
             div { class: "success-actions",
                 Link {
                     class: "btn-primary",
-                    to: Route::Studio {},
+                    to: Route::Studio { file: None },
                     "Open Studio"
                 }
 

@@ -6,7 +6,7 @@
 //! # Platform Implementations
 //!
 //! - **Native** ([`NativeVfs`]): Uses `tokio::fs` with atomic write operations
-//! - **WASM** ([`OpfsVfs`]): Uses the browser's Origin Private File System API
+//! - **WASM** (`OpfsVfs`): Uses the browser's Origin Private File System API
 //!
 //! # Features
 //!

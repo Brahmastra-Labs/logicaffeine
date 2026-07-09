@@ -55,6 +55,8 @@ pub enum FocusKind {
     Only,
     Even,
     Just,
+    /// it-cleft / pseudo-cleft: "It was John who left." — focus + exhaustivity.
+    Cleft,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -69,6 +71,9 @@ pub enum MeasureKind {
 /// fixed SI time units (ns, ms, s, etc.) used in Duration.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CalendarUnit {
+    Second,
+    Minute,
+    Hour,
     Day,
     Week,
     Month,
@@ -81,12 +86,27 @@ pub enum CalendarUnit {
 /// sections of a program or proof document.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum BlockType {
+    /// An unknown `## Header` a small edit distance from a CONSEQUENTIAL
+    /// code header (`## Mian` → `Main`) — the parser fails loudly with the
+    /// suggestion instead of silently treating the whole block as prose.
+    SuspectedTypo { found: Symbol, suggestion: Symbol },
     /// `## Theorem` - Declares a proposition to be proved.
     Theorem,
     /// `## Main` - Program entry point for imperative code.
     Main,
     /// `## Definition` - Introduces new terminology or type definitions.
     Definition,
+    /// `## Define` - Mints a vernacular-logic predicate definition that the
+    /// prover unfolds (Rung 0a). Distinct from `## Definition` (type defs).
+    Define,
+    /// `## Axiom` - Declares a named first-order axiom in formal notation
+    /// (`## Axiom name: for all a b, Cong(a,b,b,a).`). Its body is parsed by the
+    /// formal-formula parser and registered as a shared premise for later theorems —
+    /// the seam for an axiomatic base like Tarski geometry.
+    Axiom,
+    /// `## Theory` - Names a development that groups the `## Axiom`s and `## Theorem`s
+    /// that follow it (`## Theory Tarski`).
+    Theory,
     /// `## Proof` - Contains proof steps for a theorem.
     Proof,
     /// `## Example` - Illustrative examples.
@@ -109,6 +129,9 @@ pub enum BlockType {
     Property,
     /// `## No` - Optimization annotation (followed by Memo, TCO, Peephole, Borrow, or Optimize).
     No,
+    /// `## Tier` - Tiered-optimizer pin: `## Tier <opt> <eager|t1|t2|t3|never>` overrides
+    /// the hotness tier at which that optimization runs (HOTSWAP §8).
+    Tier,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -147,6 +170,8 @@ pub enum TokenType {
     Not,
     Iff,
     Because,
+    /// Concessive subordinator: "although"/"though"/"even though".
+    Although,
     /// Temporal binary connective: "P until Q"
     Until,
     /// Temporal binary connective: "P release Q" (dual of Until)
@@ -186,6 +211,13 @@ pub enum TokenType {
     Assert,
     /// Documented assertion with justification string.
     Trust,
+    /// Enforced runtime invariant: `Require that <cond>.` → a hard `assert!`
+    /// (survives release, unlike `Assert` → `debug_assert!`).
+    Require,
+    /// Function precondition clause: `Requires <check>.` (checked at entry).
+    Requires,
+    /// Function postcondition clause: `Ensures <check>.` (checked before return).
+    Ensures,
     Otherwise,
     /// Alias for `Otherwise` - Pythonic else clause
     Else,
@@ -353,6 +385,8 @@ pub enum TokenType {
     Persistent,
     /// "x combined with y" → string concatenation
     Combined,
+    /// "a followed by b" → sequence concatenation (merge two sequences into one)
+    Followed,
 
     // Go-like Concurrency Keywords
     /// "Launch a task to..." → spawn green thread
@@ -423,6 +457,7 @@ pub enum TokenType {
     Who,
     What,
     Where,
+    Whose,
     When,
     Why,
     Does,
@@ -468,6 +503,14 @@ pub enum TokenType {
 
     // Numeric Literals (prover-ready: stores raw string for symbolic math)
     Number(Symbol),
+
+    /// Currency-symbol money literal: `$19.99`, `€5`, `£10`, `¥100`. Carries the magnitude (digits +
+    /// optional decimal point, thousands separators stripped) and the resolved ISO-4217 code, so a
+    /// money-aware parser builds `money(..)` while a magnitude-only consumer can still read `amount`.
+    MoneyLiteral {
+        amount: Symbol,
+        currency: Symbol,
+    },
 
     /// Duration literal with SI suffix: 500ms, 2s, 50ns
     /// Stores the value normalized to nanoseconds and preserves the original unit.
@@ -523,8 +566,28 @@ pub enum TokenType {
     RParen,
     LBracket,
     RBracket,
+    /// `{` — map/set literal opener (`{k: v}`, `{a, b}`). Interpolation braces
+    /// never reach here (they are consumed inside the string-literal path).
+    LBrace,
+    /// `&` in IMPERATIVE code — bitwise AND on Int, intersection on Sets.
+    /// In prose the same character stays the coordination/firm-name joiner.
+    Amp,
+    /// `|` in imperative code — bitwise OR on Int, union on Sets. (`Pipe`
+    /// is taken by the channel keyword `Pipe of T`.)
+    VBar,
+    /// `~` in imperative code — bitwise complement (lowers to `x ^ -1`).
+    Tilde,
+    /// `^` in imperative code — bitwise XOR on Int, symmetric difference on
+    /// Sets (the word `xor` remains the English spelling).
+    Caret,
+    /// `}` — map/set literal closer.
+    RBrace,
     Comma,
     Period,
+    /// `.` as the FIELD-ACCESS / UFCS-method operator (imperative only): `p.x`
+    /// (≡ `p's x`) and `xs.f(a)` (≡ `f(xs, a)`). Distinguished from a sentence
+    /// `Period` in the lexer by the no-whitespace + identifier-on-both-sides rule.
+    Dot,
 
     // Bitwise Operators
     /// "x xor y" → bitwise XOR (`^`)
@@ -538,6 +601,16 @@ pub enum TokenType {
     Star,
     Slash,
     Percent,  // Modulo operator
+    /// Compound assignment operators — `x += e` desugars to `Set x to x <op> e`.
+    PlusEq,
+    MinusEq,
+    StarEq,
+    SlashEq,
+    PercentEq,
+    /// `**` — the exponentiation operator.
+    StarStar,
+    /// `//` — floor division (rounds toward negative infinity).
+    SlashSlash,
 
     // Comparison Operators
     /// `<`

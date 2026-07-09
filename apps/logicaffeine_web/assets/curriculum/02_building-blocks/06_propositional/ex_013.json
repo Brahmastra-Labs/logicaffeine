@@ -1,0 +1,15 @@
+{
+  "id": "C_6.13",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "If you're strong, then you're famous or courageous",
+  "options": [
+    "$ S \\supset F \\vee C $",
+    "$ ((S \\supset F) \\vee C) $",
+    "$ (S \\supset (F \\vee C)) $",
+    "$ (S \\supset F) \\vee C $"
+  ],
+  "correct": 2,
+  "hint": "Is the 'or' part of what follows from the 'if', or a separate alternative?",
+  "explanation": "In 'If X, then Y or Z', the disjunction is the consequence: X \u2283 (Y \u2228 Z). Being X leads to the choice between Y and Z. Compare to '(If X then Y) or Z' which would be (X \u2283 Y) \u2228 Z."
+}

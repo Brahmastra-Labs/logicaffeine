@@ -6,6 +6,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.10.0] - 2026-07-08
+
+### Added
+- `static-link-z3` feature: builds Z3 from the source vendored in z3-sys and links it statically — the substrate of the release `largo-full` binaries. Default stays dynamic against the system libz3.
+
 ## [0.8.12] - 2026-02-14
 
 Synced to workspace version 0.8.12. See root CHANGELOG for full history.

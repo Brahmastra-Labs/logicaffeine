@@ -1,151 +1,31 @@
-//! LIA Tactic: Linear Integer Arithmetic by Fourier-Motzkin Elimination
+//! Linear Integer Arithmetic via Fourier-Motzkin Elimination
 //!
-//! This module implements a decision procedure for linear arithmetic over
-//! rational numbers (with integer semantics handled by [`crate::omega`]).
+//! This module implements a decision procedure for linear arithmetic over the
+//! rationals: reify a Syntax goal into [`LinearExpr`] constraints, then decide
+//! unsatisfiability with Fourier-Motzkin elimination.
 //!
-//! # Algorithm
+//! # Exactness
 //!
-//! The lia tactic works in four steps:
-//! 1. **Reification**: Convert Syntax terms to [`LinearExpr`] representation
-//! 2. **Negation**: Convert the goal to constraints (validity = negation is unsatisfiable)
-//! 3. **Elimination**: Use Fourier-Motzkin to eliminate variables one by one
-//! 4. **Check**: Verify the resulting constant constraints are contradictory
+//! Coefficients are exact arbitrary-precision rationals
+//! ([`logicaffeine_base::numeric::Rational`]). The verdict feeds trusted
+//! reflection reductions, so the arithmetic must be exact at every magnitude:
+//! elimination multiplies coefficients pairwise, and a wrapped or declined
+//! product either flips a verdict (unsound) or loses a refutation
+//! (incomplete). There is no overflow path — the procedure is total.
 //!
-//! # Fourier-Motzkin Elimination
+//! # Rational vs Integer Semantics
 //!
-//! This classical algorithm eliminates variables from a system of linear inequalities.
-//! For each variable x:
-//! - Partition constraints into lower bounds (x >= L), upper bounds (x <= U), and independent
-//! - Combine each lower with each upper: L <= U
-//! - The resulting system has one fewer variable
-//!
-//! # Rational Arithmetic
-//!
-//! The module uses exact rational arithmetic during elimination to avoid
-//! precision issues. Rationals are automatically normalized to lowest terms.
-//!
-//! # Supported Relations
-//!
-//! - `Lt` (less than)
-//! - `Le` (less than or equal)
-//! - `Gt` (greater than)
-//! - `Ge` (greater than or equal)
+//! This procedure decides satisfiability over the RATIONALS. It is sound for
+//! integer goals (a rationally-unsatisfiable system has no integer solution
+//! either) but incomplete for integer-specific facts — use [`crate::omega`]
+//! when discreteness matters (`x > 1 ⟹ x ≥ 2`).
 
 use std::collections::{BTreeMap, HashSet};
 
-use crate::term::{Literal, Term};
+pub use logicaffeine_base::numeric::Rational;
 
-/// Exact rational number for arithmetic during Fourier-Motzkin elimination.
-///
-/// Rationals are automatically normalized to lowest terms with positive denominator.
-/// This ensures consistent comparison and canonical representation.
-///
-/// # Invariants
-///
-/// - `denominator > 0` (sign carried by numerator)
-/// - `gcd(|numerator|, denominator) = 1` (lowest terms)
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct Rational {
-    /// The numerator (may be negative).
-    pub numerator: i64,
-    /// The denominator (always positive, never zero).
-    pub denominator: i64,
-}
-
-impl Rational {
-    /// Create a new rational, automatically normalizing to lowest terms
-    pub fn new(n: i64, d: i64) -> Self {
-        if d == 0 {
-            panic!("Rational denominator cannot be zero");
-        }
-        let g = gcd(n.abs(), d.abs()).max(1);
-        let sign = if d < 0 { -1 } else { 1 };
-        Rational {
-            numerator: sign * n / g,
-            denominator: (d.abs()) / g,
-        }
-    }
-
-    /// The zero rational
-    pub fn zero() -> Self {
-        Rational {
-            numerator: 0,
-            denominator: 1,
-        }
-    }
-
-    /// Create a rational from an integer
-    pub fn from_int(n: i64) -> Self {
-        Rational {
-            numerator: n,
-            denominator: 1,
-        }
-    }
-
-    /// Add two rationals
-    pub fn add(&self, other: &Rational) -> Rational {
-        Rational::new(
-            self.numerator * other.denominator + other.numerator * self.denominator,
-            self.denominator * other.denominator,
-        )
-    }
-
-    /// Negate a rational
-    pub fn neg(&self) -> Rational {
-        Rational {
-            numerator: -self.numerator,
-            denominator: self.denominator,
-        }
-    }
-
-    /// Subtract two rationals
-    pub fn sub(&self, other: &Rational) -> Rational {
-        self.add(&other.neg())
-    }
-
-    /// Multiply two rationals
-    pub fn mul(&self, other: &Rational) -> Rational {
-        Rational::new(
-            self.numerator * other.numerator,
-            self.denominator * other.denominator,
-        )
-    }
-
-    /// Divide two rationals (returns None if dividing by zero)
-    pub fn div(&self, other: &Rational) -> Option<Rational> {
-        if other.numerator == 0 {
-            return None;
-        }
-        Some(Rational::new(
-            self.numerator * other.denominator,
-            self.denominator * other.numerator,
-        ))
-    }
-
-    /// Check if negative
-    pub fn is_negative(&self) -> bool {
-        self.numerator < 0
-    }
-
-    /// Check if positive
-    pub fn is_positive(&self) -> bool {
-        self.numerator > 0
-    }
-
-    /// Check if zero
-    pub fn is_zero(&self) -> bool {
-        self.numerator == 0
-    }
-}
-
-/// Greatest common divisor using Euclidean algorithm
-fn gcd(a: i64, b: i64) -> i64 {
-    if b == 0 {
-        a
-    } else {
-        gcd(b, a % b)
-    }
-}
+use crate::reify::{extract_binary_app, extract_slit, extract_sname, extract_svar, VarInterner};
+use crate::term::Term;
 
 /// A linear expression of the form c₀ + c₁x₁ + c₂x₂ + ... + cₙxₙ.
 ///
@@ -177,7 +57,7 @@ impl LinearExpr {
     /// Create a single variable expression: 1*x_idx + 0
     pub fn var(idx: i64) -> Self {
         let mut coeffs = BTreeMap::new();
-        coeffs.insert(idx, Rational::from_int(1));
+        coeffs.insert(idx, Rational::from_i64(1));
         LinearExpr {
             constant: Rational::zero(),
             coefficients: coeffs,
@@ -192,7 +72,7 @@ impl LinearExpr {
             let entry = result
                 .coefficients
                 .entry(*var)
-                .or_insert(Rational::zero());
+                .or_insert_with(Rational::zero);
             *entry = entry.add(coeff);
             if entry.is_zero() {
                 result.coefficients.remove(var);
@@ -204,11 +84,11 @@ impl LinearExpr {
     /// Negate a linear expression
     pub fn neg(&self) -> LinearExpr {
         LinearExpr {
-            constant: self.constant.neg(),
+            constant: self.constant.negated(),
             coefficients: self
                 .coefficients
                 .iter()
-                .map(|(v, c)| (*v, c.neg()))
+                .map(|(v, c)| (*v, c.negated()))
                 .collect(),
         }
     }
@@ -244,7 +124,7 @@ impl LinearExpr {
         self.coefficients
             .get(&var)
             .cloned()
-            .unwrap_or(Rational::zero())
+            .unwrap_or_else(Rational::zero)
     }
 }
 
@@ -297,19 +177,23 @@ pub enum LiaError {
 ///
 /// - `SLit n` - Integer literal becomes a constant
 /// - `SVar i` - De Bruijn variable becomes a linear variable
-/// - `SName "x"` - Named global becomes a linear variable (hashed)
+/// - `SName "x"` - Named global becomes a linear variable (interned)
 /// - `SApp (SApp (SName "add") a) b` - Linear addition
 /// - `SApp (SApp (SName "sub") a) b` - Linear subtraction
 /// - `SApp (SApp (SName "mul") c) x` - Scaling (only if one operand is constant)
+///
+/// Every term reified for one goal (both sides of a comparison, hypotheses
+/// and conclusion) must share one `vars` interner, or their variable indices
+/// will not line up.
 ///
 /// # Errors
 ///
 /// Returns [`LiaError::NonLinear`] if the term contains non-linear operations
 /// (e.g., multiplication of two variables).
-pub fn reify_linear(term: &Term) -> Result<LinearExpr, LiaError> {
+pub fn reify_linear(term: &Term, vars: &mut VarInterner) -> Result<LinearExpr, LiaError> {
     // SLit n -> constant
     if let Some(n) = extract_slit(term) {
-        return Ok(LinearExpr::constant(Rational::from_int(n)));
+        return Ok(LinearExpr::constant(Rational::from_i64(n)));
     }
 
     // SVar i -> variable
@@ -319,26 +203,25 @@ pub fn reify_linear(term: &Term) -> Result<LinearExpr, LiaError> {
 
     // SName "x" -> named variable (global constant treated as free variable)
     if let Some(name) = extract_sname(term) {
-        let hash = name_to_var_index(&name);
-        return Ok(LinearExpr::var(hash));
+        return Ok(LinearExpr::var(vars.intern(&name)));
     }
 
     // Binary operations
     if let Some((op, a, b)) = extract_binary_app(term) {
         match op.as_str() {
             "add" => {
-                let la = reify_linear(&a)?;
-                let lb = reify_linear(&b)?;
+                let la = reify_linear(&a, vars)?;
+                let lb = reify_linear(&b, vars)?;
                 return Ok(la.add(&lb));
             }
             "sub" => {
-                let la = reify_linear(&a)?;
-                let lb = reify_linear(&b)?;
+                let la = reify_linear(&a, vars)?;
+                let lb = reify_linear(&b, vars)?;
                 return Ok(la.sub(&lb));
             }
             "mul" => {
-                let la = reify_linear(&a)?;
-                let lb = reify_linear(&b)?;
+                let la = reify_linear(&a, vars)?;
+                let lb = reify_linear(&b, vars)?;
                 // Only linear if one side is constant
                 if la.is_constant() {
                     return Ok(lb.scale(&la.constant));
@@ -392,56 +275,29 @@ pub fn goal_to_negated_constraint(
     let diff = lhs.sub(rhs);
 
     match rel {
-        // Lt: a < b valid iff NOT(a >= b), i.e., a - b >= 0 is unsat
-        // So negation constraint is: a - b >= 0, i.e., -(a - b) <= 0, i.e., (b - a) <= 0
-        // Actually: a >= b means a - b >= 0, which means -(a - b) <= 0
-        // But we want to find if a - b >= 0 can ever be true
-        // If we want to prove a < b (always), we check if a >= b (ever) is unsat
-        // Constraint form: expr <= 0 or expr < 0
-        // a >= b means a - b >= 0, means -(a - b) <= 0, means (b - a) <= 0
-        "Lt" | "lt" => {
-            // Want to prove: a < b always
-            // Negation: a >= b (can be true)
-            // a >= b means a - b >= 0
-            // In our constraint form (expr <= 0): -(a - b) <= 0, i.e., (rhs - lhs) <= 0
-            Some(Constraint {
-                expr: rhs.sub(lhs),
-                strict: false, // <= 0
-            })
-        }
-        // Le: a <= b valid iff NOT(a > b), i.e., a - b > 0 is unsat
-        "Le" | "le" => {
-            // Want to prove: a <= b always
-            // Negation: a > b
-            // a > b means a - b > 0
-            // In constraint form: -(a - b) < 0, i.e., (rhs - lhs) < 0
-            Some(Constraint {
-                expr: rhs.sub(lhs),
-                strict: true, // < 0
-            })
-        }
-        // Gt: a > b valid iff NOT(a <= b), i.e., a - b <= 0 is unsat
-        "Gt" | "gt" => {
-            // Want to prove: a > b always
-            // Negation: a <= b
-            // a <= b means a - b <= 0
-            // In constraint form: (a - b) <= 0, i.e., (lhs - rhs) <= 0
-            Some(Constraint {
-                expr: diff, // (lhs - rhs) <= 0
-                strict: false,
-            })
-        }
-        // Ge: a >= b valid iff NOT(a < b), i.e., a - b < 0 is unsat
-        "Ge" | "ge" => {
-            // Want to prove: a >= b always
-            // Negation: a < b
-            // a < b means a - b < 0
-            // In constraint form: (a - b) < 0, i.e., (lhs - rhs) < 0
-            Some(Constraint {
-                expr: diff, // (lhs - rhs) < 0
-                strict: true,
-            })
-        }
+        // Lt: a < b valid iff NOT(a >= b), i.e., a - b >= 0 is unsat.
+        // a >= b means a - b >= 0; in constraint form (expr <= 0) that is
+        // (rhs - lhs) <= 0.
+        "Lt" | "lt" => Some(Constraint {
+            expr: rhs.sub(lhs),
+            strict: false, // <= 0
+        }),
+        // Le: a <= b valid iff NOT(a > b), i.e., a - b > 0 is unsat.
+        // a > b means a - b > 0; in constraint form: (rhs - lhs) < 0.
+        "Le" | "le" => Some(Constraint {
+            expr: rhs.sub(lhs),
+            strict: true, // < 0
+        }),
+        // Gt: a > b valid iff NOT(a <= b), i.e., a - b <= 0 is unsat.
+        "Gt" | "gt" => Some(Constraint {
+            expr: diff, // (lhs - rhs) <= 0
+            strict: false,
+        }),
+        // Ge: a >= b valid iff NOT(a < b), i.e., a - b < 0 is unsat.
+        "Ge" | "ge" => Some(Constraint {
+            expr: diff, // (lhs - rhs) < 0
+            strict: true,
+        }),
         _ => None,
     }
 }
@@ -472,13 +328,15 @@ pub fn fourier_motzkin_unsat(constraints: &[Constraint]) -> bool {
         return false; // Empty set is satisfiable
     }
 
-    // Collect all variables
-    let vars: Vec<i64> = constraints
+    // Collect all variables (sorted for a deterministic elimination order —
+    // the verdict is order-invariant, but reproducibility is not).
+    let mut vars: Vec<i64> = constraints
         .iter()
         .flat_map(|c| c.expr.coefficients.keys().copied())
         .collect::<HashSet<_>>()
         .into_iter()
         .collect();
+    vars.sort_unstable();
 
     let mut current = constraints.to_vec();
 
@@ -515,41 +373,29 @@ fn eliminate_variable(constraints: &[Constraint], var: i64) -> Vec<Constraint> {
         let coeff = c.expr.get_coeff(var);
         if coeff.is_zero() {
             independent.push(c.clone());
+            continue;
+        }
+        // c.expr = coeff*var + rest  (OP) 0, with OP ∈ {<=, <}. Isolate var by
+        // dividing through by `coeff`: the bound expression is `-rest/coeff`.
+        // For coeff > 0 this is an UPPER bound (var <= -rest/coeff); for
+        // coeff < 0 dividing flips the relation into a LOWER bound
+        // (var >= -rest/coeff). The division is what makes the combined
+        // `lo <= hi` constraint correct for |coeff| ≠ 1.
+        let mut rest = c.expr.clone();
+        rest.coefficients.remove(&var);
+        let inv = coeff.recip().expect("coefficient is nonzero");
+        let bound = rest.neg().scale(&inv);
+        if coeff.is_positive() {
+            upper.push((bound, c.strict));
         } else {
-            // c.expr = coeff*var + rest <= 0 (or < 0)
-            // Extract: rest = c.expr - coeff*var
-            let mut rest = c.expr.clone();
-            rest.coefficients.remove(&var);
-
-            if coeff.is_positive() {
-                // coeff*var + rest <= 0
-                // var <= -rest/coeff
-                // Upper bound: -rest/coeff
-                let bound = rest.neg().scale(&coeff.div(&Rational::from_int(1)).unwrap());
-                let bound = bound.scale(
-                    &Rational::from_int(1)
-                        .div(&coeff)
-                        .unwrap_or(Rational::from_int(1)),
-                );
-                upper.push((rest.neg().scale(&coeff.div(&coeff).unwrap()), c.strict));
-            } else {
-                // coeff*var + rest <= 0, coeff < 0
-                // |coeff|*(-var) + rest <= 0
-                // -var <= -rest/|coeff|
-                // var >= rest/|coeff|
-                // Lower bound: rest/|coeff|
-                let abs_coeff = coeff.neg();
-                lower.push((rest.scale(&abs_coeff.div(&abs_coeff).unwrap()), c.strict));
-            }
+            lower.push((bound, c.strict));
         }
     }
 
-    // Combine lower and upper bounds
-    // If lo <= var <= hi, then lo <= hi must hold
+    // lo <= var <= hi  ⟹  lo <= hi must hold (strict if either bound is strict).
     for (lo_expr, lo_strict) in &lower {
         for (hi_expr, hi_strict) in &upper {
-            // We need: lo <= hi
-            // In constraint form: lo - hi <= 0
+            // In constraint form: lo - hi <= 0 (or < 0).
             let diff = lo_expr.sub(hi_expr);
             independent.push(Constraint {
                 expr: diff,
@@ -561,98 +407,16 @@ fn eliminate_variable(constraints: &[Constraint], var: i64) -> Vec<Constraint> {
     independent
 }
 
-// =============================================================================
-// Helper functions for extracting Syntax patterns (same as ring.rs)
-// =============================================================================
-
-/// Extract integer from SLit n
-fn extract_slit(term: &Term) -> Option<i64> {
-    if let Term::App(ctor, arg) = term {
-        if let Term::Global(name) = ctor.as_ref() {
-            if name == "SLit" {
-                if let Term::Lit(Literal::Int(n)) = arg.as_ref() {
-                    return Some(*n);
-                }
-            }
-        }
-    }
-    None
-}
-
-/// Extract variable index from SVar i
-fn extract_svar(term: &Term) -> Option<i64> {
-    if let Term::App(ctor, arg) = term {
-        if let Term::Global(name) = ctor.as_ref() {
-            if name == "SVar" {
-                if let Term::Lit(Literal::Int(i)) = arg.as_ref() {
-                    return Some(*i);
-                }
-            }
-        }
-    }
-    None
-}
-
-/// Extract name from SName "x"
-fn extract_sname(term: &Term) -> Option<String> {
-    if let Term::App(ctor, arg) = term {
-        if let Term::Global(name) = ctor.as_ref() {
-            if name == "SName" {
-                if let Term::Lit(Literal::Text(s)) = arg.as_ref() {
-                    return Some(s.clone());
-                }
-            }
-        }
-    }
-    None
-}
-
-/// Extract binary application: SApp (SApp (SName "op") a) b
-fn extract_binary_app(term: &Term) -> Option<(String, Term, Term)> {
-    if let Term::App(outer, b) = term {
-        if let Term::App(sapp_outer, inner) = outer.as_ref() {
-            if let Term::Global(ctor) = sapp_outer.as_ref() {
-                if ctor == "SApp" {
-                    if let Term::App(partial, a) = inner.as_ref() {
-                        if let Term::App(sapp_inner, op_term) = partial.as_ref() {
-                            if let Term::Global(ctor2) = sapp_inner.as_ref() {
-                                if ctor2 == "SApp" {
-                                    if let Some(op) = extract_sname(op_term) {
-                                        return Some((
-                                            op,
-                                            a.as_ref().clone(),
-                                            b.as_ref().clone(),
-                                        ));
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
-    None
-}
-
-/// Convert a name to a unique negative variable index
-fn name_to_var_index(name: &str) -> i64 {
-    let hash: i64 = name
-        .bytes()
-        .fold(0i64, |acc, b| acc.wrapping_mul(31).wrapping_add(b as i64));
-    -(hash.abs() + 1_000_000)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
     fn test_rational_arithmetic() {
-        let half = Rational::new(1, 2);
-        let third = Rational::new(1, 3);
+        let half = Rational::from_ratio_i64(1, 2).unwrap();
+        let third = Rational::from_ratio_i64(1, 3).unwrap();
         let sum = half.add(&third);
-        assert_eq!(sum, Rational::new(5, 6));
+        assert_eq!(sum, Rational::from_ratio_i64(5, 6).unwrap());
     }
 
     #[test]
@@ -661,8 +425,8 @@ mod tests {
         let y = LinearExpr::var(1);
         let sum = x.add(&y);
         assert!(!sum.is_constant());
-        assert_eq!(sum.get_coeff(0), Rational::from_int(1));
-        assert_eq!(sum.get_coeff(1), Rational::from_int(1));
+        assert_eq!(sum.get_coeff(0), Rational::from_i64(1));
+        assert_eq!(sum.get_coeff(1), Rational::from_i64(1));
     }
 
     #[test]
@@ -678,14 +442,14 @@ mod tests {
     fn test_constraint_satisfied() {
         // -1 <= 0 is satisfied
         let c1 = Constraint {
-            expr: LinearExpr::constant(Rational::from_int(-1)),
+            expr: LinearExpr::constant(Rational::from_i64(-1)),
             strict: false,
         };
         assert!(c1.is_satisfied_constant());
 
         // 1 <= 0 is NOT satisfied
         let c2 = Constraint {
-            expr: LinearExpr::constant(Rational::from_int(1)),
+            expr: LinearExpr::constant(Rational::from_i64(1)),
             strict: false,
         };
         assert!(!c2.is_satisfied_constant());
@@ -709,17 +473,72 @@ mod tests {
     fn test_fourier_motzkin_constant() {
         // Single constraint: 1 <= 0 (false)
         let constraints = vec![Constraint {
-            expr: LinearExpr::constant(Rational::from_int(1)),
+            expr: LinearExpr::constant(Rational::from_i64(1)),
             strict: false,
         }];
         assert!(fourier_motzkin_unsat(&constraints));
 
         // Single constraint: -1 <= 0 (true)
         let constraints2 = vec![Constraint {
-            expr: LinearExpr::constant(Rational::from_int(-1)),
+            expr: LinearExpr::constant(Rational::from_i64(-1)),
             strict: false,
         }];
         assert!(!fourier_motzkin_unsat(&constraints2));
+    }
+
+    // A constraint `c·x + d <= 0` (or `< 0`) from an integer triple.
+    fn c(cx: i64, d: i64, strict: bool) -> Constraint {
+        let mut e = LinearExpr::constant(Rational::from_i64(d));
+        e = e.add(&LinearExpr::var(0).scale(&Rational::from_i64(cx)));
+        Constraint { expr: e, strict }
+    }
+
+    #[test]
+    fn nonunit_coeff_satisfiable_is_not_unsat() {
+        // 2x + 4 <= 0  (x <= -2)  ∧  -x - 3 <= 0  (x >= -3).  x = -2 satisfies
+        // both, so the system is SATISFIABLE — `unsat` MUST be false. The
+        // dropped-division bug derives a spurious contradiction here (UNSOUND).
+        let sys = vec![c(2, 4, false), c(-1, -3, false)];
+        assert!(
+            !fourier_motzkin_unsat(&sys),
+            "satisfiable non-unit system wrongly reported unsatisfiable (unsound FM)"
+        );
+    }
+
+    #[test]
+    fn nonunit_coeff_unsat_is_detected() {
+        // 3x - 6 <= 0  (x <= 2)  ∧  -x + 3 <= 0  (x >= 3).  No integer (or
+        // rational) x satisfies both → UNSAT must be true. The bug misses it.
+        let sys = vec![c(3, -6, false), c(-1, 3, false)];
+        assert!(
+            fourier_motzkin_unsat(&sys),
+            "unsatisfiable non-unit system not detected (incomplete FM)"
+        );
+    }
+
+    #[test]
+    fn nonunit_coeff_strict_and_larger() {
+        // 5x <= 12  (x <= 2.4)  ∧  3x >= 9  (x >= 3): unsat (2.4 < 3).
+        let sys = vec![c(5, -12, false), c(-3, 9, false)];
+        assert!(fourier_motzkin_unsat(&sys));
+        // 5x <= 15 (x <= 3) ∧ 3x >= 9 (x >= 3): x = 3 satisfies — SAT.
+        let sys2 = vec![c(5, -15, false), c(-3, 9, false)];
+        assert!(!fourier_motzkin_unsat(&sys2));
+    }
+
+    #[test]
+    fn overflow_fails_closed_to_satisfiable() {
+        // `4e9·x - 1 <= 0` (x <= 1/4e9) ∧ `-3e9·x - 1 <= 0` (x >= -1/3e9): the
+        // interval contains 0, so the system is SATISFIABLE. Isolating x makes
+        // bounds with denominators 4e9 and 3e9; combining them needs the
+        // product 4e9·3e9 = 1.2e19, which exceeds i64. Exact arbitrary-
+        // precision arithmetic must compute straight through it and report the
+        // correct verdict.
+        let sys = vec![c(4_000_000_000, -1, false), c(-3_000_000_000, -1, false)];
+        assert!(
+            !fourier_motzkin_unsat(&sys),
+            "large denominators must be computed exactly, and this system is satisfiable"
+        );
     }
 
     #[test]
@@ -728,21 +547,12 @@ mod tests {
         // Negation: x >= x + 1, i.e., x - x - 1 >= 0, i.e., -1 >= 0
         // Constraint: -(-1) <= 0 => 1 <= 0 which is unsat => goal is valid
         let x = LinearExpr::var(0);
-        let one = LinearExpr::constant(Rational::from_int(1));
-        let xp1 = x.add(&one);
+        let one = LinearExpr::constant(Rational::from_i64(1));
+        let _xp1 = x.add(&one);
 
-        // Goal: Lt x (x+1)
-        // Negation constraint: (x+1) - x <= 0 (non-strict for Lt's negation Ge)
-        // Wait, let me reconsider...
-        // Lt(a, b) valid means a < b always
-        // Negation: a >= b can be true
-        // For FM: we want to show a >= b is unsat
-        // a >= b means a - b >= 0
-        // In our form (expr <= 0): -(a - b) <= 0, i.e., (b - a) <= 0
-
-        // So for Lt(x, x+1): negation constraint is (x+1 - x) <= 0 = 1 <= 0
+        // For Lt(x, x+1): negation constraint is (x+1 - x) <= 0 = 1 <= 0
         let constraint = Constraint {
-            expr: LinearExpr::constant(Rational::from_int(1)),
+            expr: LinearExpr::constant(Rational::from_i64(1)),
             strict: false,
         };
         // 1 <= 0 is unsat, so goal is valid

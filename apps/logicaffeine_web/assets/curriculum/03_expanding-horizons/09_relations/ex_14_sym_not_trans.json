@@ -1,0 +1,15 @@
+{
+  "id": "R_1.14",
+  "type": "multiple_choice",
+  "difficulty": 4,
+  "prompt": "Which relation is symmetric but NOT transitive?",
+  "options": [
+    "\"is an ancestor of\"",
+    "\"is within one mile of\"",
+    "\"is the same age as\"",
+    "\"is older than\""
+  ],
+  "correct": 1,
+  "hint": "Symmetric: x~y exactly when y~x. Then look for a chain x~y, y~z where x~z can fail.",
+  "explanation": "'Is within one mile of' is symmetric (if A is within a mile of B, B is within a mile of A) but not transitive: A may be within a mile of B and B within a mile of C while A is two miles from C. 'Same age as' is symmetric AND transitive (an equivalence relation); 'ancestor of' is transitive but not symmetric; 'older than' is neither symmetric nor reflexive."
+}

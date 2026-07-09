@@ -370,7 +370,12 @@ fn involves_nat(expr: &ProofExpr) -> bool {
 fn is_nat_term(term: &ProofTerm) -> bool {
     match term {
         ProofTerm::Constant(s) => s == "Zero" || s == "Nat",
-        ProofTerm::Function(name, _) => name == "Succ" || name == "add" || name == "mul",
+        // The shared IR canonicalises arithmetic to `Add`/`Mul`; the lowercase
+        // forms are the kernel's internal ring vocabulary. Accept both so Nat
+        // detection is stable across the IR↔kernel boundary.
+        ProofTerm::Function(name, _) => {
+            matches!(name.as_str(), "Succ" | "add" | "Add" | "mul" | "Mul")
+        }
         _ => false,
     }
 }

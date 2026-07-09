@@ -52,9 +52,12 @@ Show n.
 "#;
     let rust = compile_to_rust(code).unwrap();
 
-    // Merge capacity: result should use LogosSeq::with_capacity
-    assert!(rust.contains("LogosSeq::with_capacity"),
-        "Merge result should use LogosSeq::with_capacity, got:\n{}", rust);
+    // Merge capacity: result is built with a capacity hint. Phase 4 return-type
+    // de-Rc makes `mergeSort` return an owned `Vec<i64>`, so `result` de-Rc's to
+    // a plain `Vec::with_capacity` (no Rc/RefCell) — the allocation Phase 4 was
+    // built to remove. The capacity-hint intent is preserved.
+    assert!(rust.contains("Vec::with_capacity"),
+        "Merge result should use Vec::with_capacity (Phase 4 de-Rc), got:\n{}", rust);
 
     // Loop bounds hoisting: left_len and right_len should be hoisted
     assert!(rust.contains("let left_len"),

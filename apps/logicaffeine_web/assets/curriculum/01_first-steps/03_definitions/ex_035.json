@@ -1,0 +1,18 @@
+{
+  "id": "Q_3.45",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "A cold day is one that is under 20 degrees Fahrenheit.",
+  "options": [
+    "Too broad",
+    "Too narrow",
+    "Circular",
+    "Uses poorly understood terms",
+    "Poor match in vagueness",
+    "Poor match in emotional tone",
+    "Has non-essential properties"
+  ],
+  "correct": 4,
+  "hint": "Is the original term vague while the definition is precise, or vice versa?",
+  "explanation": "'Cold' is relative and vague — a 25-degree day is plainly cold too. An exact 20 degree boundary is sharper than the word, so the definition fails to MATCH THE VAGUENESS of 'cold'."
+}

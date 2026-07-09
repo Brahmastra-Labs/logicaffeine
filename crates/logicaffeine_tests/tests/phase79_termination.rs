@@ -390,3 +390,122 @@ fn test_accept_standard_library_inductives() {
 
     println!("Standard library inductives verified as positive");
 }
+
+// =============================================================================
+// REGRESSION PINS — Bug Report #1 (kernel soundness)
+// =============================================================================
+
+/// BUG-004 (Critical): strict-positivity checking exists (`positivity.rs`) but is
+/// never wired into the trusted, user-facing registration path. The REPL
+/// `Inductive` command registers constructors via the UNCHECKED `add_constructor`,
+/// so a negative-recursive (paradoxical) inductive is accepted — the classic route
+/// to a proof of `False`. `False` is already in the standard library loaded by
+/// `Repl::new`. The trusted path MUST reject this.
+#[test]
+fn repl_inductive_rejects_negative_recursive_constructor() {
+    use logicaffeine_kernel::interface::Repl;
+
+    let mut repl = Repl::new();
+
+    // Bad occurs in a negative position: (Bad -> False) -> Bad.
+    // This is exactly the Russell-paradox inductive the kernel must reject.
+    let result = repl.execute("Inductive Bad := Cons : (Bad -> False) -> Bad.");
+
+    assert!(
+        result.is_err(),
+        "UNSOUND: REPL accepted a negative-recursive inductive (no positivity check on the trusted path). Got: {:?}",
+        result
+    );
+}
+
+/// BUG-005 (Critical): the termination guard tracks the structural parameter by
+/// NAME only. A lambda that shadows that name lets the guard mistake an inner
+/// `match <shadow>` for the structural match, marking a subterm of an arbitrary
+/// argument as "smaller" — so a well-typed but DIVERGENT fixpoint passes the
+/// guard. The kernel MUST reject it.
+#[test]
+fn test_reject_non_decreasing_hidden_by_shadowing() {
+    // fix f. λn:Nat. λm:Nat.
+    //   match n with
+    //   | Zero   => Zero
+    //   | Succ k => (λn:Nat. match n with                 // <-- λn SHADOWS the structural n
+    //                          | Zero   => Zero
+    //                          | Succ p => f p m) m        // recurses on pred(m), NOT a subterm of n
+    //
+    // f : Nat -> Nat -> Nat is well-typed but diverges (e.g. `f 5 3` -> `f 2 3` -> `f 2 3` ...).
+    let mut ctx = Context::new();
+    StandardLibrary::register(&mut ctx);
+
+    let nat = || Term::Global("Nat".to_string());
+    let zero = || Term::Global("Zero".to_string());
+    let var = |s: &str| Term::Var(s.to_string());
+    let const_motive = || Term::Lambda {
+        param: "_".to_string(),
+        param_type: Box::new(nat()),
+        body: Box::new(nat()),
+    };
+
+    // rec = f p m
+    let rec = Term::App(
+        Box::new(Term::App(Box::new(var("f")), Box::new(var("p")))),
+        Box::new(var("m")),
+    );
+
+    // inner shadow match: match n with Zero => Zero | Succ p => f p m
+    let inner_match = Term::Match {
+        discriminant: Box::new(var("n")),
+        motive: Box::new(const_motive()),
+        cases: vec![
+            zero(),
+            Term::Lambda {
+                param: "p".to_string(),
+                param_type: Box::new(nat()),
+                body: Box::new(rec),
+            },
+        ],
+    };
+
+    // (λn:Nat. inner_match) m   -- the λn shadows the structural n; arg is the arbitrary m
+    let shadowed = Term::App(
+        Box::new(Term::Lambda {
+            param: "n".to_string(),
+            param_type: Box::new(nat()),
+            body: Box::new(inner_match),
+        }),
+        Box::new(var("m")),
+    );
+
+    // outer match: match n with Zero => Zero | Succ k => shadowed
+    let outer_match = Term::Match {
+        discriminant: Box::new(var("n")),
+        motive: Box::new(const_motive()),
+        cases: vec![
+            zero(),
+            Term::Lambda {
+                param: "k".to_string(),
+                param_type: Box::new(nat()),
+                body: Box::new(shadowed),
+            },
+        ],
+    };
+
+    let bad_fix = Term::Fix {
+        name: "f".to_string(),
+        body: Box::new(Term::Lambda {
+            param: "n".to_string(),
+            param_type: Box::new(nat()),
+            body: Box::new(Term::Lambda {
+                param: "m".to_string(),
+                param_type: Box::new(nat()),
+                body: Box::new(outer_match),
+            }),
+        }),
+    };
+
+    let result = infer_type(&ctx, &bad_fix);
+    assert!(
+        result.is_err(),
+        "UNSOUND: Kernel accepted a diverging fixpoint whose non-decreasing recursion was hidden behind a shadowed binder! Result: {:?}",
+        result
+    );
+}

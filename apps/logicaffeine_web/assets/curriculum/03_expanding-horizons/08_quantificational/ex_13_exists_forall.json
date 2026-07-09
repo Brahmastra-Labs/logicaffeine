@@ -1,0 +1,15 @@
+{
+  "id": "Q_2.4",
+  "type": "multiple_choice",
+  "difficulty": 4,
+  "prompt": "∃x∀y(Likes(x, y)) means:",
+  "options": [
+    "Everyone likes everyone",
+    "There is someone who likes everyone",
+    "Everyone likes at least one person",
+    "Someone is liked by everyone"
+  ],
+  "correct": 1,
+  "hint": "Read it outside-in: ∃x first (one fixed person), then ∀y (that one person likes all y).",
+  "explanation": "∃x∀y(Likes(x, y)): there is ONE fixed person x who likes every y. Contrast ∀y∃x, where the liker can differ per person. And note 'someone is liked by everyone' would be ∃y∀x(Likes(x, y)) — the arguments are swapped. Quantifier ORDER changes the meaning."
+}

@@ -1,0 +1,15 @@
+{
+  "id": "R_1.9",
+  "type": "multiple_choice",
+  "difficulty": 3,
+  "prompt": "Which of these relations is transitive?",
+  "options": [
+    "\"is the mother of\"",
+    "\"is an ancestor of\"",
+    "\"is exactly one kilometer from\"",
+    "\"is a friend of\""
+  ],
+  "correct": 1,
+  "hint": "Transitive means: if R(x,y) and R(y,z), then R(x,z). Chain two steps into one.",
+  "explanation": "A relation R is transitive if whenever x relates to y and y relates to z, x relates to z (∀x∀y∀z((Rxy ∧ Ryz) → Rxz)). 'Is an ancestor of' is transitive: an ancestor of your ancestor is also your ancestor. 'Is the mother of' is NOT — your mother's mother is your grandmother, not your mother. Distance and friendship also fail to chain."
+}

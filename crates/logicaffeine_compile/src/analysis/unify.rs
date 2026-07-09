@@ -45,6 +45,7 @@ pub enum InferType {
     String,
     Unit,
     Nat,
+    Rational,
     Duration,
     Date,
     Moment,
@@ -69,6 +70,9 @@ pub enum TypeError {
     ArityMismatch { expected: usize, found: usize },
     FieldNotFound { type_name: Symbol, field_name: Symbol },
     NotAFunction { found: InferType },
+    /// Dimension-incoherent quantity arithmetic (`2 meters + 1 gram`) caught statically by the
+    /// [`crate::analysis::dimension_check::DimensionChecker`]. Carries its own ready message.
+    DimensionMismatch { message: std::string::String },
 }
 
 impl TypeError {
@@ -79,6 +83,7 @@ impl TypeError {
             TypeError::FieldNotFound { .. } => "a known field".to_string(),
             TypeError::NotAFunction { .. } => "a function".to_string(),
             TypeError::InfiniteType { .. } => "a finite type".to_string(),
+            TypeError::DimensionMismatch { .. } => "a matching dimension".to_string(),
         }
     }
 
@@ -89,6 +94,7 @@ impl TypeError {
             TypeError::FieldNotFound { field_name, .. } => format!("{:?}", field_name),
             TypeError::NotAFunction { found } => found.to_logos_name(),
             TypeError::InfiniteType { ty, .. } => ty.to_logos_name(),
+            TypeError::DimensionMismatch { message } => message.clone(),
         }
     }
 
@@ -123,6 +129,7 @@ impl TypeError {
             TypeError::NotAFunction { found } => ParseErrorKind::NotAFunction {
                 found_type: found.to_logos_name(),
             },
+            TypeError::DimensionMismatch { message } => ParseErrorKind::Custom(message.clone()),
         }
     }
 }
@@ -145,8 +152,8 @@ pub struct TypeScheme {
 
 /// Union-Find table implementing Robinson unification with occurs check.
 ///
-/// Type variables are allocated by [`fresh`] and resolved by [`find`].
-/// [`zonk`] fully resolves a type after inference, converting remaining
+/// Type variables are allocated by `fresh` and resolved by `find`.
+/// `zonk` fully resolves a type after inference, converting remaining
 /// unbound variables to [`InferType::Unknown`] (which maps to `LogosType::Unknown`).
 pub struct UnificationTable {
     bindings: Vec<Option<InferType>>,
@@ -244,7 +251,7 @@ impl UnificationTable {
 
     /// Resolve type variables, keeping unbound variables as `Var(tv)`.
     ///
-    /// Unlike [`zonk`], this does not convert unbound variables to `Unknown`.
+    /// Unlike `zonk`, this does not convert unbound variables to `Unknown`.
     /// Use this during inference to preserve generic type params as `Var(tv)`
     /// so they can be unified at call sites.
     pub fn resolve(&self, ty: &InferType) -> InferType {
@@ -273,7 +280,7 @@ impl UnificationTable {
     /// Fully resolve all type variables in a type.
     ///
     /// Unbound variables become [`InferType::Unknown`], which maps to
-    /// `LogosType::Unknown` when converted by [`to_logos_type`].
+    /// `LogosType::Unknown` when converted by `to_logos_type`.
     pub fn zonk(&self, ty: &InferType) -> InferType {
         match ty {
             InferType::Var(tv) => {
@@ -357,6 +364,13 @@ impl UnificationTable {
 
             // Byte ↔ Int promotion (numeric literals infer as Int, adapt to Byte in context)
             (InferType::Byte, InferType::Int) | (InferType::Int, InferType::Byte) => Ok(()),
+
+            // Rational equality + integer embedding: an integer IS an exact rational, so a
+            // `Let x: Rational be 5` (or `… be 7 / 2`, whose `ExactDivide` infers numeric)
+            // unifies against the `Rational` annotation. Mirrors Nat/Byte embedding into Int.
+            (InferType::Rational, InferType::Rational) => Ok(()),
+            (InferType::Rational, InferType::Int | InferType::Nat)
+            | (InferType::Int | InferType::Nat, InferType::Rational) => Ok(()),
 
             // User-defined types unify if same name
             (InferType::UserDefined(a), InferType::UserDefined(b)) if a == b => Ok(()),
@@ -473,6 +487,10 @@ impl InferType {
     ) -> InferType {
         use crate::ast::stmt::TypeExpr;
         match ty {
+            // A `mutable` parameter unifies as its underlying type.
+            TypeExpr::Mutable { inner } => {
+                Self::from_type_expr_with_params(inner, interner, type_params)
+            }
             TypeExpr::Primitive(sym) | TypeExpr::Named(sym) => {
                 // Check if this name is a generic type parameter
                 if let Some(&tv) = type_params.get(sym) {
@@ -619,6 +637,7 @@ impl InferType {
         match name {
             "Int" => InferType::Int,
             "Nat" => InferType::Nat,
+            "Rational" => InferType::Rational,
             "Real" | "Float" => InferType::Float,
             "Bool" | "Boolean" => InferType::Bool,
             "Text" | "String" => InferType::String,
@@ -645,6 +664,7 @@ impl InferType {
             InferType::String => "Text".into(),
             InferType::Unit => "Unit".into(),
             InferType::Nat => "Nat".into(),
+            InferType::Rational => "Rational".into(),
             InferType::Duration => "Duration".into(),
             InferType::Date => "Date".into(),
             InferType::Moment => "Moment".into(),
@@ -674,7 +694,7 @@ impl InferType {
     ///
     /// # Panics
     ///
-    /// Panics if called on a `Var`. Callers must [`zonk`] first.
+    /// Panics if called on a `Var`. Callers must `zonk` first.
     pub fn to_logos_type_ground(&self) -> LogosType {
         match self {
             InferType::Int => LogosType::Int,
@@ -685,6 +705,7 @@ impl InferType {
             InferType::String => LogosType::String,
             InferType::Unit => LogosType::Unit,
             InferType::Nat => LogosType::Nat,
+            InferType::Rational => LogosType::Rational,
             InferType::Duration => LogosType::Duration,
             InferType::Date => LogosType::Date,
             InferType::Moment => LogosType::Moment,
@@ -717,6 +738,9 @@ impl InferType {
 pub fn unify_numeric(a: &InferType, b: &InferType) -> Result<InferType, TypeError> {
     match (a, b) {
         (InferType::Float, _) | (_, InferType::Float) => Ok(InferType::Float),
+        // A Rational operand promotes the result to Rational (the exact type wins over Int).
+        (InferType::Rational, InferType::Rational | InferType::Int | InferType::Nat)
+        | (InferType::Int | InferType::Nat, InferType::Rational) => Ok(InferType::Rational),
         (InferType::Int, InferType::Int) => Ok(InferType::Int),
         (InferType::Nat, InferType::Int) | (InferType::Int, InferType::Nat) => Ok(InferType::Int),
         (InferType::Nat, InferType::Nat) => Ok(InferType::Nat),
@@ -740,6 +764,7 @@ pub fn infer_to_logos(ty: &InferType) -> LogosType {
         InferType::String => LogosType::String,
         InferType::Unit => LogosType::Unit,
         InferType::Nat => LogosType::Nat,
+        InferType::Rational => LogosType::Rational,
         InferType::Duration => LogosType::Duration,
         InferType::Date => LogosType::Date,
         InferType::Moment => LogosType::Moment,

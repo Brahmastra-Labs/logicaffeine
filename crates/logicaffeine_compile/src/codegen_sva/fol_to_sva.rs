@@ -34,6 +34,55 @@ pub struct SynthesizedSva {
 /// resulting FOL structure to produce SVA. The synthesized SVA uses the
 /// EXACT same signal names as the FOL translator so Z3 equivalence checking works.
 pub fn synthesize_sva_from_spec(spec: &str, clock: &str) -> Result<SynthesizedSva, String> {
+    // Literate / multi-section content (the Logic editor, `## Theorem` blocks,
+    // `## Hardware` sections, …) cannot be parsed mid-stream by the property parser,
+    // which only consumes a single property and chokes on a block header. Split the
+    // spec at block headers and synthesize from the FIRST section that yields a real
+    // property, so a leading or trailing theorem/main block no longer breaks
+    // "Compile to SVA".
+    let mut last_err: Option<String> = None;
+    for block in spec_blocks(spec) {
+        if block.trim().is_empty() {
+            continue;
+        }
+        match synthesize_one(&block, clock) {
+            Ok(s) => return Ok(s),
+            Err(e) => last_err = Some(e),
+        }
+    }
+    Err(last_err.unwrap_or_else(|| {
+        "No hardware property found. Hardware specs are temporal sentences like \
+         \"Always, if request is high, then grant is high.\""
+            .to_string()
+    }))
+}
+
+/// Split a spec into content blocks at literate block headers (`## …` lines), dropping
+/// the header lines themselves. A spec with no headers yields a single block (itself).
+fn spec_blocks(spec: &str) -> Vec<String> {
+    let mut blocks = Vec::new();
+    let mut cur = String::new();
+    for line in spec.lines() {
+        if line.trim_start().starts_with("##") {
+            if !cur.trim().is_empty() {
+                blocks.push(std::mem::take(&mut cur));
+            }
+            cur.clear();
+        } else {
+            cur.push_str(line);
+            cur.push('\n');
+        }
+    }
+    if !cur.trim().is_empty() {
+        blocks.push(cur);
+    }
+    if blocks.is_empty() {
+        blocks.push(spec.to_string());
+    }
+    blocks
+}
+
+fn synthesize_one(spec: &str, clock: &str) -> Result<SynthesizedSva, String> {
     use logicaffeine_language::compile_kripke_with;
     use logicaffeine_language::semantics::knowledge_graph::extract_from_kripke_ast;
     use super::fol_to_verify::FolTranslator;
@@ -54,7 +103,11 @@ pub fn synthesize_sva_from_spec(spec: &str, clock: &str) -> Result<SynthesizedSv
         // Synthesize SVA body using signal names from the FOL translator
         let body = synthesize_from_ast(ast, interner, clock, &fol_sigs);
         (body, kg_signals, fol_sigs)
-    }).map_err(|e| format!("Parse error: {:?}", e))?;
+    }).map_err(|_e| {
+        "not a hardware property — I couldn't read a temporal spec here. Try a sentence like \
+         \"Always, if request is high, then grant is high.\""
+            .to_string()
+    })?;
 
     let body = sva_body;
 
@@ -66,12 +119,16 @@ pub fn synthesize_sva_from_spec(spec: &str, clock: &str) -> Result<SynthesizedSv
             (e.g., \"Always, ...\") or restructure as a conditional.".to_string());
     }
 
-    // Determine assertion kind from the temporal operator
-    let kind = if body.contains("s_eventually") || body.contains("cover") {
-        "cover"
-    } else {
-        "assert"
-    };
+    // Determine the assertion kind from the property's SHAPE, not a substring search. A `cover`
+    // only witnesses that a scenario is reachable; an `assert` checks a property always holds. So
+    // a `cover` is justified ONLY for a top-level reachability claim (a bare `s_eventually`/`cover`
+    // with no implication guarding it) — a liveness implication like `req |-> s_eventually(grant)`
+    // is an ASSERTION, not a cover.
+    let trimmed = body.trim_start();
+    let is_reachability_cover = (trimmed.starts_with("s_eventually(") || trimmed.starts_with("cover"))
+        && !body.contains("|->")
+        && !body.contains("|=>");
+    let kind = if is_reachability_cover { "cover" } else { "assert" };
 
     let sva_text = format!(
         "{} property (@(posedge {}) {});",
@@ -348,6 +405,11 @@ fn synthesize_from_ast<'a>(
             format!("({} && {})", c, e)
         }
 
+        // Concessive: "main, although concession" → the main clause is asserted.
+        LogicExpr::Concessive { main, .. } => {
+            synthesize_from_ast(main, interner, clock, fol_signals)
+        }
+
         // Atom: bare symbol → treat as signal name
         LogicExpr::Atom(sym) => {
             let name = interner.resolve(*sym).to_string();
@@ -399,5 +461,30 @@ fn term_to_string_helper<'a>(term: &'a Term<'a>, interner: &Interner) -> String 
         Term::Constant(sym) | Term::Variable(sym) => interner.resolve(*sym).to_string(),
         Term::Function(sym, _) => interner.resolve(*sym).to_string(),
         _ => "unknown".to_string(),
+    }
+}
+
+#[cfg(test)]
+mod block_header_robustness {
+    use super::*;
+
+    /// A property sentence followed by a `## Theorem`/`## Main` block (multi-section
+    /// editor content) must still synthesize the property, not fail with a parse error
+    /// on the trailing block header.
+    #[test]
+    fn property_followed_by_a_block_synthesizes() {
+        let spec = "Always, if request then eventually grant.\n## Theorem t:\n  It holds.";
+        let r = synthesize_sva_from_spec(spec, "clk");
+        assert!(r.is_ok(), "expected SVA, got error: {:?}", r.err());
+        assert!(r.unwrap().sva_text.contains("property"));
+    }
+
+    /// A property INSIDE a leading block (header first) already works via the parser's
+    /// leading-header handling — guard that the fix doesn't break it.
+    #[test]
+    fn property_inside_a_leading_block_still_works() {
+        let spec = "## Hardware\nAlways, if request then eventually grant.";
+        let r = synthesize_sva_from_spec(spec, "clk");
+        assert!(r.is_ok(), "expected SVA, got error: {:?}", r.err());
     }
 }

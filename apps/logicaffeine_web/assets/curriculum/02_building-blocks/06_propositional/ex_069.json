@@ -1,0 +1,15 @@
+{
+  "id": "C_6.69",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "Being wild is sufficient for you to be childish",
+  "options": [
+    "$ (W \\supset C) $",
+    "$ W \\supset C $",
+    "$ (W \\equiv C) $",
+    "$ (\\sim W \\supset \\, \\sim C) $"
+  ],
+  "correct": 0,
+  "hint": "If A is 'sufficient' for B, does that mean A guarantees B, or B guarantees A?",
+  "explanation": "'A is sufficient for B' means: having A is enough to guarantee B. So A \u2283 B. A causes B, A leads to B, A is all you need for B."
+}

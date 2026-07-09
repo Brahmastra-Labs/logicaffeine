@@ -49,8 +49,490 @@
 use crate::error::ProofResult;
 use crate::{DerivationTree, InferenceRule, ProofExpr, ProofGoal, ProofTerm};
 
+use crate::modal_translation::{contains_modal_constructs, WorldTranslation};
 use logicaffeine_verify::ir::{VerifyExpr, VerifyOp, VerifyType};
 use logicaffeine_verify::solver::VerificationSession;
+use logicaffeine_verify::VerificationErrorKind;
+
+// =============================================================================
+// SMT VERDICTS (semantic entailment over the standard translation)
+// =============================================================================
+
+/// A three-valued Z3 verdict on a semantic entailment question.
+///
+/// This is the oracle's answer over the standard translation of modal,
+/// mereological, and defeasible constructs with their frame/lattice axioms.
+/// It is **NOT kernel-certified**: never conflate an [`SmtVerdict::Entailed`]
+/// with a [`crate::verify::VerifiedProof`] whose `verified` flag is true. The
+/// kernel path stays monotonic and modal-free by design.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SmtVerdict {
+    /// Z3 proved the goal follows from the premises (plus emitted axioms).
+    Entailed,
+    /// Z3 found a countermodel: the premises are satisfiable together with
+    /// the negated goal.
+    NotEntailed,
+    /// Z3 returned unknown or the construct is not yet translatable. Never
+    /// treated as success in either direction.
+    Unknown,
+}
+
+/// A three-valued Z3 verdict on the joint satisfiability of premises.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SmtConsistency {
+    /// Z3 found a model satisfying every premise (plus emitted axioms).
+    Consistent,
+    /// Z3 proved the premises jointly unsatisfiable.
+    Inconsistent,
+    /// Z3 returned unknown or the construct is not yet translatable.
+    Unknown,
+}
+
+/// Lexicon-derived facts the SMT layer cannot know on its own (the proof
+/// crate has no language dependency). Threaded in by the compile-side doors.
+#[derive(Debug, Clone, Default)]
+pub struct SmtTheory {
+    /// Predicates closed under the lattice sum (lexicon-tagged MASS nouns):
+    /// `M(x) ∧ M(y) → M(x ⊕ y)`, and a portion of M counts as consuming the
+    /// M-kind (`M(x) ∧ Theme(e, x) → Theme(e, ^M)`).
+    pub cumulative_predicates: Vec<String>,
+}
+
+/// Ask Z3 whether `premises ⊨ goal` under the standard translation.
+///
+/// Modal operators are expanded to world-quantified accessibility relations
+/// with per-(domain, flavor) frame axioms; counterfactuals use a similarity
+/// (`Closest`) relation; group terms use the Link-lattice sum. Non-modal,
+/// non-mereological inputs take the same encoding as [`try_oracle`].
+///
+/// The verdict is **not kernel-certified** — see [`SmtVerdict`].
+pub fn oracle_entails(premises: &[ProofExpr], goal: &ProofExpr) -> SmtVerdict {
+    oracle_entails_with_theory(premises, goal, &SmtTheory::default())
+}
+
+/// [`oracle_entails`] with lexicon-derived theory (mass/cumulative tags).
+pub fn oracle_entails_with_theory(
+    premises: &[ProofExpr],
+    goal: &ProofExpr,
+    theory: &SmtTheory,
+) -> SmtVerdict {
+    if contains_inductive_constructs(goal)
+        || premises.iter().any(contains_inductive_constructs)
+    {
+        return SmtVerdict::Unknown;
+    }
+    let mut session = VerificationSession::new();
+    let goal_expr = match build_smt_problem(premises, Some(goal), &mut session, theory) {
+        Some(g) => g,
+        None => return SmtVerdict::Unknown,
+    };
+    match session.verify(&goal_expr) {
+        Ok(()) => SmtVerdict::Entailed,
+        Err(e) => match e.kind {
+            VerificationErrorKind::ContradictoryAssertion => SmtVerdict::NotEntailed,
+            _ => SmtVerdict::Unknown,
+        },
+    }
+}
+
+/// Ask Z3 whether the premises are jointly satisfiable under the standard
+/// translation (with the same axiom emission as [`oracle_entails`]).
+///
+/// Every non-entailment claim in the test suite is paired with a consistency
+/// check so an over-axiomatized (inconsistent) theory cannot fake a
+/// [`SmtVerdict::NotEntailed`] via vacuity.
+pub fn oracle_consistent(premises: &[ProofExpr]) -> SmtConsistency {
+    oracle_consistent_with_theory(premises, &SmtTheory::default())
+}
+
+/// [`oracle_consistent`] with lexicon-derived theory (mass/cumulative tags).
+pub fn oracle_consistent_with_theory(
+    premises: &[ProofExpr],
+    theory: &SmtTheory,
+) -> SmtConsistency {
+    if premises.iter().any(contains_inductive_constructs) {
+        return SmtConsistency::Unknown;
+    }
+    let mut session = VerificationSession::new();
+    if build_smt_problem(premises, None, &mut session, theory).is_none() {
+        return SmtConsistency::Unknown;
+    }
+    match session.check_sat() {
+        Ok(true) => SmtConsistency::Consistent,
+        Ok(false) => SmtConsistency::Inconsistent,
+        Err(_) => SmtConsistency::Unknown,
+    }
+}
+
+/// Does the problem mention the lattice sum (a `sum(...)` function term or a
+/// multi-member plural group)?
+fn contains_sum_term(expr: &ProofExpr) -> bool {
+    fn in_term(term: &ProofTerm) -> bool {
+        match term {
+            ProofTerm::Function(name, args) => {
+                name == "sum" || args.iter().any(in_term)
+            }
+            ProofTerm::Group(terms) => terms.len() > 1 || terms.iter().any(in_term),
+            _ => false,
+        }
+    }
+    fn walk(expr: &ProofExpr, found: &mut bool) {
+        if *found {
+            return;
+        }
+        match expr {
+            ProofExpr::Predicate { args, .. } => *found = args.iter().any(in_term),
+            ProofExpr::Identity(l, r) => *found = in_term(l) || in_term(r),
+            ProofExpr::NeoEvent { roles, .. } => {
+                *found = roles.iter().any(|(_, t)| in_term(t))
+            }
+            ProofExpr::And(l, r)
+            | ProofExpr::Or(l, r)
+            | ProofExpr::Implies(l, r)
+            | ProofExpr::Iff(l, r) => {
+                walk(l, found);
+                walk(r, found);
+            }
+            ProofExpr::Not(i) => walk(i, found),
+            ProofExpr::ForAll { body, .. } | ProofExpr::Exists { body, .. } => {
+                walk(body, found)
+            }
+            ProofExpr::Modal { body, .. } | ProofExpr::Temporal { body, .. } => {
+                walk(body, found)
+            }
+            ProofExpr::Counterfactual {
+                antecedent,
+                consequent,
+            } => {
+                walk(antecedent, found);
+                walk(consequent, found);
+            }
+            _ => {}
+        }
+    }
+    let mut found = false;
+    walk(expr, &mut found);
+    found
+}
+
+/// Every predicate name mentioned across the given expressions. The
+/// compile-side doors use this to look up lexicon facts (e.g. mass tags)
+/// when assembling an [`SmtTheory`].
+pub fn predicate_names(exprs: &[ProofExpr]) -> std::collections::BTreeSet<String> {
+    let mut out = std::collections::BTreeSet::new();
+    for expr in exprs {
+        collect_predicate_names(expr, &mut out);
+    }
+    out
+}
+
+/// Collect every predicate name mentioned in the problem.
+fn collect_predicate_names(expr: &ProofExpr, out: &mut std::collections::BTreeSet<String>) {
+    match expr {
+        ProofExpr::Predicate { name, .. } => {
+            out.insert(name.clone());
+        }
+        ProofExpr::NeoEvent { verb, .. } => {
+            out.insert(verb.to_lowercase());
+        }
+        ProofExpr::And(l, r)
+        | ProofExpr::Or(l, r)
+        | ProofExpr::Implies(l, r)
+        | ProofExpr::Iff(l, r) => {
+            collect_predicate_names(l, out);
+            collect_predicate_names(r, out);
+        }
+        ProofExpr::Not(i) => collect_predicate_names(i, out),
+        ProofExpr::ForAll { body, .. } | ProofExpr::Exists { body, .. } => {
+            collect_predicate_names(body, out)
+        }
+        ProofExpr::Modal { body, .. } | ProofExpr::Temporal { body, .. } => {
+            collect_predicate_names(body, out)
+        }
+        ProofExpr::Counterfactual {
+            antecedent,
+            consequent,
+        } => {
+            collect_predicate_names(antecedent, out);
+            collect_predicate_names(consequent, out);
+        }
+        _ => {}
+    }
+}
+
+/// The finite ground-term universe the lattice axioms are instantiated over:
+/// every ground leaf term (constant/variable) appearing inside a `sum`/group
+/// or as the argument of a cumulative predicate, capped to keep the cubic
+/// associativity instantiation small.
+fn ground_sum_universe(
+    premises: &[ProofExpr],
+    goal: Option<&ProofExpr>,
+    theory: &SmtTheory,
+) -> Vec<VerifyExpr> {
+    fn leaves(term: &ProofTerm, out: &mut Vec<ProofTerm>) {
+        match term {
+            ProofTerm::Function(_, args) | ProofTerm::Group(args) => {
+                for arg in args {
+                    leaves(arg, out);
+                }
+            }
+            other => {
+                if !out.contains(other) {
+                    out.push(other.clone());
+                }
+            }
+        }
+    }
+    fn walk(expr: &ProofExpr, theory: &SmtTheory, out: &mut Vec<ProofTerm>) {
+        match expr {
+            ProofExpr::Predicate { name, args, .. } => {
+                let relevant = theory.cumulative_predicates.contains(name)
+                    || args.iter().any(|t| {
+                        matches!(t, ProofTerm::Function(n, _) if n == "sum")
+                            || matches!(t, ProofTerm::Group(g) if g.len() > 1)
+                    });
+                if relevant {
+                    for arg in args {
+                        leaves(arg, out);
+                    }
+                }
+            }
+            ProofExpr::Identity(l, r) => {
+                let relevant = [l, r].iter().any(|t| {
+                    matches!(t, ProofTerm::Function(n, _) if n == "sum")
+                        || matches!(t, ProofTerm::Group(g) if g.len() > 1)
+                });
+                if relevant {
+                    leaves(l, out);
+                    leaves(r, out);
+                }
+            }
+            ProofExpr::And(l, r)
+            | ProofExpr::Or(l, r)
+            | ProofExpr::Implies(l, r)
+            | ProofExpr::Iff(l, r) => {
+                walk(l, theory, out);
+                walk(r, theory, out);
+            }
+            ProofExpr::Not(i) => walk(i, theory, out),
+            ProofExpr::ForAll { body, .. } | ProofExpr::Exists { body, .. } => {
+                walk(body, theory, out)
+            }
+            ProofExpr::Modal { body, .. } | ProofExpr::Temporal { body, .. } => {
+                walk(body, theory, out)
+            }
+            ProofExpr::Counterfactual {
+                antecedent,
+                consequent,
+            } => {
+                walk(antecedent, theory, out);
+                walk(consequent, theory, out);
+            }
+            ProofExpr::NeoEvent { roles, .. } => {
+                for (_, term) in roles {
+                    if matches!(term, ProofTerm::Function(n, _) if n == "sum")
+                        || matches!(term, ProofTerm::Group(g) if g.len() > 1)
+                    {
+                        leaves(term, out);
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+    let mut terms = Vec::new();
+    for premise in premises {
+        walk(premise, theory, &mut terms);
+    }
+    if let Some(g) = goal {
+        walk(g, theory, &mut terms);
+    }
+    terms.truncate(6);
+    terms
+        .iter()
+        .filter_map(proof_term_to_verify_expr)
+        .collect()
+}
+
+/// The Link-lattice axiom pack, emitted demand-driven: the core ⊕ axioms
+/// only when a sum term appears, CUM / kind-Theme lifting only for the
+/// theory's cumulative (mass) predicates that the problem actually mentions.
+fn lattice_axioms(
+    premises: &[ProofExpr],
+    goal: Option<&ProofExpr>,
+    theory: &SmtTheory,
+) -> Vec<VerifyExpr> {
+    let mut axioms = Vec::new();
+    let has_sum = premises.iter().any(contains_sum_term)
+        || goal.map(contains_sum_term).unwrap_or(false);
+
+    let mut mentioned = std::collections::BTreeSet::new();
+    for premise in premises {
+        collect_predicate_names(premise, &mut mentioned);
+    }
+    if let Some(g) = goal {
+        collect_predicate_names(g, &mut mentioned);
+    }
+
+    if has_sum {
+        // The axioms are GROUND-INSTANTIATED over the problem's finite term
+        // universe rather than ∀-quantified: ground instances prove exactly
+        // the same lattice facts here, and they keep the encoding
+        // quantifier-free so Z3 can also FIND COUNTERMODELS (a quantified
+        // Int-function axiom set makes the SAT direction return unknown).
+        let universe = ground_sum_universe(premises, goal, theory);
+        let sum_of = |a: &VerifyExpr, b: &VerifyExpr| {
+            VerifyExpr::apply_int("sum", vec![a.clone(), b.clone()])
+        };
+
+        for a in &universe {
+            // Idempotence: a ⊕ a = a
+            axioms.push(VerifyExpr::eq(sum_of(a, a), a.clone()));
+            for b in &universe {
+                // Commutativity: a ⊕ b = b ⊕ a
+                axioms.push(VerifyExpr::eq(sum_of(a, b), sum_of(b, a)));
+                // Parthood: Part(x, y) ↔ x ⊕ y = y, with y ranging over
+                // atoms AND pairwise sums (so Part(a, a⊕b) is decidable).
+                axioms.push(VerifyExpr::Iff(
+                    Box::new(VerifyExpr::apply("Part", vec![a.clone(), b.clone()])),
+                    Box::new(VerifyExpr::eq(sum_of(a, b), b.clone())),
+                ));
+                for c in &universe {
+                    let bc = sum_of(b, c);
+                    axioms.push(VerifyExpr::Iff(
+                        Box::new(VerifyExpr::apply("Part", vec![a.clone(), bc.clone()])),
+                        Box::new(VerifyExpr::eq(sum_of(a, &bc), bc.clone())),
+                    ));
+                    // Associativity: (a ⊕ b) ⊕ c = a ⊕ (b ⊕ c)
+                    axioms.push(VerifyExpr::eq(
+                        VerifyExpr::apply_int("sum", vec![sum_of(a, b), c.clone()]),
+                        VerifyExpr::apply_int("sum", vec![a.clone(), bc]),
+                    ));
+                }
+            }
+        }
+
+        // CUM(M): M(x) ∧ M(y) → M(x ⊕ y), per mass predicate mentioned.
+        for mass in &theory.cumulative_predicates {
+            if !mentioned.contains(mass) {
+                continue;
+            }
+            for a in &universe {
+                for b in &universe {
+                    axioms.push(VerifyExpr::implies(
+                        VerifyExpr::and(
+                            VerifyExpr::apply(mass, vec![a.clone()]),
+                            VerifyExpr::apply(mass, vec![b.clone()]),
+                        ),
+                        VerifyExpr::apply(mass, vec![sum_of(a, b)]),
+                    ));
+                }
+            }
+        }
+    }
+
+    // Kind-Theme lifting: consuming a portion of M is consuming the M-kind —
+    // M(x) ∧ Theme(e, x) → Theme(e, ^M), with ^M the capitalized kind
+    // constant the bare-mass-object parse produces.
+    for mass in &theory.cumulative_predicates {
+        if !mentioned.contains(mass) {
+            continue;
+        }
+        let mut kind = mass.clone();
+        if let Some(first) = kind.get_mut(0..1) {
+            first.make_ascii_uppercase();
+        }
+        axioms.push(VerifyExpr::forall(
+            vec![
+                ("le".to_string(), VerifyType::Int),
+                ("lx".to_string(), VerifyType::Int),
+            ],
+            VerifyExpr::implies(
+                VerifyExpr::and(
+                    VerifyExpr::apply(mass, vec![VerifyExpr::var("lx")]),
+                    VerifyExpr::apply(
+                        "Theme",
+                        vec![VerifyExpr::var("le"), VerifyExpr::var("lx")],
+                    ),
+                ),
+                VerifyExpr::apply(
+                    "Theme",
+                    vec![VerifyExpr::var("le"), VerifyExpr::var(&kind)],
+                ),
+            ),
+        ));
+    }
+
+    axioms
+}
+
+/// Build one SMT problem: declare variables, assume every premise (and the
+/// needed frame axioms), and return the translated goal (or a trivially-true
+/// placeholder when only consistency is asked, signalled by `goal = None` —
+/// the return is then `Some(true)`-shaped only to signal success).
+///
+/// Modal problems take the standard translation with ONE shared
+/// [`WorldTranslation`] across premises and goal, so counterfactuals with
+/// identical antecedents share their `Closest` relation. Non-modal problems
+/// take the byte-identical legacy encoding. In BOTH paths a premise that
+/// fails to convert aborts the build (`None`) — a silently dropped premise
+/// could turn a real entailment into `NotEntailed`.
+fn build_smt_problem(
+    premises: &[ProofExpr],
+    goal: Option<&ProofExpr>,
+    session: &mut VerificationSession,
+    theory: &SmtTheory,
+) -> Option<VerifyExpr> {
+    for axiom in lattice_axioms(premises, goal, theory) {
+        session.assume(&axiom);
+    }
+    let modal = goal.map(contains_modal_constructs).unwrap_or(false)
+        || premises.iter().any(contains_modal_constructs);
+
+    let mut types = TypeInference::new();
+    if let Some(g) = goal {
+        types.infer_from_expr(g);
+    }
+    for premise in premises {
+        types.infer_from_expr(premise);
+    }
+    for (name, ty) in types.variables.iter() {
+        // In the world-indexed encoding a propositional atom is a unary
+        // predicate over worlds, not a Bool constant — don't declare it.
+        if modal && matches!(ty, VerifyType::Bool) {
+            continue;
+        }
+        session.declare(name, ty.clone());
+    }
+
+    if modal {
+        let mut translation = WorldTranslation::new();
+        let mut assumed = Vec::with_capacity(premises.len());
+        for premise in premises {
+            assumed.push(translation.translate(premise, "w0")?);
+        }
+        let goal_expr = match goal {
+            Some(g) => Some(translation.translate(g, "w0")?),
+            None => None,
+        };
+        for axiom in translation.finalize()? {
+            session.assume(&axiom);
+        }
+        for assumption in assumed {
+            session.assume(&assumption);
+        }
+        Some(goal_expr.unwrap_or_else(|| VerifyExpr::bool(true)))
+    } else {
+        for premise in premises {
+            let v = proof_expr_to_verify_expr(premise)?;
+            session.assume(&v);
+        }
+        match goal {
+            Some(g) => proof_expr_to_verify_expr(g),
+            None => Some(VerifyExpr::bool(true)),
+        }
+    }
+}
 
 // =============================================================================
 // INDUCTIVE CONSTRUCT DETECTION
@@ -79,6 +561,22 @@ fn contains_inductive_constructs(expr: &ProofExpr) -> bool {
         ProofExpr::ForAll { body, .. } | ProofExpr::Exists { body, .. } => {
             contains_inductive_constructs(body)
         }
+
+        // Modal/temporal/counterfactual wrappers: the gate must see through
+        // them so a Peano construct inside a modal body is still refused.
+        ProofExpr::Modal { body, .. } | ProofExpr::Temporal { body, .. } => {
+            contains_inductive_constructs(body)
+        }
+        ProofExpr::Counterfactual { antecedent, consequent } => {
+            contains_inductive_constructs(antecedent)
+                || contains_inductive_constructs(consequent)
+        }
+        ProofExpr::TemporalBinary { left, right, .. } => {
+            contains_inductive_constructs(left) || contains_inductive_constructs(right)
+        }
+        ProofExpr::NeoEvent { roles, .. } => roles
+            .iter()
+            .any(|(_, term)| contains_inductive_constructs_term(term)),
 
         ProofExpr::Identity(l, r) => {
             contains_inductive_constructs_term(l) || contains_inductive_constructs_term(r)
@@ -161,6 +659,41 @@ pub fn try_oracle(
             return Ok(None);
         }
     }
+
+    // Modal/temporal/counterfactual goals take the standard translation with
+    // frame axioms. (The result is still uncertifiable — the kernel rejects
+    // OracleVerification leaves — but the engine's answer becomes sound.)
+    if contains_modal_constructs(&goal.target)
+        || goal.context.iter().any(contains_modal_constructs)
+        || knowledge_base.iter().any(contains_modal_constructs)
+    {
+        let premises: Vec<ProofExpr> = goal
+            .context
+            .iter()
+            .chain(knowledge_base.iter())
+            .cloned()
+            .collect();
+        let mut session = VerificationSession::new();
+        let goal_expr = match build_smt_problem(
+            &premises,
+            Some(&goal.target),
+            &mut session,
+            &SmtTheory::default(),
+        ) {
+            Some(g) => g,
+            None => return Ok(None),
+        };
+        return Ok(match session.verify(&goal_expr) {
+            Ok(()) => Some(DerivationTree::leaf(
+                goal.target.clone(),
+                InferenceRule::OracleVerification(
+                    "Verified by Z3 (standard modal translation)".into(),
+                ),
+            )),
+            Err(_) => None,
+        });
+    }
+
     // Collect all variables and their types
     let mut session = VerificationSession::new();
     let mut types = TypeInference::new();
@@ -416,22 +949,14 @@ pub fn proof_expr_to_verify_expr(expr: &ProofExpr) -> Option<VerifyExpr> {
             ))
         }
 
-        // Modal and Temporal become uninterpreted functions
-        ProofExpr::Modal { flavor, body, .. } => {
-            let b = proof_expr_to_verify_expr(body)?;
-            Some(VerifyExpr::apply(flavor, vec![b]))
-        }
-
-        ProofExpr::Temporal { operator, body } => {
-            let b = proof_expr_to_verify_expr(body)?;
-            Some(VerifyExpr::apply(operator, vec![b]))
-        }
-
-        ProofExpr::TemporalBinary { operator, left, right } => {
-            let l = proof_expr_to_verify_expr(left)?;
-            let r = proof_expr_to_verify_expr(right)?;
-            Some(VerifyExpr::apply(operator, vec![l, r]))
-        }
+        // Modal, temporal, and counterfactual operators need the standard
+        // translation (world-indexed predicates + accessibility relations) —
+        // this legacy encoding cannot express them (an uninterpreted function
+        // over a Bool argument would be ill-sorted: `Int^n → Bool` only).
+        ProofExpr::Modal { .. }
+        | ProofExpr::Counterfactual { .. }
+        | ProofExpr::Temporal { .. }
+        | ProofExpr::TemporalBinary { .. } => None,
 
         // Inductive types - unsupported for now
         ProofExpr::Ctor { .. }
@@ -439,10 +964,29 @@ pub fn proof_expr_to_verify_expr(expr: &ProofExpr) -> Option<VerifyExpr> {
         | ProofExpr::Fixpoint { .. }
         | ProofExpr::TypedVar { .. } => None,
 
+        // Neo-Davidsonian event: ∃e(Verb(e) ∧ Role(e, t) ∧ …)
+        ProofExpr::NeoEvent {
+            event_var,
+            verb,
+            roles,
+        } => {
+            let mut body = VerifyExpr::apply(verb, vec![VerifyExpr::var(event_var)]);
+            for (role, term) in roles {
+                let t = proof_term_to_verify_expr(term)?;
+                body = VerifyExpr::and(
+                    body,
+                    VerifyExpr::apply(role, vec![VerifyExpr::var(event_var), t]),
+                );
+            }
+            Some(VerifyExpr::exists(
+                vec![(event_var.clone(), VerifyType::Int)],
+                body,
+            ))
+        }
+
         // Others - not representable in Z3
         ProofExpr::Lambda { .. }
         | ProofExpr::App(_, _)
-        | ProofExpr::NeoEvent { .. }
         | ProofExpr::Hole(_)
         | ProofExpr::Term(_)
         | ProofExpr::Unsupported(_) => None,
@@ -503,22 +1047,23 @@ pub fn proof_term_to_verify_expr(term: &ProofTerm) -> Option<VerifyExpr> {
                 }
             }
 
-            // General function → Apply
+            // General function in TERM position → Int-valued uninterpreted
+            // function (Bool-ranged Apply would be ill-sorted here).
             let verify_args: Vec<VerifyExpr> = args
                 .iter()
                 .filter_map(proof_term_to_verify_expr)
                 .collect();
-            Some(VerifyExpr::apply(name, verify_args))
+            Some(VerifyExpr::apply_int(name, verify_args))
         }
 
         ProofTerm::Group(terms) => {
-            // Group of terms - convert each (used for tuple-like structures)
-            if terms.len() == 1 {
-                proof_term_to_verify_expr(&terms[0])
-            } else {
-                // Multi-term group not directly supported
-                None
-            }
+            // A plural group is the Link-lattice sum of its members:
+            // [a, b, c] ↦ sum(a, sum(b, c)).
+            let mut converted = terms.iter().filter_map(proof_term_to_verify_expr);
+            let first = converted.next()?;
+            Some(converted.fold(first, |acc, t| {
+                VerifyExpr::apply_int("sum", vec![acc, t])
+            }))
         }
     }
 }

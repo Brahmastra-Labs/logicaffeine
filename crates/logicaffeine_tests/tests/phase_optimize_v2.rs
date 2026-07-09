@@ -700,8 +700,11 @@ Show sum.
         "Proven bounds in for-range should use assert_unchecked, got:\n{}",
         rust
     );
+    // Release-cost assert!() is forbidden; the zero-release-cost
+    // debug_assert! pairing that guards the hint in debug builds is not.
+    let without_debug_pairs = rust.replace("debug_assert!(", "");
     assert!(
-        !rust.contains("assert!("),
+        !without_debug_pairs.contains("assert!("),
         "Should NOT use assert!() for proven bounds — use assert_unchecked instead, got:\n{}",
         rust
     );
@@ -724,15 +727,17 @@ Let data: Seq of Int be [5, 3, 8, 1, 9].
 Show search(data, 8).
 "#;
     let rust = compile_to_rust(source).unwrap();
-    // While-loop bounds assertions should use assert_unchecked (not assert!)
-    if rust.contains("assert_unchecked") || rust.contains("assert!(") {
+    // While-loop bounds assertions should use assert_unchecked (not assert!).
+    // The zero-release-cost debug_assert! pairing is permitted.
+    let without_debug_pairs = rust.replace("debug_assert!(", "");
+    if without_debug_pairs.contains("assert_unchecked") || without_debug_pairs.contains("assert!(") {
         assert!(
             rust.contains("assert_unchecked"),
             "While-loop bounds hints should use assert_unchecked, got:\n{}",
             rust
         );
         assert!(
-            !rust.contains("assert!("),
+            !without_debug_pairs.contains("assert!("),
             "While-loop bounds hints should NOT use assert!(), got:\n{}",
             rust
         );
@@ -1013,6 +1018,55 @@ Show hash(12345).
     );
     // 12345 % 1024 = 12345 - 12*1024 = 12345 - 12288 = 57
     common::assert_exact_output(source, "57");
+}
+
+#[test]
+fn opt_c_divisibility_test_pow2_reduces_without_proof() {
+    // A divisibility TEST `x % 2^k == 0` is sign-agnostic: the low k bits are
+    // zero iff 2^k divides x, regardless of x's sign. So it reduces to
+    // `(x & (2^k - 1)) == 0` with NO non-negativity proof — the gap that
+    // collatz's `k % 2 == 0` (k has unknown sign) falls into. The general
+    // `x % 2^k` VALUE stays proof-gated (kernel modulo takes the dividend's
+    // sign); only the ==0 / !=0 comparison is unconditionally safe.
+    let source = r#"## To isEven (x: Int) -> Bool:
+    Return x % 2 equals 0.
+
+## Main
+Show isEven(0 - 4).
+Show isEven(0 - 3).
+Show isEven(7).
+"#;
+    let rust = compile_to_rust(source).unwrap();
+    assert!(
+        rust.contains("& 1"),
+        "divisibility test `x % 2 == 0` should reduce to `(x & 1) == 0` \
+         (sign-agnostic, no proof needed), got:\n{}",
+        rust
+    );
+    // -4 % 2 == 0 → true; -3 % 2 == 0 (=-1) → false; 7 % 2 == 0 (=1) → false.
+    common::assert_exact_output(source, "true\nfalse\nfalse");
+}
+
+#[test]
+fn opt_c_divisibility_test_pow8_neq() {
+    // `x % 8 != 0` → `(x & 7) != 0`, also sign-agnostic. Negative multiples of
+    // 8 must still test as divisible.
+    let source = r#"## To notDiv8 (x: Int) -> Bool:
+    Return x % 8 is not 0.
+
+## Main
+Show notDiv8(0 - 16).
+Show notDiv8(0 - 5).
+Show notDiv8(8).
+"#;
+    let rust = compile_to_rust(source).unwrap();
+    assert!(
+        rust.contains("& 7"),
+        "`x % 8 != 0` should reduce to `(x & 7) != 0`, got:\n{}",
+        rust
+    );
+    // -16 % 8 == 0 → notDiv8 false; -5 % 8 (=-5) != 0 → true; 8 % 8 == 0 → false.
+    common::assert_exact_output(source, "false\ntrue\nfalse");
 }
 
 #[test]

@@ -1,0 +1,27 @@
+[package]
+name = "wiki-trace"
+version = "0.0.0"
+publish = false
+edition.workspace = true
+rust-version.workspace = true
+license = "BUSL-1.1"
+description = "Corpus-tracing harness: runs the logicaffeine compiler over large English corpora and triages what parses to FOL."
+readme = "README.md"
+
+[lib]
+name = "wiki_trace"
+path = "src/lib.rs"
+
+[[bin]]
+name = "wiki-trace"
+path = "src/bin/trace.rs"
+
+[[bin]]
+name = "wiki-triage"
+path = "src/bin/triage.rs"
+
+[dependencies]
+logicaffeine-compile = { workspace = true }
+logicaffeine-language = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }

@@ -1,0 +1,7 @@
+{
+  "devDependencies": {
+    "vscode-oniguruma": "^2.0.1",
+    "vscode-textmate": "^9.3.2",
+    "vscode-tmgrammar-test": "^0.1.3"
+  }
+}

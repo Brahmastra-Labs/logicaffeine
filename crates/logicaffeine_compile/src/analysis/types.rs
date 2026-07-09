@@ -43,6 +43,30 @@ pub enum LogosType {
     Time,
     Span,
     Nat,
+    /// Exact rational (`logicaffeine_base::Rational`). A `Rational`-typed binding keeps
+    /// division exact (`7 / 2 → 7/2`) where a bare `Int` floors. Lowers to `LogosRational`.
+    Rational,
+    /// Exact base-10 fixed-point (money). `+ − ×` stay exact `Decimal` (scale preserved);
+    /// `÷` widens to `Rational`. Built via `decimal("19.99")`. Lowers to `LogosDecimal`.
+    Decimal,
+    /// Exact complex number `re + im·i`. `+ − × ÷` stay `Complex` (closed field). Built via
+    /// `complex(re, im)`. NOT ordered. Lowers to `LogosComplex`.
+    Complex,
+    /// An element of the ring ℤ/nℤ. `+ − × ÷` stay `Modular` (same modulus required, no
+    /// auto-lift). Built via `modular(value, modulus)`. NOT ordered. Lowers to `LogosModular`.
+    Modular,
+    /// A dimensioned physical quantity (`quantity(2, "inch")`). `+ −` require the same dimension,
+    /// `× ÷` combine dimensions, and it may be scaled by a number; built via `quantity`/`convert`.
+    /// The magnitude rides the exact rational tower. Lowers to `LogosQuantity`. Dimension safety is
+    /// enforced at runtime (a clean error), like `Modular`'s ring check.
+    Quantity,
+    /// An exact monetary amount in a currency (`money(19.99, "USD")` / `19.99 USD`). `+ −` require
+    /// the same currency, `× ÷` scale by a number; the amount rides the Decimal tower. Lowers to
+    /// `LogosMoney`. Currency safety is enforced at runtime (a clean error), like `Quantity`.
+    Money,
+    /// A 128-bit UUID (`uuid "…"`, `a random uuid`). An opaque identifier — no arithmetic; lowers to
+    /// `LogosUuid`. Comparable/orderable by its bytes.
+    Uuid,
     UserDefined(Symbol),
     /// First-class function type: fn(P1, P2, ...) -> R
     Function(Vec<LogosType>, Box<LogosType>),
@@ -128,8 +152,30 @@ impl LogosType {
     /// If either operand is Float, the result is Float.
     /// If both are Int (or Nat), the result is Int.
     pub fn numeric_promotion(a: &LogosType, b: &LogosType) -> LogosType {
-        if a.is_float() || b.is_float() {
+        if matches!(a, LogosType::Quantity) || matches!(b, LogosType::Quantity) {
+            // A quantity carries through `+ − × ÷` (same-dimension for `+ −`, dimension-combining
+            // for `× ÷`, or scaling by a number) — the dimensional rule is enforced at runtime.
+            LogosType::Quantity
+        } else if matches!(a, LogosType::Money) || matches!(b, LogosType::Money) {
+            // Money carries through `+ −` (same currency) and scaling by a number. (A same-currency
+            // `Money ÷ Money` is a Rational ratio — that operator-specific narrowing is handled in
+            // the binary-op inference, not this operator-agnostic promotion.)
+            LogosType::Money
+        } else if a.is_float() || b.is_float() {
             LogosType::Float
+        } else if matches!(a, LogosType::Rational) || matches!(b, LogosType::Rational) {
+            // A Rational operand carries through `+ − ×`: the exact type wins over Int.
+            LogosType::Rational
+        } else if matches!(a, LogosType::Modular) && matches!(b, LogosType::Modular) {
+            // Modular combines only with Modular (same ring; no auto-lift of a bare integer).
+            LogosType::Modular
+        } else if matches!(a, LogosType::Complex) || matches!(b, LogosType::Complex) {
+            // Complex is the top of the exact tower: a real embeds as `re + 0i`, so any
+            // operation with a Complex stays Complex (the field is closed under + − × ÷).
+            LogosType::Complex
+        } else if matches!(a, LogosType::Decimal) || matches!(b, LogosType::Decimal) {
+            // A Decimal carries through `+ − ×` (Decimal ∘ Int stays Decimal, scale kept).
+            LogosType::Decimal
         } else if a.is_numeric() && b.is_numeric() {
             LogosType::Int
         } else {
@@ -152,6 +198,13 @@ impl LogosType {
             LogosType::String => "String".into(),
             LogosType::Unit => "()".into(),
             LogosType::Nat => "u64".into(),
+            LogosType::Rational => "LogosRational".into(),
+            LogosType::Decimal => "LogosDecimal".into(),
+            LogosType::Complex => "LogosComplex".into(),
+            LogosType::Modular => "LogosModular".into(),
+            LogosType::Quantity => "LogosQuantity".into(),
+            LogosType::Money => "LogosMoney".into(),
+            LogosType::Uuid => "LogosUuid".into(),
             LogosType::Duration => "std::time::Duration".into(),
             LogosType::Date => "LogosDate".into(),
             LogosType::Moment => "LogosMoment".into(),
@@ -164,7 +217,7 @@ impl LogosType {
                 v.to_rust_type()
             ),
             LogosType::Set(inner) => {
-                format!("FxHashSet<{}>", inner.to_rust_type())
+                format!("Set<{}>", inner.to_rust_type())
             }
             LogosType::Option(inner) => format!("Option<{}>", inner.to_rust_type()),
             LogosType::Function(params, ret) => {
@@ -183,6 +236,9 @@ impl LogosType {
     /// Build a LogosType from a TypeExpr AST node.
     pub fn from_type_expr(ty: &TypeExpr, interner: &Interner) -> LogosType {
         match ty {
+            // A `mutable` parameter erases to its underlying type; the marker only
+            // affects the parameter-passing convention (Mutable Value Semantics).
+            TypeExpr::Mutable { inner } => Self::from_type_expr(inner, interner),
             TypeExpr::Primitive(sym) | TypeExpr::Named(sym) => {
                 Self::from_type_name(interner.resolve(*sym))
             }
@@ -238,10 +294,17 @@ impl LogosType {
     }
 
     /// Parse a LOGOS type name string into a LogosType.
-    fn from_type_name(name: &str) -> LogosType {
+    pub(crate) fn from_type_name(name: &str) -> LogosType {
         match name {
             "Int" => LogosType::Int,
             "Nat" => LogosType::Nat,
+            "Rational" => LogosType::Rational,
+            "Decimal" => LogosType::Decimal,
+            "Complex" => LogosType::Complex,
+            "Modular" => LogosType::Modular,
+            "Quantity" => LogosType::Quantity,
+            "Money" => LogosType::Money,
+            "Uuid" | "UUID" => LogosType::Uuid,
             "Real" | "Float" => LogosType::Float,
             "Bool" | "Boolean" => LogosType::Bool,
             "Text" | "String" => LogosType::String,
@@ -263,6 +326,10 @@ impl LogosType {
     pub fn from_rust_type_str(s: &str) -> LogosType {
         // Strip loop-bounds hoisting sentinel (e.g. "Vec<i64>|__hl:left_len" → "Vec<i64>").
         let s = s.split("|__hl:").next().unwrap_or(s);
+        // Strip the promotable-Int sentinel ("i64|__bigint"): the value still classifies as
+        // Int (so the exact-arithmetic path fires); the tag only steers codegen to store the
+        // overflow-promoting `LogosInt` instead of a bare `i64`.
+        let s = s.split("|__bigint").next().unwrap_or(s);
         match s {
             "i64" => LogosType::Int,
             "u64" => LogosType::Nat,
@@ -270,6 +337,13 @@ impl LogosType {
             "bool" => LogosType::Bool,
             "char" => LogosType::Char,
             "u8" => LogosType::Byte,
+            "LogosRational" => LogosType::Rational,
+            "LogosDecimal" => LogosType::Decimal,
+            "LogosComplex" => LogosType::Complex,
+            "LogosModular" => LogosType::Modular,
+            "LogosQuantity" => LogosType::Quantity,
+            "LogosMoney" => LogosType::Money,
+            "LogosUuid" => LogosType::Uuid,
             "String" => LogosType::String,
             "()" => LogosType::Unit,
             "std::time::Duration" => LogosType::Duration,
@@ -305,6 +379,7 @@ impl LogosType {
                     .or_else(|| s.strip_prefix("HashSet<"))
                     .or_else(|| s.strip_prefix("rustc_hash::FxHashSet<"))
                     .or_else(|| s.strip_prefix("FxHashSet<"))
+                    .or_else(|| s.strip_prefix("Set<"))
                     .and_then(|s| s.strip_suffix('>'))
                 {
                     LogosType::Set(Box::new(Self::from_rust_type_str(inner)))
@@ -378,22 +453,25 @@ impl TypeEnv {
                     | BinaryOpKind::Lt
                     | BinaryOpKind::Gt
                     | BinaryOpKind::LtEq
-                    | BinaryOpKind::GtEq => LogosType::Bool,
+                    | BinaryOpKind::GtEq
+                    | BinaryOpKind::ApproxEq => LogosType::Bool,
 
-                    // And/Or: type-aware — integer operands → Int (bitwise), else → Bool (logical)
-                    BinaryOpKind::And | BinaryOpKind::Or => {
-                        let lt = self.infer_expr(left, interner);
-                        if matches!(lt, LogosType::Int) {
-                            LogosType::Int
-                        } else {
-                            LogosType::Bool
-                        }
-                    }
+                    // And/Or: logical — truthiness in, Bool out (`&`/`|` are the bitwise spellings).
+                    BinaryOpKind::And | BinaryOpKind::Or => LogosType::Bool,
 
                     // Concat always produces String
                     BinaryOpKind::Concat => LogosType::String,
 
+                    // `a followed by b` — a sequence of the same type as the operands.
+                    BinaryOpKind::SeqConcat => self.infer_expr(left, interner),
+
                     // Bitwise ops always produce Int
+                    // `& | ^` on Sets yield a Set of the left operand's type;
+                    // on ints they stay Int.
+                    BinaryOpKind::BitAnd | BinaryOpKind::BitOr => {
+                        let lt = self.infer_expr(left, interner);
+                        if matches!(lt, LogosType::Set(_)) { lt } else { LogosType::Int }
+                    }
                     BinaryOpKind::BitXor | BinaryOpKind::Shl | BinaryOpKind::Shr => LogosType::Int,
 
                     // Add: could be numeric or string concatenation
@@ -407,22 +485,33 @@ impl TypeEnv {
                         }
                     }
 
+                    // Exact division always yields a Rational (`7 / 2 → 7/2`); the
+                    // resolve pass only emits it in a Rational-typed context.
+                    BinaryOpKind::ExactDivide => LogosType::Rational,
+
                     // Other arithmetic: numeric promotion
                     BinaryOpKind::Subtract
+                    | BinaryOpKind::Pow
                     | BinaryOpKind::Multiply
                     | BinaryOpKind::Divide
+                    | BinaryOpKind::FloorDivide
                     | BinaryOpKind::Modulo => {
                         let lt = self.infer_expr(left, interner);
                         let rt = self.infer_expr(right, interner);
-                        LogosType::numeric_promotion(&lt, &rt)
+                        let promoted = LogosType::numeric_promotion(&lt, &rt);
+                        // Decimal division widens to an exact Rational (base-10 division need
+                        // not terminate); `+ − ×` keep it Decimal. Complex stays Complex.
+                        if matches!(op, BinaryOpKind::Divide) && promoted == LogosType::Decimal {
+                            LogosType::Rational
+                        } else {
+                            promoted
+                        }
                     }
                 }
             }
 
-            Expr::Not { operand } => {
-                let ty = self.infer_expr(operand, interner);
-                ty
-            }
+            // `not x` — logical negation of truthiness, Bool out (`~` is the bitwise complement).
+            Expr::Not { .. } => LogosType::Bool,
 
             Expr::Length { .. } => LogosType::Int,
 
@@ -430,6 +519,36 @@ impl TypeEnv {
                 let name = interner.resolve(*function);
                 match name {
                     "sqrt" | "parseFloat" | "pow" => LogosType::Float,
+                    "decimal" => LogosType::Decimal,
+                    "complex" => LogosType::Complex,
+                    "modular" => LogosType::Modular,
+                    // `quantity(value, "unit")` and `convert(q, "unit")` both yield a Quantity.
+                    "quantity" | "convert" => LogosType::Quantity,
+                    "money" => LogosType::Money,
+                    // `<money> in EUR` desugars to `to_currency(money, "EUR")` — still Money.
+                    "to_currency" => LogosType::Money,
+                    // UUID constructors all yield a Uuid; `uuid_version` reads its version nibble.
+                    "uuid" | "uuid_nil" | "uuid_max" | "uuid_v1" | "uuid_v3" | "uuid_v4" | "uuid_v5"
+                    | "uuid_v6" | "uuid_v7" | "uuid_v8" | "uuid_dns" | "uuid_url" | "uuid_oid"
+                    | "uuid_x500" => LogosType::Uuid,
+                    "uuid_version" => LogosType::Int,
+                    // Byte-level primitives for the Logos-written UUID constructors: hashes and byte
+                    // views are `Seq of Int`; `uuid_from_bytes` rebuilds a Uuid.
+                    "md5" | "sha1" | "text_bytes" | "uuid_bytes" => {
+                        LogosType::Seq(Box::new(LogosType::Int))
+                    }
+                    "uuid_from_bytes" => LogosType::Uuid,
+                    "set_rate" | "set_rates" => LogosType::Unit,
+                    "parse_timestamp" => LogosType::Moment,
+                    "format_timestamp" => LogosType::String,
+                    "year_of" | "month_of" | "day_of" | "weekday_of" | "hour_of" | "minute_of"
+                    | "second_of" | "week_of" | "quarter_of" => LogosType::Int,
+                    "date_of" => LogosType::Date,
+                    "time_of" => LogosType::Time,
+                    "seconds_between" | "months_between" | "years_between" => LogosType::Int,
+                    "add_seconds" => LogosType::Moment,
+                    "in_zone" => LogosType::String,
+                    "local_instant" => LogosType::Moment,
                     "parseInt" | "floor" | "ceil" | "round" => LogosType::Int,
                     "abs" | "min" | "max" => {
                         // Preserves type of arguments — infer from first arg
@@ -439,6 +558,21 @@ impl TypeEnv {
                             LogosType::Unknown
                         }
                     }
+                    // `{k: v, …}` desugars to `mapOf(k, v, …)` (flat pairs) — a Map of the first
+                    // pair's key/value types; `{a, …}` to `setOf(a, …)` — a Set of the first
+                    // element's type. Typing the literal lets numeric key coercion and element
+                    // reads specialise.
+                    "mapOf" => match (args.first(), args.get(1)) {
+                        (Some(k), Some(v)) => LogosType::Map(
+                            Box::new(self.infer_expr(k, interner)),
+                            Box::new(self.infer_expr(v, interner)),
+                        ),
+                        _ => LogosType::Unknown,
+                    },
+                    "setOf" => match args.first() {
+                        Some(e) => LogosType::Set(Box::new(self.infer_expr(e, interner))),
+                        None => LogosType::Unknown,
+                    },
                     _ => {
                         // Look up function signature
                         if let Some(sig) = self.lookup_fn(*function) {
@@ -917,7 +1051,7 @@ mod tests {
         );
         assert_eq!(
             LogosType::Set(Box::new(LogosType::Int)).to_rust_type(),
-            "FxHashSet<i64>"
+            "Set<i64>"
         );
         assert_eq!(
             LogosType::Option(Box::new(LogosType::String)).to_rust_type(),

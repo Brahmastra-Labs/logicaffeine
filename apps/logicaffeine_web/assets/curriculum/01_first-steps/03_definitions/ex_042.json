@@ -1,0 +1,18 @@
+{
+  "id": "Q_3.52",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "A wrong action is one that is against the law.",
+  "options": [
+    "Too broad",
+    "Too narrow",
+    "Circular",
+    "Uses poorly understood terms",
+    "Poor match in vagueness",
+    "Poor match in emotional tone",
+    "Has non-essential properties"
+  ],
+  "correct": 0,
+  "hint": "Can you think of something that fits this definition but ISN'T actually a this?",
+  "explanation": "Many illegal acts (jaywalking, say) aren't morally wrong, and some wrong acts are perfectly legal. Because 'against the law' captures the wrong cases, the definition is TOO BROAD."
+}

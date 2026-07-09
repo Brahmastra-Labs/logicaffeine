@@ -1,0 +1,18 @@
+{
+  "id": "Q_3.49",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "Logic is that wonderful discipline that analyses reasoning.",
+  "options": [
+    "Too broad",
+    "Too narrow",
+    "Circular",
+    "Uses poorly understood terms",
+    "Poor match in vagueness",
+    "Poor match in emotional tone",
+    "Has non-essential properties"
+  ],
+  "correct": 5,
+  "hint": "Does this definition describe neutrally, or does it judge/evaluate?",
+  "explanation": "The content — a discipline that analyses reasoning — is right, but 'wonderful' editorializes in a way the neutral word 'logic' does not. The EMOTIONAL TONE doesn't match (it's the flattering mirror image of the 'dreadful' version)."
+}

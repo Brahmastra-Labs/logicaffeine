@@ -1,0 +1,11 @@
+{
+  "id": "Q_1.3",
+  "type": "translation",
+  "difficulty": 3,
+  "prompt": "Translate this existential claim:",
+  "template": "Some {Noun} {Verb}.",
+  "constraints": {
+    "Verb": ["Intransitive"]
+  },
+  "hint": "Existential joined by ∧: ∃x(Noun(x) ∧ ∃e(Verb(e) ∧ Agent(e, x))). The verb itself becomes an event. Use ∧, not →."
+}

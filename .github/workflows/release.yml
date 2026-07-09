@@ -72,56 +72,314 @@ jobs:
           name: ${{ matrix.artifact }}
           path: target/${{ matrix.target }}/release/${{ matrix.binary }}
 
+  # The CLI (`largo`) for every platform, in two flavors: lean (default) and
+  # full (`verification-static`: Z3 4.12.x built from the source vendored in
+  # z3-sys and statically linked — needs cmake + a C++ toolchain + libclang
+  # for bindgen). Linux builds pin ubuntu-22.04 for the glibc 2.35 floor
+  # (ubuntu-latest = 24.04 would require glibc 2.39 and lock out Debian 12 /
+  # Ubuntu 22.04 / RHEL 9); arm64 builds run on native ARM runners so no C++
+  # cross-compilation happens anywhere in this matrix.
+  build-cli:
+    name: Build largo (${{ matrix.artifact }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { target: x86_64-unknown-linux-gnu,  os: ubuntu-22.04,     flavor: lean, artifact: largo-linux-x64,        bin: largo }
+          - { target: x86_64-unknown-linux-gnu,  os: ubuntu-22.04,     flavor: full, artifact: largo-full-linux-x64,   bin: largo }
+          - { target: aarch64-unknown-linux-gnu, os: ubuntu-22.04-arm, flavor: lean, artifact: largo-linux-arm64,      bin: largo }
+          - { target: aarch64-unknown-linux-gnu, os: ubuntu-22.04-arm, flavor: full, artifact: largo-full-linux-arm64, bin: largo }
+          - { target: x86_64-apple-darwin,       os: macos-latest,     flavor: lean, artifact: largo-darwin-x64,       bin: largo }
+          - { target: x86_64-apple-darwin,       os: macos-latest,     flavor: full, artifact: largo-full-darwin-x64,  bin: largo }
+          - { target: aarch64-apple-darwin,      os: macos-latest,     flavor: lean, artifact: largo-darwin-arm64,     bin: largo }
+          - { target: aarch64-apple-darwin,      os: macos-latest,     flavor: full, artifact: largo-full-darwin-arm64, bin: largo }
+          - { target: x86_64-pc-windows-msvc,    os: windows-latest,   flavor: lean, artifact: largo-win32-x64,        bin: largo.exe }
+          - { target: x86_64-pc-windows-msvc,    os: windows-latest,   flavor: full, artifact: largo-full-win32-x64,   bin: largo.exe }
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      # The full flavor builds Z3 from the source vendored in z3-sys via
+      # cmake, and z3-sys's build.rs runs bindgen (runtime libclang loading).
+      # Install explicitly — never depend on a runner preinstall.
+      - name: Install Z3 static-build toolchain (Linux, full)
+        if: matrix.flavor == 'full' && runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake g++ libclang-dev
+      # macOS: cmake + Apple clang + libclang ship on the runner image.
+      # Windows: cmake + MSVC + LLVM (libclang) ship on the runner image.
+
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            target/
+          # flavor in the key: the full build's target/ holds the ~30-min
+          # libz3.a; arch in the key: linux x64/arm64 share runner.os.
+          key: ${{ runner.os }}-${{ runner.arch }}-largo-${{ matrix.flavor }}-${{ matrix.target }}-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Build largo (lean)
+        if: matrix.flavor == 'lean'
+        shell: bash
+        env:
+          MACOSX_DEPLOYMENT_TARGET: ${{ matrix.target == 'x86_64-apple-darwin' && '10.15' || '11.0' }}
+          # Self-contained on Windows: no vcruntime140.dll prerequisite.
+          RUSTFLAGS: ${{ runner.os == 'Windows' && '-C target-feature=+crt-static' || '' }}
+        run: cargo build -p logicaffeine-cli --release --target ${{ matrix.target }}
+
+      - name: Build largo (full, Z3 static)
+        if: matrix.flavor == 'full'
+        shell: bash
+        env:
+          MACOSX_DEPLOYMENT_TARGET: ${{ matrix.target == 'x86_64-apple-darwin' && '10.15' || '11.0' }}
+          # No crt-static here: the cmake-built libz3 must agree with Rust's
+          # CRT choice; full-windows ships /MD until a dispatch run proves /MT.
+        run: cargo build -p logicaffeine-cli --release --target ${{ matrix.target }} --features verification-static
+
+      - name: Assert no dynamic libz3 (full, unix)
+        if: matrix.flavor == 'full' && runner.os != 'Windows'
+        shell: bash
+        run: |
+          BIN=target/${{ matrix.target }}/release/largo
+          if [ "$(uname)" = "Darwin" ]; then
+            if otool -L "$BIN" | grep -qi libz3; then echo "dynamic libz3 leaked in"; exit 1; fi
+          else
+            if ldd "$BIN" | grep -qi libz3; then echo "dynamic libz3 leaked in"; exit 1; fi
+          fi
+
+      # darwin-x64 is cross-compiled on arm64 runners — no smoke run there
+      # (Rosetta availability varies); every other target runs natively.
+      - name: Smoke-run
+        if: matrix.target != 'x86_64-apple-darwin'
+        shell: bash
+        run: target/${{ matrix.target }}/release/${{ matrix.bin }} --version
+
+      # Package INSIDE the build job: actions/upload-artifact@v4 drops the
+      # executable bit, so tarring after download would ship non-executable
+      # binaries.
+      - name: Package (unix)
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          mkdir -p dist/stage
+          cp target/${{ matrix.target }}/release/largo dist/stage/
+          cp LICENSE.md dist/stage/
+          printf '%s\n' \
+            "largo — the LOGOS build tool" \
+            "https://logicaffeine.com" \
+            "Install: curl -fsSL https://logicaffeine.com/install.sh | sh" \
+            > dist/stage/README.txt
+          chmod +x dist/stage/largo
+          tar -czf dist/${{ matrix.artifact }}.tar.gz -C dist/stage .
+
+      - name: Package (windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force dist/stage | Out-Null
+          Copy-Item target/${{ matrix.target }}/release/largo.exe dist/stage/
+          Copy-Item LICENSE.md dist/stage/
+          Set-Content dist/stage/README.txt "largo - the LOGOS build tool`nhttps://logicaffeine.com`nInstall: irm https://logicaffeine.com/install.ps1 | iex"
+          Compress-Archive -Path dist/stage/* -DestinationPath dist/${{ matrix.artifact }}.zip
+
+      - name: Upload largo artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact }}
+          path: dist/${{ matrix.artifact }}.*
+
+  # One VSIX per platform, each carrying exactly ONE server binary (~a few
+  # MB instead of all five), plus a binary-free universal VSIX the
+  # Marketplace serves to platforms without a targeted build (it resolves
+  # the server via the lsp.path setting or PATH).
   package-vscode:
-    name: Package VSCode Extension
+    name: Package VSIX (${{ matrix.target }})
     needs: build-lsp
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { target: linux-x64,    artifact: logicaffeine-lsp-linux-x64,    file: logicaffeine-lsp,     staged: logicaffeine-lsp-linux-x64 }
+          - { target: linux-arm64,  artifact: logicaffeine-lsp-linux-arm64,  file: logicaffeine-lsp,     staged: logicaffeine-lsp-linux-arm64 }
+          - { target: darwin-x64,   artifact: logicaffeine-lsp-darwin-x64,   file: logicaffeine-lsp,     staged: logicaffeine-lsp-darwin-x64 }
+          - { target: darwin-arm64, artifact: logicaffeine-lsp-darwin-arm64, file: logicaffeine-lsp,     staged: logicaffeine-lsp-darwin-arm64 }
+          - { target: win32-x64,    artifact: logicaffeine-lsp-win32-x64,    file: logicaffeine-lsp.exe, staged: logicaffeine-lsp-win32-x64.exe }
+          - { target: universal,    artifact: "",                            file: "",                   staged: "" }
     steps:
       - uses: actions/checkout@v4
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version: '22'
 
-      - name: Download all LSP binaries
+      - name: Download LSP binary
+        if: matrix.artifact != ''
         uses: actions/download-artifact@v4
         with:
-          path: lsp-binaries
+          name: ${{ matrix.artifact }}
+          path: lsp-binary
 
       - name: Prepare extension directory
         working-directory: editors/vscode/logicaffeine
         run: |
-          npm install
-          npm run compile
+          npm ci
           mkdir -p bin
 
-      - name: Stage LSP binaries
+      - name: Stage LSP binary
+        if: matrix.artifact != ''
         working-directory: editors/vscode/logicaffeine
         run: |
-          cp ../../../lsp-binaries/logicaffeine-lsp-linux-x64/logicaffeine-lsp    bin/logicaffeine-lsp-linux-x64
-          cp ../../../lsp-binaries/logicaffeine-lsp-linux-arm64/logicaffeine-lsp   bin/logicaffeine-lsp-linux-arm64
-          cp ../../../lsp-binaries/logicaffeine-lsp-darwin-x64/logicaffeine-lsp    bin/logicaffeine-lsp-darwin-x64
-          cp ../../../lsp-binaries/logicaffeine-lsp-darwin-arm64/logicaffeine-lsp  bin/logicaffeine-lsp-darwin-arm64
-          cp ../../../lsp-binaries/logicaffeine-lsp-win32-x64/logicaffeine-lsp.exe bin/logicaffeine-lsp-win32-x64.exe
-          chmod +x bin/logicaffeine-lsp-*
+          cp "../../../lsp-binary/${{ matrix.file }}" "bin/${{ matrix.staged }}"
+          chmod +x "bin/${{ matrix.staged }}"
 
-      - name: Install vsce
-        run: npm install -g @vscode/vsce
-
+      # `vsce package` runs vscode:prepublish, which esbuild-bundles the
+      # extension into dist/ — --no-dependencies is correct because the bundle
+      # is self-contained (tests/unit/vsix_contents.test.ts locks this).
       - name: Package VSIX
         working-directory: editors/vscode/logicaffeine
-        run: vsce package --no-dependencies -o logicaffeine.vsix
+        run: |
+          TARGET_FLAG=""
+          if [ "${{ matrix.target }}" != "universal" ]; then
+            TARGET_FLAG="--target ${{ matrix.target }}"
+          fi
+          npx vsce package --no-dependencies $TARGET_FLAG -o "logicaffeine-${{ matrix.target }}.vsix"
 
       - name: Upload VSIX
         uses: actions/upload-artifact@v4
         with:
-          name: logicaffeine-vsix
-          path: editors/vscode/logicaffeine/logicaffeine.vsix
+          name: vsix-${{ matrix.target }}
+          path: editors/vscode/logicaffeine/logicaffeine-${{ matrix.target }}.vsix
+
+  # The honest pre-publish gate: install the ACTUAL packaged VSIX into a real
+  # VSCode on each OS and run the integration suite against it — bundled
+  # server included. This is the job that catches "the published extension
+  # cannot activate" before anything publishes.
+  e2e-vsix:
+    name: VSIX install gate (${{ matrix.target }})
+    needs: package-vscode
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: ubuntu-latest,  target: linux-x64 }
+          - { os: macos-latest,   target: darwin-arm64 }
+          - { os: windows-latest, target: win32-x64 }
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Download VSIX
+        uses: actions/download-artifact@v4
+        with:
+          name: vsix-${{ matrix.target }}
+          path: vsix
+
+      - name: Install extension dependencies
+        working-directory: editors/vscode/logicaffeine
+        run: npm ci
+
+      - name: Run install gate (Linux, under xvfb)
+        if: runner.os == 'Linux'
+        working-directory: editors/vscode/logicaffeine
+        env:
+          VSIX_PATH: ${{ github.workspace }}/vsix/logicaffeine-${{ matrix.target }}.vsix
+        run: xvfb-run -a npm run test:vsix-gate
+
+      - name: Run install gate
+        if: runner.os != 'Linux'
+        working-directory: editors/vscode/logicaffeine
+        env:
+          VSIX_PATH: ${{ github.workspace }}/vsix/logicaffeine-${{ matrix.target }}.vsix
+        run: npm run test:vsix-gate
+
+  # MARKETPLACE PUBLISH — DELIBERATELY DISABLED for 0.10.0 (owner's call: VSIXs ship as
+  # GitHub-release artifacts only for now). Re-enable by uncommenting this job; the
+  # packaging, install gate, and release attachment above/below are unaffected.
+  ## Fail-loud marketplace publishing (mirrors publish.yml's philosophy):
+  ## missing secrets ABORT the job — never a silent skip — and the only
+  ## tolerated failure is "this exact version already exists" (re-run safe).
+  #publish-vscode:
+  #  name: Publish to Marketplaces
+  #  needs: [package-vscode, e2e-vsix]
+  #  runs-on: ubuntu-latest
+  #  if: startsWith(github.ref, 'refs/tags/v')
+  #  steps:
+  #    - name: Setup Node.js
+  #      uses: actions/setup-node@v4
+  #      with:
+  #        node-version: '22'
+
+  #    - name: Guard secrets (fail loud)
+  #      env:
+  #        VSCE_PAT: ${{ secrets.VSCE_PAT }}
+  #        OVSX_PAT: ${{ secrets.OVSX_PAT }}
+  #      run: |
+  #        [ -n "$VSCE_PAT" ] || { echo "::error::VSCE_PAT missing — refusing to silently skip Marketplace publish"; exit 1; }
+  #        [ -n "$OVSX_PAT" ] || { echo "::error::OVSX_PAT missing — refusing to silently skip Open VSX publish"; exit 1; }
+
+  #    - name: Download all VSIXs
+  #      uses: actions/download-artifact@v4
+  #      with:
+  #        pattern: vsix-*
+  #        path: vsix
+  #        merge-multiple: true
+
+  #    - name: Install publishers
+  #      run: npm install -g @vscode/vsce ovsx
+
+  #    - name: Publish to VSCode Marketplace
+  #      env:
+  #        VSCE_PAT: ${{ secrets.VSCE_PAT }}
+  #      run: |
+  #        set -o pipefail
+  #        for f in vsix/*.vsix; do
+  #          echo "publishing $f"
+  #          if out=$(vsce publish --packagePath "$f" -p "$VSCE_PAT" 2>&1); then
+  #            echo "$out"
+  #          elif echo "$out" | grep -qi "already exists"; then
+  #            echo "already published — skipping $f"
+  #          else
+  #            echo "$out"; exit 1
+  #          fi
+  #        done
+
+  #    - name: Publish to Open VSX
+  #      env:
+  #        OVSX_PAT: ${{ secrets.OVSX_PAT }}
+  #      run: |
+  #        set -o pipefail
+  #        for f in vsix/*.vsix; do
+  #          echo "publishing $f"
+  #          if out=$(ovsx publish "$f" -p "$OVSX_PAT" 2>&1); then
+  #            echo "$out"
+  #          elif echo "$out" | grep -qi "already published\|already exists"; then
+  #            echo "already published — skipping $f"
+  #          else
+  #            echo "$out"; exit 1
+  #          fi
+  #        done
 
   github-release:
     name: Create GitHub Release
-    needs: [build-lsp, package-vscode]
+    needs: [build-lsp, package-vscode, e2e-vsix, build-cli]
     runs-on: ubuntu-latest
     if: startsWith(github.ref, 'refs/tags/v')
     permissions:
@@ -136,13 +394,65 @@ jobs:
         run: |
           mkdir release
           cd artifacts
+          # upload-artifact drops the exec bit — restore it before tarring
+          # the LSP binaries (the largo tarballs were packaged in-job and
+          # already carry it).
+          chmod +x logicaffeine-lsp-*/logicaffeine-lsp* || true
           for dir in logicaffeine-lsp-*; do
             tar -czf "../release/${dir}.tar.gz" -C "$dir" .
           done
-          cp logicaffeine-vsix/logicaffeine.vsix ../release/
+          cp largo-*/largo-*.tar.gz ../release/ 2>/dev/null || true
+          cp largo-*/largo-*.zip    ../release/ 2>/dev/null || true
+          cp vsix-*/logicaffeine-*.vsix ../release/
+          cd ../release && sha256sum -- * > SHA256SUMS
 
       - name: Create release
         uses: softprops/action-gh-release@v2
         with:
           generate_release_notes: true
           files: release/*
+
+  # The honest post-publish gate: install the just-published release with
+  # the real installers, pinned to this tag, and check `largo --version`.
+  e2e-install:
+    name: e2e install (${{ matrix.name }})
+    needs: github-release
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { name: linux-lean,  os: ubuntu-22.04,     args: "" }
+          - { name: linux-arm-full, os: ubuntu-22.04-arm, args: "--full" }
+          - { name: macos-lean,  os: macos-latest,     args: "" }
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install via install.sh (pinned to this tag)
+        run: |
+          sh apps/logicaffeine_web/public/install.sh --version "${GITHUB_REF_NAME}" ${{ matrix.args }}
+          "$HOME/.local/bin/largo" --version
+          VERSION_OUT="$("$HOME/.local/bin/largo" --version)"
+          TAG_VERSION="${GITHUB_REF_NAME#v}"
+          case "$VERSION_OUT" in
+            *"$TAG_VERSION"*) echo "version matches: $VERSION_OUT" ;;
+            *) echo "installed version '$VERSION_OUT' does not match tag '$TAG_VERSION'"; exit 1 ;;
+          esac
+
+  e2e-install-windows:
+    name: e2e install (windows-ps1)
+    needs: github-release
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install via install.ps1 (pinned to this tag)
+        shell: pwsh
+        run: |
+          & ([scriptblock]::Create((Get-Content -Raw apps/logicaffeine_web/public/install.ps1))) -Version $env:GITHUB_REF_NAME
+          $out = & (Join-Path $env:LOCALAPPDATA "Programs\largo\largo.exe") --version
+          $tagVersion = $env:GITHUB_REF_NAME.TrimStart('v')
+          if ($out -notmatch [regex]::Escape($tagVersion)) {
+            throw "installed version '$out' does not match tag '$tagVersion'"
+          }
+          Write-Host "version matches: $out"

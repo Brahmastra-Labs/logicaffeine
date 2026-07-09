@@ -1,0 +1,18 @@
+{
+  "id": "Q_3.35",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "A politician is a scoundrel involved in politics.",
+  "options": [
+    "Too broad",
+    "Too narrow",
+    "Circular",
+    "Uses poorly understood terms",
+    "Poor match in vagueness",
+    "Poor match in emotional tone",
+    "Has non-essential properties"
+  ],
+  "correct": 1,
+  "hint": "Can you think of a genuine politician that this definition would wrongly EXCLUDE?",
+  "explanation": "Plenty of politicians are honest, and 'scoundrel' excludes them, so the definition is TOO NARROW — and 'scoundrel' also injects a hostile tone the neutral word 'politician' lacks."
+}

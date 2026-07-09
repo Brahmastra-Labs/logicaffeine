@@ -101,7 +101,10 @@ pub struct CycleState {
 ///
 /// # Example
 ///
-/// ```ignore
+/// ```
+/// use logicaffeine_verify::ir::{VerifyExpr, VerifyOp};
+/// use logicaffeine_verify::equivalence::{check_equivalence, EquivalenceResult};
+///
 /// let fol = VerifyExpr::binary(VerifyOp::Implies,
 ///     VerifyExpr::Var("req@0".into()),
 ///     VerifyExpr::Var("ack@0".into()),
@@ -259,7 +262,7 @@ fn collect_vars(expr: &VerifyExpr, vars: &mut HashSet<String>) {
         }
         VerifyExpr::ForAll { body, .. } => collect_vars(body, vars),
         VerifyExpr::Exists { body, .. } => collect_vars(body, vars),
-        VerifyExpr::Apply { args, .. } => {
+        VerifyExpr::Apply { args, .. } | VerifyExpr::ApplyInt { args, .. } => {
             for arg in args { collect_vars(arg, vars); }
         }
         // Bitvector and array variants
@@ -303,7 +306,7 @@ fn collect_int_vars<'ctx>(expr: &VerifyExpr, int_vars: &mut HashMap<String, Int<
         VerifyExpr::Binary { op, left, right } => {
             match op {
                 // Arithmetic ops: children are integer-typed
-                VerifyOp::Add | VerifyOp::Sub | VerifyOp::Mul | VerifyOp::Div => {
+                VerifyOp::Add | VerifyOp::Sub | VerifyOp::Mul | VerifyOp::Div | VerifyOp::FloorDiv => {
                     collect_int_var_leaves(left, int_vars, ctx);
                     collect_int_var_leaves(right, int_vars, ctx);
                 }
@@ -332,7 +335,7 @@ fn collect_int_vars<'ctx>(expr: &VerifyExpr, int_vars: &mut HashMap<String, Int<
         VerifyExpr::ForAll { body, .. } | VerifyExpr::Exists { body, .. } => {
             collect_int_vars(body, int_vars, ctx);
         }
-        VerifyExpr::Apply { args, .. } => {
+        VerifyExpr::Apply { args, .. } | VerifyExpr::ApplyInt { args, .. } => {
             for arg in args { collect_int_vars(arg, int_vars, ctx); }
         }
         _ => {}
@@ -386,7 +389,7 @@ fn collect_bv_vars<'ctx>(expr: &VerifyExpr, bv_vars: &mut HashMap<String, z3::as
         VerifyExpr::ForAll { body, .. } | VerifyExpr::Exists { body, .. } => {
             collect_bv_vars(body, bv_vars, ctx);
         }
-        VerifyExpr::Apply { args, .. } => {
+        VerifyExpr::Apply { args, .. } | VerifyExpr::ApplyInt { args, .. } => {
             for arg in args { collect_bv_vars(arg, bv_vars, ctx); }
         }
         VerifyExpr::Select { array, index } => {
@@ -632,7 +635,7 @@ fn type_to_z3_sort<'ctx>(ctx: &'ctx Context, ty: &VerifyType) -> z3::Sort<'ctx> 
 fn expr_is_integer(expr: &VerifyExpr) -> bool {
     matches!(expr,
         VerifyExpr::Int(_)
-        | VerifyExpr::Binary { op: VerifyOp::Add | VerifyOp::Sub | VerifyOp::Mul | VerifyOp::Div, .. }
+        | VerifyExpr::Binary { op: VerifyOp::Add | VerifyOp::Sub | VerifyOp::Mul | VerifyOp::Div | VerifyOp::FloorDiv, .. }
     )
 }
 
@@ -745,6 +748,12 @@ impl<'ctx> EquivEncoder<'ctx> {
                             Dynamic::from_ast(&li.div(&ri))
                         } else { l }
                     }
+                    // Floor division: real division then floor (`Real::to_int`), exact toward -inf.
+                    VerifyOp::FloorDiv => {
+                        if let (Some(li), Some(ri)) = (l.as_int(), r.as_int()) {
+                            Dynamic::from_ast(&(li.to_real() / ri.to_real()).to_int())
+                        } else { l }
+                    }
                     // Comparison ops → Bool (from Int operands)
                     VerifyOp::Gt => {
                         if let (Some(li), Some(ri)) = (l.as_int(), r.as_int()) {
@@ -786,6 +795,16 @@ impl<'ctx> EquivEncoder<'ctx> {
                 } else {
                     Dynamic::from_ast(&lb._eq(&rb))
                 }
+            }
+
+            VerifyExpr::ApplyInt { name, args } => {
+                let encoded_args: Vec<Dynamic<'ctx>> = args.iter().map(|a| self.encode(a)).collect();
+                let arg_sorts: Vec<z3::Sort<'ctx>> = encoded_args.iter().map(|a| a.get_sort()).collect();
+                let arg_sort_refs: Vec<&z3::Sort<'ctx>> = arg_sorts.iter().collect();
+                let int_sort = z3::Sort::int(self.ctx);
+                let func_decl = z3::FuncDecl::new(self.ctx, name.as_str(), &arg_sort_refs, &int_sort);
+                let arg_refs: Vec<&dyn z3::ast::Ast<'ctx>> = encoded_args.iter().map(|a| a as &dyn z3::ast::Ast<'ctx>).collect();
+                func_decl.apply(&arg_refs)
             }
 
             // Uninterpreted functions: create unique Z3 function symbol per name
@@ -943,6 +962,8 @@ impl<'ctx> EquivEncoder<'ctx> {
                 BitVecOp::Add => Dynamic::from_ast(&lb.bvadd(&rb)),
                 BitVecOp::Sub => Dynamic::from_ast(&lb.bvsub(&rb)),
                 BitVecOp::Mul => Dynamic::from_ast(&lb.bvmul(&rb)),
+                BitVecOp::SDiv => Dynamic::from_ast(&lb.bvsdiv(&rb)),
+                BitVecOp::SRem => Dynamic::from_ast(&lb.bvsrem(&rb)),
                 BitVecOp::ULt => Dynamic::from_ast(&lb.bvult(&rb)),
                 BitVecOp::SLt => Dynamic::from_ast(&lb.bvslt(&rb)),
                 BitVecOp::ULe => Dynamic::from_ast(&lb.bvule(&rb)),

@@ -1,0 +1,18 @@
+{
+  "id": "Q_3.9",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "A male is whatever has male reproductive organs.",
+  "options": [
+    "Too broad",
+    "Too narrow",
+    "Circular",
+    "Uses poorly understood terms",
+    "Poor match in vagueness",
+    "Poor match in emotional tone",
+    "Has non-essential properties"
+  ],
+  "correct": 2,
+  "hint": "Can you think of a genuine male that this definition would wrongly EXCLUDE?",
+  "explanation": "The word 'male' appears inside its own definition — 'whatever has male reproductive organs' — so it explains the term using the term. That is CIRCULAR: anyone who didn't already know what 'male' meant is no better off."
+}
