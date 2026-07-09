@@ -1,6 +1,6 @@
 [package]
 name = "logicaffeine-lexicon"
-version = "0.9.17"
+version.workspace = true
 edition.workspace = true
 authors.workspace = true
 repository.workspace = true
@@ -13,7 +13,7 @@ description = "English vocabulary types and compile-time lexicon lookup for logi
 readme = "README.md"
 
 [dependencies]
-logicaffeine-base = { version = "0.9.17", path = "../logicaffeine_base" }
+logicaffeine-base = { workspace = true }
 
 # For dynamic-lexicon feature (runtime JSON loading)
 serde = { version = "1.0", features = ["derive"], optional = true }
@@ -23,6 +23,13 @@ rand = { version = "0.8", optional = true }
 [features]
 default = []
 dynamic-lexicon = ["serde", "serde_json", "rand"]
+
+# The README (rendered as the crate docs via include_str!) shows a `runtime`
+# example that needs `dynamic-lexicon`. Depending on ourselves with the feature
+# on makes that doctest compile and run; a path-only dev-dep is stripped on
+# publish and never reaches the shipped dependency graph.
+[dev-dependencies]
+logicaffeine-lexicon = { path = ".", features = ["dynamic-lexicon"] }
 
 [package.metadata.docs.rs]
 features = ["dynamic-lexicon"]

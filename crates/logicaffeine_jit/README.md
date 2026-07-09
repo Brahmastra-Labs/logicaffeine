@@ -2,7 +2,7 @@
 
 The LOGOS native tier — wires the copy-and-patch forge JIT into the bytecode VM so hot functions and loop regions tier up to native machine code.
 
-Part of the [Logicaffeine](../../NEW_README.md) workspace. Tier 4, native-only (cfg-gated off `wasm32`). Workspace version 0.9.17, lockstep. Depends on `logicaffeine_compile` (the VM) and, off-wasm, on `logicaffeine_forge` (executable memory + stencils + register allocator). The execution-tier story is in [execution-and-performance.md](../../new_docs/execution-and-performance.md).
+Part of the [Logicaffeine](https://github.com/Brahmastra-Labs/logicaffeine/blob/main/README.md) workspace. Tier 4, native-only (cfg-gated off `wasm32`). Version lockstep with the workspace. Depends on `logicaffeine_compile` (the VM) and, off-wasm, on `logicaffeine_forge` (executable memory + stencils + register allocator). The execution-tier story is in [execution-and-performance.md](https://github.com/Brahmastra-Labs/logicaffeine/blob/main/docs/execution-and-performance.md).
 
 ## Role in the workspace
 
@@ -10,7 +10,7 @@ The bytecode VM in `logicaffeine-compile` profiles function calls and Main-loop 
 
 Anything outside the supported integer/float subset BAILS (`compile_* -> None`) and stays on bytecode forever — the deopt contract. The whole crate is `#![cfg(not(target_arch = "wasm32"))]`, so WASM builds compile it to nothing and the browser runs pure bytecode.
 
-```
+```text
 logicaffeine-compile (VM)  ──tier seam──▶  logicaffeine-jit  ──backend──▶  logicaffeine-forge
 ```
 
@@ -40,7 +40,7 @@ A single ~7.7k-line `lib.rs`. `ChainFn::call` runs the chain on a 2²¹-slot thr
 
 ## Usage
 
-```rust
+```rust,no_run
 logicaffeine_jit::segv_trace_install();
 if std::env::var_os("LOGOS_NO_JIT").is_none() {
     logicaffeine_jit::install();
@@ -51,7 +51,7 @@ if std::env::var_os("LOGOS_NO_JIT").is_none() {
 
 ## Tests & env knobs
 
-33 `#[test]`s live in five `#[cfg(test)]` modules inside `lib.rs` (there is no `tests/` directory): `select_pins_tests` (pin-budget soundness — e.g. a float result reused as an integer array index must NOT be float-pinned, the spectral_norm SIGSEGV regression), `fuse_rmw_tests`, `fuse_ld2_tests`, `fuse_affine_tests` (the array/float fusion peepholes), and `bug002_hazard_tests` (the cross-branch array-value-store hazard detector). The end-to-end VM↔native byte-equivalence and deopt-replay tests live in `logicaffeine-tests`.
+35 `#[test]`s live in six `#[cfg(test)]` modules inside `lib.rs` (there is no `tests/` directory): `memmem_safety_tests` (substring-scan memory-safety guards), `select_pins_tests` (pin-budget soundness — e.g. a float result reused as an integer array index must NOT be float-pinned, the spectral_norm SIGSEGV regression), `fuse_rmw_tests`, `fuse_ld2_tests`, `fuse_affine_tests` (the array/float fusion peepholes), and `bug002_hazard_tests` (the cross-branch array-value-store hazard detector). The end-to-end VM↔native byte-equivalence and deopt-replay tests live in `logicaffeine-tests`.
 
 ```bash
 cargo nextest run -p logicaffeine-jit     # this crate's unit tests (native-only, no Z3)
@@ -87,7 +87,7 @@ Every env var the crate honors is a diagnostic or a kill-switch; all behavior-ch
 
 ## License
 
-Business Source License 1.1 — see [LICENSE.md](../../LICENSE.md).
+Business Source License 1.1 — see [LICENSE.md](https://github.com/Brahmastra-Labs/logicaffeine/blob/main/LICENSE.md).
 
 ---
-[Docs index](../../new_docs/README.md) · [Root README](../../NEW_README.md) · [Changelog](../../CHANGELOG.md)
+[Docs index](https://github.com/Brahmastra-Labs/logicaffeine/blob/main/docs/README.md) · [Root README](https://github.com/Brahmastra-Labs/logicaffeine/blob/main/README.md) · [Changelog](https://github.com/Brahmastra-Labs/logicaffeine/blob/main/CHANGELOG.md)

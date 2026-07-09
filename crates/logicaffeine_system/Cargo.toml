@@ -1,6 +1,6 @@
 [package]
 name = "logicaffeine-system"
-version = "0.9.17"
+version.workspace = true
 edition.workspace = true
 authors.workspace = true
 repository.workspace = true
@@ -9,7 +9,7 @@ keywords.workspace = true
 categories.workspace = true
 rust-version.workspace = true
 license = "BUSL-1.1"
-description = "Platform IO and system services for LOGOS"
+description = "Platform IO, networking, persistence, and post-quantum crypto kernels (Keccak/SHA-3, ChaCha20-Poly1305, ML-KEM, ML-DSA) for LOGOS"
 readme = "README.md"
 
 [features]
@@ -32,8 +32,10 @@ distributed = ["networking", "persistence"]  # For Distributed<T>
 
 [dependencies]
 # Always included (lightweight core)
-logicaffeine-base = { version = "0.9.17", path = "../logicaffeine_base" }
-logicaffeine-data = { version = "0.9.17", path = "../logicaffeine_data" }
+logicaffeine-base = { workspace = true }
+logicaffeine-data = { workspace = true }
+# insertion-ordered Set impls (direct version: staged builds have no workspace root)
+indexmap = "2"
 serde = { version = "1.0", features = ["derive"] }
 bincode = "1.3"
 async-trait = "0.1"
@@ -95,6 +97,13 @@ web-sys = { version = "0.3", features = [
 
 [dev-dependencies]
 tempfile = "3.10"
+# Dev-only ML-KEM oracle (RustCrypto, FIPS 203). NEVER in the shipped graph — the Logos-native
+# crypto, composed from this crate's verified primitives, is validated bit-exact *against* it.
+ml-kem = { version = "0.2", features = ["deterministic"] }
+# Dev-only ML-DSA oracle (RustCrypto, FIPS 204), same role: validate our composition bit-exact.
+ml-dsa = "0.0.4"
+# Dev-only ChaCha20-Poly1305 reference (RustCrypto, RFC 8439) — the AEAD speed baseline.
+chacha20poly1305 = "0.10"
 
 # Headless-browser tests for the relay client (run via `wasm-pack test --headless`).
 [target.'cfg(target_arch = "wasm32")'.dev-dependencies]

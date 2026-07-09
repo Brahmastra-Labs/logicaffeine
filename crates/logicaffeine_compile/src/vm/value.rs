@@ -16,7 +16,7 @@
 //!
 //! Both representations expose the SAME public API and route non-inline operands
 //! through `crate::semantics` exactly the same way, so the VM↔tree-walker
-//! differential gate holds under either build. This is the seam VM_PLAN.md calls
+//! differential gate holds under either build. This is the seam work/VM_PLAN.md calls
 //! for: the representation swap touches only this file (plus the `as_runtime`
 //! borrow sites in `machine.rs`, which use [`RuntimeRef`] uniformly).
 
@@ -556,29 +556,43 @@ impl Value {
         arith::exact_divide(self.runtime_owned(), rhs.runtime_owned()).map(Value::from_runtime)
     }
 
+    /// FLOOR division (`Op::FloorDiv`, `a // b`) — the quotient rounded toward negative
+    /// infinity (`-7 // 2 → -4`), distinct from the truncating [`Value::div`]. Routes
+    /// through the shared kernel, so the VM stays bit-identical to the tree-walker.
+    pub fn floor_div(&self, rhs: &Value) -> Result<Value, String> {
+        arith::floor_divide(self.runtime_owned(), rhs.runtime_owned()).map(Value::from_runtime)
+    }
+
     pub fn modulo(&self, rhs: &Value) -> Result<Value, String> {
         arith::modulo(self.runtime_owned(), rhs.runtime_owned()).map(Value::from_runtime)
-    }
-
-    /// Eager `and` (both operands evaluated): kernel semantics — bitwise for
-    /// Int×Int, truthiness otherwise.
-    pub fn and_eager(&self, rhs: &Value) -> Result<Value, String> {
-        arith::binary_op(BinaryOpKind::And, self.runtime_owned(), rhs.runtime_owned())
-            .map(Value::from_runtime)
-    }
-
-    /// Eager `or` (see [`Value::and_eager`]).
-    pub fn or_eager(&self, rhs: &Value) -> Result<Value, String> {
-        arith::binary_op(BinaryOpKind::Or, self.runtime_owned(), rhs.runtime_owned())
-            .map(Value::from_runtime)
     }
 
     pub fn concat(&self, rhs: &Value) -> Result<Value, String> {
         arith::concat(self.runtime_owned(), rhs.runtime_owned()).map(Value::from_runtime)
     }
 
+    /// `a followed by b` — merge two sequences into one (reuses the tree-walker semantics).
+    pub fn seq_concat(&self, rhs: &Value) -> Result<Value, String> {
+        arith::seq_concat(self.runtime_owned(), rhs.runtime_owned()).map(Value::from_runtime)
+    }
+
+    pub fn pow(&self, rhs: &Value) -> Result<Value, String> {
+        arith::binary_op(BinaryOpKind::Pow, self.runtime_owned(), rhs.runtime_owned())
+            .map(Value::from_runtime)
+    }
+
     pub fn bitxor(&self, rhs: &Value) -> Result<Value, String> {
         arith::binary_op(BinaryOpKind::BitXor, self.runtime_owned(), rhs.runtime_owned())
+            .map(Value::from_runtime)
+    }
+
+    pub fn bitand(&self, rhs: &Value) -> Result<Value, String> {
+        arith::binary_op(BinaryOpKind::BitAnd, self.runtime_owned(), rhs.runtime_owned())
+            .map(Value::from_runtime)
+    }
+
+    pub fn bitor(&self, rhs: &Value) -> Result<Value, String> {
+        arith::binary_op(BinaryOpKind::BitOr, self.runtime_owned(), rhs.runtime_owned())
             .map(Value::from_runtime)
     }
 
@@ -731,14 +745,16 @@ mod value_comparison_tests {
 
     #[test]
     fn float_equality_matches_treewalker() {
-        // NaN is never equal to itself — the bit-equality bug must be gone.
+        // NaN is never equal to itself (IEEE, both engines).
         assert!(!Value::float(f64::NAN).eq_op(&Value::float(f64::NAN)).is_truthy());
         assert!(Value::float(f64::NAN).neq_op(&Value::float(f64::NAN)).is_truthy());
         // Exact equal floats are equal.
         assert!(Value::float(1.5).eq_op(&Value::float(1.5)).is_truthy());
-        // Near-equal floats compare equal (epsilon — matching the tree-walker).
+        // IEEE equality: 0.1 + 0.2 is NOT 0.3 — matching the tree-walker
+        // (and the compiled backend; `is approximately` is the tolerant form).
         let sum = Value::float(0.1).add(&Value::float(0.2)).unwrap(); // 0.30000000000000004
-        assert!(sum.eq_op(&Value::float(0.3)).is_truthy());
+        assert!(!sum.eq_op(&Value::float(0.3)).is_truthy());
+        assert!(sum.eq_op(&Value::float(0.30000000000000004)).is_truthy());
         // Distinct floats are not equal.
         assert!(!Value::float(1.0).eq_op(&Value::float(2.0)).is_truthy());
         // Other types unaffected.

@@ -147,6 +147,148 @@ pub fn find_counterexample_incremental(
     BmcOutcome::NoneWithin(max_k)
 }
 
+// ── Temporal symmetry ──────────────────────────────────────────────────────────────────────────
+//
+// A `signal@t` atom names a base signal observed at a time frame. A permutation of the BASE signals
+// that preserves the initial constraint, the (uniform) transition relation, and the property is a
+// symmetry of the system at EVERY frame — so applying it uniformly across the whole unrolling is an
+// automorphism of the BMC formula. Detecting it on the three single-frame obligations (not the giant
+// flat unrolling) is the temporal, model-checking-specific move; breaking it at the initial frame
+// prunes symmetric trajectories without changing whether a counterexample exists.
+
+/// Split a `signal@t` atom into `(base, frame)`; `None` for atoms carrying no frame.
+fn split_frame(a: &str) -> Option<(&str, &str)> {
+    a.rsplit_once('@')
+}
+
+/// Rename a formula by swapping two base signals, preserving each atom's time frame.
+fn swap_signals(e: &ProofExpr, a: &str, b: &str) -> ProofExpr {
+    match e {
+        ProofExpr::Atom(s) => match split_frame(s) {
+            Some((base, frame)) => {
+                let nb = if base == a {
+                    b
+                } else if base == b {
+                    a
+                } else {
+                    base
+                };
+                ProofExpr::Atom(format!("{nb}@{frame}"))
+            }
+            None => e.clone(),
+        },
+        ProofExpr::Not(x) => not(swap_signals(x, a, b)),
+        ProofExpr::And(x, y) => {
+            ProofExpr::And(Box::new(swap_signals(x, a, b)), Box::new(swap_signals(y, a, b)))
+        }
+        ProofExpr::Or(x, y) => {
+            ProofExpr::Or(Box::new(swap_signals(x, a, b)), Box::new(swap_signals(y, a, b)))
+        }
+        ProofExpr::Iff(x, y) => {
+            ProofExpr::Iff(Box::new(swap_signals(x, a, b)), Box::new(swap_signals(y, a, b)))
+        }
+        ProofExpr::Implies(x, y) => {
+            ProofExpr::Implies(Box::new(swap_signals(x, a, b)), Box::new(swap_signals(y, a, b)))
+        }
+        other => other.clone(),
+    }
+}
+
+/// Are two propositional obligations logically equivalent? (Their XOR is certified-UNSAT.) Semantic, so
+/// it recognises symmetries a purely syntactic clause-set comparison would miss.
+fn equivalent(e: &ProofExpr, f: &ProofExpr) -> bool {
+    let xor = ProofExpr::Or(
+        Box::new(ProofExpr::And(Box::new(e.clone()), Box::new(not(f.clone())))),
+        Box::new(ProofExpr::And(Box::new(f.clone()), Box::new(not(e.clone())))),
+    );
+    matches!(prove_unsat(&xor), UnsatOutcome::Refuted)
+}
+
+/// Accumulate the base signals appearing in a formula.
+fn base_signals(e: &ProofExpr, out: &mut std::collections::BTreeSet<String>) {
+    match e {
+        ProofExpr::Atom(s) => {
+            if let Some((base, _)) = split_frame(s) {
+                out.insert(base.to_string());
+            }
+        }
+        ProofExpr::Not(x) => base_signals(x, out),
+        ProofExpr::And(x, y)
+        | ProofExpr::Or(x, y)
+        | ProofExpr::Iff(x, y)
+        | ProofExpr::Implies(x, y) => {
+            base_signals(x, out);
+            base_signals(y, out);
+        }
+        _ => {}
+    }
+}
+
+/// The **temporal symmetries** of a transition system: pairs of base signals interchangeable across all
+/// time — a swap that preserves the initial constraint, the transition relation (checked on the generic
+/// frame `trans(0)`, hence on every frame by uniformity), and the property. Each surviving pair is a
+/// genuine system automorphism when lifted uniformly through the unrolling.
+pub fn temporal_symmetry_pairs(
+    init: &ProofExpr,
+    trans0: &ProofExpr,
+    property0: &ProofExpr,
+) -> Vec<(String, String)> {
+    let mut set = std::collections::BTreeSet::new();
+    base_signals(init, &mut set);
+    base_signals(trans0, &mut set);
+    base_signals(property0, &mut set);
+    let sigs: Vec<String> = set.into_iter().collect();
+    let mut pairs = Vec::new();
+    for i in 0..sigs.len() {
+        for j in (i + 1)..sigs.len() {
+            let (a, b) = (sigs[i].as_str(), sigs[j].as_str());
+            if equivalent(init, &swap_signals(init, a, b))
+                && equivalent(trans0, &swap_signals(trans0, a, b))
+                && equivalent(property0, &swap_signals(property0, a, b))
+            {
+                pairs.push((a.to_string(), b.to_string()));
+            }
+        }
+    }
+    pairs
+}
+
+/// Bounded model checking with **temporal symmetry breaking**. Interchangeable signals
+/// ([`temporal_symmetry_pairs`]) give a system automorphism that holds at every frame, so a swap lifted
+/// uniformly through the unrolling permutes counterexample trajectories. We order each pair at the initial
+/// frame (`a@0 ≤ b@0`, i.e. `¬a@0 ∨ b@0`): a sound partial lex-leader that keeps at least one trajectory
+/// per symmetry orbit. Hence a counterexample exists under the ordering iff one exists at all, and the
+/// shallowest violating depth is unchanged — the verdict matches [`find_counterexample`], with the
+/// symmetric search space pruned.
+pub fn find_counterexample_symmetric(
+    init: &ProofExpr,
+    trans: &dyn Fn(u32) -> ProofExpr,
+    property: &dyn Fn(u32) -> ProofExpr,
+    max_k: u32,
+) -> BmcOutcome {
+    let pairs = temporal_symmetry_pairs(init, &trans(0), &property(0));
+    let breaks: Vec<ProofExpr> = pairs
+        .iter()
+        .map(|(a, b)| {
+            ProofExpr::Or(
+                Box::new(not(ProofExpr::Atom(format!("{a}@0")))),
+                Box::new(ProofExpr::Atom(format!("{b}@0"))),
+            )
+        })
+        .collect();
+    for k in 0..=max_k {
+        let mut parts = unrolled_path(init, trans, k);
+        parts.push(not(property(k)));
+        parts.extend(breaks.iter().cloned());
+        match prove_unsat(&conj(parts)) {
+            UnsatOutcome::Sat(trace) => return BmcOutcome::CounterexampleAt { k, trace },
+            UnsatOutcome::Refuted => continue,
+            UnsatOutcome::Unsupported => return BmcOutcome::Unsupported,
+        }
+    }
+    BmcOutcome::NoneWithin(max_k)
+}
+
 /// The verdict of k-induction.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum InductionOutcome {
@@ -322,6 +464,57 @@ mod tests {
             }
             other => panic!("expected a counterexample, got {other:?}"),
         }
+    }
+
+    #[test]
+    fn temporal_symmetry_detected_and_broken_in_bmc() {
+        // Two interchangeable latches s0, s1. init: at least one on. property: not both on. The system is
+        // symmetric under swapping s0 ↔ s1 at EVERY time frame.
+        let sym_init = ProofExpr::Or(Box::new(atom("s0@0")), Box::new(atom("s1@0")));
+        let sym_trans = |t: u32| {
+            conj(vec![
+                iff(atom(&format!("s0@{}", t + 1)), atom(&format!("s0@{}", t))),
+                iff(atom(&format!("s1@{}", t + 1)), atom(&format!("s1@{}", t))),
+            ])
+        };
+        let not_both = |t: u32| {
+            not(ProofExpr::And(
+                Box::new(atom(&format!("s0@{}", t))),
+                Box::new(atom(&format!("s1@{}", t))),
+            ))
+        };
+
+        // The temporal symmetry is detected: s0, s1 are interchangeable across time.
+        let pairs = temporal_symmetry_pairs(&sym_init, &sym_trans(0), &not_both(0));
+        assert_eq!(pairs, vec![("s0".to_string(), "s1".to_string())], "s0 ↔ s1 is a temporal symmetry");
+
+        // Counterexample (both latches on at t=0 violates "not both") — symmetric BMC agrees with plain BMC.
+        let plain = find_counterexample(&sym_init, &sym_trans, &not_both, 4);
+        let broken = find_counterexample_symmetric(&sym_init, &sym_trans, &not_both, 4);
+        assert!(matches!(plain, BmcOutcome::CounterexampleAt { k: 0, .. }), "plain: {plain:?}");
+        assert!(matches!(broken, BmcOutcome::CounterexampleAt { k: 0, .. }), "broken: {broken:?}");
+
+        // No counterexample for the same symmetric system with a satisfied property ("at least one on"):
+        // the symmetry break must not turn a NoneWithin into a spurious counterexample.
+        let at_least_one =
+            |t: u32| ProofExpr::Or(Box::new(atom(&format!("s0@{}", t))), Box::new(atom(&format!("s1@{}", t))));
+        assert_eq!(
+            find_counterexample_symmetric(&sym_init, &sym_trans, &at_least_one, 5),
+            find_counterexample(&sym_init, &sym_trans, &at_least_one, 5),
+            "symmetric BMC matches plain BMC on a held invariant"
+        );
+
+        // An asymmetric system (the single-signal toggle) has no interchangeable signals, and the symmetric
+        // search then coincides exactly with plain BMC.
+        assert!(
+            temporal_symmetry_pairs(&toggle_init(), &toggle_trans(0), &toggle_always_false(0)).is_empty(),
+            "a one-signal system has no signal-swap symmetry"
+        );
+        assert_eq!(
+            find_counterexample_symmetric(&toggle_init(), &toggle_trans, &toggle_always_false, 5),
+            find_counterexample(&toggle_init(), &toggle_trans, &toggle_always_false, 5),
+            "with no symmetry, symmetric BMC = plain BMC"
+        );
     }
 
     #[test]

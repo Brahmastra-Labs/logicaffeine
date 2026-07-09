@@ -171,6 +171,7 @@ pub fn collect_dependencies(ctx: &Context, entry: &str) -> HashSet<String> {
 pub(crate) fn collect_globals(term: &Term, deps: &mut Vec<String>) {
     match term {
         Term::Global(name) => deps.push(name.clone()),
+        Term::Const { name, .. } => deps.push(name.clone()),
         Term::App(f, a) => {
             collect_globals(f, deps);
             collect_globals(a, deps);
@@ -199,6 +200,18 @@ pub(crate) fn collect_globals(term: &Term, deps: &mut Vec<String>) {
             collect_globals(motive, deps);
             for case in cases {
                 collect_globals(case, deps);
+            }
+        }
+        Term::Let {
+            ty, value, body, ..
+        } => {
+            collect_globals(ty, deps);
+            collect_globals(value, deps);
+            collect_globals(body, deps);
+        }
+        Term::MutualFix { defs, .. } => {
+            for (_, body) in defs {
+                collect_globals(body, deps);
             }
         }
         // Base cases: no dependencies

@@ -109,6 +109,21 @@ pub struct OwnershipChecker<'a> {
     types: HashMap<Symbol, bool>,
     /// String interner for resolving symbols
     interner: &'a Interner,
+    /// Which top-level statement moved each variable — the cause link that
+    /// [`OwnershipChecker::check_program_collect`] reports for diagnostics.
+    moved_at: HashMap<Symbol, usize>,
+    /// The top-level statement currently being checked (collect mode).
+    current_top_stmt: usize,
+}
+
+/// One ownership finding with its statement coordinates: the top-level
+/// statement that ERRED, and (when known) the one that CAUSED it by moving
+/// the variable. Both map 1:1 onto `Parser::stmt_spans()`.
+#[derive(Debug)]
+pub struct OwnershipFinding {
+    pub stmt_index: usize,
+    pub cause_stmt_index: Option<usize>,
+    pub error: OwnershipError,
 }
 
 impl<'a> OwnershipChecker<'a> {
@@ -117,7 +132,54 @@ impl<'a> OwnershipChecker<'a> {
             state: HashMap::new(),
             types: HashMap::new(),
             interner,
+            moved_at: HashMap::new(),
+            current_top_stmt: 0,
         }
+    }
+
+    /// Record a move, remembering which top-level statement performed it.
+    fn mark_moved(&mut self, sym: Symbol) {
+        self.state.insert(sym, VarState::Moved);
+        self.moved_at.insert(sym, self.current_top_stmt);
+    }
+
+    /// The interned symbol behind an error's variable name, if still tracked.
+    fn symbol_for(&self, error: &OwnershipError) -> Option<Symbol> {
+        let name = match &error.kind {
+            OwnershipErrorKind::UseAfterMove { variable }
+            | OwnershipErrorKind::UseAfterMaybeMove { variable, .. }
+            | OwnershipErrorKind::DoubleMoved { variable } => variable,
+        };
+        self.state
+            .keys()
+            .copied()
+            .find(|s| self.interner.resolve(*s) == name)
+    }
+
+    /// Collect EVERY ownership finding instead of bailing at the first.
+    ///
+    /// After each finding the offending variable resets to `Owned`, so one
+    /// use-after-move does not cascade into errors on every later use.
+    /// [`OwnershipChecker::check_program`] keeps the strict fail-fast
+    /// contract for compile paths.
+    pub fn check_program_collect(&mut self, stmts: &[Stmt<'_>]) -> Vec<OwnershipFinding> {
+        let mut findings = Vec::new();
+        for (index, stmt) in stmts.iter().enumerate() {
+            self.current_top_stmt = index;
+            if let Err(error) = self.check_stmt(stmt) {
+                let sym = self.symbol_for(&error);
+                let cause_stmt_index = sym.and_then(|s| self.moved_at.get(&s).copied());
+                if let Some(s) = sym {
+                    self.state.insert(s, VarState::Owned);
+                }
+                findings.push(OwnershipFinding {
+                    stmt_index: index,
+                    cause_stmt_index,
+                    error,
+                });
+            }
+        }
+        findings
     }
 
     /// Access the current variable ownership states.
@@ -161,7 +223,7 @@ impl<'a> OwnershipChecker<'a> {
                 for arg in args.iter() {
                     if let Expr::Identifier(sym) = arg {
                         if !self.is_copy_sym(*sym) {
-                            self.state.insert(*sym, VarState::Moved);
+                            self.mark_moved(*sym);
                         }
                     }
                     self.mark_moves_in_expr(arg);
@@ -216,7 +278,7 @@ impl<'a> OwnershipChecker<'a> {
                 // Mark non-Copy identifiers used as values as Moved
                 if let Expr::Identifier(sym) = value {
                     if !self.is_copy_sym(*sym) {
-                        self.state.insert(*sym, VarState::Moved);
+                        self.mark_moved(*sym);
                     }
                 }
                 // Mark non-Copy function call arguments as Moved
@@ -250,7 +312,7 @@ impl<'a> OwnershipChecker<'a> {
                             });
                         }
                         _ => {
-                            self.state.insert(*sym, VarState::Moved);
+                            self.mark_moved(*sym);
                         }
                     }
                 } else {
@@ -360,7 +422,7 @@ impl<'a> OwnershipChecker<'a> {
                 for arg in args.iter() {
                     if let Expr::Identifier(sym) = arg {
                         if !self.is_copy_sym(*sym) {
-                            self.state.insert(*sym, VarState::Moved);
+                            self.mark_moved(*sym);
                         }
                     }
                 }

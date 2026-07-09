@@ -110,9 +110,16 @@ pub struct LexiconIndex {
 impl LexiconIndex {
     /// Load and parse the lexicon from the embedded JSON file.
     pub fn new() -> Self {
-        let data: LexiconData = serde_json::from_str(LEXICON_JSON)
-            .expect("Failed to parse lexicon.json");
-        Self { data }
+        Self::from_json(LEXICON_JSON).expect("Failed to parse lexicon.json")
+    }
+
+    /// Parse a lexicon from a caller-supplied JSON document (same format as
+    /// `lexicon.json`). This is how targets that fetch the lexicon at runtime —
+    /// the web app pulls it from `/data/lexicon.json` — build an index without
+    /// carrying the embedded copy in their binary.
+    pub fn from_json(json: &str) -> Result<Self, serde_json::Error> {
+        let data: LexiconData = serde_json::from_str(json)?;
+        Ok(Self { data })
     }
 
     /// Get all nouns marked with the "Proper" feature (names).
@@ -483,6 +490,24 @@ mod tests {
         assert!(!index.proper_nouns().is_empty());
         assert!(!index.common_nouns().is_empty());
         assert!(!index.intersective_adjectives().is_empty());
+    }
+
+    #[test]
+    fn from_json_matches_embedded_new() {
+        // A caller-supplied document (the wasm app fetches the same bytes at runtime)
+        // must build an index indistinguishable from the embedded-JSON constructor.
+        let embedded = LexiconIndex::new();
+        let parsed = LexiconIndex::from_json(LEXICON_JSON).expect("shipped lexicon.json parses");
+        assert_eq!(embedded.proper_nouns().len(), parsed.proper_nouns().len());
+        assert_eq!(embedded.common_nouns().len(), parsed.common_nouns().len());
+        assert_eq!(embedded.transitive_verbs().len(), parsed.transitive_verbs().len());
+        assert_eq!(embedded.intransitive_verbs().len(), parsed.intransitive_verbs().len());
+        assert_eq!(
+            embedded.intersective_adjectives().len(),
+            parsed.intersective_adjectives().len()
+        );
+        // Malformed input is a proper error, never a panic.
+        assert!(LexiconIndex::from_json("{").is_err());
     }
 
     #[test]

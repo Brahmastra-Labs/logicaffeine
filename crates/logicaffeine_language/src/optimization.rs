@@ -167,7 +167,7 @@ impl TierThresholds {
         )
     }
 
-    /// The pure, testable core of [`from_env`].
+    /// The pure, testable core of `from_env`.
     pub fn from_spec(
         combined: Option<&str>,
         t1: Option<&str>,
@@ -300,7 +300,7 @@ impl HotswapConfig {
     /// start at the baseline (T0) and rely on the native tier — and, later, per-function
     /// re-optimization — to escalate hot code during the run, reclaiming the upfront
     /// optimizer cost (HOTSWAP §12.1). `force_tier` overrides everything (test
-    /// determinism). Distinct from [`effective_tier`], which maps a per-unit hotness
+    /// determinism). Distinct from `effective_tier`, which maps a per-unit hotness
     /// COUNT to a tier; this maps the program-level MODE to the upfront tier.
     #[inline]
     pub fn run_tier(&self) -> Tier {
@@ -326,7 +326,7 @@ impl HotswapConfig {
         )
     }
 
-    /// The pure, testable core of [`from_env`].
+    /// The pure, testable core of `from_env`.
     pub fn from_spec(
         hotswap: Option<&str>,
         profile: Option<&str>,
@@ -559,12 +559,12 @@ pub struct OptMeta {
     /// `normalize` turns this one off too.
     pub requires: &'static [Opt],
     /// Optimizations mutually exclusive with this one — GLOBAL exclusion (both on
-    /// → `normalize` disables the later-declared). Distinct from [`preempts`].
+    /// → `normalize` disables the later-declared). Distinct from `preempts`.
     pub conflicts: &'static [Opt],
     /// Optimizations this one takes PRECEDENCE over, per instance: when both are
     /// enabled, this one is tried/applied first for a given function/loop/array/
     /// map, and the listed ones act as the fallback for the instances it did not
-    /// claim. Both stay enabled (unlike [`conflicts`]); the listed optimization
+    /// claim. Both stay enabled (unlike `conflicts`); the listed optimization
     /// fires only where this one declined. Disabling THIS one is what can let a
     /// preempted optimization surface — the edge the menu-tree walks.
     pub preempts: &'static [Opt],
@@ -583,6 +583,9 @@ pub static REGISTRY: &[OptMeta] = &[
     OptMeta { opt: Opt::Memo, keyword: "memo", label: "Memoization", group: "Inlining & calls", default_on: true, paths: AOT | CODEGEN, emits_unsafe: false, mem_class: TradesMemForSpeed, cost: Cheap, requires: &[], conflicts: &[], preempts: &[], scope: Both },
     OptMeta { opt: Opt::Tco, keyword: "tco", label: "Tail-call optimization", group: "Inlining & calls", default_on: true, paths: AOT | RUN | CODEGEN, emits_unsafe: false, mem_class: Neutral, cost: Cheap, requires: &[], conflicts: &[], preempts: &[Opt::Memo], scope: Both },
     OptMeta { opt: Opt::Peephole, keyword: "peephole", label: "Peephole rewrites", group: "Peephole", default_on: true, paths: AOT | CODEGEN, emits_unsafe: true, mem_class: Neutral, cost: Cheap, requires: &[], conflicts: &[], preempts: &[], scope: Both },
+    // Borrow preempts Tco: a `&mut [T]` in-place recursion (quicksort's
+    // consume-alias shape) keeps its plain recursive calls — the pair-TCE
+    // rewrite would reassign the borrowed param.
     OptMeta { opt: Opt::Borrow, keyword: "borrow", label: "Borrow inference", group: "Arrays & memory", default_on: true, paths: AOT | CODEGEN, emits_unsafe: false, mem_class: SavesMem, cost: Cheap, requires: &[], conflicts: &[], preempts: &[Opt::Tco], scope: Both },
     OptMeta { opt: Opt::Specialize, keyword: "specialize", label: "Partial evaluation", group: "Inlining & calls", default_on: true, paths: AOT | RUN, emits_unsafe: false, mem_class: TradesMemForSpeed, cost: Medium, requires: &[], conflicts: &[], preempts: &[], scope: Both },
     OptMeta { opt: Opt::Comptime, keyword: "comptime", label: "Compile-time evaluation (CTFE)", group: "Inlining & calls", default_on: true, paths: AOT | RUN, emits_unsafe: false, mem_class: Neutral, cost: Medium, requires: &[], conflicts: &[], preempts: &[Opt::Supercompile], scope: Both },
@@ -865,7 +868,7 @@ impl OptimizationConfig {
         Self::from_spec(master_off, profile.as_deref(), off.as_deref())
     }
 
-    /// The pure, testable core of [`from_env`]. `master_off` disables everything;
+    /// The pure, testable core of `from_env`. `master_off` disables everything;
     /// `profile` picks the base preset (speed by default); `off_list` is a
     /// comma/space/`;`-separated list of keywords to disable. The result is
     /// normalized.

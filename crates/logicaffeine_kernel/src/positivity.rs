@@ -30,7 +30,20 @@ use crate::term::Term;
 ///
 /// This is the main entry point for positivity checking.
 pub fn check_positivity(inductive: &str, constructor: &str, ty: &Term) -> KernelResult<()> {
-    check_strictly_positive(inductive, constructor, ty)
+    check_strictly_positive(&[inductive], constructor, ty)
+}
+
+/// Check strict positivity of a MUTUAL BLOCK of inductives in a constructor type.
+///
+/// A constructor of one block member may recursively reference ANY member — `Even`'s
+/// `even_succ : Π(n). Odd n → Even (Succ n)` places the sibling `Odd` in a
+/// strictly-positive recursive position. The block is treated as a single "inductive"
+/// for positivity: an occurrence of any member to the RIGHT of every arrow is a
+/// (recursive) occurrence and allowed; any member in a DOMAIN is a negative
+/// occurrence and rejected — so a cross-block paradox `(Even n → False) → Odd n` is
+/// caught exactly as a self-negative one is.
+pub fn check_positivity_mutual(block: &[&str], constructor: &str, ty: &Term) -> KernelResult<()> {
+    check_strictly_positive(block, constructor, ty)
 }
 
 /// Check that the inductive appears only strictly positively.
@@ -39,11 +52,14 @@ pub fn check_positivity(inductive: &str, constructor: &str, ty: &Term) -> Kernel
 /// - I as a direct parameter type (recursive argument)
 /// - I in the final result type
 /// - But NOT I nested inside function types within parameters
-fn check_strictly_positive(inductive: &str, constructor: &str, ty: &Term) -> KernelResult<()> {
+fn check_strictly_positive(block: &[&str], constructor: &str, ty: &Term) -> KernelResult<()> {
     match ty {
-        // Direct occurrence of the inductive is always fine
+        // A universe-polymorphic reference cannot mention this (newly-declared) inductive.
+        Term::Const { .. } => Ok(()),
+
+        // Direct occurrence of a block member is always fine
         // (either as recursive argument or result type)
-        Term::Global(name) if name == inductive => Ok(()),
+        Term::Global(name) if block.contains(&name.as_str()) => Ok(()),
 
         // Pi type: Π(x:A). B
         Term::Pi {
@@ -52,29 +68,29 @@ fn check_strictly_positive(inductive: &str, constructor: &str, ty: &Term) -> Ker
             ..
         } => {
             // Check the parameter type A.
-            // If A is a recursive argument (`I` applied to its parameters, with
-            // `I` not occurring in the arguments — `I`, `I a`, `List A`, …), it
-            // is a strictly-positive recursive occurrence (allowed). Otherwise
-            // `I` must not occur in A at all.
-            if !is_recursive_arg(inductive, param_type) && occurs_in(inductive, param_type) {
+            // If A is a recursive argument (a block member `I` applied to its
+            // parameters, with no block member occurring in the arguments — `I`,
+            // `I a`, `List A`, `Odd n`, …), it is a strictly-positive recursive
+            // occurrence (allowed). Otherwise no block member may occur in A at all.
+            if !is_recursive_arg(block, param_type) && occurs_in(block, param_type) {
                 return Err(KernelError::PositivityViolation {
-                    inductive: inductive.to_string(),
+                    inductive: block.join("/"),
                     constructor: constructor.to_string(),
                     reason: format!(
                         "'{}' occurs in negative position (inside parameter type)",
-                        inductive
+                        block.join("/")
                     ),
                 });
             }
 
             // Recursively check the body type B
-            check_strictly_positive(inductive, constructor, body_type)
+            check_strictly_positive(block, constructor, body_type)
         }
 
         // Application: check both parts
         Term::App(func, arg) => {
-            check_strictly_positive(inductive, constructor, func)?;
-            check_strictly_positive(inductive, constructor, arg)
+            check_strictly_positive(block, constructor, func)?;
+            check_strictly_positive(block, constructor, arg)
         }
 
         // Lambda (unusual in types, but handle it)
@@ -82,23 +98,23 @@ fn check_strictly_positive(inductive: &str, constructor: &str, ty: &Term) -> Ker
             param_type, body, ..
         } => {
             // Same rule as Pi for param_type
-            if !is_recursive_arg(inductive, param_type) && occurs_in(inductive, param_type) {
+            if !is_recursive_arg(block, param_type) && occurs_in(block, param_type) {
                 return Err(KernelError::PositivityViolation {
-                    inductive: inductive.to_string(),
+                    inductive: block.join("/"),
                     constructor: constructor.to_string(),
                     reason: format!(
                         "'{}' occurs in negative position (inside lambda parameter)",
-                        inductive
+                        block.join("/")
                     ),
                 });
             }
-            check_strictly_positive(inductive, constructor, body)
+            check_strictly_positive(block, constructor, body)
         }
 
         // Other terms: no occurrences of the inductive to worry about
         Term::Sort(_) => Ok(()),
         Term::Var(_) => Ok(()),
-        Term::Global(_) => Ok(()), // Other globals, not the inductive
+        Term::Global(_) => Ok(()), // Other globals, not a block member
         Term::Lit(_) => Ok(()),    // Literals cannot contain inductives
 
         // Match in types (unusual but possible)
@@ -107,63 +123,102 @@ fn check_strictly_positive(inductive: &str, constructor: &str, ty: &Term) -> Ker
             motive,
             cases,
         } => {
-            check_strictly_positive(inductive, constructor, discriminant)?;
-            check_strictly_positive(inductive, constructor, motive)?;
+            check_strictly_positive(block, constructor, discriminant)?;
+            check_strictly_positive(block, constructor, motive)?;
             for case in cases {
-                check_strictly_positive(inductive, constructor, case)?;
+                check_strictly_positive(block, constructor, case)?;
             }
             Ok(())
         }
 
         // Fix in types (very unusual)
-        Term::Fix { body, .. } => check_strictly_positive(inductive, constructor, body),
+        Term::Fix { body, .. } => check_strictly_positive(block, constructor, body),
+
+        // Mutual fix in types (very unusual): check every definition's body.
+        Term::MutualFix { defs, .. } => {
+            for (_, body) in defs {
+                check_strictly_positive(block, constructor, body)?;
+            }
+            Ok(())
+        }
+
+        // Let in types: the value and type are checked; the body carries the
+        // positivity obligation of the constructor's remaining shape.
+        Term::Let { ty, value, body, .. } => {
+            if occurs_in(block, ty) || occurs_in(block, value) {
+                return Err(KernelError::PositivityViolation {
+                    inductive: block.join("/"),
+                    constructor: constructor.to_string(),
+                    reason: format!("'{}' occurs in a let-binding's type or value", block.join("/")),
+                });
+            }
+            check_strictly_positive(block, constructor, body)
+        }
 
         // Hole: type placeholder, no occurrences to check
         Term::Hole => Ok(()),
     }
 }
 
-/// True if `term` is a strictly-positive recursive occurrence of `inductive`:
-/// the inductive applied to zero or more arguments (`I`, `I a`, `List A B`, …)
-/// where `inductive` does not itself occur in any of those arguments. This is
-/// the "recursive argument" form a constructor parameter may legitimately take;
-/// a PARAMETERIZED inductive's recursive field is `I` applied to its parameters
-/// (`MyList A`), not the bare global `I`.
-fn is_recursive_arg(inductive: &str, term: &Term) -> bool {
-    let mut head = term;
-    let mut args: Vec<&Term> = Vec::new();
-    while let Term::App(func, arg) = head {
-        args.push(arg.as_ref());
-        head = func.as_ref();
+/// True if `term` is a strictly-positive recursive occurrence of `inductive` —
+/// possibly a FUNCTIONAL one. Two shapes:
+/// - a TELESCOPE `Π(z:B). rest` where `inductive` does not occur in the domain
+///   `B` (so it is not in a negative position) and `rest` is itself a recursive
+///   occurrence — e.g. `Acc_intro`'s field `Π(y:A). R y x → Acc A R y`, or a
+///   rose tree's `Nat → Tree`; and
+/// - the BASE `I e₁ … eₙ`: the inductive applied to arguments that do not mention
+///   it (`I`, `I a`, `List A`, an indexed `Acc A R y`).
+///
+/// This is exactly CIC strict positivity: the inductive may appear only to the
+/// RIGHT of every arrow. A negative occurrence (`Bad → …`, `(Bad → X) → …`) puts
+/// it in a domain, so `is_recursive_arg` returns `false` and the caller's
+/// `occurs_in` check then rejects the constructor.
+fn is_recursive_arg(block: &[&str], term: &Term) -> bool {
+    match term {
+        Term::Pi { param_type, body_type, .. } => {
+            !occurs_in(block, param_type) && is_recursive_arg(block, body_type)
+        }
+        _ => {
+            let mut head = term;
+            let mut args: Vec<&Term> = Vec::new();
+            while let Term::App(func, arg) = head {
+                args.push(arg.as_ref());
+                head = func.as_ref();
+            }
+            matches!(head, Term::Global(name) if block.contains(&name.as_str()))
+                && args.iter().all(|a| !occurs_in(block, a))
+        }
     }
-    matches!(head, Term::Global(name) if name == inductive)
-        && args.iter().all(|a| !occurs_in(inductive, a))
 }
 
-/// Check if the inductive name occurs anywhere in the term.
-fn occurs_in(inductive: &str, term: &Term) -> bool {
+/// Check if any block member's name occurs anywhere in the term.
+fn occurs_in(block: &[&str], term: &Term) -> bool {
     match term {
-        Term::Global(name) => name == inductive,
-        Term::Sort(_) | Term::Var(_) | Term::Lit(_) => false,
+        Term::Global(name) => block.contains(&name.as_str()),
+        Term::Sort(_) | Term::Var(_) | Term::Lit(_) | Term::Const { .. } => false,
         Term::Pi {
             param_type,
             body_type,
             ..
-        } => occurs_in(inductive, param_type) || occurs_in(inductive, body_type),
+        } => occurs_in(block, param_type) || occurs_in(block, body_type),
         Term::Lambda {
             param_type, body, ..
-        } => occurs_in(inductive, param_type) || occurs_in(inductive, body),
-        Term::App(func, arg) => occurs_in(inductive, func) || occurs_in(inductive, arg),
+        } => occurs_in(block, param_type) || occurs_in(block, body),
+        Term::App(func, arg) => occurs_in(block, func) || occurs_in(block, arg),
         Term::Match {
             discriminant,
             motive,
             cases,
         } => {
-            occurs_in(inductive, discriminant)
-                || occurs_in(inductive, motive)
-                || cases.iter().any(|c| occurs_in(inductive, c))
+            occurs_in(block, discriminant)
+                || occurs_in(block, motive)
+                || cases.iter().any(|c| occurs_in(block, c))
         }
-        Term::Fix { body, .. } => occurs_in(inductive, body),
+        Term::Fix { body, .. } => occurs_in(block, body),
+        Term::MutualFix { defs, .. } => defs.iter().any(|(_, b)| occurs_in(block, b)),
+        Term::Let { ty, value, body, .. } => {
+            occurs_in(block, ty) || occurs_in(block, value) || occurs_in(block, body)
+        }
         Term::Hole => false, // Holes don't contain inductives
     }
 }

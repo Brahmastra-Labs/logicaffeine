@@ -90,6 +90,43 @@ impl<T> LogosSeq<T> {
     }
 }
 
+/// A FILL-SLOT copy: collections copy DEEP, so every slot of a fill
+/// (`n copies of x`, `[x] * n`) is an independent row — never `n` aliases of
+/// one row (the classic `[[0]] * 3` footgun is designed out). Scalars copy
+/// plain. Mirrors the tree-walker's recursive `RuntimeValue::deep_clone`.
+pub trait FillClone {
+    fn fill_clone(&self) -> Self;
+}
+
+macro_rules! fill_by_clone {
+    ($($t:ty),* $(,)?) => {
+        $(impl FillClone for $t {
+            #[inline]
+            fn fill_clone(&self) -> Self {
+                self.clone()
+            }
+        })*
+    };
+}
+
+fill_by_clone!(i8, i16, i32, i64, i128, u8, u16, u32, u64, usize, f32, f64, bool, char, String);
+
+impl<T: FillClone> FillClone for LogosSeq<T> {
+    fn fill_clone(&self) -> Self {
+        Self(Rc::new(RefCell::new(
+            self.0.borrow().iter().map(|e| e.fill_clone()).collect(),
+        )))
+    }
+}
+
+impl<K: Clone + Eq + Hash, V: FillClone> FillClone for LogosMap<K, V> {
+    fn fill_clone(&self) -> Self {
+        Self(Rc::new(RefCell::new(
+            self.0.borrow().iter().map(|(k, v)| (k.clone(), v.fill_clone())).collect(),
+        )))
+    }
+}
+
 impl<T: Clone> LogosSeq<T> {
     pub fn deep_clone(&self) -> Self {
         Self(Rc::new(RefCell::new(self.0.borrow().clone())))
@@ -141,9 +178,61 @@ impl<T> LogosSeq<T> {
     }
 }
 
-impl<T> Clone for LogosSeq<T> {
+/// Whether Mutable Value Semantics is enabled for compiled (AOT) programs. The
+/// AOT binary is a separate process from the interpreter, so it reads the
+/// `LOGOS_VALUE_SEMANTICS` env var itself (inherited from the parent process),
+/// cached once. When on, collection `Clone` deep-copies (value semantics); when
+/// off it shares the `Rc` (the historical reference semantics — unchanged).
+pub fn value_semantics_enabled() -> bool {
+    use std::sync::OnceLock;
+    static ON: OnceLock<bool> = OnceLock::new();
+    // Value semantics is the DEFAULT; `LOGOS_VALUE_SEMANTICS=0` restores the
+    // historical reference semantics. Matches the compile-crate gate.
+    *ON.get_or_init(|| std::env::var("LOGOS_VALUE_SEMANTICS").as_deref() != Ok("0"))
+}
+
+impl<T: Clone> Clone for LogosSeq<T> {
     fn clone(&self) -> Self {
+        // Both semantics now SHARE the allocation on `Clone` — a cheap `Rc`
+        // bump. Under value semantics, isolation is preserved LAZILY by `cow()`
+        // (below), which codegen/the engines call before an in-place mutation:
+        // clone-on-write instead of the historical clone-on-copy. Reference
+        // semantics never calls `cow()`, so the share is permanent (its
+        // historical behavior). This is the "best of all worlds" model: aliases
+        // share until one of them diverges via mutation.
         Self(Rc::clone(&self.0))
+    }
+}
+
+impl<T: Clone> LogosSeq<T> {
+    /// Copy-on-write: make this handle uniquely own its buffer before an
+    /// in-place mutation, so the mutation cannot leak into a value-semantics
+    /// sibling that shares the same allocation. A no-op when already unique
+    /// (`strong_count == 1`), so the common case pays only a count read.
+    /// Mirrors the tree-walker's `ensure_collection_owned` and the VM's
+    /// `ensure_reg_owned`.
+    #[inline]
+    pub fn cow(&mut self) {
+        if Rc::strong_count(&self.0) > 1 {
+            // Bind the clone first so the `borrow()` temporary is released before the reassignment
+            // (edition-2024 extends the temporary's lifetime to the end of the statement otherwise).
+            let cloned = self.0.borrow().clone();
+            self.0 = Rc::new(RefCell::new(cloned));
+        }
+    }
+}
+
+impl<T: Clone> LogosSeq<LogosSeq<T>> {
+    /// Value-semantic nested write `grid[k][i] = v` (the through-write fast path): copy-on-write the
+    /// ROW at `k` (deep-copy only if its buffer is shared with a value-semantics sibling), then set
+    /// element `i` of that row in place. The compiled mirror of the parser's clone-modify-writeback
+    /// place desugar, but O(1) when the row is uniquely owned — no full-row clone. The caller `cow()`s
+    /// the OUTER handle first (as the codegen emits), so a shared `grid` is never mutated in place.
+    #[inline]
+    pub fn set_nested(&self, k: usize, i: usize, v: T) {
+        let mut outer = self.borrow_mut();
+        outer[k].cow();
+        outer[k].borrow_mut()[i] = v;
     }
 }
 
@@ -206,26 +295,33 @@ impl<T: Clone> IntoIterator for LogosSeq<T> {
     }
 }
 
+/// The insertion-ordered map behind every LOGOS `Map`: `IndexMap` for the
+/// order contract (iteration, display, and serialization follow insertion,
+/// like a Python dict), Fx hashing for speed on the small keys LOGOS programs
+/// use (no DoS-resistance requirement).
+pub type FxIndexMap<K, V> =
+    indexmap::IndexMap<K, V, std::hash::BuildHasherDefault<rustc_hash::FxHasher>>;
+
 /// Key-value mapping with reference semantics.
 ///
-/// `LogosMap<K, V>` wraps `Rc<RefCell<FxHashMap<K, V>>>` to provide shared mutable access.
+/// `LogosMap<K, V>` wraps `Rc<RefCell<FxIndexMap<K, V>>>` to provide shared mutable access.
 /// Cloning a `LogosMap` produces a shallow copy (shared reference), not a deep copy.
 /// Use `.deep_clone()` for an independent copy (LOGOS `copy of`).
 #[derive(Debug)]
-pub struct LogosMap<K, V>(pub Rc<RefCell<rustc_hash::FxHashMap<K, V>>>);
+pub struct LogosMap<K, V>(pub Rc<RefCell<FxIndexMap<K, V>>>);
 
 impl<K: Eq + Hash, V> LogosMap<K, V> {
     pub fn new() -> Self {
-        Self(Rc::new(RefCell::new(rustc_hash::FxHashMap::default())))
+        Self(Rc::new(RefCell::new(FxIndexMap::default())))
     }
 
     pub fn with_capacity(cap: usize) -> Self {
         Self(Rc::new(RefCell::new(
-            rustc_hash::FxHashMap::with_capacity_and_hasher(cap, Default::default()),
+            FxIndexMap::with_capacity_and_hasher(cap, Default::default()),
         )))
     }
 
-    pub fn from_map(m: rustc_hash::FxHashMap<K, V>) -> Self {
+    pub fn from_map(m: FxIndexMap<K, V>) -> Self {
         Self(Rc::new(RefCell::new(m)))
     }
 
@@ -233,8 +329,10 @@ impl<K: Eq + Hash, V> LogosMap<K, V> {
         self.0.borrow_mut().insert(key, value)
     }
 
+    /// Removes a key while PRESERVING the insertion order of the remaining
+    /// entries (`shift_remove` — Python `del` semantics, O(n)).
     pub fn remove(&self, key: &K) -> Option<V> {
-        self.0.borrow_mut().remove(key)
+        self.0.borrow_mut().shift_remove(key)
     }
 
     pub fn len(&self) -> usize {
@@ -249,11 +347,11 @@ impl<K: Eq + Hash, V> LogosMap<K, V> {
         self.0.borrow().contains_key(key)
     }
 
-    pub fn borrow(&self) -> std::cell::Ref<'_, rustc_hash::FxHashMap<K, V>> {
+    pub fn borrow(&self) -> std::cell::Ref<'_, FxIndexMap<K, V>> {
         self.0.borrow()
     }
 
-    pub fn borrow_mut(&self) -> std::cell::RefMut<'_, rustc_hash::FxHashMap<K, V>> {
+    pub fn borrow_mut(&self) -> std::cell::RefMut<'_, FxIndexMap<K, V>> {
         self.0.borrow_mut()
     }
 }
@@ -276,9 +374,26 @@ impl<K: Eq + Hash + Clone, V: Clone> LogosMap<K, V> {
     }
 }
 
-impl<K, V> Clone for LogosMap<K, V> {
+impl<K: Clone, V: Clone> Clone for LogosMap<K, V> {
     fn clone(&self) -> Self {
+        // Share on `Clone` under both semantics; value-semantics isolation is
+        // preserved lazily by `cow()` before an in-place mutation. See
+        // `LogosSeq::clone`/`cow` for the full rationale.
         Self(Rc::clone(&self.0))
+    }
+}
+
+impl<K: Clone, V: Clone> LogosMap<K, V> {
+    /// Copy-on-write: make this handle uniquely own its map before an in-place
+    /// mutation. See [`LogosSeq::cow`].
+    #[inline]
+    pub fn cow(&mut self) {
+        if Rc::strong_count(&self.0) > 1 {
+            // Bind the clone first so the `borrow()` temporary is released before the reassignment
+            // (edition-2024 extends the temporary's lifetime to the end of the statement otherwise).
+            let cloned = self.0.borrow().clone();
+            self.0 = Rc::new(RefCell::new(cloned));
+        }
     }
 }
 
@@ -314,8 +429,23 @@ impl<K: serde::Serialize + Eq + Hash, V: serde::Serialize> serde::Serialize for 
 
 impl<'de, K: serde::Deserialize<'de> + Eq + Hash, V: serde::Deserialize<'de>> serde::Deserialize<'de> for LogosMap<K, V> {
     fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
-        let map = rustc_hash::FxHashMap::<K, V>::deserialize(deserializer)?;
+        let map = FxIndexMap::<K, V>::deserialize(deserializer)?;
         Ok(Self::from_map(map))
+    }
+}
+
+/// Iterating a map yields `(key, value)` pairs in INSERTION order — the same
+/// order the tree-walker and VM iterate. Snapshot semantics (like
+/// [`LogosSeq`]'s `IntoIterator`): the entries are collected up front, so
+/// mutating the map inside the loop never invalidates the iteration.
+impl<K: Clone, V: Clone> IntoIterator for LogosMap<K, V> {
+    type Item = (K, V);
+    type IntoIter = std::vec::IntoIter<(K, V)>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        let entries: Vec<(K, V)> =
+            self.0.borrow().iter().map(|(k, v)| (k.clone(), v.clone())).collect();
+        entries.into_iter()
     }
 }
 
@@ -1292,7 +1422,13 @@ pub type Seq<T> = LogosSeq<T>;
 pub type Map<K, V> = LogosMap<K, V>;
 
 /// Unordered collections of unique elements with FxHash.
-pub type Set<T> = rustc_hash::FxHashSet<T>;
+/// The insertion-ordered set behind every LOGOS `Set`: display and iteration
+/// follow first-insertion order, identical to the tree-walker's Vec-backed
+/// sets and the direct-WASM linear sets. Fx hashing for speed. NOTE: removal
+/// must go through `shift_remove` (order-preserving), never `swap_remove`.
+pub type FxIndexSet<T> =
+    indexmap::IndexSet<T, std::hash::BuildHasherDefault<rustc_hash::FxHasher>>;
+pub type Set<T> = FxIndexSet<T>;
 
 /// Unified containment testing for all collection types.
 ///
@@ -1304,10 +1440,10 @@ pub type Set<T> = rustc_hash::FxHashSet<T>;
 /// # Implementations
 ///
 /// - [`Vec<T>`]: Tests if the vector contains an element equal to the value
-/// - [`HashSet<T>`]: Tests if the element is a member of the set
-/// - [`HashMap<K, V>`]: Tests if a key exists in the map
+/// - `HashSet<T>`: Tests if the element is a member of the set
+/// - `HashMap<K, V>`: Tests if a key exists in the map
 /// - [`String`]: Tests for substring (`&str`) or character (`char`) presence
-/// - [`ORSet<T, B>`]: Tests if the element is in the CRDT set
+/// - `ORSet<T, B>`: Tests if the element is in the CRDT set
 ///
 /// # Examples
 ///
@@ -1339,6 +1475,13 @@ impl<T: PartialEq> LogosContains<T> for Vec<T> {
 }
 
 impl<T: PartialEq> LogosContains<T> for [T] {
+    #[inline(always)]
+    fn logos_contains(&self, value: &T) -> bool {
+        self.contains(value)
+    }
+}
+
+impl<T: Eq + Hash, S: std::hash::BuildHasher> LogosContains<T> for indexmap::IndexSet<T, S> {
     #[inline(always)]
     fn logos_contains(&self, value: &T) -> bool {
         self.contains(value)
@@ -1642,6 +1785,636 @@ impl From<i64> for LogosRational {
     }
 }
 
+/// An exact base-10 fixed-point number — money's runtime type on the compiled-to-Rust
+/// path, the AOT mirror of the interpreter's `Decimal`. `decimal("19.99")` compiles to
+/// `LogosDecimal::parse("19.99")`; `+ − ×` stay exact `Decimal` (scale preserved), and `÷`
+/// widens to the exact `LogosRational` (base-10 division need not terminate). `Display`
+/// shows the scale faithfully (`19.99`, `20.00`), matching the interpreter.
+#[derive(Clone, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub struct LogosDecimal(pub logicaffeine_base::Decimal);
+
+impl LogosDecimal {
+    /// A whole integer as a scale-0 decimal (`5 → "5"`).
+    #[inline]
+    pub fn from_i64(n: i64) -> Self {
+        LogosDecimal(logicaffeine_base::Decimal::from_i64(n))
+    }
+
+    /// Parse the exact value from its literal text (`"19.99"`). Panics on malformed input,
+    /// which the LOGOS front-end has already rejected before codegen.
+    #[inline]
+    pub fn parse(s: &str) -> Self {
+        LogosDecimal(
+            logicaffeine_base::Decimal::parse(s)
+                .expect("LOGOS runtime error: malformed decimal literal"),
+        )
+    }
+
+    #[inline]
+    pub fn add(&self, other: &LogosDecimal) -> LogosDecimal {
+        LogosDecimal(self.0.add(&other.0))
+    }
+
+    #[inline]
+    pub fn sub(&self, other: &LogosDecimal) -> LogosDecimal {
+        LogosDecimal(self.0.sub(&other.0))
+    }
+
+    #[inline]
+    pub fn mul(&self, other: &LogosDecimal) -> LogosDecimal {
+        LogosDecimal(self.0.mul(&other.0))
+    }
+
+    /// The exact rational view (`coeff / 10^scale`) — the bridge `÷` widens through.
+    #[inline]
+    pub fn to_rational(&self) -> LogosRational {
+        LogosRational(self.0.to_rational())
+    }
+
+    /// Exact division, widening to a `LogosRational` (base-10 division need not terminate).
+    /// Panics on a zero divisor, mirroring integer `/ 0`.
+    #[inline]
+    pub fn div_exact(&self, other: &LogosDecimal) -> LogosRational {
+        self.to_rational().div_exact(&other.to_rational())
+    }
+
+    /// The exact absolute value (scale preserved).
+    #[inline]
+    pub fn abs(&self) -> LogosDecimal {
+        LogosDecimal(self.0.abs())
+    }
+}
+
+impl std::fmt::Display for LogosDecimal {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        std::fmt::Display::fmt(&self.0, f)
+    }
+}
+
+impl From<i64> for LogosDecimal {
+    #[inline]
+    fn from(n: i64) -> Self {
+        LogosDecimal::from_i64(n)
+    }
+}
+
+/// An exact complex number `re + im·i` — the AOT mirror of the interpreter's `Complex`.
+/// `complex(0, 1)` compiles to `LogosComplex::new(..)`; `+ − × ÷` stay exact and closed
+/// (`i·i = −1`). NOT ordered. `Display` shows `3+4i` / `i` / `-2i`, matching the interpreter.
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub struct LogosComplex(pub logicaffeine_base::Complex);
+
+impl LogosComplex {
+    /// A real integer as `re + 0i`.
+    #[inline]
+    pub fn from_i64(n: i64) -> Self {
+        LogosComplex(logicaffeine_base::Complex::from_i64(n))
+    }
+
+    /// `re + im·i` from two exact rationals.
+    #[inline]
+    pub fn new(re: LogosRational, im: LogosRational) -> Self {
+        LogosComplex(logicaffeine_base::Complex::new(re.0, im.0))
+    }
+
+    #[inline]
+    pub fn add(&self, other: &LogosComplex) -> LogosComplex {
+        LogosComplex(self.0.add(&other.0))
+    }
+
+    #[inline]
+    pub fn sub(&self, other: &LogosComplex) -> LogosComplex {
+        LogosComplex(self.0.sub(&other.0))
+    }
+
+    #[inline]
+    pub fn mul(&self, other: &LogosComplex) -> LogosComplex {
+        LogosComplex(self.0.mul(&other.0))
+    }
+
+    /// Exact division (the complex field is closed). Panics on a zero divisor, mirroring `/ 0`.
+    #[inline]
+    pub fn div_exact(&self, other: &LogosComplex) -> LogosComplex {
+        LogosComplex(self.0.div(&other.0).expect("LOGOS runtime error: division by zero"))
+    }
+}
+
+impl std::fmt::Display for LogosComplex {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        std::fmt::Display::fmt(&self.0, f)
+    }
+}
+
+impl From<i64> for LogosComplex {
+    #[inline]
+    fn from(n: i64) -> Self {
+        LogosComplex::from_i64(n)
+    }
+}
+
+/// An element of the ring ℤ/nℤ — the AOT mirror of the interpreter's `Modular`.
+/// `modular(value, modulus)` compiles to `LogosModular::new(..)`; `+ − ×` wrap in the ring,
+/// `pow` is fast modular exponentiation, and `÷` multiplies by the modular inverse. NOT ordered.
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub struct LogosModular(pub logicaffeine_base::Modular);
+
+impl LogosModular {
+    /// `value mod modulus`. Panics on a non-positive modulus (a LOGOS runtime error).
+    #[inline]
+    pub fn new(value: i64, modulus: i64) -> Self {
+        LogosModular(
+            logicaffeine_base::Modular::from_i64(value, modulus)
+                .expect("LOGOS runtime error: modulus must be positive"),
+        )
+    }
+
+    #[inline]
+    pub fn add(&self, other: &LogosModular) -> LogosModular {
+        LogosModular(self.0.add(&other.0).expect("LOGOS runtime error: modular ring mismatch"))
+    }
+
+    #[inline]
+    pub fn sub(&self, other: &LogosModular) -> LogosModular {
+        LogosModular(self.0.sub(&other.0).expect("LOGOS runtime error: modular ring mismatch"))
+    }
+
+    #[inline]
+    pub fn mul(&self, other: &LogosModular) -> LogosModular {
+        LogosModular(self.0.mul(&other.0).expect("LOGOS runtime error: modular ring mismatch"))
+    }
+
+    /// Division by the modular inverse. Panics if the divisor is not coprime to the modulus.
+    #[inline]
+    pub fn div_exact(&self, other: &LogosModular) -> LogosModular {
+        LogosModular(self.0.div(&other.0).expect("LOGOS runtime error: modular divisor has no inverse"))
+    }
+
+    /// Fast modular exponentiation `self^exp`.
+    #[inline]
+    pub fn pow(&self, exp: u64) -> LogosModular {
+        LogosModular(self.0.pow(exp))
+    }
+}
+
+impl std::fmt::Display for LogosModular {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        std::fmt::Display::fmt(&self.0, f)
+    }
+}
+
+/// A physical quantity on the compiled-to-Rust path — the AOT mirror of the interpreter's
+/// `Quantity` value. The magnitude rides the exact rational tower (no float drift) and the display
+/// unit travels with it so `Show` renders faithfully (`42/127 ft`). `+ −` require the same
+/// dimension — the front-end's type checker proves this, so a mismatch is a *compile* error, not a
+/// runtime one; the runtime check here is a defensive backstop. `× ÷` combine dimensions, and a
+/// quantity may be scaled by a dimensionless number (unit preserved).
+#[derive(Clone, Debug)]
+pub struct LogosQuantity {
+    pub q: logicaffeine_base::Quantity,
+    pub unit: logicaffeine_base::Unit,
+}
+
+impl LogosQuantity {
+    /// `value` of the named unit (`LogosQuantity::of(2, "inch")`).
+    #[inline]
+    pub fn of(value: i64, unit_name: &str) -> Self {
+        Self::from_rational(LogosRational::from_i64(value), unit_name)
+    }
+
+    /// An exact-rational magnitude of the named unit. Panics on an unknown unit, which the
+    /// front-end has already rejected before codegen.
+    pub fn from_rational(value: LogosRational, unit_name: &str) -> Self {
+        let unit = logicaffeine_base::quantity::units::by_name(unit_name)
+            .unwrap_or_else(|| panic!("LOGOS runtime error: unknown unit '{unit_name}'"));
+        LogosQuantity { q: logicaffeine_base::Quantity::of(value.0, &unit), unit }
+    }
+
+    #[inline]
+    pub fn add(&self, other: &LogosQuantity) -> LogosQuantity {
+        let q = self
+            .q
+            .add(&other.q)
+            .expect("LOGOS runtime error: cannot add quantities of different dimensions");
+        LogosQuantity { q, unit: self.unit.clone() }
+    }
+
+    #[inline]
+    pub fn sub(&self, other: &LogosQuantity) -> LogosQuantity {
+        let q = self
+            .q
+            .sub(&other.q)
+            .expect("LOGOS runtime error: cannot subtract quantities of different dimensions");
+        LogosQuantity { q, unit: self.unit.clone() }
+    }
+
+    /// `× ÷` combine dimensions; the result is shown in SI/dimension form (empty display unit).
+    #[inline]
+    pub fn mul(&self, other: &LogosQuantity) -> LogosQuantity {
+        let q = self.q.mul(&other.q);
+        let unit = Self::si_unit(&q);
+        LogosQuantity { q, unit }
+    }
+
+    #[inline]
+    pub fn div_exact(&self, other: &LogosQuantity) -> LogosQuantity {
+        let q = self.q.div(&other.q).expect("LOGOS runtime error: cannot divide by a zero quantity");
+        let unit = Self::si_unit(&q);
+        LogosQuantity { q, unit }
+    }
+
+    /// Scale by a dimensionless number (unit preserved): `q * k`.
+    #[inline]
+    pub fn scale(&self, k: &LogosRational) -> LogosQuantity {
+        let mag = self.q.magnitude_si().mul(&k.0);
+        LogosQuantity { q: logicaffeine_base::Quantity::si(mag, self.q.dimension()), unit: self.unit.clone() }
+    }
+
+    /// Scale by a dimensionless integer (unit preserved) — the common `q * 3` case from codegen.
+    #[inline]
+    pub fn scale_int(&self, k: i64) -> LogosQuantity {
+        self.scale(&LogosRational::from_i64(k))
+    }
+
+    /// Divide by a dimensionless integer (unit preserved) — the common `q / 2` case from codegen.
+    #[inline]
+    pub fn div_int(&self, k: i64) -> LogosQuantity {
+        self.div_scalar(&LogosRational::from_i64(k))
+    }
+
+    /// Divide by a dimensionless number (unit preserved): `q / k`.
+    #[inline]
+    pub fn div_scalar(&self, k: &LogosRational) -> LogosQuantity {
+        let mag = self
+            .q
+            .magnitude_si()
+            .div(&k.0)
+            .expect("LOGOS runtime error: cannot divide a quantity by zero");
+        LogosQuantity { q: logicaffeine_base::Quantity::si(mag, self.q.dimension()), unit: self.unit.clone() }
+    }
+
+    /// Re-express in another unit of the SAME dimension. A different dimension is the forbidden
+    /// cast — the type checker rejects it, so this panic is a defensive backstop.
+    pub fn convert(&self, unit_name: &str) -> LogosQuantity {
+        let unit = logicaffeine_base::quantity::units::by_name(unit_name)
+            .unwrap_or_else(|| panic!("LOGOS runtime error: unknown unit '{unit_name}'"));
+        if self.q.dimension() != unit.dimension {
+            panic!("LOGOS runtime error: cannot convert across dimensions");
+        }
+        LogosQuantity { q: self.q.clone(), unit }
+    }
+
+    /// A synthetic SI-base unit (empty symbol) for a combined dimension.
+    fn si_unit(q: &logicaffeine_base::Quantity) -> logicaffeine_base::Unit {
+        logicaffeine_base::Unit::linear("", q.dimension(), logicaffeine_base::Rational::one())
+    }
+}
+
+// Equality is PHYSICAL (SI magnitude + dimension); the display unit is presentation only, so
+// `100 cm` equals `1 m`. Ordering is by magnitude within a shared dimension (the type checker
+// guarantees comparisons are same-dimension).
+impl PartialEq for LogosQuantity {
+    fn eq(&self, other: &Self) -> bool {
+        self.q == other.q
+    }
+}
+impl Eq for LogosQuantity {}
+
+impl PartialOrd for LogosQuantity {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        if self.q.dimension() != other.q.dimension() {
+            return None;
+        }
+        self.q.magnitude_si().partial_cmp(other.q.magnitude_si())
+    }
+}
+
+impl std::fmt::Display for LogosQuantity {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let magnitude = self
+            .q
+            .in_unit(&self.unit)
+            .expect("a Quantity's display unit always shares its dimension");
+        if self.unit.symbol.is_empty() {
+            write!(f, "{} {}", magnitude, self.q.dimension())
+        } else {
+            write!(f, "{} {}", magnitude, self.unit.symbol)
+        }
+    }
+}
+
+/// Money for the compiled tier — an exact amount in a currency, mirroring `base::Money`. `+ −`
+/// require the SAME currency (a runtime-panic backstop; the type checker rejects mismatches first),
+/// `× ÷` scale by an exact number, and a same-currency `÷` is the dimensionless ratio.
+#[derive(Clone, Debug)]
+pub struct LogosMoney(pub logicaffeine_base::Money);
+
+impl LogosMoney {
+    /// Money of a `Decimal` amount in the named currency. Panics on an unknown currency, which the
+    /// front-end has already rejected before codegen.
+    pub fn of(amount: LogosDecimal, code: &str) -> Self {
+        let currency = logicaffeine_base::money::currency::by_code(code)
+            .unwrap_or_else(|| panic!("LOGOS runtime error: unknown currency '{code}'"));
+        LogosMoney(logicaffeine_base::Money::of(amount.0, currency))
+    }
+
+    /// Money of an integer amount — the `5 USD` case (codegen passes the literal directly).
+    pub fn from_i64(amount: i64, code: &str) -> Self {
+        Self::of(LogosDecimal(logicaffeine_base::Decimal::from_i64(amount)), code)
+    }
+
+    #[inline]
+    pub fn add(&self, other: &LogosMoney) -> LogosMoney {
+        LogosMoney(
+            self.0
+                .add(&other.0)
+                .expect("LOGOS runtime error: cannot add money of different currencies"),
+        )
+    }
+
+    #[inline]
+    pub fn sub(&self, other: &LogosMoney) -> LogosMoney {
+        LogosMoney(
+            self.0
+                .sub(&other.0)
+                .expect("LOGOS runtime error: cannot subtract money of different currencies"),
+        )
+    }
+
+    /// Scale by an integer (`19.99 USD × 3`), re-quantised to the currency.
+    #[inline]
+    pub fn scale_int(&self, k: i64) -> LogosMoney {
+        LogosMoney(self.0.scale_int(k))
+    }
+
+    /// Scale by an exact decimal (`price × 1.5`), re-quantised to the currency.
+    #[inline]
+    pub fn scale_decimal(&self, k: &LogosDecimal) -> LogosMoney {
+        LogosMoney(logicaffeine_base::Money::of(self.0.amount.mul(&k.0), self.0.currency))
+    }
+
+    /// Divide by an integer (split a bill), re-quantised to the currency.
+    #[inline]
+    pub fn div_int(&self, k: i64) -> LogosMoney {
+        let d = self
+            .0
+            .amount
+            .div(
+                &logicaffeine_base::Decimal::from_i64(k),
+                self.0.currency.scale,
+                logicaffeine_base::RoundingMode::HalfEven,
+            )
+            .expect("LOGOS runtime error: cannot divide money by zero");
+        LogosMoney(logicaffeine_base::Money::of(d, self.0.currency))
+    }
+
+    /// The exact dimensionless ratio of two same-currency amounts.
+    #[inline]
+    pub fn ratio(&self, other: &LogosMoney) -> LogosRational {
+        LogosRational(
+            self.0
+                .ratio(&other.0)
+                .expect("LOGOS runtime error: cannot take a money ratio (currency mismatch or zero)"),
+        )
+    }
+}
+
+impl PartialEq for LogosMoney {
+    fn eq(&self, other: &Self) -> bool {
+        self.0 == other.0
+    }
+}
+impl Eq for LogosMoney {}
+
+impl PartialOrd for LogosMoney {
+    /// Ordered by amount within a currency; across currencies it is incomparable (`None`).
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        if self.0.currency != other.0.currency {
+            return None;
+        }
+        self.0.amount.to_rational().partial_cmp(&other.0.amount.to_rational())
+    }
+}
+
+impl std::fmt::Display for LogosMoney {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.0)
+    }
+}
+
+/// A 128-bit UUID for the compiled tier (RFC 9562), mirroring `logicaffeine_base::Uuid`. A `Copy` newtype over
+/// `[u8; 16]` — no allocation, byte-ordered comparison (so v6/v7 sort by time), canonical text form.
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Debug)]
+pub struct LogosUuid(pub logicaffeine_base::Uuid);
+
+impl LogosUuid {
+    /// Parse from canonical/simple/braced/urn text. Panics on a malformed id (the front-end has
+    /// already validated literal forms; a runtime parse of bad data is a clean program error).
+    pub fn parse(s: &str) -> Self {
+        LogosUuid(
+            logicaffeine_base::Uuid::parse(s)
+                .unwrap_or_else(|| panic!("LOGOS runtime error: invalid UUID '{s}'")),
+        )
+    }
+    /// The nil (all-zero) UUID.
+    pub fn nil() -> Self {
+        LogosUuid(logicaffeine_base::Uuid::NIL)
+    }
+    /// The max (all-one) UUID.
+    pub fn max() -> Self {
+        LogosUuid(logicaffeine_base::Uuid::MAX)
+    }
+    /// The version nibble (0 for nil, 1–8 for the defined versions, 15 for max).
+    pub fn version(&self) -> i64 {
+        self.0.version() as i64
+    }
+    /// The well-known DNS / URL / OID / X.500 namespaces.
+    pub fn namespace_dns() -> Self {
+        LogosUuid(logicaffeine_base::Uuid::NAMESPACE_DNS)
+    }
+    pub fn namespace_url() -> Self {
+        LogosUuid(logicaffeine_base::Uuid::NAMESPACE_URL)
+    }
+    pub fn namespace_oid() -> Self {
+        LogosUuid(logicaffeine_base::Uuid::NAMESPACE_OID)
+    }
+    pub fn namespace_x500() -> Self {
+        LogosUuid(logicaffeine_base::Uuid::NAMESPACE_X500)
+    }
+}
+
+impl LogosUuid {
+    /// The UUID's 16 bytes as a `Seq of Int` — the byte view the Logos-written version constructors
+    /// (uuid.lg) prepend as the namespace.
+    pub fn byte_seq(&self) -> LogosSeq<i64> {
+        LogosSeq::from_vec(self.0.as_bytes().iter().map(|&b| b as i64).collect())
+    }
+    /// Build a UUID from the first 16 bytes of a `Seq of Int` (the compiled mirror of the
+    /// `uuid_from_bytes` builtin). Panics on fewer than 16 bytes — the front-end feeds a digest.
+    pub fn from_byte_seq(seq: &LogosSeq<i64>) -> LogosUuid {
+        let v = seq.0.borrow();
+        assert!(v.len() >= 16, "LOGOS runtime error: uuid_from_bytes needs 16 bytes");
+        let mut b = [0u8; 16];
+        for (i, slot) in b.iter_mut().enumerate() {
+            *slot = (v[i] & 0xff) as u8;
+        }
+        LogosUuid(logicaffeine_base::Uuid::from_bytes(b))
+    }
+}
+
+/// A Text's UTF-8 bytes as a `Seq of Int` (the `text_bytes` builtin, AOT).
+pub fn text_bytes(s: &str) -> LogosSeq<i64> {
+    LogosSeq::from_vec(s.as_bytes().iter().map(|&b| b as i64).collect())
+}
+
+/// Rebuild a Text from a `Seq of Int` of UTF-8 bytes (the `text_from_bytes` builtin, AOT —
+/// the exact inverse of [`text_bytes`]). Inputs originate from `text_bytes`, so the bytes are
+/// always valid UTF-8; the lossy fallback only guards against a hand-built malformed Seq.
+pub fn text_from_bytes(bytes: &LogosSeq<i64>) -> String {
+    let b: Vec<u8> = bytes.iter().map(|v| v as u8).collect();
+    match String::from_utf8(b) {
+        Ok(s) => s,
+        Err(e) => String::from_utf8_lossy(e.as_bytes()).into_owned(),
+    }
+}
+
+impl std::fmt::Display for LogosUuid {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.0)
+    }
+}
+
+/// An exchange rate accepted by [`set_rate`] — a plain integer (`1`), an exact `LogosDecimal`
+/// (`1.10`), or a `LogosRational`. All widen losslessly onto the Rational tower so normalisation
+/// stays exact, matching the interpreter's `set_rate` builtin.
+pub trait IntoRate {
+    fn into_rate(self) -> logicaffeine_base::Rational;
+}
+impl IntoRate for i64 {
+    fn into_rate(self) -> logicaffeine_base::Rational {
+        logicaffeine_base::Rational::from_i64(self)
+    }
+}
+impl IntoRate for LogosDecimal {
+    fn into_rate(self) -> logicaffeine_base::Rational {
+        self.0.to_rational()
+    }
+}
+impl IntoRate for LogosRational {
+    fn into_rate(self) -> logicaffeine_base::Rational {
+        self.0
+    }
+}
+
+/// Install (or replace) one exchange rate in the ambient rate context — `1 <code> = rate` reference
+/// units. The compiled-tier mirror of the `set_rate` builtin; a fresh process starts with no rates,
+/// so a program installs them before any `<money> in <currency>` conversion.
+pub fn set_rate<R: IntoRate>(code: String, rate: R) {
+    logicaffeine_base::money::set_ambient_rate(&code, rate.into_rate());
+}
+
+/// Bulk-install a whole exchange-rate table from a `Map of Text to <number>` (currency code → rate
+/// vs the reference) into the ambient rate context. The compiled-tier mirror of the `set_rates`
+/// builtin and the bridge a literal, network-synced, or fetched table feeds. Order-independent.
+pub fn set_rates<V: IntoRate + Clone>(map: LogosMap<String, V>) {
+    for (code, rate) in map.0.borrow().iter() {
+        logicaffeine_base::money::set_ambient_rate(code, rate.clone().into_rate());
+    }
+}
+
+/// Convert money to another currency via the ambient rate context — the `<money> in <currency>`
+/// surface. Panics (the typed-error backstop, like a currency-mismatch `+`) when no rates are in
+/// scope or the currency lacks a rate; the front-end / interpreter surface these as clean errors.
+pub fn to_currency(money: LogosMoney, code: String) -> LogosMoney {
+    let to = logicaffeine_base::money::currency::by_code(&code)
+        .unwrap_or_else(|| panic!("LOGOS runtime error: unknown currency '{code}'"));
+    let converted = logicaffeine_base::money::ambient_convert(&money.0, to).unwrap_or_else(|| {
+        if logicaffeine_base::money::has_ambient_rates() {
+            panic!(
+                "LOGOS runtime error: no exchange rate for {} or {}",
+                money.0.currency.code, to.code
+            )
+        } else {
+            panic!("LOGOS runtime error: no exchange rates in scope (set a rate first)")
+        }
+    });
+    LogosMoney(converted)
+}
+
+#[cfg(test)]
+mod logos_money_tests {
+    use super::{LogosDecimal, LogosMoney};
+
+    fn money(s: &str, code: &str) -> LogosMoney {
+        LogosMoney::of(LogosDecimal(logicaffeine_base::Decimal::parse(s).unwrap()), code)
+    }
+
+    #[test]
+    fn money_aot_arithmetic_is_exact_and_currency_safe() {
+        assert_eq!(money("19.99", "USD").to_string(), "19.99 USD");
+        assert_eq!(LogosMoney::from_i64(5, "USD").to_string(), "5.00 USD");
+        assert_eq!(money("0.10", "USD").add(&money("0.20", "USD")).to_string(), "0.30 USD");
+        assert_eq!(money("24.99", "USD").sub(&money("5.00", "USD")).to_string(), "19.99 USD");
+        assert_eq!(money("19.99", "USD").scale_int(3).to_string(), "59.97 USD");
+        assert_eq!(money("10.00", "USD").div_int(4).to_string(), "2.50 USD");
+        assert_eq!(money("100", "JPY").to_string(), "100 JPY"); // zero-decimal
+        // Same currency orders; different currencies are incomparable.
+        assert!(money("5.00", "USD") > money("1.00", "USD"));
+        assert_eq!(money("5.00", "USD").partial_cmp(&money("1.00", "EUR")), None);
+        assert_ne!(money("5.00", "USD"), money("5.00", "EUR"));
+    }
+
+    #[test]
+    #[should_panic(expected = "different currencies")]
+    fn money_aot_cross_currency_add_panics_as_a_backstop() {
+        let _ = money("5.00", "USD").add(&money("1.00", "EUR"));
+    }
+}
+
+#[cfg(test)]
+mod logos_quantity_tests {
+    use super::{LogosQuantity, LogosRational};
+
+    #[test]
+    fn golden_two_inches_plus_five_cm_in_feet_is_exactly_42_over_127() {
+        let a = LogosQuantity::of(2, "inch");
+        let b = LogosQuantity::of(5, "centimeter");
+        assert_eq!(a.to_string(), "2 in");
+        assert_eq!(a.add(&b).convert("foot").to_string(), "42/127 ft");
+    }
+
+    #[test]
+    fn arithmetic_scaling_equality_and_ordering_are_exact() {
+        let m = |v: i64, u: &str| LogosQuantity::of(v, u);
+        // Same-dimension subtraction keeps the left operand's unit, exactly.
+        assert_eq!(m(1, "meter").sub(&m(50, "centimeter")).to_string(), "1/2 m");
+        // Scalar scaling preserves the unit.
+        assert_eq!(m(2, "inch").scale(&LogosRational::from_i64(3)).to_string(), "6 in");
+        assert_eq!(m(6, "inch").div_scalar(&LogosRational::from_i64(2)).to_string(), "3 in");
+        // Dimension-combining product shows in dimension form.
+        assert_eq!(m(3, "meter").mul(&m(4, "meter")).to_string(), "12 L^2");
+        assert_eq!(m(100, "meter").div_exact(&m(10, "second")).to_string(), "10 L·T^-1");
+        // Physical equality (display unit ignored): 100 cm == 1 m.
+        assert_eq!(m(100, "centimeter"), m(1, "meter"));
+        // Ordering by magnitude within a shared dimension.
+        assert!(m(2, "meter") > m(1, "meter"));
+        assert!(m(100, "centimeter") <= m(1, "meter"));
+        // Cross-dimension ordering is undefined (no shared magnitude).
+        assert_eq!(m(1, "meter").partial_cmp(&m(1, "kilogram")), None);
+    }
+
+    #[test]
+    #[should_panic(expected = "different dimensions")]
+    fn adding_different_dimensions_panics_as_a_backstop() {
+        let _ = LogosQuantity::of(1, "meter").add(&LogosQuantity::of(1, "kilogram"));
+    }
+
+    #[test]
+    #[should_panic(expected = "cannot convert across dimensions")]
+    fn converting_across_dimensions_panics_as_a_backstop() {
+        let _ = LogosQuantity::of(1, "meter").convert("kilogram");
+    }
+}
+
 #[cfg(test)]
 mod logos_rational_tests {
     use super::LogosRational;
@@ -1686,6 +2459,45 @@ mod logos_rational_tests {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// `div_floor` rounds toward negative infinity across every sign combination,
+    /// stays exact past `i64` (BigInt promotion), and raises on a zero divisor —
+    /// differentially checked against an `i128` floor oracle over an exhaustive
+    /// small grid so no sign case escapes.
+    #[test]
+    fn div_floor_rounds_toward_negative_infinity_exhaustively() {
+        let small = |x: i64| LogosInt::Small(x);
+        // Exhaustive small grid including both signs and zero dividend.
+        for a in -20i64..=20 {
+            for b in -20i64..=20 {
+                if b == 0 {
+                    assert!(small(a).div_floor(&small(b)).is_err(), "{a} // 0 must error");
+                    continue;
+                }
+                let oracle = (a as i128).div_euclid(b as i128); // euclid == floor for these
+                // div_euclid is NOT floor for a>=0,b<0 — recompute a true floor oracle.
+                let q = (a as i128) / (b as i128);
+                let r = (a as i128) % (b as i128);
+                let floor = if r != 0 && (r < 0) != (b < 0) { q - 1 } else { q };
+                let _ = oracle;
+                let got = small(a).div_floor(&small(b)).unwrap();
+                assert_eq!(got, LogosInt::Small(floor as i64), "{a} // {b}");
+            }
+        }
+        // The canonical distinguishing case: truncation gives -3, floor gives -4.
+        assert_eq!(small(-7).div_floor(&small(2)).unwrap(), LogosInt::Small(-4));
+        assert_eq!(small(-7).div(&small(2)).unwrap(), LogosInt::Small(-3));
+        // Exact past i64: (10^30) // 7 stays exact and floored.
+        let ten30 = LogosInt::Small(10).pow(&LogosInt::Small(30)).unwrap();
+        let q = ten30.div_floor(&small(7)).unwrap();
+        assert_eq!(q.to_string(), "142857142857142857142857142857");
+        // Negative BigInt numerator floors down, not toward zero.
+        let neg = LogosInt::Small(-1).pow(&LogosInt::Small(1)).unwrap(); // -1
+        let big_neg = ten30.mul(&neg);
+        // -(10^30) // 7 = floor(-1.428...e29) = -(10^30)/7 rounded down.
+        let qn = big_neg.div_floor(&small(7)).unwrap();
+        assert_eq!(qn.to_string(), "-142857142857142857142857142858");
+    }
 
     /// A deterministic LCG so the `LogosI64Map` fuzz is reproducible without a
     /// `rand` dependency (same seed → same op stream every run).
@@ -2291,5 +3103,340 @@ mod tests {
                 assert_eq!(set.contains_key(&k), oracle.contains(&k), "final contains key {k}");
             }
         }
+    }
+}
+
+// ===========================================================================
+// LogosInt — the EXACT compiled integer (overflow ruling v2, stage 2)
+// ===========================================================================
+
+/// The exact integer for GENERATED code: `i64` on the fast path, spilling to a
+/// heap [`logicaffeine_base::BigInt`] the moment a value escapes 64 bits — the
+/// AOT's mirror of the interpreter's Int→BigInt promotion (and of the JIT's
+/// overflow side-exit). Every operation NORMALIZES: a big result that fits
+/// `i64` downsizes to `Small`, so representation never leaks into `==`/`Ord`.
+#[derive(Clone, Debug)]
+pub enum LogosInt {
+    Small(i64),
+    Big(Box<logicaffeine_base::BigInt>),
+}
+
+impl LogosInt {
+    #[inline]
+    pub fn from_i64(x: i64) -> Self {
+        LogosInt::Small(x)
+    }
+
+    pub fn from_big(b: logicaffeine_base::BigInt) -> Self {
+        match b.to_i64() {
+            Some(x) => LogosInt::Small(x),
+            None => LogosInt::Big(Box::new(b)),
+        }
+    }
+
+    /// Parse a (possibly > 64-bit) decimal literal the codegen emitted.
+    pub fn from_literal(s: &str) -> Self {
+        if let Ok(x) = s.parse::<i64>() {
+            return LogosInt::Small(x);
+        }
+        let (neg, digits) = match s.strip_prefix('-') {
+            Some(d) => (true, d),
+            None => (false, s),
+        };
+        let ten = logicaffeine_base::BigInt::from_i64(10);
+        let mut acc = logicaffeine_base::BigInt::from_i64(0);
+        for ch in digits.bytes() {
+            debug_assert!(ch.is_ascii_digit(), "LogosInt literal digit");
+            acc = acc.mul(&ten).add(&logicaffeine_base::BigInt::from_i64((ch - b'0') as i64));
+        }
+        if neg {
+            acc = acc.negated();
+        }
+        LogosInt::from_big(acc)
+    }
+
+    fn to_bigint(&self) -> logicaffeine_base::BigInt {
+        match self {
+            LogosInt::Small(x) => logicaffeine_base::BigInt::from_i64(*x),
+            LogosInt::Big(b) => (**b).clone(),
+        }
+    }
+
+    /// The value as `i64` when it fits.
+    pub fn to_i64(&self) -> Option<i64> {
+        match self {
+            LogosInt::Small(x) => Some(*x),
+            LogosInt::Big(b) => b.to_i64(),
+        }
+    }
+
+    /// The value as `i64`, or a LOUD canonical error — for sinks that are
+    /// structurally 64-bit (indices, sizes, native call arguments).
+    #[inline]
+    pub fn expect_i64(&self, what: &str) -> i64 {
+        match self.to_i64() {
+            Some(x) => x,
+            None => panic!("Integer overflow: {self} does not fit a 64-bit {what}"),
+        }
+    }
+
+    #[inline]
+    pub fn add(&self, rhs: &LogosInt) -> LogosInt {
+        if let (LogosInt::Small(a), LogosInt::Small(b)) = (self, rhs) {
+            if let Some(s) = a.checked_add(*b) {
+                return LogosInt::Small(s);
+            }
+        }
+        LogosInt::from_big(self.to_bigint().add(&rhs.to_bigint()))
+    }
+
+    #[inline]
+    pub fn sub(&self, rhs: &LogosInt) -> LogosInt {
+        if let (LogosInt::Small(a), LogosInt::Small(b)) = (self, rhs) {
+            if let Some(s) = a.checked_sub(*b) {
+                return LogosInt::Small(s);
+            }
+        }
+        LogosInt::from_big(self.to_bigint().sub(&rhs.to_bigint()))
+    }
+
+    #[inline]
+    pub fn mul(&self, rhs: &LogosInt) -> LogosInt {
+        if let (LogosInt::Small(a), LogosInt::Small(b)) = (self, rhs) {
+            if let Some(p) = a.checked_mul(*b) {
+                return LogosInt::Small(p);
+            }
+        }
+        LogosInt::from_big(self.to_bigint().mul(&rhs.to_bigint()))
+    }
+
+    /// Truncating division; `Err` on a zero divisor (the interp's catchable
+    /// "Division by zero"). `i64::MIN / -1` promotes exactly.
+    #[inline]
+    pub fn div(&self, rhs: &LogosInt) -> Result<LogosInt, String> {
+        if let (LogosInt::Small(a), LogosInt::Small(b)) = (self, rhs) {
+            if *b == 0 {
+                return Err("Division by zero".to_string());
+            }
+            if let Some(q) = a.checked_div(*b) {
+                return Ok(LogosInt::Small(q));
+            }
+        }
+        match self.to_bigint().div_rem(&rhs.to_bigint()) {
+            Some((q, _)) => Ok(LogosInt::from_big(q)),
+            None => Err("Division by zero".to_string()),
+        }
+    }
+
+    /// Floor division — the quotient rounded toward NEGATIVE INFINITY (`-7 // 2 → -4`),
+    /// the semantics of the `//` operator. Distinct from [`div`](Self::div), which
+    /// truncates toward zero (`-7 / 2 → -3`); the two agree when the operands share a
+    /// sign. Exact (promotes to `BigInt`); a zero divisor is a loud error.
+    pub fn div_floor(&self, rhs: &LogosInt) -> Result<LogosInt, String> {
+        if let (LogosInt::Small(a), LogosInt::Small(b)) = (self, rhs) {
+            if *b == 0 {
+                return Err("Division by zero".to_string());
+            }
+            // `i64::MIN / -1` overflows the Small path → fall through to the exact BigInt
+            // branch. Otherwise floor = truncate, minus one when a nonzero remainder means
+            // the true quotient sits below the truncated one (operands of opposite sign).
+            if let (Some(q), Some(r)) = (a.checked_div(*b), a.checked_rem(*b)) {
+                let floored = if r != 0 && (r < 0) != (*b < 0) { q - 1 } else { q };
+                return Ok(LogosInt::Small(floored));
+            }
+        }
+        match self.to_bigint().div_rem(&rhs.to_bigint()) {
+            Some((q, r)) => {
+                let floored = if !r.is_zero() && r.is_negative() != rhs.to_bigint().is_negative() {
+                    q.sub(&logicaffeine_base::BigInt::from_i64(1))
+                } else {
+                    q
+                };
+                Ok(LogosInt::from_big(floored))
+            }
+            None => Err("Division by zero".to_string()),
+        }
+    }
+
+    /// Truncating remainder (sign of the dividend); `i64::MIN % -1` is 0.
+    #[inline]
+    pub fn rem(&self, rhs: &LogosInt) -> Result<LogosInt, String> {
+        if let (LogosInt::Small(a), LogosInt::Small(b)) = (self, rhs) {
+            if *b == 0 {
+                return Err("Modulo by zero".to_string());
+            }
+            if let Some(r) = a.checked_rem(*b) {
+                return Ok(LogosInt::Small(r));
+            }
+            return Ok(LogosInt::Small(0)); // MIN % -1
+        }
+        match self.to_bigint().div_rem(&rhs.to_bigint()) {
+            Some((_, r)) => Ok(LogosInt::from_big(r)),
+            None => Err("Modulo by zero".to_string()),
+        }
+    }
+
+    /// Exponentiation with an integer exponent. `Err` on a negative exponent
+    /// (an Int can't hold the fractional result) or one too large to be a
+    /// `u32` power; overflow of the i64 fast path promotes to `BigInt`
+    /// exactly. Mirrors the interpreter's `int_power`.
+    pub fn pow(&self, exp: &LogosInt) -> Result<LogosInt, String> {
+        let e = match exp.to_i64() {
+            Some(e) if e < 0 => {
+                return Err("negative exponent on an integer (an Int can't hold a fraction — use a Float base)".to_string());
+            }
+            Some(e) => e,
+            None => return Err("exponent too large".to_string()),
+        };
+        let e = u32::try_from(e).map_err(|_| "exponent too large".to_string())?;
+        if let LogosInt::Small(b) = self {
+            if let Some(r) = b.checked_pow(e) {
+                return Ok(LogosInt::Small(r));
+            }
+        }
+        Ok(LogosInt::from_big(self.to_bigint().pow(e)))
+    }
+
+    pub fn neg(&self) -> LogosInt {
+        match self {
+            LogosInt::Small(x) => match x.checked_neg() {
+                Some(n) => LogosInt::Small(n),
+                None => LogosInt::from_big(self.to_bigint().negated()),
+            },
+            LogosInt::Big(b) => LogosInt::from_big(b.negated()),
+        }
+    }
+}
+
+impl From<i64> for LogosInt {
+    #[inline]
+    fn from(x: i64) -> Self {
+        LogosInt::Small(x)
+    }
+}
+
+impl PartialEq for LogosInt {
+    fn eq(&self, other: &Self) -> bool {
+        match (self, other) {
+            // Normalization invariant: a Big never holds an i64-fitting value.
+            (LogosInt::Small(a), LogosInt::Small(b)) => a == b,
+            (LogosInt::Big(a), LogosInt::Big(b)) => **a == **b,
+            _ => false,
+        }
+    }
+}
+impl Eq for LogosInt {}
+
+impl PartialEq<i64> for LogosInt {
+    fn eq(&self, other: &i64) -> bool {
+        matches!(self, LogosInt::Small(a) if a == other)
+    }
+}
+impl PartialEq<LogosInt> for i64 {
+    fn eq(&self, other: &LogosInt) -> bool {
+        other == self
+    }
+}
+
+impl Ord for LogosInt {
+    fn cmp(&self, other: &Self) -> core::cmp::Ordering {
+        match (self, other) {
+            (LogosInt::Small(a), LogosInt::Small(b)) => a.cmp(b),
+            _ => self.to_bigint().cmp(&other.to_bigint()),
+        }
+    }
+}
+impl PartialOrd for LogosInt {
+    fn partial_cmp(&self, other: &Self) -> Option<core::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
+impl PartialOrd<i64> for LogosInt {
+    fn partial_cmp(&self, other: &i64) -> Option<core::cmp::Ordering> {
+        self.partial_cmp(&LogosInt::Small(*other))
+    }
+}
+impl PartialOrd<LogosInt> for i64 {
+    fn partial_cmp(&self, other: &LogosInt) -> Option<core::cmp::Ordering> {
+        LogosInt::Small(*self).partial_cmp(other)
+    }
+}
+
+impl core::hash::Hash for LogosInt {
+    fn hash<H: core::hash::Hasher>(&self, state: &mut H) {
+        // The unified numeric hash (mod 2^61−1) — coherent with equal i64s.
+        match self {
+            LogosInt::Small(x) => logicaffeine_base::numeric::numeric_hash_i64(*x).hash(state),
+            LogosInt::Big(b) => logicaffeine_base::numeric::numeric_hash_bigint(b).hash(state),
+        }
+    }
+}
+
+impl core::fmt::Display for LogosInt {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        match self {
+            LogosInt::Small(x) => write!(f, "{x}"),
+            LogosInt::Big(b) => write!(f, "{b}"),
+        }
+    }
+}
+
+#[cfg(test)]
+mod logos_int_spec {
+    use super::LogosInt;
+
+    #[test]
+    fn overflow_promotes_and_downsizes_exactly() {
+        let max = LogosInt::from_i64(i64::MAX);
+        let one = LogosInt::from_i64(1);
+        let big = max.add(&one);
+        assert_eq!(big.to_string(), "9223372036854775808");
+        assert!(matches!(big, LogosInt::Big(_)));
+        // Coming back into range NORMALIZES to Small.
+        let back = big.sub(&one);
+        assert!(matches!(back, LogosInt::Small(_)));
+        assert_eq!(back, i64::MAX);
+    }
+
+    #[test]
+    fn min_div_neg_one_is_exact() {
+        let min = LogosInt::from_i64(i64::MIN);
+        let neg1 = LogosInt::from_i64(-1);
+        let q = min.div(&neg1).unwrap();
+        assert_eq!(q.to_string(), "9223372036854775808");
+        assert_eq!(min.rem(&neg1).unwrap(), 0i64);
+        assert_eq!(min.neg().to_string(), "9223372036854775808");
+    }
+
+    #[test]
+    fn mul_overflow_matches_exact_value() {
+        let max = LogosInt::from_i64(i64::MAX);
+        let two = LogosInt::from_i64(2);
+        assert_eq!(max.mul(&two).to_string(), "18446744073709551614");
+    }
+
+    #[test]
+    fn division_errors_are_canonical() {
+        let one = LogosInt::from_i64(1);
+        let zero = LogosInt::from_i64(0);
+        assert_eq!(one.div(&zero).unwrap_err(), "Division by zero");
+        assert_eq!(one.rem(&zero).unwrap_err(), "Modulo by zero");
+    }
+
+    #[test]
+    fn literal_roundtrip_beyond_64_bits() {
+        let v = LogosInt::from_literal("18446744073709551614");
+        assert_eq!(v.to_string(), "18446744073709551614");
+        assert_eq!(LogosInt::from_literal("-42"), LogosInt::from_i64(-42));
+    }
+
+    #[test]
+    fn ordering_and_eq_cross_representation() {
+        let max = LogosInt::from_i64(i64::MAX);
+        let big = max.add(&LogosInt::from_i64(1));
+        assert!(max < big);
+        assert!(big > LogosInt::from_i64(0));
+        assert!(LogosInt::from_i64(5) == 5i64);
+        assert_ne!(big, LogosInt::from_i64(0));
     }
 }

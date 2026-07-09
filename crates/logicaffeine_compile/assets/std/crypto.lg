@@ -1,0 +1,2943 @@
+# Crypto
+
+Constant-time symmetric primitives, written in LOGOS. The bit operations ride on
+the `Word32` wrapping ring (`+` wraps mod 2³², `rotl` is a 32-bit rotation), so the
+arithmetic is total and branch-free — no overflow trap, no secret-dependent path.
+
+The ChaCha20 quarter-round (RFC 8439 §2.2.1) mixes four words of the working state
+in place. `ai`/`bi`/`ci`/`di` are the zero-based positions of the four words.
+
+The ML-KEM forward NTT (`ntt`) is the radix-2 Cooley–Tukey transform over ℤ_q, q = 3329,
+computed in MONTGOMERY form. `redc(x) = x·R⁻¹ mod q` (R = 2¹⁶) reduces with a mask, two
+multiplies, a shift, and a conditional subtract — NO division. Twiddles are passed in
+Montgomery form (`powers[i] = wⁱ·R mod q`), so `redc(tw·x) = tw·x mod q`; the butterfly
+add/sub use conditional reductions. Input is bit-reversed; output is natural order. Every
+coefficient stays in [0, q), so the transform is total and the inner loop is division-free.
+
+Native hash TOOLS Logos code calls directly (globally available, no import): `sha1(bytes)` and
+`md5(bytes)` take a `Seq of Int` (bytes 0–255) and return the digest bytes; `sha3_256`/`sha3_512`/
+`shake128`/`shake256` are the FIPS-202 family. `sha1` reaches an Intel **SHA-NI hardware** kernel when
+the CPU has it (an order of magnitude over scalar), with a portable fallback — so a Logos algorithm
+that calls `sha1` gets dedicated-silicon speed WITHOUT leaving the language. This is how `uuid.lg`'s
+`uuidV5` stays both written-in-Logos and fastest: the construction is Logos, the primitive is a tool.
+
+(NOTE for editors: keep all prose ABOVE the first `## To` — literate Logos strips only the
+leading prose; a paragraph BETWEEN `## To` sections is parsed as code and breaks the module.)
+
+## Note
+The ChaCha20 quarter-round: four add-xor-rotate mixes of the state.
+
+## To quarterRound (state: Seq of Word32) and (ai: Int) and (bi: Int) and (ci: Int) and (di: Int) -> Seq of Word32:
+    Let mutable a be item (ai + 1) of state.
+    Let mutable b be item (bi + 1) of state.
+    Let mutable c be item (ci + 1) of state.
+    Let mutable d be item (di + 1) of state.
+    Set a to a + b.
+    Set d to rotl(d xor a, 16).
+    Set c to c + d.
+    Set b to rotl(b xor c, 12).
+    Set a to a + b.
+    Set d to rotl(d xor a, 8).
+    Set c to c + d.
+    Set b to rotl(b xor c, 7).
+    Set item (ai + 1) of state to a.
+    Set item (bi + 1) of state to b.
+    Set item (ci + 1) of state to c.
+    Set item (di + 1) of state to d.
+    Return state.
+
+## Note
+One 20-round ChaCha20 block: 16 keystream words from key, counter, and nonce.
+
+## To chacha20Block (key: Seq of Word32) and (counter: Word32) and (nonce: Seq of Word32) -> Seq of Word32:
+    Let mutable state be a new Seq of Word32.
+    Push word32(1634760805) to state.
+    Push word32(857760878) to state.
+    Push word32(2036477234) to state.
+    Push word32(1797285236) to state.
+    Repeat for k in key:
+        Push k to state.
+    Push counter to state.
+    Repeat for n in nonce:
+        Push n to state.
+    Let mutable work be a new Seq of Word32.
+    Repeat for s in state:
+        Push s to work.
+    Repeat for r from 1 to 10:
+        Set work to quarterRound(work, 0, 4, 8, 12).
+        Set work to quarterRound(work, 1, 5, 9, 13).
+        Set work to quarterRound(work, 2, 6, 10, 14).
+        Set work to quarterRound(work, 3, 7, 11, 15).
+        Set work to quarterRound(work, 0, 5, 10, 15).
+        Set work to quarterRound(work, 1, 6, 11, 12).
+        Set work to quarterRound(work, 2, 7, 8, 13).
+        Set work to quarterRound(work, 3, 4, 9, 14).
+    Let mutable out be a new Seq of Word32.
+    Repeat for i from 1 to 16:
+        Push (item i of work) + (item i of state) to out.
+    Return out.
+
+## Note
+Montgomery reduction modulo the ML-KEM prime q = 3329.
+
+## To redc (x: Int) -> Int:
+    Let lo be ((x % 65536) * 3327) % 65536.
+    Let t be (x + lo * 3329) / 65536.
+    If t is at least 3329:
+        Set t to t - 3329.
+    Return t.
+
+## Note
+The number-theoretic transform over Z_q, driven by a table of twiddle powers.
+
+## To ntt (a: Seq of Int) and (powers: Seq of Int) -> Seq of Int:
+    Let n be length of a.
+    Let mutable len be 2.
+    While len is at most n:
+        Let half be len / 2.
+        Let m be n / len.
+        Repeat for blk from 0 to m - 1:
+            Let start be blk * len.
+            Repeat for j from 0 to half - 1:
+                Let tw be item (m * j + 1) of powers.
+                Let idx be start + j.
+                Let u be item (idx + 1) of a.
+                Let t be redc(tw * (item (idx + half + 1) of a)).
+                Let v be u + t.
+                If v is at least 3329:
+                    Set v to v - 3329.
+                Set item (idx + 1) of a to v.
+                Let w be u - t + 3329.
+                If w is at least 3329:
+                    Set w to w - 3329.
+                Set item (idx + half + 1) of a to w.
+        Set len to len * 2.
+    Return a.
+
+## Note
+Native forward NTT for ML-KEM polynomials.
+
+## To native mlkemNtt (a: Seq of Int) -> Seq of Int
+
+## Note
+Lane-wise Montgomery multiply of two 16-lane Word16 vectors.
+
+## To montmul (a: Lanes16Word16) and (b: Lanes16Word16) and (qv: Lanes16Word16) and (qinv: Lanes16Word16) -> Lanes16Word16:
+    Let lo be a * b.
+    Let t be lo * qinv.
+    Let hi be mulhi16(a, b).
+    Let th be mulhi16(t, qv).
+    Return hi - th.
+
+## Note
+Copies 16 lanes out of a sequence starting at an offset.
+
+## To sub16 (s: Seq of Int) and (off: Int) -> Seq of Int:
+    Let r be a new Seq of Int.
+    Repeat for i from 1 to 16:
+        Push (item (off + i) of s) to r.
+    Return r.
+
+## Note
+Lane-wise Barrett reduction into canonical range mod q.
+
+## To barrettReduce (a: Lanes16Word16) -> Lanes16Word16:
+    Let h be mulhi16(a, splat16Word16(20159)).
+    Let t1 be mulhi16(h + splat16Word16(512), splat16Word16(64)).
+    Return a - (t1 * splat16Word16(3329)).
+
+## Note
+One butterfly level of the inverse NTT at a given stride.
+
+## To invNttWithinLevel (coeffs: Seq of Int) and (zetas: Seq of Int) and (h: Int) and (kStart: Int) -> Seq of Int:
+    Let qv be splat16Word16(3329).
+    Let qinv be splat16Word16(62209).
+    Let mutable r be a new Seq of Int.
+    Repeat for x in coeffs:
+        Push x to r.
+    Let blocksPerVec be 16 / (2 * h).
+    Let lanesPerBlock be 2 * h.
+    Repeat for v from 0 to 15:
+        Let zvSeq be a new Seq of Int.
+        Repeat for bj from 0 to blocksPerVec - 1:
+            Let g be v * blocksPerVec + bj.
+            Let zeta be item (kStart - g + 1) of zetas.
+            Repeat for rep from 1 to lanesPerBlock:
+                Push zeta to zvSeq.
+        Let zv be lanes16Word16(zvSeq).
+        Let vec be lanes16Word16(sub16(r, 16 * v)).
+        Let loB be nttBcastLo(vec, h).
+        Let hiB be nttBcastHi(vec, h).
+        Let sum be barrettReduce(loB + hiB).
+        Let newHi be montmul(zv, hiB - loB, qv, qinv).
+        Let rs be seqOfLanes16(nttBlend(sum, newHi, h)).
+        Repeat for i from 1 to 16:
+            Set item (16 * v + i) of r to (item i of rs).
+    Return r.
+
+## Note
+The full inverse NTT, level by level, over 16-lane vectors.
+
+## To invNttAllSimd (coeffs: Seq of Int) and (zetas: Seq of Int) -> Seq of Int:
+    Let qv be splat16Word16(3329).
+    Let qinv be splat16Word16(62209).
+    Let mutable r be a new Seq of Int.
+    Repeat for x in coeffs:
+        Push x to r.
+    Set r to invNttWithinLevel(r, zetas, 2, 127).
+    Set r to invNttWithinLevel(r, zetas, 4, 63).
+    Set r to invNttWithinLevel(r, zetas, 8, 31).
+    Let mutable kStart be 15.
+    Let mutable len be 16.
+    While len is at most 128:
+        Let numBlocks be 128 / len.
+        Let chunks be len / 16.
+        Repeat for b from 0 to numBlocks - 1:
+            Let zv be splat16Word16(item (kStart - b + 1) of zetas).
+            Let start be b * 2 * len.
+            Repeat for c from 0 to chunks - 1:
+                Let lowOff be start + 16 * c.
+                Let highOff be start + len + 16 * c.
+                Let lowVec be lanes16Word16(sub16(r, lowOff)).
+                Let highVec be lanes16Word16(sub16(r, highOff)).
+                Let sumv be barrettReduce(lowVec + highVec).
+                Let newHi be montmul(zv, highVec - lowVec, qv, qinv).
+                Let nl be seqOfLanes16(sumv).
+                Let nh be seqOfLanes16(newHi).
+                Repeat for i from 1 to 16:
+                    Set item (lowOff + i) of r to (item i of nl).
+                    Set item (highOff + i) of r to (item i of nh).
+        Set kStart to kStart - numBlocks.
+        Set len to len * 2.
+    Let fv be splat16Word16(1441).
+    Repeat for v from 0 to 15:
+        Let vec be lanes16Word16(sub16(r, 16 * v)).
+        Let scaled be seqOfLanes16(montmul(fv, vec, qv, qinv)).
+        Repeat for i from 1 to 16:
+            Set item (16 * v + i) of r to (item i of scaled).
+    Return r.
+
+## Note
+One butterfly level of the forward NTT at a given stride.
+
+## To nttWithinLevel (coeffs: Seq of Int) and (zetas: Seq of Int) and (h: Int) and (k0: Int) -> Seq of Int:
+    Let qv be splat16Word16(3329).
+    Let qinv be splat16Word16(62209).
+    Let mutable r be a new Seq of Int.
+    Repeat for x in coeffs:
+        Push x to r.
+    Let blocksPerVec be 16 / (2 * h).
+    Let lanesPerBlock be 2 * h.
+    Repeat for v from 0 to 15:
+        Let zvSeq be a new Seq of Int.
+        Repeat for bj from 0 to blocksPerVec - 1:
+            Let zeta be item (k0 + v * blocksPerVec + bj + 1) of zetas.
+            Repeat for rep from 1 to lanesPerBlock:
+                Push zeta to zvSeq.
+        Let zv be lanes16Word16(zvSeq).
+        Let vec be lanes16Word16(sub16(r, 16 * v)).
+        Let lo be nttBcastLo(vec, h).
+        Let hiB be nttBcastHi(vec, h).
+        Let t be montmul(zv, hiB, qv, qinv).
+        Let rs be seqOfLanes16(nttBlend(lo + t, lo - t, h)).
+        Repeat for i from 1 to 16:
+            Set item (16 * v + i) of r to (item i of rs).
+    Return r.
+
+## Note
+The full forward NTT, level by level, over 16-lane vectors.
+
+## To nttForwardAllSimd (coeffs: Seq of Int) and (zetas: Seq of Int) -> Seq of Int:
+    Let qv be splat16Word16(3329).
+    Let qinv be splat16Word16(62209).
+    Let mutable r be a new Seq of Int.
+    Repeat for x in coeffs:
+        Push x to r.
+    Let mutable k be 1.
+    Let mutable len be 128.
+    While len is at least 16:
+        Let numBlocks be 128 / len.
+        Let chunks be len / 16.
+        Repeat for b from 0 to numBlocks - 1:
+            Let zv be splat16Word16(item k of zetas).
+            Let start be b * 2 * len.
+            Repeat for c from 0 to chunks - 1:
+                Let lowOff be start + 16 * c.
+                Let highOff be start + len + 16 * c.
+                Let lowVec be lanes16Word16(sub16(r, lowOff)).
+                Let highVec be lanes16Word16(sub16(r, highOff)).
+                Let t be montmul(zv, highVec, qv, qinv).
+                Let nl be seqOfLanes16(lowVec + t).
+                Let nh be seqOfLanes16(lowVec - t).
+                Repeat for i from 1 to 16:
+                    Set item (lowOff + i) of r to (item i of nl).
+                    Set item (highOff + i) of r to (item i of nh).
+            Set k to k + 1.
+        Set len to len / 2.
+    Let mutable k0 be k - 1.
+    Set r to nttWithinLevel(r, zetas, 8, k0).
+    Set k0 to k0 + 16.
+    Set r to nttWithinLevel(r, zetas, 4, k0).
+    Set k0 to k0 + 32.
+    Set r to nttWithinLevel(r, zetas, 2, k0).
+    Return r.
+
+## Note
+Forward NTT on Word16 coefficients, written in LOGOS lanes.
+
+## To mlkemNttW16 (a: Seq of Word16) -> Seq of Word16:
+    Let mutable cs be a new Seq of Int.
+    Repeat for w in a:
+        Push intOfWord16(w) to cs.
+    Let mutable zs be a new Seq of Int.
+    Push 64778 to zs.
+    Push 65177 to zs.
+    Push 64019 to zs.
+    Push 1493 to zs.
+    Push 1422 to zs.
+    Push 287 to zs.
+    Push 202 to zs.
+    Push 65365 to zs.
+    Push 622 to zs.
+    Push 1577 to zs.
+    Push 182 to zs.
+    Push 962 to zs.
+    Push 64334 to zs.
+    Push 64062 to zs.
+    Push 1468 to zs.
+    Push 573 to zs.
+    Push 64211 to zs.
+    Push 264 to zs.
+    Push 383 to zs.
+    Push 64707 to zs.
+    Push 1458 to zs.
+    Push 63934 to zs.
+    Push 65406 to zs.
+    Push 64855 to zs.
+    Push 1017 to zs.
+    Push 732 to zs.
+    Push 608 to zs.
+    Push 63994 to zs.
+    Push 411 to zs.
+    Push 65331 to zs.
+    Push 63965 to zs.
+    Push 1223 to zs.
+    Push 652 to zs.
+    Push 64984 to zs.
+    Push 1015 to zs.
+    Push 64243 to zs.
+    Push 1491 to zs.
+    Push 65254 to zs.
+    Push 63992 to zs.
+    Push 516 to zs.
+    Push 65528 to zs.
+    Push 65216 to zs.
+    Push 64870 to zs.
+    Push 63918 to zs.
+    Push 64374 to zs.
+    Push 126 to zs.
+    Push 1469 to zs.
+    Push 64683 to zs.
+    Push 65446 to zs.
+    Push 65265 to zs.
+    Push 830 to zs.
+    Push 107 to zs.
+    Push 64115 to zs.
+    Push 65289 to zs.
+    Push 64585 to zs.
+    Push 65138 to zs.
+    Push 961 to zs.
+    Push 64028 to zs.
+    Push 64811 to zs.
+    Push 448 to zs.
+    Push 64471 to zs.
+    Push 677 to zs.
+    Push 64261 to zs.
+    Push 64433 to zs.
+    Push 430 to zs.
+    Push 555 to zs.
+    Push 843 to zs.
+    Push 64285 to zs.
+    Push 871 to zs.
+    Push 1550 to zs.
+    Push 105 to zs.
+    Push 422 to zs.
+    Push 587 to zs.
+    Push 177 to zs.
+    Push 65301 to zs.
+    Push 65245 to zs.
+    Push 65076 to zs.
+    Push 1574 to zs.
+    Push 1653 to zs.
+    Push 65290 to zs.
+    Push 778 to zs.
+    Push 1159 to zs.
+    Push 65389 to zs.
+    Push 64759 to zs.
+    Push 1483 to zs.
+    Push 64934 to zs.
+    Push 1119 to zs.
+    Push 63946 to zs.
+    Push 644 to zs.
+    Push 64664 to zs.
+    Push 349 to zs.
+    Push 418 to zs.
+    Push 329 to zs.
+    Push 65380 to zs.
+    Push 65461 to zs.
+    Push 817 to zs.
+    Push 1097 to zs.
+    Push 603 to zs.
+    Push 610 to zs.
+    Push 1322 to zs.
+    Push 64251 to zs.
+    Push 64071 to zs.
+    Push 384 to zs.
+    Push 64321 to zs.
+    Push 65400 to zs.
+    Push 1218 to zs.
+    Push 64201 to zs.
+    Push 64662 to zs.
+    Push 220 to zs.
+    Push 64349 to zs.
+    Push 63877 to zs.
+    Push 64351 to zs.
+    Push 64006 to zs.
+    Push 64258 to zs.
+    Push 794 to zs.
+    Push 64026 to zs.
+    Push 64682 to zs.
+    Push 64666 to zs.
+    Push 478 to zs.
+    Push 65428 to zs.
+    Push 65228 to zs.
+    Push 996 to zs.
+    Push 991 to zs.
+    Push 958 to zs.
+    Push 64076 to zs.
+    Push 1522 to zs.
+    Push 1628 to zs.
+    
+    Let raw be nttForwardAllSimd(cs, zs).
+    Let mutable out be a new Seq of Word16.
+    Repeat for x in raw:
+        Let v be x.
+        If v is at least 32768:
+            Set v to v - 65536.
+        Set v to ((v % 3329) + 3329) % 3329.
+        Push word16(v) to out.
+    Return out.
+
+## Note
+Inverse NTT on Word16 coefficients, written in LOGOS lanes.
+
+## To mlkemInvNttW16 (a: Seq of Word16) -> Seq of Word16:
+    Let mutable cs be a new Seq of Int.
+    Repeat for w in a:
+        Push intOfWord16(w) to cs.
+    Let mutable zs be a new Seq of Int.
+    Push 64492 to zs.
+    Push 64778 to zs.
+    Push 65177 to zs.
+    Push 64019 to zs.
+    Push 1493 to zs.
+    Push 1422 to zs.
+    Push 287 to zs.
+    Push 202 to zs.
+    Push 65365 to zs.
+    Push 622 to zs.
+    Push 1577 to zs.
+    Push 182 to zs.
+    Push 962 to zs.
+    Push 64334 to zs.
+    Push 64062 to zs.
+    Push 1468 to zs.
+    Push 573 to zs.
+    Push 64211 to zs.
+    Push 264 to zs.
+    Push 383 to zs.
+    Push 64707 to zs.
+    Push 1458 to zs.
+    Push 63934 to zs.
+    Push 65406 to zs.
+    Push 64855 to zs.
+    Push 1017 to zs.
+    Push 732 to zs.
+    Push 608 to zs.
+    Push 63994 to zs.
+    Push 411 to zs.
+    Push 65331 to zs.
+    Push 63965 to zs.
+    Push 1223 to zs.
+    Push 652 to zs.
+    Push 64984 to zs.
+    Push 1015 to zs.
+    Push 64243 to zs.
+    Push 1491 to zs.
+    Push 65254 to zs.
+    Push 63992 to zs.
+    Push 516 to zs.
+    Push 65528 to zs.
+    Push 65216 to zs.
+    Push 64870 to zs.
+    Push 63918 to zs.
+    Push 64374 to zs.
+    Push 126 to zs.
+    Push 1469 to zs.
+    Push 64683 to zs.
+    Push 65446 to zs.
+    Push 65265 to zs.
+    Push 830 to zs.
+    Push 107 to zs.
+    Push 64115 to zs.
+    Push 65289 to zs.
+    Push 64585 to zs.
+    Push 65138 to zs.
+    Push 961 to zs.
+    Push 64028 to zs.
+    Push 64811 to zs.
+    Push 448 to zs.
+    Push 64471 to zs.
+    Push 677 to zs.
+    Push 64261 to zs.
+    Push 64433 to zs.
+    Push 430 to zs.
+    Push 555 to zs.
+    Push 843 to zs.
+    Push 64285 to zs.
+    Push 871 to zs.
+    Push 1550 to zs.
+    Push 105 to zs.
+    Push 422 to zs.
+    Push 587 to zs.
+    Push 177 to zs.
+    Push 65301 to zs.
+    Push 65245 to zs.
+    Push 65076 to zs.
+    Push 1574 to zs.
+    Push 1653 to zs.
+    Push 65290 to zs.
+    Push 778 to zs.
+    Push 1159 to zs.
+    Push 65389 to zs.
+    Push 64759 to zs.
+    Push 1483 to zs.
+    Push 64934 to zs.
+    Push 1119 to zs.
+    Push 63946 to zs.
+    Push 644 to zs.
+    Push 64664 to zs.
+    Push 349 to zs.
+    Push 418 to zs.
+    Push 329 to zs.
+    Push 65380 to zs.
+    Push 65461 to zs.
+    Push 817 to zs.
+    Push 1097 to zs.
+    Push 603 to zs.
+    Push 610 to zs.
+    Push 1322 to zs.
+    Push 64251 to zs.
+    Push 64071 to zs.
+    Push 384 to zs.
+    Push 64321 to zs.
+    Push 65400 to zs.
+    Push 1218 to zs.
+    Push 64201 to zs.
+    Push 64662 to zs.
+    Push 220 to zs.
+    Push 64349 to zs.
+    Push 63877 to zs.
+    Push 64351 to zs.
+    Push 64006 to zs.
+    Push 64258 to zs.
+    Push 794 to zs.
+    Push 64026 to zs.
+    Push 64682 to zs.
+    Push 64666 to zs.
+    Push 478 to zs.
+    Push 65428 to zs.
+    Push 65228 to zs.
+    Push 996 to zs.
+    Push 991 to zs.
+    Push 958 to zs.
+    Push 64076 to zs.
+    Push 1522 to zs.
+    Push 1628 to zs.
+    
+    Let raw be invNttAllSimd(cs, zs).
+    Let mutable out be a new Seq of Word16.
+    Repeat for x in raw:
+        Let v be x.
+        If v is at least 32768:
+            Set v to v - 65536.
+        Set v to ((v % 3329) + 3329) % 3329.
+        Push word16(v) to out.
+    Return out.
+
+
+
+## Note
+Native base-case multiply of NTT-domain Word16 polynomials.
+
+## To native mlkemBaseMulW16 (a: Seq of Word16) and (b: Seq of Word16) -> Seq of Word16
+
+## Note
+Converts Word16 coefficients into the Montgomery domain.
+
+## To native toMontW16 (coeffs: Seq of Word16) -> Seq of Word16
+
+## Note
+Centered binomial sampling (eta = 2) into Word16 coefficients.
+
+## To native cbd2W16 (buf: Seq of Int) -> Seq of Word16
+
+## Note
+ML-KEM coefficient compression to d bits, Word16 form.
+
+## To native compressW16 (coeffs: Seq of Word16) and (d: Int) -> Seq of Word16
+
+## Note
+ML-KEM coefficient decompression from d bits, Word16 form.
+
+## To native decompressW16 (coeffs: Seq of Word16) and (d: Int) -> Seq of Word16
+
+## Note
+Packs d-bit Word16 coefficients into bytes (FIPS 203 ByteEncode).
+
+## To native byteEncodeW16 (coeffs: Seq of Word16) and (d: Int) -> Seq of Int
+
+## Note
+Unpacks bytes into d-bit Word16 coefficients (FIPS 203 ByteDecode).
+
+## To native byteDecodeW16 (bytes: Seq of Int) and (d: Int) -> Seq of Word16
+
+## Note
+Rejection-samples one matrix entry of A from a SHAKE128 stream, Word16 form.
+
+## To native sampleAW16 (seed: Seq of Int) and (i: Int) and (j: Int) -> Seq of Word16
+
+## Note
+Expands the public seed into the whole matrix A, Word16 form.
+
+## To native sampleMatrixW16 (seed: Seq of Int) -> Seq of Word16
+
+## Note
+Samples a batch of noise polynomials from one seed and base nonce.
+
+## To native mlkemNoiseBatch (seed: Seq of Int) and (base: Int) and (count: Int) -> Seq of Word16
+
+## Note
+Coefficient-wise addition mod q on Word16 vectors.
+
+## To native addModQW16 (a: Seq of Word16) and (b: Seq of Word16) -> Seq of Word16
+
+## Note
+Coefficient-wise subtraction mod q on Word16 vectors.
+
+## To native subModQW16 (a: Seq of Word16) and (b: Seq of Word16) -> Seq of Word16
+
+## Note
+A zeroed Word16 sequence of the given length.
+
+## To native zerosW16 (n: Int) -> Seq of Word16
+
+## Note
+Native inverse NTT for ML-KEM polynomials.
+
+## To native mlkemInvNtt (a: Seq of Int) -> Seq of Int
+
+## Note
+Native base-case multiply of NTT-domain polynomials.
+
+## To native mlkemBaseMul (a: Seq of Int) and (b: Seq of Int) -> Seq of Int
+
+## Note
+Centered binomial sampling with eta = 2 (FIPS 203 SamplePolyCBD).
+
+## To native cbd2 (buf: Seq of Int) -> Seq of Int
+
+## Note
+Centered binomial sampling with eta = 3 (FIPS 203 SamplePolyCBD).
+
+## To native cbd3 (buf: Seq of Int) -> Seq of Int
+
+## Note
+ML-KEM coefficient compression to d bits.
+
+## To native compress (coeffs: Seq of Int) and (d: Int) -> Seq of Int
+
+## Note
+ML-KEM coefficient decompression from d bits.
+
+## To native decompress (coeffs: Seq of Int) and (d: Int) -> Seq of Int
+
+## Note
+Packs d-bit coefficients into bytes (FIPS 203 ByteEncode).
+
+## To native byteEncode (coeffs: Seq of Int) and (d: Int) -> Seq of Int
+
+## Note
+Unpacks bytes into d-bit coefficients (FIPS 203 ByteDecode).
+
+## To native byteDecode (bytes: Seq of Int) and (d: Int) -> Seq of Int
+
+## Note
+Rejection-samples an NTT-domain polynomial from an XOF stream.
+
+## To native sampleNtt (stream: Seq of Int) -> Seq of Int
+
+## Note
+Rejection-samples matrix entry A[i][j] from the public seed.
+
+## To native sampleA (seed: Seq of Int) and (i: Int) and (j: Int) -> Seq of Int
+
+## Note
+Converts coefficients into the Montgomery domain.
+
+## To native toMont (coeffs: Seq of Int) -> Seq of Int
+
+## Note
+SHA3-256 of a byte sequence (FIPS 202).
+
+## To native sha3_256 (a: Seq of Int) -> Seq of Int
+
+## Note
+SHA3-512 of a byte sequence (FIPS 202).
+
+## To native sha3_512 (a: Seq of Int) -> Seq of Int
+
+## Note
+SHAKE128 extendable output of the requested length (FIPS 202).
+
+## To native shake128 (a: Seq of Int) and (outlen: Int) -> Seq of Int
+
+## Note
+SHAKE256 extendable output of the requested length (FIPS 202).
+
+## To native shake256 (a: Seq of Int) and (outlen: Int) -> Seq of Int
+
+## Note
+Native ML-KEM-768 key generation from seeds d and z (FIPS 203).
+
+## To native mlkemKeypair (d: Seq of Int) and (z: Seq of Int) -> Seq of Int
+
+## Note
+Native ML-KEM-768 encapsulation: ciphertext plus shared secret.
+
+## To native mlkemEncapsKem (ek: Seq of Int) and (m: Seq of Int) -> Seq of Int
+
+## Note
+Native ML-KEM-768 decapsulation: the shared secret from a ciphertext.
+
+## To native mlkemDecapsKem (dk: Seq of Int) and (ct: Seq of Int) -> Seq of Int
+
+## Note
+Native ML-DSA-65 key generation from a seed (FIPS 204).
+
+## To native mldsaKeypair (seed: Seq of Int) -> Seq of Int
+
+## Note
+Native ML-DSA-65 signing with a context string (FIPS 204).
+
+## To native mldsaSign (sk: Seq of Int) and (msg: Seq of Int) and (ctx: Seq of Int) -> Seq of Int
+
+## Note
+Native ML-DSA-65 verification; 1 for a valid signature, else 0.
+
+## To native mldsaVerify (pk: Seq of Int) and (msg: Seq of Int) and (ctx: Seq of Int) and (sig: Seq of Int) -> Int
+
+## Note
+Copies a length-len slice of a sequence starting at an offset.
+
+## To mlkemSubseq (s: Seq of Int) and (off: Int) and (len: Int) -> Seq of Int:
+    Let r be a new Seq of Int.
+    Repeat for i from 1 to len:
+        Push (item (off + i) of s) to r.
+    Return r.
+
+## Note
+Copies a length-len Word16 slice starting at an offset.
+
+## To mlkemSubseqW16 (s: Seq of Word16) and (off: Int) and (len: Int) -> Seq of Word16:
+    Let r be a new Seq of Word16.
+    Repeat for i from 1 to len:
+        Push (item (off + i) of s) to r.
+    Return r.
+
+## Note
+A PRF noise polynomial: SHAKE256(seed, nonce) fed through CBD.
+
+## To mlkemPrfNoise (seed: Seq of Int) and (nonce: Int) -> Seq of Word16:
+    Let inp be a new Seq of Int.
+    Repeat for x in seed:
+        Push x to inp.
+    Push nonce to inp.
+    Return cbd2W16(shake256(inp, 128)).
+
+## Note
+ML-KEM-768 key generation written in LOGOS (FIPS 203).
+
+## To mlkem768Keygen (d: Seq of Int) -> Seq of Int:
+    Let gin be a new Seq of Int.
+    Repeat for x in d:
+        Push x to gin.
+    Push 3 to gin.
+    Let g be sha3_512(gin).
+    Let rho be mlkemSubseq(g, 0, 32).
+    Let sigma be mlkemSubseq(g, 32, 32).
+    Let seNoise be mlkemNoiseBatch(sigma, 0, 6).
+    Let mutable shat be a new Seq of Word16.
+    Repeat for j from 0 to 2:
+        Set shat to shat followed by mlkemNttW16(mlkemSubseqW16(seNoise, j * 256, 256)).
+    Let mutable ehat be a new Seq of Word16.
+    Repeat for j from 0 to 2:
+        Set ehat to ehat followed by mlkemNttW16(mlkemSubseqW16(seNoise, (3 + j) * 256, 256)).
+    Let amatrix be sampleMatrixW16(rho).
+    Let mutable ek be a new Seq of Int.
+    Repeat for i from 0 to 2:
+        Let mutable acc be zerosW16(256).
+        Repeat for j from 0 to 2:
+            Let aij be mlkemSubseqW16(amatrix, (j * 3 + i) * 256, 256).
+            Let sj be mlkemSubseqW16(shat, j * 256, 256).
+            Set acc to addModQW16(acc, mlkemBaseMulW16(aij, sj)).
+        Let ti be addModQW16(toMontW16(acc), mlkemSubseqW16(ehat, i * 256, 256)).
+        Set ek to ek followed by byteEncodeW16(ti, 12).
+    Return ek followed by rho.
+
+## Note
+K-PKE encryption of a 32-byte message under an encapsulation key.
+
+## To mlkemEncrypt (ek: Seq of Int) and (m: Seq of Int) and (r: Seq of Int) -> Seq of Int:
+    Let rho be mlkemSubseq(ek, 1152, 32).
+    Let rNoise be mlkemNoiseBatch(r, 0, 7).
+    Let mutable rhat be a new Seq of Word16.
+    Repeat for j from 0 to 2:
+        Set rhat to rhat followed by mlkemNttW16(mlkemSubseqW16(rNoise, j * 256, 256)).
+    Let amatrix be sampleMatrixW16(rho).
+    Let mutable c be a new Seq of Int.
+    Repeat for i from 0 to 2:
+        Let mutable acc be zerosW16(256).
+        Repeat for j from 0 to 2:
+            Let aij be mlkemSubseqW16(amatrix, (i * 3 + j) * 256, 256).
+            Let rj be mlkemSubseqW16(rhat, j * 256, 256).
+            Set acc to addModQW16(acc, mlkemBaseMulW16(aij, rj)).
+        Let ui be addModQW16(mlkemInvNttW16(acc), mlkemSubseqW16(rNoise, (3 + i) * 256, 256)).
+        Set c to c followed by byteEncodeW16(compressW16(ui, 10), 10).
+    Let mutable accv be zerosW16(256).
+    Repeat for i from 0 to 2:
+        Let ti be byteDecodeW16(mlkemSubseq(ek, i * 384, 384), 12)
+        Let ri be mlkemSubseqW16(rhat, i * 256, 256)
+        Set accv to addModQW16(accv, mlkemBaseMulW16(ti, ri))
+    Let mu be decompressW16(byteDecodeW16(m, 1), 1).
+    Let v be addModQW16(addModQW16(mlkemInvNttW16(accv), mlkemSubseqW16(rNoise, 6 * 256, 256)), mu).
+    Return c followed by byteEncodeW16(compressW16(v, 4), 4).
+
+## Note
+ML-KEM-768 encapsulation written in LOGOS: ciphertext and shared secret.
+
+## To mlkem768Encaps (ek: Seq of Int) and (m: Seq of Int) -> Seq of Int:
+    Let g be sha3_512(m followed by sha3_256(ek)).
+    Let kk be mlkemSubseq(g, 0, 32).
+    Let r be mlkemSubseq(g, 32, 32).
+    Return mlkemEncrypt(ek, m, r) followed by kk.
+
+## Note
+K-PKE decryption of a ciphertext with the secret polynomial vector.
+
+## To mlkemDecrypt (dkpke: Seq of Int) and (c: Seq of Int) -> Seq of Int:
+    Let mutable acc be zerosW16(256).
+    Repeat for i from 0 to 2:
+        Let ui be decompressW16(byteDecodeW16(mlkemSubseq(c, i * 320, 320), 10), 10)
+        Let si be byteDecodeW16(mlkemSubseq(dkpke, i * 384, 384), 12)
+        Set acc to addModQW16(acc, mlkemBaseMulW16(si, mlkemNttW16(ui)))
+    Let v be decompressW16(byteDecodeW16(mlkemSubseq(c, 960, 128), 4), 4).
+    Let w be subModQW16(v, mlkemInvNttW16(acc)).
+    Return byteEncodeW16(compressW16(w, 1), 1).
+
+## Note
+Counts differing bytes between two sequences (constant-shape compare).
+
+## To mlkemDiffCount (a: Seq of Int) and (b: Seq of Int) -> Int:
+    Let mutable d be 0.
+    Let n be length of a.
+    Repeat for i from 1 to n:
+        Let delta be (item i of a) - (item i of b).
+        If delta * delta is at least 1:
+            Set d to d + 1.
+    Return d.
+
+## Note
+ML-KEM-768 decapsulation written in LOGOS, with implicit rejection.
+
+## To mlkem768Decaps (dk: Seq of Int) and (c: Seq of Int) -> Seq of Int:
+    Let dkpke be mlkemSubseq(dk, 0, 1152).
+    Let ek be mlkemSubseq(dk, 1152, 1184).
+    Let h be mlkemSubseq(dk, 2336, 32).
+    Let z be mlkemSubseq(dk, 2368, 32).
+    Let mprime be mlkemDecrypt(dkpke, c).
+    Let g be sha3_512(mprime followed by h).
+    Let mutable result be mlkemSubseq(g, 0, 32).
+    Let cprime be mlkemEncrypt(ek, mprime, mlkemSubseq(g, 32, 32)).
+    If mlkemDiffCount(c, cprime) is at least 1:
+        Set result to shake256(z followed by c, 32).
+    Return result.
+
+## Note
+A post-quantum authenticated handshake transcript over ML-KEM and ML-DSA.
+
+## To pqAuthHandshake (idiPk: Seq of Int) and (idiSk: Seq of Int) and (idrPk: Seq of Int) and (idrSk: Seq of Int) and (kemD: Seq of Int) and (kemZ: Seq of Int) and (kemM: Seq of Int) and (ctx: Seq of Int) -> Seq of Int:
+    Let kp be mlkemKeypair(kemD, kemZ).
+    Let ek be mlkemSubseq(kp, 0, 1184).
+    Let dk be mlkemSubseq(kp, 1184, 2400).
+    Let ti be (idiPk followed by idrPk) followed by ek.
+    Let sigi be mldsaSignLogos(idiSk, ti).
+    If mldsaVerifyLogos(idiPk, ti, sigi) is at most 0:
+        Return a new Seq of Int.
+    Let ctss be mlkemEncapsKem(ek, kemM).
+    Let ct be mlkemSubseq(ctss, 0, 1088).
+    Let ssR be mlkemSubseq(ctss, 1088, 32).
+    Let tr be ((idiPk followed by idrPk) followed by ek) followed by ct.
+    Let sigr be mldsaSignLogos(idrSk, tr).
+    If mldsaVerifyLogos(idrPk, tr, sigr) is at most 0:
+        Return a new Seq of Int.
+    Let ssI be mlkemDecapsKem(dk, ct).
+    Return ssI followed by ssR.
+
+## Note
+A zeroed byte sequence of the given length.
+
+## To zerosBytes (n: Int) -> Seq of Int:
+    Let r be a new Seq of Int.
+    Repeat for i from 1 to n:
+        Push 0 to r.
+    Return r.
+
+## Note
+Zero-pads a sequence up to the next 16-byte boundary.
+
+## To pad16 (s: Seq of Int) -> Seq of Int:
+    Let n be length of s.
+    Let padLen be (16 - (n % 16)) % 16.
+    Return zerosBytes(padLen).
+
+## Note
+A 64-bit little-endian length encoding as 8 bytes.
+
+## To le64 (n: Int) -> Seq of Int:
+    Let r be a new Seq of Int.
+    Let mutable v be n.
+    Repeat for i from 1 to 8:
+        Push (v % 256) to r.
+        Set v to v / 256.
+    Return r.
+
+## Note
+The AEAD MAC input: padded AAD, padded ciphertext, and both lengths.
+
+## To aeadMacData (aad: Seq of Int) and (ct: Seq of Int) -> Seq of Int:
+    Let withAad be aad followed by pad16(aad).
+    Let withCt be (withAad followed by ct) followed by pad16(ct).
+    Return (withCt followed by le64(length of aad)) followed by le64(length of ct).
+
+## Note
+ChaCha20-Poly1305 seal: encrypts and appends the 16-byte tag (RFC 8439).
+
+## To aeadSeal (key: Seq of Int) and (nonce: Seq of Int) and (aad: Seq of Int) and (pt: Seq of Int) -> Seq of Int:
+    Let otkFull be chacha20Encrypt(key, nonce, 0, zerosBytes(32)).
+    Let otk be mlkemSubseq(otkFull, 0, 32).
+    Let ct be chacha20Encrypt(key, nonce, 1, pt).
+    Let tag be poly1305Mac(otk, aeadMacData(aad, ct)).
+    Return ct followed by tag.
+
+## Note
+ChaCha20-Poly1305 open: checks the tag, then decrypts; empty on failure.
+
+## To aeadOpen (key: Seq of Int) and (nonce: Seq of Int) and (aad: Seq of Int) and (sealed: Seq of Int) -> Seq of Int:
+    Let total be length of sealed.
+    If total is at most 15:
+        Return a new Seq of Int.
+    Let ctLen be total - 16.
+    Let ct be mlkemSubseq(sealed, 0, ctLen).
+    Let tag be mlkemSubseq(sealed, ctLen, 16).
+    Let otkFull be chacha20Encrypt(key, nonce, 0, zerosBytes(32)).
+    Let otk be mlkemSubseq(otkFull, 0, 32).
+    Let expected be poly1305Mac(otk, aeadMacData(aad, ct)).
+    Let mutable diff be 0.
+    Repeat for i from 1 to 16:
+        Let d be (item i of tag) - (item i of expected).
+        If d * d is at least 1:
+            Set diff to 1.
+    If diff is at least 1:
+        Return a new Seq of Int.
+    Return chacha20Encrypt(key, nonce, 1, ct).
+
+## Note
+Packs little-endian bytes into Word32 words.
+
+## To bytesToWords (bytes: Seq of Int) -> Seq of Word32:
+    Let words be a new Seq of Word32.
+    Let nw be (length of bytes) / 4.
+    Repeat for w from 0 to nw - 1:
+        Let base be w * 4.
+        Let b0 be item (base + 1) of bytes.
+        Let b1 be item (base + 2) of bytes.
+        Let b2 be item (base + 3) of bytes.
+        Let b3 be item (base + 4) of bytes.
+        Push word32(b0 + b1 * 256 + b2 * 65536 + b3 * 16777216) to words.
+    Return words.
+
+## Note
+The ChaCha20 quarter-round over 8-lane Word32 vectors.
+
+## To laneQR (state: Seq of Lanes8Word32) and (ai: Int) and (bi: Int) and (ci: Int) and (di: Int) -> Seq of Lanes8Word32:
+    Let mutable a be item (ai + 1) of state.
+    Let mutable b be item (bi + 1) of state.
+    Let mutable c be item (ci + 1) of state.
+    Let mutable d be item (di + 1) of state.
+    Set a to a + b.
+    Set d to rotl(d xor a, 16).
+    Set c to c + d.
+    Set b to rotl(b xor c, 12).
+    Set a to a + b.
+    Set d to rotl(d xor a, 8).
+    Set c to c + d.
+    Set b to rotl(b xor c, 7).
+    Set item (ai + 1) of state to a.
+    Set item (bi + 1) of state to b.
+    Set item (ci + 1) of state to c.
+    Set item (di + 1) of state to d.
+    Return state.
+
+## Note
+Eight ChaCha20 blocks at once over 8-lane vectors.
+
+## To laneChaCha20Block (key: Seq of Word32) and (counterBase: Int) and (nonce: Seq of Word32) -> Seq of Lanes8Word32:
+    Let mutable state be a new Seq of Lanes8Word32.
+    Push splat8Word32(word32(1634760805)) to state.
+    Push splat8Word32(word32(857760878)) to state.
+    Push splat8Word32(word32(2036477234)) to state.
+    Push splat8Word32(word32(1797285236)) to state.
+    Repeat for k in key:
+        Push splat8Word32(k) to state.
+    Let ctr be a new Seq of Word32.
+    Repeat for i from 0 to 7:
+        Push word32(counterBase + i) to ctr.
+    Push lanes8Word32(ctr) to state.
+    Repeat for n in nonce:
+        Push splat8Word32(n) to state.
+    Let init be a new Seq of Lanes8Word32.
+    Repeat for s in state:
+        Push s to init.
+    Repeat for r from 1 to 10:
+        Set state to laneQR(state, 0, 4, 8, 12).
+        Set state to laneQR(state, 1, 5, 9, 13).
+        Set state to laneQR(state, 2, 6, 10, 14).
+        Set state to laneQR(state, 3, 7, 11, 15).
+        Set state to laneQR(state, 0, 5, 10, 15).
+        Set state to laneQR(state, 1, 6, 11, 12).
+        Set state to laneQR(state, 2, 7, 8, 13).
+        Set state to laneQR(state, 3, 4, 9, 14).
+    Let out be a new Seq of Lanes8Word32.
+    Repeat for i from 1 to 16:
+        Push (item i of state) + (item i of init) to out.
+    Return out.
+
+## Note
+Flattens 8-lane ChaCha20 blocks into a keystream word sequence.
+
+## To laneKeystreamWords (key: Seq of Word32) and (counterBase: Int) and (nonce: Seq of Word32) -> Seq of Word32:
+    Let block be laneChaCha20Block(key, counterBase, nonce).
+    Let out be a new Seq of Word32.
+    Repeat for lane from 1 to 8:
+        Repeat for j from 1 to 16:
+            Push (item lane of seqOfLanes8(item j of block)) to out.
+    Return out.
+
+## Note
+ChaCha20 stream encryption (RFC 8439); apply it again to decrypt.
+
+## To chacha20Encrypt (key: Seq of Int) and (nonce: Seq of Int) and (counter: Int) and (data: Seq of Int) -> Seq of Int:
+    Let keyWords be bytesToWords(key).
+    Let nonceWords be bytesToWords(nonce).
+    Let n be length of data.
+    Let ct be a new Seq of Int.
+    Let numBatches be (n + 511) / 512.
+    Repeat for batch from 0 to numBatches - 1:
+        Let off be batch * 512.
+        Let ctr be counter + batch * 8.
+        Let ks be laneKeystreamWords(keyWords, ctr, nonceWords).
+        Let ksBytes be a new Seq of Int.
+        Repeat for w in ks:
+            Let v be intOfWord32(w).
+            Push (v % 256) to ksBytes.
+            Push ((v / 256) % 256) to ksBytes.
+            Push ((v / 65536) % 256) to ksBytes.
+            Push ((v / 16777216) % 256) to ksBytes.
+        Let remaining be n - off.
+        Let mutable batchLen be 512.
+        If remaining is at most 511:
+            Set batchLen to remaining.
+        Repeat for i from 1 to batchLen:
+            Push ((item (off + i) of data) xor (item i of ksBytes)) to ct.
+    Return ct.
+
+## Note
+Reads a 32-bit little-endian word from bytes at an offset.
+
+## To leWord (b: Seq of Int) and (off: Int) -> Int:
+    Return (item (off + 1) of b) + (item (off + 2) of b) * 256 + (item (off + 3) of b) * 65536 + (item (off + 4) of b) * 16777216.
+
+## Note
+Carries Poly1305 limbs back into canonical 26-bit range.
+
+## To polyReduce (d: Seq of Int) -> Seq of Int:
+    Let c be (item 1 of d) / 67108864.
+    Let h0 be (item 1 of d) % 67108864.
+    Let d1b be (item 2 of d) + c.
+    Let c1 be d1b / 67108864.
+    Let h1 be d1b % 67108864.
+    Let d2b be (item 3 of d) + c1.
+    Let c2 be d2b / 67108864.
+    Let h2 be d2b % 67108864.
+    Let d3b be (item 4 of d) + c2.
+    Let c3 be d3b / 67108864.
+    Let h3 be d3b % 67108864.
+    Let d4b be (item 5 of d) + c3.
+    Let c4 be d4b / 67108864.
+    Let h4 be d4b % 67108864.
+    Let h0w be h0 + c4 * 5.
+    Let h0f be h0w % 67108864.
+    Let cw be h0w / 67108864.
+    Let h1b be h1 + cw.
+    Let c1b be h1b / 67108864.
+    Let h1f be h1b % 67108864.
+    Let h2f be h2 + c1b.
+    Let r be a new Seq of Int.
+    Push h0f to r.
+    Push h1f to r.
+    Push h2f to r.
+    Push h3 to r.
+    Push h4 to r.
+    Return r.
+
+## Note
+Clamps the Poly1305 r key as RFC 8439 requires.
+
+## To polyClamp (key: Seq of Int) -> Seq of Int:
+    Let t0c be (leWord(key, 0)) % 268435456.
+    Let t1a be (leWord(key, 4)) % 268435456.
+    Let t1c be t1a - (t1a % 4).
+    Let t2a be (leWord(key, 8)) % 268435456.
+    Let t2c be t2a - (t2a % 4).
+    Let t3a be (leWord(key, 12)) % 268435456.
+    Let t3c be t3a - (t3a % 4).
+    Let r be a new Seq of Int.
+    Push (t0c % 67108864) to r.
+    Push ((t0c / 67108864) + (t1c % 1048576) * 64) to r.
+    Push ((t1c / 1048576) + (t2c % 16384) * 4096) to r.
+    Push ((t2c / 16384) + (t3c % 256) * 262144) to r.
+    Push (t3c / 256) to r.
+    Return r.
+
+## Note
+Loads one 16-byte block into 26-bit limbs with the high bit set.
+
+## To blockLimbs (seq: Seq of Int) and (off: Int) and (hibit: Int) -> Seq of Int:
+    Let m0 be leWord(seq, off).
+    Let m1 be leWord(seq, off + 4).
+    Let m2 be leWord(seq, off + 8).
+    Let m3 be leWord(seq, off + 12).
+    Let b be a new Seq of Int.
+    Push (m0 % 67108864) to b.
+    Push ((m0 / 67108864) + (m1 % 1048576) * 64) to b.
+    Push ((m1 / 1048576) + (m2 % 16384) * 4096) to b.
+    Push ((m2 / 16384) + (m3 % 256) * 262144) to b.
+    Push ((m3 / 256) + hibit * 16777216) to b.
+    Return b.
+
+## Note
+The final partial block: an appended 1 byte, zero-padded to 16.
+
+## To padBlock (msg: Seq of Int) and (base: Int) and (len: Int) -> Seq of Int:
+    Let b be a new Seq of Int.
+    Repeat for i from 1 to len:
+        Push (item (base + i) of msg) to b.
+    Push 1 to b.
+    Repeat for i from (len + 2) to 16:
+        Push 0 to b.
+    Return b.
+
+## Note
+Poly1305 limb multiplication modulo 2^130 - 5.
+
+## To polyMul (a: Seq of Int) and (b: Seq of Int) -> Seq of Int:
+    Let a0 be item 1 of a.
+    Let a1 be item 2 of a.
+    Let a2 be item 3 of a.
+    Let a3 be item 4 of a.
+    Let a4 be item 5 of a.
+    Let b0 be item 1 of b.
+    Let b1 be item 2 of b.
+    Let b2 be item 3 of b.
+    Let b3 be item 4 of b.
+    Let b4 be item 5 of b.
+    Let s1 be b1 * 5.
+    Let s2 be b2 * 5.
+    Let s3 be b3 * 5.
+    Let s4 be b4 * 5.
+    Let d be a new Seq of Int.
+    Push (a0*b0 + a1*s4 + a2*s3 + a3*s2 + a4*s1) to d.
+    Push (a0*b1 + a1*b0 + a2*s4 + a3*s3 + a4*s2) to d.
+    Push (a0*b2 + a1*b1 + a2*b0 + a3*s4 + a4*s3) to d.
+    Push (a0*b3 + a1*b2 + a2*b1 + a3*b0 + a4*s4) to d.
+    Push (a0*b4 + a1*b3 + a2*b2 + a3*b1 + a4*b0) to d.
+    Return polyReduce(d).
+
+## Note
+Limb-wise addition of two Poly1305 accumulators.
+
+## To polyAdd (a: Seq of Int) and (b: Seq of Int) -> Seq of Int:
+    Let r be a new Seq of Int.
+    Repeat for i from 1 to 5:
+        Push ((item i of a) + (item i of b)) to r.
+    Return r.
+
+## Note
+Broadcasts one limb of each group into a 4-lane Word64 vector.
+
+## To laneOfLimbs (x: Seq of Int) and (l: Int) -> Lanes4Word64:
+    Let s be a new Seq of Int.
+    Push (item (l + 1) of x) to s.
+    Push (item (l + 6) of x) to s.
+    Push (item (l + 11) of x) to s.
+    Push (item (l + 16) of x) to s.
+    Return lanes4Word64(s).
+
+## Note
+Absorbs one block group into the Poly1305 accumulator.
+
+## To poly1305Group (t: Seq of Int) and (r: Seq of Int) -> Seq of Int:
+    Let r5 be a new Seq of Int.
+    Repeat for x in r:
+        Push (x * 5) to r5.
+    Let va0 be laneOfLimbs(t, 0).
+    Let va1 be laneOfLimbs(t, 1).
+    Let va2 be laneOfLimbs(t, 2).
+    Let va3 be laneOfLimbs(t, 3).
+    Let va4 be laneOfLimbs(t, 4).
+    Let vb0 be laneOfLimbs(r, 0).
+    Let vb1 be laneOfLimbs(r, 1).
+    Let vb2 be laneOfLimbs(r, 2).
+    Let vb3 be laneOfLimbs(r, 3).
+    Let vb4 be laneOfLimbs(r, 4).
+    Let vs0 be laneOfLimbs(r5, 0).
+    Let vs1 be laneOfLimbs(r5, 1).
+    Let vs2 be laneOfLimbs(r5, 2).
+    Let vs3 be laneOfLimbs(r5, 3).
+    Let vs4 be laneOfLimbs(r5, 4).
+    Let dd be a new Seq of Int.
+    Push hsumLanes4(((mul32x32to64(va0, vb0) + mul32x32to64(va1, vs4)) + (mul32x32to64(va2, vs3) + mul32x32to64(va3, vs2))) + mul32x32to64(va4, vs1)) to dd.
+    Push hsumLanes4(((mul32x32to64(va0, vb1) + mul32x32to64(va1, vb0)) + (mul32x32to64(va2, vs4) + mul32x32to64(va3, vs3))) + mul32x32to64(va4, vs2)) to dd.
+    Push hsumLanes4(((mul32x32to64(va0, vb2) + mul32x32to64(va1, vb1)) + (mul32x32to64(va2, vb0) + mul32x32to64(va3, vs4))) + mul32x32to64(va4, vs3)) to dd.
+    Push hsumLanes4(((mul32x32to64(va0, vb3) + mul32x32to64(va1, vb2)) + (mul32x32to64(va2, vb1) + mul32x32to64(va3, vb0))) + mul32x32to64(va4, vs4)) to dd.
+    Push hsumLanes4(((mul32x32to64(va0, vb4) + mul32x32to64(va1, vb3)) + (mul32x32to64(va2, vb2) + mul32x32to64(va3, vb1))) + mul32x32to64(va4, vb0)) to dd.
+    Return polyReduce(dd).
+
+## Note
+Poly1305 finalization: full carry, conditional subtract, add s.
+
+## To polyFinalize (h: Seq of Int) and (key: Seq of Int) -> Seq of Int:
+    Let h0 be item 1 of h.
+    Let h2 be item 3 of h.
+    Let h3 be item 4 of h.
+    Let h4 be item 5 of h.
+    Let c1 be (item 2 of h) / 67108864.
+    Let h1n be (item 2 of h) % 67108864.
+    Let h2a be h2 + c1.
+    Let c2 be h2a / 67108864.
+    Let h2n be h2a % 67108864.
+    Let h3a be h3 + c2.
+    Let c3 be h3a / 67108864.
+    Let h3n be h3a % 67108864.
+    Let h4a be h4 + c3.
+    Let c4 be h4a / 67108864.
+    Let h4n be h4a % 67108864.
+    Let h0a be h0 + c4 * 5.
+    Let c0 be h0a / 67108864.
+    Let h0n be h0a % 67108864.
+    Let h1b be h1n + c0.
+    Let c1c be h1b / 67108864.
+    Let h1m be h1b % 67108864.
+    Let h2m be h2n + c1c.
+    Let g0 be h0n + 5.
+    Let cg0 be g0 / 67108864.
+    Let g0n be g0 % 67108864.
+    Let g1 be h1m + cg0.
+    Let cg1 be g1 / 67108864.
+    Let g1n be g1 % 67108864.
+    Let g2 be h2m + cg1.
+    Let cg2 be g2 / 67108864.
+    Let g2n be g2 % 67108864.
+    Let g3 be h3n + cg2.
+    Let cg3 be g3 / 67108864.
+    Let g3n be g3 % 67108864.
+    Let g4 be h4n + cg3.
+    Let mutable f0 be h0n.
+    Let mutable f1 be h1m.
+    Let mutable f2 be h2m.
+    Let mutable f3 be h3n.
+    Let mutable f4 be h4n.
+    If g4 is at least 67108864:
+        Set f0 to g0n.
+        Set f1 to g1n.
+        Set f2 to g2n.
+        Set f3 to g3n.
+        Set f4 to (g4 - 67108864).
+    Let w0 be f0 + (f1 % 64) * 67108864.
+    Let w1 be (f1 / 64) + (f2 % 4096) * 1048576.
+    Let w2 be (f2 / 4096) + (f3 % 262144) * 16384.
+    Let w3 be (f3 / 262144) + (f4 % 16777216) * 256.
+    Let acc0 be w0 + leWord(key, 16).
+    Let v0 be acc0 % 4294967296.
+    Let acc1 be w1 + leWord(key, 20) + (acc0 / 4294967296).
+    Let v1 be acc1 % 4294967296.
+    Let acc2 be w2 + leWord(key, 24) + (acc1 / 4294967296).
+    Let v2 be acc2 % 4294967296.
+    Let acc3 be w3 + leWord(key, 28) + (acc2 / 4294967296).
+    Let v3 be acc3 % 4294967296.
+    Let tag be a new Seq of Int.
+    Push (v0 % 256) to tag.
+    Push ((v0 / 256) % 256) to tag.
+    Push ((v0 / 65536) % 256) to tag.
+    Push ((v0 / 16777216) % 256) to tag.
+    Push (v1 % 256) to tag.
+    Push ((v1 / 256) % 256) to tag.
+    Push ((v1 / 65536) % 256) to tag.
+    Push ((v1 / 16777216) % 256) to tag.
+    Push (v2 % 256) to tag.
+    Push ((v2 / 256) % 256) to tag.
+    Push ((v2 / 65536) % 256) to tag.
+    Push ((v2 / 16777216) % 256) to tag.
+    Push (v3 % 256) to tag.
+    Push ((v3 / 256) % 256) to tag.
+    Push ((v3 / 65536) % 256) to tag.
+    Push ((v3 / 16777216) % 256) to tag.
+    Return tag.
+
+## Note
+The Poly1305 one-time MAC of a message (RFC 8439).
+
+## To poly1305Mac (key: Seq of Int) and (msg: Seq of Int) -> Seq of Int:
+    Let r1 be polyClamp(key).
+    Let r2 be polyMul(r1, r1).
+    Let r3 be polyMul(r2, r1).
+    Let r4 be polyMul(r2, r2).
+    Let mult be a new Seq of Int.
+    Repeat for x in r4:
+        Push x to mult.
+    Repeat for x in r3:
+        Push x to mult.
+    Repeat for x in r2:
+        Push x to mult.
+    Repeat for x in r1:
+        Push x to mult.
+    Let n be length of msg.
+    Let numGroups be n / 64.
+    Let mutable h be a new Seq of Int.
+    Repeat for i from 1 to 5:
+        Push 0 to h.
+    Repeat for g from 0 to numGroups - 1:
+        Let base be g * 64.
+        Let m0 be blockLimbs(msg, base, 1).
+        Let m1 be blockLimbs(msg, base + 16, 1).
+        Let m2 be blockLimbs(msg, base + 32, 1).
+        Let m3 be blockLimbs(msg, base + 48, 1).
+        Let t0 be polyAdd(h, m0).
+        Let t be a new Seq of Int.
+        Repeat for x in t0:
+            Push x to t.
+        Repeat for x in m1:
+            Push x to t.
+        Repeat for x in m2:
+            Push x to t.
+        Repeat for x in m3:
+            Push x to t.
+        Set h to poly1305Group(t, mult).
+    Let mutable i be numGroups * 64.
+    While (i + 16) is at most n:
+        Let hm be polyAdd(h, blockLimbs(msg, i, 1)).
+        Set h to polyMul(hm, r1).
+        Set i to i + 16.
+    If i is at most (n - 1):
+        Let lenp be n - i.
+        Let hp be polyAdd(h, blockLimbs(padBlock(msg, i, lenp), 0, 0)).
+        Set h to polyMul(hp, r1).
+    Return polyFinalize(h, key).
+
+
+## ML-DSA (Dilithium) NTT primitives — i32 lanes (Lanes8Word32 / vpmuldq), q = 8380417.
+
+## Note
+Copies 8 lanes out of a Word32 sequence starting at an offset.
+
+## To sub8 (s: Seq of Word32) and (off: Int) -> Seq of Word32:
+    Let r be a new Seq of Word32.
+    Repeat for i from 1 to 8:
+        Push (item (off + i) of s) to r.
+    Return r.
+
+## Note
+One butterfly level of the ML-DSA forward NTT.
+
+## To mldsaWithinLevel (coeffs: Seq of Word32) and (zetas: Seq of Word32) and (h: Int) and (k0: Int) -> Seq of Word32:
+    Let qv be splat8Word32(word32(8380417)).
+    Let qiv be splat8Word32(word32(58728449)).
+    Let mutable r be a new Seq of Word32.
+    Repeat for x in coeffs:
+        Push x to r.
+    Let blocksPerVec be 8 / (2 * h).
+    Let lanesPerBlock be 2 * h.
+    Repeat for v from 0 to 31:
+        Let zvSeq be a new Seq of Word32.
+        Repeat for bj from 0 to blocksPerVec - 1:
+            Let zeta be item (k0 + v * blocksPerVec + bj + 1) of zetas.
+            Repeat for rep from 1 to lanesPerBlock:
+                Push zeta to zvSeq.
+        Let zv be lanes8Word32(zvSeq).
+        Let vec be lanes8Word32(sub8(r, 8 * v)).
+        Let lo be nttBcastLo(vec, h).
+        Let hiB be nttBcastHi(vec, h).
+        Let t be montmul32(zv, hiB, qv, qiv).
+        Let rs be seqOfLanes8(nttBlend(lo + t, lo - t, h)).
+        Repeat for i from 1 to 8:
+            Set item (8 * v + i) of r to (item i of rs).
+    Return r.
+
+## Note
+The ML-DSA forward NTT, level by level.
+
+## To mldsaNttForward (coeffs: Seq of Word32) and (zetas: Seq of Word32) -> Seq of Word32:
+    Let qv be splat8Word32(word32(8380417)).
+    Let qiv be splat8Word32(word32(58728449)).
+    Let mutable r be a new Seq of Word32.
+    Repeat for x in coeffs:
+        Push x to r.
+    Let mutable k be 1.
+    Let mutable len be 128.
+    While len is at least 8:
+        Let numBlocks be 128 / len.
+        Let chunks be len / 8.
+        Repeat for b from 0 to numBlocks - 1:
+            Let zv be splat8Word32(item k of zetas).
+            Let start be b * 2 * len.
+            Repeat for c from 0 to chunks - 1:
+                Let lowOff be start + 8 * c.
+                Let highOff be start + len + 8 * c.
+                Let lowVec be lanes8Word32(sub8(r, lowOff)).
+                Let highVec be lanes8Word32(sub8(r, highOff)).
+                Let t be montmul32(zv, highVec, qv, qiv).
+                Let nl be seqOfLanes8(lowVec + t).
+                Let nh be seqOfLanes8(lowVec - t).
+                Repeat for i from 1 to 8:
+                    Set item (lowOff + i) of r to (item i of nl).
+                    Set item (highOff + i) of r to (item i of nh).
+            Set k to k + 1.
+        Set len to len / 2.
+    Let mutable k0 be k - 1.
+    Set r to mldsaWithinLevel(r, zetas, 4, k0).
+    Set k0 to k0 + 32.
+    Set r to mldsaWithinLevel(r, zetas, 2, k0).
+    Set k0 to k0 + 64.
+    Set r to mldsaWithinLevel(r, zetas, 1, k0).
+    Return r.
+
+## Note
+One butterfly level of the ML-DSA inverse NTT.
+
+## To mldsaInvWithinLevel (coeffs: Seq of Word32) and (zetas: Seq of Word32) and (h: Int) and (kStart: Int) -> Seq of Word32:
+    Let qv be splat8Word32(word32(8380417)).
+    Let qiv be splat8Word32(word32(58728449)).
+    Let mutable r be a new Seq of Word32.
+    Repeat for x in coeffs:
+        Push x to r.
+    Let blocksPerVec be 8 / (2 * h).
+    Let lanesPerBlock be 2 * h.
+    Repeat for v from 0 to 31:
+        Let zvSeq be a new Seq of Word32.
+        Repeat for bj from 0 to blocksPerVec - 1:
+            Let g be v * blocksPerVec + bj.
+            Let zeta be item (kStart - g + 1) of zetas.
+            Repeat for rep from 1 to lanesPerBlock:
+                Push zeta to zvSeq.
+        Let zv be lanes8Word32(zvSeq).
+        Let vec be lanes8Word32(sub8(r, 8 * v)).
+        Let loB be nttBcastLo(vec, h).
+        Let hiB be nttBcastHi(vec, h).
+        Let sum be loB + hiB.
+        Let newHi be montmul32(zv, hiB - loB, qv, qiv).
+        Let rs be seqOfLanes8(nttBlend(sum, newHi, h)).
+        Repeat for i from 1 to 8:
+            Set item (8 * v + i) of r to (item i of rs).
+    Return r.
+
+## Note
+The ML-DSA inverse NTT, level by level.
+
+## To mldsaInvNtt (coeffs: Seq of Word32) and (zetas: Seq of Word32) -> Seq of Word32:
+    Let qv be splat8Word32(word32(8380417)).
+    Let qiv be splat8Word32(word32(58728449)).
+    Let mutable r be a new Seq of Word32.
+    Repeat for x in coeffs:
+        Push x to r.
+    Set r to mldsaInvWithinLevel(r, zetas, 1, 255).
+    Set r to mldsaInvWithinLevel(r, zetas, 2, 127).
+    Set r to mldsaInvWithinLevel(r, zetas, 4, 63).
+    Let mutable kStart be 31.
+    Let mutable len be 8.
+    While len is at most 128:
+        Let numBlocks be 128 / len.
+        Let chunks be len / 8.
+        Repeat for b from 0 to numBlocks - 1:
+            Let zv be splat8Word32(item (kStart - b + 1) of zetas).
+            Let start be b * 2 * len.
+            Repeat for c from 0 to chunks - 1:
+                Let lowOff be start + 8 * c.
+                Let highOff be start + len + 8 * c.
+                Let lowVec be lanes8Word32(sub8(r, lowOff)).
+                Let highVec be lanes8Word32(sub8(r, highOff)).
+                Let sumv be lowVec + highVec.
+                Let newHi be montmul32(zv, highVec - lowVec, qv, qiv).
+                Let nl be seqOfLanes8(sumv).
+                Let nh be seqOfLanes8(newHi).
+                Repeat for i from 1 to 8:
+                    Set item (lowOff + i) of r to (item i of nl).
+                    Set item (highOff + i) of r to (item i of nh).
+        Set kStart to kStart - numBlocks.
+        Set len to len * 2.
+    Let fv be splat8Word32(word32(41978)).
+    Repeat for v from 0 to 31:
+        Let vec be lanes8Word32(sub8(r, 8 * v)).
+        Let scaled be seqOfLanes8(montmul32(fv, vec, qv, qiv)).
+        Repeat for i from 1 to 8:
+            Set item (8 * v + i) of r to (item i of scaled).
+    Return r.
+
+## Note
+Pointwise Montgomery multiply of two NTT-domain polynomials.
+
+## To pointwiseMontgomery (a: Seq of Word32) and (b: Seq of Word32) -> Seq of Word32:
+    Let qv be splat8Word32(word32(8380417)).
+    Let qiv be splat8Word32(word32(58728449)).
+    Let mutable out be a new Seq of Word32.
+    Repeat for v from 0 to 31:
+        Let av be lanes8Word32(sub8(a, 8 * v)).
+        Let bv be lanes8Word32(sub8(b, 8 * v)).
+        Repeat for x in seqOfLanes8(montmul32(av, bv, qv, qiv)):
+            Push x to out.
+    Return out.
+
+## Note
+Freezes every coefficient into canonical range mod q.
+
+## To mldsaFreezePoly (c: Seq of Word32) -> Seq of Word32:
+    Let mutable out be a new Seq of Word32.
+    Repeat for x in c:
+        Let raw be intOfWord32(x).
+        Let v be raw.
+        If v is at least 2147483648:
+            Set v to v - 4294967296.
+        Push word32(((v % 8380417) + 8380417) % 8380417) to out.
+    Return out.
+
+## Note
+Forward NTT for ML-DSA polynomials, lane-accelerated.
+
+## To mldsaNtt (a: Seq of Word32) -> Seq of Word32:
+    Let mutable zs be a new Seq of Word32.
+    Push word32(25847) to zs.
+    Push word32(4292358402) to zs.
+    Push word32(4294448387) to zs.
+    Push word32(237124) to zs.
+    Push word32(4294189336) to zs.
+    Push word32(4294091048) to zs.
+    Push word32(466468) to zs.
+    Push word32(1826347) to zs.
+    Push word32(2353451) to zs.
+    Push word32(4294608045) to zs.
+    Push word32(4292875391) to zs.
+    Push word32(3119733) to zs.
+    Push word32(4292082441) to zs.
+    Push word32(3111497) to zs.
+    Push word32(2680103) to zs.
+    Push word32(2725464) to zs.
+    Push word32(1024112) to zs.
+    Push word32(4293887396) to zs.
+    Push word32(3585928) to zs.
+    Push word32(4294417808) to zs.
+    Push word32(4293847712) to zs.
+    Push word32(2619752) to zs.
+    Push word32(4292858747) to zs.
+    Push word32(4292849110) to zs.
+    Push word32(4291107559) to zs.
+    Push word32(4293567735) to zs.
+    Push word32(4291689624) to zs.
+    Push word32(1757237) to zs.
+    Push word32(4294947874) to zs.
+    Push word32(4010497) to zs.
+    Push word32(280005) to zs.
+    Push word32(2706023) to zs.
+    Push word32(95776) to zs.
+    Push word32(3077325) to zs.
+    Push word32(3530437) to zs.
+    Push word32(4293305603) to zs.
+    Push word32(4291375148) to zs.
+    Push word32(4292429780) to zs.
+    Push word32(3915439) to zs.
+    Push word32(4291106181) to zs.
+    Push word32(4291923580) to zs.
+    Push word32(3574422) to zs.
+    Push word32(4292099649) to zs.
+    Push word32(3539968) to zs.
+    Push word32(4294666829) to zs.
+    Push word32(2348700) to zs.
+    Push word32(4294427997) to zs.
+    Push word32(4293268029) to zs.
+    Push word32(4293323478) to zs.
+    Push word32(3505694) to zs.
+    Push word32(4291145561) to zs.
+    Push word32(3507263) to zs.
+    Push word32(4292826647) to zs.
+    Push word32(4293366876) to zs.
+    Push word32(3699596) to zs.
+    Push word32(811944) to zs.
+    Push word32(531354) to zs.
+    Push word32(954230) to zs.
+    Push word32(3881043) to zs.
+    Push word32(3900724) to zs.
+    Push word32(4292410416) to zs.
+    Push word32(2071892) to zs.
+    Push word32(4292169517) to zs.
+    Push word32(4291036901) to zs.
+    Push word32(4293438593) to zs.
+    Push word32(4291289551) to zs.
+    Push word32(4291926041) to zs.
+    Push word32(4293514845) to zs.
+    Push word32(3475950) to zs.
+    Push word32(2176455) to zs.
+    Push word32(4293382075) to zs.
+    Push word32(4293709685) to zs.
+    Push word32(1939314) to zs.
+    Push word32(4290883698) to zs.
+    Push word32(4293967094) to zs.
+    Push word32(4291777152) to zs.
+    Push word32(4291809966) to zs.
+    Push word32(4291334368) to zs.
+    Push word32(126922) to zs.
+    Push word32(3412210) to zs.
+    Push word32(4293983877) to zs.
+    Push word32(2147896) to zs.
+    Push word32(2715295) to zs.
+    Push word32(4291999651) to zs.
+    Push word32(4291273803) to zs.
+    Push word32(4294556269) to zs.
+    Push word32(4292490249) to zs.
+    Push word32(4294296194) to zs.
+    Push word32(4293738771) to zs.
+    Push word32(4294944315) to zs.
+    Push word32(4293659127) to zs.
+    Push word32(4294585309) to zs.
+    Push word32(1349076) to zs.
+    Push word32(1852771) to zs.
+    Push word32(4293536866) to zs.
+    Push word32(4291623913) to zs.
+    Push word32(264944) to zs.
+    Push word32(508951) to zs.
+    Push word32(3097992) to zs.
+    Push word32(44288) to zs.
+    Push word32(4293867198) to zs.
+    Push word32(904516) to zs.
+    Push word32(3958618) to zs.
+    Push word32(4291242954) to zs.
+    Push word32(4294958718) to zs.
+    Push word32(1653064) to zs.
+    Push word32(4291717568) to zs.
+    Push word32(2389356) to zs.
+    Push word32(4294756319) to zs.
+    Push word32(759969) to zs.
+    Push word32(4293650440) to zs.
+    Push word32(189548) to zs.
+    Push word32(4291414024) to zs.
+    Push word32(3159746) to zs.
+    Push word32(4293115894) to zs.
+    Push word32(4292557971) to zs.
+    Push word32(4294789856) to zs.
+    Push word32(1315589) to zs.
+    Push word32(1341330) to zs.
+    Push word32(1285669) to zs.
+    Push word32(4293382368) to zs.
+    Push word32(4294154564) to zs.
+    Push word32(4293527554) to zs.
+    Push word32(4291948194) to zs.
+    Push word32(4291086236) to zs.
+    Push word32(4291338327) to zs.
+    Push word32(3839961) to zs.
+    Push word32(2091667) to zs.
+    Push word32(3407706) to zs.
+    Push word32(2316500) to zs.
+    Push word32(3817976) to zs.
+    Push word32(4291624818) to zs.
+    Push word32(2244091) to zs.
+    Push word32(4292520863) to zs.
+    Push word32(4291404834) to zs.
+    Push word32(266997) to zs.
+    Push word32(2434439) to zs.
+    Push word32(4293731568) to zs.
+    Push word32(3513181) to zs.
+    Push word32(4291446944) to zs.
+    Push word32(4291207932) to zs.
+    Push word32(4293770070) to zs.
+    Push word32(4291773918) to zs.
+    Push word32(900702) to zs.
+    Push word32(1859098) to zs.
+    Push word32(909542) to zs.
+    Push word32(819034) to zs.
+    Push word32(495491) to zs.
+    Push word32(4293354122) to zs.
+    Push word32(4294924036) to zs.
+    Push word32(4294444796) to zs.
+    Push word32(4294311969) to zs.
+    Push word32(4291844854) to zs.
+    Push word32(2031748) to zs.
+    Push word32(3207046) to zs.
+    Push word32(4291410301) to zs.
+    Push word32(4294442198) to zs.
+    Push word32(4294198674) to zs.
+    Push word32(4291371458) to zs.
+    Push word32(342297) to zs.
+    Push word32(286988) to zs.
+    Push word32(4292529473) to zs.
+    Push word32(4108315) to zs.
+    Push word32(3437287) to zs.
+    Push word32(4291625019) to zs.
+    Push word32(1735879) to zs.
+    Push word32(203044) to zs.
+    Push word32(2842341) to zs.
+    Push word32(2691481) to zs.
+    Push word32(4292377146) to zs.
+    Push word32(1265009) to zs.
+    Push word32(4055324) to zs.
+    Push word32(1247620) to zs.
+    Push word32(2486353) to zs.
+    Push word32(1595974) to zs.
+    Push word32(4291200280) to zs.
+    Push word32(1250494) to zs.
+    Push word32(2635921) to zs.
+    Push word32(4291419024) to zs.
+    Push word32(4291973257) to zs.
+    Push word32(1869119) to zs.
+    Push word32(1903435) to zs.
+    Push word32(4293916326) to zs.
+    Push word32(4293634238) to zs.
+    Push word32(1237275) to zs.
+    Push word32(4291649086) to zs.
+    Push word32(4293537071) to zs.
+    Push word32(4294516196) to zs.
+    Push word32(1312455) to zs.
+    Push word32(3306115) to zs.
+    Push word32(4293004654) to zs.
+    Push word32(4293687635) to zs.
+    Push word32(1917081) to zs.
+    Push word32(4292420984) to zs.
+    Push word32(4293592493) to zs.
+    Push word32(1500165) to zs.
+    Push word32(777191) to zs.
+    Push word32(2235880) to zs.
+    Push word32(3406031) to zs.
+    Push word32(4294424884) to zs.
+    Push word32(4292135436) to zs.
+    Push word32(4293296120) to zs.
+    Push word32(4293120343) to zs.
+    Push word32(4292383003) to zs.
+    Push word32(4291243026) to zs.
+    Push word32(594136) to zs.
+    Push word32(4291190303) to zs.
+    Push word32(4292953688) to zs.
+    Push word32(2432395) to zs.
+    Push word32(2454455) to zs.
+    Push word32(4294802575) to zs.
+    Push word32(1957272) to zs.
+    Push word32(3369112) to zs.
+    Push word32(185531) to zs.
+    Push word32(4293759911) to zs.
+    Push word32(4291783870) to zs.
+    Push word32(162844) to zs.
+    Push word32(1616392) to zs.
+    Push word32(3014001) to zs.
+    Push word32(810149) to zs.
+    Push word32(1652634) to zs.
+    Push word32(4291273063) to zs.
+    Push word32(4293168189) to zs.
+    Push word32(4291928380) to zs.
+    Push word32(3523897) to zs.
+    Push word32(3866901) to zs.
+    Push word32(269760) to zs.
+    Push word32(2213111) to zs.
+    Push word32(4293991412) to zs.
+    Push word32(1717735) to zs.
+    Push word32(472078) to zs.
+    Push word32(4294540613) to zs.
+    Push word32(1723600) to zs.
+    Push word32(4293164206) to zs.
+    Push word32(1910376) to zs.
+    Push word32(4293299864) to zs.
+    Push word32(4293862963) to zs.
+    Push word32(4294706650) to zs.
+    Push word32(4291133403) to zs.
+    Push word32(4292028260) to zs.
+    Push word32(4292731311) to zs.
+    Push word32(4294546397) to zs.
+    Push word32(4292680969) to zs.
+    Push word32(183443) to zs.
+    Push word32(4293990405) to zs.
+    Push word32(1612842) to zs.
+    Push word32(4291421609) to zs.
+    Push word32(4294412880) to zs.
+    Push word32(3919660) to zs.
+    Push word32(4294918990) to zs.
+    Push word32(4293605087) to zs.
+    Push word32(3937738) to zs.
+    Push word32(1400424) to zs.
+    Push word32(4294121142) to zs.
+    Push word32(1976782) to zs.
+    
+    Return mldsaNttForward(a, zs).
+
+## Note
+Inverse NTT landing in the Montgomery domain.
+
+## To mldsaInvNttToMont (a: Seq of Word32) -> Seq of Word32:
+    Let mutable zs be a new Seq of Word32.
+    Push word32(4290780671) to zs.
+    Push word32(25847) to zs.
+    Push word32(4292358402) to zs.
+    Push word32(4294448387) to zs.
+    Push word32(237124) to zs.
+    Push word32(4294189336) to zs.
+    Push word32(4294091048) to zs.
+    Push word32(466468) to zs.
+    Push word32(1826347) to zs.
+    Push word32(2353451) to zs.
+    Push word32(4294608045) to zs.
+    Push word32(4292875391) to zs.
+    Push word32(3119733) to zs.
+    Push word32(4292082441) to zs.
+    Push word32(3111497) to zs.
+    Push word32(2680103) to zs.
+    Push word32(2725464) to zs.
+    Push word32(1024112) to zs.
+    Push word32(4293887396) to zs.
+    Push word32(3585928) to zs.
+    Push word32(4294417808) to zs.
+    Push word32(4293847712) to zs.
+    Push word32(2619752) to zs.
+    Push word32(4292858747) to zs.
+    Push word32(4292849110) to zs.
+    Push word32(4291107559) to zs.
+    Push word32(4293567735) to zs.
+    Push word32(4291689624) to zs.
+    Push word32(1757237) to zs.
+    Push word32(4294947874) to zs.
+    Push word32(4010497) to zs.
+    Push word32(280005) to zs.
+    Push word32(2706023) to zs.
+    Push word32(95776) to zs.
+    Push word32(3077325) to zs.
+    Push word32(3530437) to zs.
+    Push word32(4293305603) to zs.
+    Push word32(4291375148) to zs.
+    Push word32(4292429780) to zs.
+    Push word32(3915439) to zs.
+    Push word32(4291106181) to zs.
+    Push word32(4291923580) to zs.
+    Push word32(3574422) to zs.
+    Push word32(4292099649) to zs.
+    Push word32(3539968) to zs.
+    Push word32(4294666829) to zs.
+    Push word32(2348700) to zs.
+    Push word32(4294427997) to zs.
+    Push word32(4293268029) to zs.
+    Push word32(4293323478) to zs.
+    Push word32(3505694) to zs.
+    Push word32(4291145561) to zs.
+    Push word32(3507263) to zs.
+    Push word32(4292826647) to zs.
+    Push word32(4293366876) to zs.
+    Push word32(3699596) to zs.
+    Push word32(811944) to zs.
+    Push word32(531354) to zs.
+    Push word32(954230) to zs.
+    Push word32(3881043) to zs.
+    Push word32(3900724) to zs.
+    Push word32(4292410416) to zs.
+    Push word32(2071892) to zs.
+    Push word32(4292169517) to zs.
+    Push word32(4291036901) to zs.
+    Push word32(4293438593) to zs.
+    Push word32(4291289551) to zs.
+    Push word32(4291926041) to zs.
+    Push word32(4293514845) to zs.
+    Push word32(3475950) to zs.
+    Push word32(2176455) to zs.
+    Push word32(4293382075) to zs.
+    Push word32(4293709685) to zs.
+    Push word32(1939314) to zs.
+    Push word32(4290883698) to zs.
+    Push word32(4293967094) to zs.
+    Push word32(4291777152) to zs.
+    Push word32(4291809966) to zs.
+    Push word32(4291334368) to zs.
+    Push word32(126922) to zs.
+    Push word32(3412210) to zs.
+    Push word32(4293983877) to zs.
+    Push word32(2147896) to zs.
+    Push word32(2715295) to zs.
+    Push word32(4291999651) to zs.
+    Push word32(4291273803) to zs.
+    Push word32(4294556269) to zs.
+    Push word32(4292490249) to zs.
+    Push word32(4294296194) to zs.
+    Push word32(4293738771) to zs.
+    Push word32(4294944315) to zs.
+    Push word32(4293659127) to zs.
+    Push word32(4294585309) to zs.
+    Push word32(1349076) to zs.
+    Push word32(1852771) to zs.
+    Push word32(4293536866) to zs.
+    Push word32(4291623913) to zs.
+    Push word32(264944) to zs.
+    Push word32(508951) to zs.
+    Push word32(3097992) to zs.
+    Push word32(44288) to zs.
+    Push word32(4293867198) to zs.
+    Push word32(904516) to zs.
+    Push word32(3958618) to zs.
+    Push word32(4291242954) to zs.
+    Push word32(4294958718) to zs.
+    Push word32(1653064) to zs.
+    Push word32(4291717568) to zs.
+    Push word32(2389356) to zs.
+    Push word32(4294756319) to zs.
+    Push word32(759969) to zs.
+    Push word32(4293650440) to zs.
+    Push word32(189548) to zs.
+    Push word32(4291414024) to zs.
+    Push word32(3159746) to zs.
+    Push word32(4293115894) to zs.
+    Push word32(4292557971) to zs.
+    Push word32(4294789856) to zs.
+    Push word32(1315589) to zs.
+    Push word32(1341330) to zs.
+    Push word32(1285669) to zs.
+    Push word32(4293382368) to zs.
+    Push word32(4294154564) to zs.
+    Push word32(4293527554) to zs.
+    Push word32(4291948194) to zs.
+    Push word32(4291086236) to zs.
+    Push word32(4291338327) to zs.
+    Push word32(3839961) to zs.
+    Push word32(2091667) to zs.
+    Push word32(3407706) to zs.
+    Push word32(2316500) to zs.
+    Push word32(3817976) to zs.
+    Push word32(4291624818) to zs.
+    Push word32(2244091) to zs.
+    Push word32(4292520863) to zs.
+    Push word32(4291404834) to zs.
+    Push word32(266997) to zs.
+    Push word32(2434439) to zs.
+    Push word32(4293731568) to zs.
+    Push word32(3513181) to zs.
+    Push word32(4291446944) to zs.
+    Push word32(4291207932) to zs.
+    Push word32(4293770070) to zs.
+    Push word32(4291773918) to zs.
+    Push word32(900702) to zs.
+    Push word32(1859098) to zs.
+    Push word32(909542) to zs.
+    Push word32(819034) to zs.
+    Push word32(495491) to zs.
+    Push word32(4293354122) to zs.
+    Push word32(4294924036) to zs.
+    Push word32(4294444796) to zs.
+    Push word32(4294311969) to zs.
+    Push word32(4291844854) to zs.
+    Push word32(2031748) to zs.
+    Push word32(3207046) to zs.
+    Push word32(4291410301) to zs.
+    Push word32(4294442198) to zs.
+    Push word32(4294198674) to zs.
+    Push word32(4291371458) to zs.
+    Push word32(342297) to zs.
+    Push word32(286988) to zs.
+    Push word32(4292529473) to zs.
+    Push word32(4108315) to zs.
+    Push word32(3437287) to zs.
+    Push word32(4291625019) to zs.
+    Push word32(1735879) to zs.
+    Push word32(203044) to zs.
+    Push word32(2842341) to zs.
+    Push word32(2691481) to zs.
+    Push word32(4292377146) to zs.
+    Push word32(1265009) to zs.
+    Push word32(4055324) to zs.
+    Push word32(1247620) to zs.
+    Push word32(2486353) to zs.
+    Push word32(1595974) to zs.
+    Push word32(4291200280) to zs.
+    Push word32(1250494) to zs.
+    Push word32(2635921) to zs.
+    Push word32(4291419024) to zs.
+    Push word32(4291973257) to zs.
+    Push word32(1869119) to zs.
+    Push word32(1903435) to zs.
+    Push word32(4293916326) to zs.
+    Push word32(4293634238) to zs.
+    Push word32(1237275) to zs.
+    Push word32(4291649086) to zs.
+    Push word32(4293537071) to zs.
+    Push word32(4294516196) to zs.
+    Push word32(1312455) to zs.
+    Push word32(3306115) to zs.
+    Push word32(4293004654) to zs.
+    Push word32(4293687635) to zs.
+    Push word32(1917081) to zs.
+    Push word32(4292420984) to zs.
+    Push word32(4293592493) to zs.
+    Push word32(1500165) to zs.
+    Push word32(777191) to zs.
+    Push word32(2235880) to zs.
+    Push word32(3406031) to zs.
+    Push word32(4294424884) to zs.
+    Push word32(4292135436) to zs.
+    Push word32(4293296120) to zs.
+    Push word32(4293120343) to zs.
+    Push word32(4292383003) to zs.
+    Push word32(4291243026) to zs.
+    Push word32(594136) to zs.
+    Push word32(4291190303) to zs.
+    Push word32(4292953688) to zs.
+    Push word32(2432395) to zs.
+    Push word32(2454455) to zs.
+    Push word32(4294802575) to zs.
+    Push word32(1957272) to zs.
+    Push word32(3369112) to zs.
+    Push word32(185531) to zs.
+    Push word32(4293759911) to zs.
+    Push word32(4291783870) to zs.
+    Push word32(162844) to zs.
+    Push word32(1616392) to zs.
+    Push word32(3014001) to zs.
+    Push word32(810149) to zs.
+    Push word32(1652634) to zs.
+    Push word32(4291273063) to zs.
+    Push word32(4293168189) to zs.
+    Push word32(4291928380) to zs.
+    Push word32(3523897) to zs.
+    Push word32(3866901) to zs.
+    Push word32(269760) to zs.
+    Push word32(2213111) to zs.
+    Push word32(4293991412) to zs.
+    Push word32(1717735) to zs.
+    Push word32(472078) to zs.
+    Push word32(4294540613) to zs.
+    Push word32(1723600) to zs.
+    Push word32(4293164206) to zs.
+    Push word32(1910376) to zs.
+    Push word32(4293299864) to zs.
+    Push word32(4293862963) to zs.
+    Push word32(4294706650) to zs.
+    Push word32(4291133403) to zs.
+    Push word32(4292028260) to zs.
+    Push word32(4292731311) to zs.
+    Push word32(4294546397) to zs.
+    Push word32(4292680969) to zs.
+    Push word32(183443) to zs.
+    Push word32(4293990405) to zs.
+    Push word32(1612842) to zs.
+    Push word32(4291421609) to zs.
+    Push word32(4294412880) to zs.
+    Push word32(3919660) to zs.
+    Push word32(4294918990) to zs.
+    Push word32(4293605087) to zs.
+    Push word32(3937738) to zs.
+    Push word32(1400424) to zs.
+    Push word32(4294121142) to zs.
+    Push word32(1976782) to zs.
+    
+    Return mldsaInvNtt(a, zs).
+
+## Note
+NTT-domain polynomial product for ML-DSA.
+
+## To mldsaNttMul (a: Seq of Word32) and (b: Seq of Word32) -> Seq of Word32:
+    Let ah be mldsaNtt(a).
+    Let bh be mldsaNtt(b).
+    Let ch be pointwiseMontgomery(ah, bh).
+    Return mldsaFreezePoly(mldsaInvNttToMont(ch)).
+
+## ML-DSA verify glue — FIPS-204 §7.4 rounding (HighBits / UseHint), pure i32 arithmetic.
+
+## Note
+Freezes one integer coefficient into canonical range mod q.
+
+## To mldsaFreezeI (r: Int) -> Int:
+    Return ((r % 8380417) + 8380417) % 8380417.
+
+## Note
+The high-bits decomposition of a coefficient (FIPS 204 HighBits).
+
+## To mldsaHighBits (r: Int) -> Int:
+    Let rr be mldsaFreezeI(r).
+    Let a1 be (rr + 127) / 128.
+    Set a1 to (a1 * 1025 + 2097152) / 4194304.
+    Return a1 % 16.
+
+## Note
+Applies a hint bit to recover the true high bits (FIPS 204 UseHint).
+
+## To mldsaUseHint (h: Int) and (r: Int) -> Int:
+    Let rr be mldsaFreezeI(r).
+    Let a1 be (rr + 127) / 128.
+    Set a1 to (a1 * 1025 + 2097152) / 4194304.
+    Set a1 to a1 % 16.
+    Let a0 be rr - a1 * 523776.
+    If a0 is greater than 4190208:
+        Set a0 to a0 - 8380417.
+    If h is equal to 0:
+        Return a1.
+    If a0 is greater than 0:
+        Return (a1 + 1) % 16.
+    Return (a1 - 1 + 16) % 16.
+
+## ML-DSA verify glue — FIPS-204 w1Encode (4-bit SimpleBitPack).
+
+## Note
+Packs the w1 high-bits vector into bytes for hashing.
+
+## To mldsaW1Encode (w1: Seq of Int) -> Seq of Int:
+    Let mutable out be a new Seq of Int.
+    Let n be (length of w1) / 2.
+    Repeat for j from 0 to n - 1:
+        Let lo be item (2 * j + 1) of w1.
+        Let hi be item (2 * j + 2) of w1.
+        Push (lo + hi * 16) to out.
+    Return out.
+
+## ML-DSA verify glue — t1 decode (SimpleBitUnpack 10) + SampleInBall placement (FIPS-204 §7.3).
+
+## Note
+Unpacks the 10-bit t1 coefficients of a public key.
+
+## To mldsaUnpackT1 (b: Seq of Int) -> Seq of Int:
+    Let mutable r be a new Seq of Int.
+    Repeat for i from 0 to 63:
+        Let a0 be item (5 * i + 1) of b.
+        Let a1 be item (5 * i + 2) of b.
+        Let a2 be item (5 * i + 3) of b.
+        Let a3 be item (5 * i + 4) of b.
+        Let a4 be item (5 * i + 5) of b.
+        Push ((a0 + a1 * 256) % 1024) to r.
+        Push ((a1 / 4 + a2 * 64) % 1024) to r.
+        Push ((a2 / 16 + a3 * 16) % 1024) to r.
+        Push ((a3 / 64 + a4 * 4) % 1024) to r.
+    Return r.
+
+## Note
+SampleInBall from a prepared SHAKE256 buffer: tau signed flips.
+
+## To mldsaSampleInBallBuf (buf: Seq of Int) -> Seq of Int:
+    Let mutable c be a new Seq of Int.
+    Repeat for k from 1 to 256:
+        Push 0 to c.
+    Let mutable signBits be 0.
+    Let mutable mult be 1.
+    Repeat for k from 1 to 7:
+        Set signBits to signBits + (item k of buf) * mult.
+        Set mult to mult * 256.
+    Let mutable pos be 9.
+    Repeat for i from 207 to 255:
+        Let mutable j be 0.
+        Let mutable found be 0.
+        While found is equal to 0:
+            Let candidate be item pos of buf.
+            Set pos to pos + 1.
+            If candidate is at most i:
+                Set j to candidate.
+                Set found to 1.
+        Set item (i + 1) of c to (item (j + 1) of c).
+        Let bit be signBits % 2.
+        Set signBits to signBits / 2.
+        Set item (j + 1) of c to (1 - 2 * bit).
+    Return c.
+
+## ML-DSA verify glue — z decode (BitUnpack γ1) + ExpandA element (RejNTTPoly placement).
+
+## Note
+Unpacks the 20-bit signed z coefficients of a signature.
+
+## To mldsaUnpackZ (b: Seq of Int) -> Seq of Int:
+    Let mutable r be a new Seq of Int.
+    Repeat for i from 0 to 127:
+        Let a0 be item (5 * i + 1) of b.
+        Let a1 be item (5 * i + 2) of b.
+        Let a2 be item (5 * i + 3) of b.
+        Let a3 be item (5 * i + 4) of b.
+        Let a4 be item (5 * i + 5) of b.
+        Let z0 be a0 + a1 * 256 + (a2 % 16) * 65536.
+        Let z1 be a2 / 16 + a3 * 16 + a4 * 4096.
+        Push (524288 - z0) to r.
+        Push (524288 - z1) to r.
+    Return r.
+
+## Note
+Rejection-samples an NTT polynomial from a prepared buffer.
+
+## To mldsaRejNttPolyBuf (buf: Seq of Int) -> Seq of Int:
+    Let mutable a be a new Seq of Int.
+    Let mutable pos be 0.
+    Let mutable ctr be 0.
+    While ctr is less than 256:
+        Let b0 be item (pos + 1) of buf.
+        Let b1 be item (pos + 2) of buf.
+        Let b2 be item (pos + 3) of buf.
+        Let d be b0 + b1 * 256 + (b2 % 128) * 65536.
+        Set pos to pos + 3.
+        If d is less than 8380417:
+            Push d to a.
+            Set ctr to ctr + 1.
+    Return a.
+
+## ML-DSA verify glue — hint decode (sparse indices → {0,1} polys) + poly subtract (i32 lanes).
+
+## Note
+Unpacks the hint bit positions of a signature.
+
+## To mldsaUnpackHint (b: Seq of Int) -> Seq of Int:
+    Let mutable h be a new Seq of Int.
+    Repeat for x from 1 to 1536:
+        Push 0 to h.
+    Let mutable k be 0.
+    Repeat for i from 0 to 5:
+        Let cnt be item (55 + i + 1) of b.
+        Let mutable j be k.
+        While j is less than cnt:
+            Let idx be item (j + 1) of b.
+            Set item (i * 256 + idx + 1) of h to 1.
+            Set j to j + 1.
+        Set k to cnt.
+    Return h.
+
+## Note
+Coefficient-wise subtraction of two polynomials.
+
+## To mldsaPolySub (a: Seq of Word32) and (b: Seq of Word32) -> Seq of Word32:
+    Let mutable out be a new Seq of Word32.
+    Repeat for v from 0 to 31:
+        Let av be lanes8Word32(sub8(a, 8 * v)).
+        Let bv be lanes8Word32(sub8(b, 8 * v)).
+        Repeat for x in seqOfLanes8(av - bv):
+            Push x to out.
+    Return out.
+
+## ML-DSA verify glue — SHAKE wrappers (native SHAKE → the proven placement/rejection logic).
+
+## Note
+SampleInBall from the challenge seed (FIPS 204).
+
+## To mldsaSampleInBall (cTilde: Seq of Int) -> Seq of Int:
+    Return mldsaSampleInBallBuf(shake256(cTilde, 512)).
+
+## Note
+Expands one matrix entry of A from the public seed.
+
+## To mldsaExpandAElem (seed: Seq of Int) -> Seq of Int:
+    Return mldsaRejNttPolyBuf(shake128(seed, 1024)).
+
+## ML-DSA verify — the full Logos verify assembly (FIPS-204 Algorithm 3 core: c̃ equality).
+
+## Note
+Copies a length-len slice of a byte sequence.
+
+## To mldsaSubRange (s: Seq of Int) and (off: Int) and (len: Int) -> Seq of Int:
+    Let r be a new Seq of Int.
+    Repeat for i from 1 to len:
+        Push (item (off + i) of s) to r.
+    Return r.
+
+## Note
+Copies a length-len Word32 slice.
+
+## To mldsaSubRangeW (s: Seq of Word32) and (off: Int) and (len: Int) -> Seq of Word32:
+    Let r be a new Seq of Word32.
+    Repeat for i from 1 to len:
+        Push (item (off + i) of s) to r.
+    Return r.
+
+## Note
+Reads a Word32 as a signed centered integer.
+
+## To mldsaToS32 (w: Word32) -> Int:
+    Let v be intOfWord32(w).
+    If v is at least 2147483648:
+        Return v - 4294967296.
+    Return v.
+
+## Note
+Widens a sequence of Ints into Word32 coefficients.
+
+## To mldsaIntsToW32 (p: Seq of Int) -> Seq of Word32:
+    Let mutable out be a new Seq of Word32.
+    Repeat for x in p:
+        Push word32(x) to out.
+    Return out.
+
+## Note
+Scales unpacked t1 by 2^13 for verification.
+
+## To mldsaScaleT1 (p: Seq of Int) -> Seq of Word32:
+    Let mutable out be a new Seq of Word32.
+    Repeat for x in p:
+        Push word32(x * 8192) to out.
+    Return out.
+
+## Note
+Coefficient-wise addition of two polynomials.
+
+## To mldsaPolyAdd (a: Seq of Word32) and (b: Seq of Word32) -> Seq of Word32:
+    Let mutable out be a new Seq of Word32.
+    Repeat for v from 0 to 31:
+        Let av be lanes8Word32(sub8(a, 8 * v)).
+        Let bv be lanes8Word32(sub8(b, 8 * v)).
+        Repeat for x in seqOfLanes8(av + bv):
+            Push x to out.
+    Return out.
+
+## Note
+Checks that a packed hint encoding is canonical (FIPS 204).
+
+## To mldsaHintValid (b: Seq of Int) and (base: Int) -> Int:
+    Let mutable k be 0.
+    Let mutable ok be 1.
+    Repeat for i from 0 to 5:
+        Let cnt be item (base + 55 + i + 1) of b.
+        If cnt is less than k:
+            Set ok to 0.
+        If cnt is greater than 55:
+            Set ok to 0.
+        Let mutable jmax be cnt.
+        If jmax is greater than 55:
+            Set jmax to 55.
+        Let mutable j be k.
+        While j is less than jmax:
+            If j is greater than k:
+                If (item (base + j + 1) of b) is at most (item (base + j) of b):
+                    Set ok to 0.
+            Set j to j + 1.
+        Set k to cnt.
+    Let mutable pp be k.
+    If pp is greater than 55:
+        Set pp to 55.
+    While pp is less than 55:
+        If (item (base + pp + 1) of b) is greater than 0:
+            Set ok to 0.
+        Set pp to pp + 1.
+    Return ok.
+
+## Note
+ML-DSA-65 verification written in LOGOS; 1 for valid, else 0.
+
+## To mldsaVerifyLogos (pk: Seq of Int) and (msg: Seq of Int) and (sig: Seq of Int) -> Int:
+    Let rho be mldsaSubRange(pk, 0, 32).
+    Let mutable hk be 0.
+    Let mutable hintOk be 1.
+    Repeat for i from 0 to 5:
+        Let cnt be item (3304 + i) of sig.
+        If cnt is less than hk:
+            Set hintOk to 0.
+        If cnt is greater than 55:
+            Set hintOk to 0.
+        Let mutable jmax be cnt.
+        If jmax is greater than 55:
+            Set jmax to 55.
+        Let mutable hj be hk.
+        While hj is less than jmax:
+            If hj is greater than hk:
+                If (item (3249 + hj) of sig) is at most (item (3248 + hj) of sig):
+                    Set hintOk to 0.
+            Set hj to hj + 1.
+        Set hk to cnt.
+    Let mutable pp be hk.
+    If pp is greater than 55:
+        Set pp to 55.
+    While pp is less than 55:
+        If (item (3249 + pp) of sig) is greater than 0:
+            Set hintOk to 0.
+        Set pp to pp + 1.
+    If hintOk is equal to 0:
+        Return 0.
+    Let mutable zbOk be 1.
+    Repeat for zr from 0 to 4:
+        Let zbase be 48 + 640 * zr.
+        Repeat for zi from 0 to 127:
+            Let zo be zbase + 5 * zi.
+            Let zb0 be item (zo + 1) of sig.
+            Let zb1 be item (zo + 2) of sig.
+            Let zb2 be item (zo + 3) of sig.
+            Let zb3 be item (zo + 4) of sig.
+            Let zb4 be item (zo + 5) of sig.
+            Let zz0 be zb0 + zb1 * 256 + (zb2 % 16) * 65536.
+            Let zz1 be (zb2 / 16) + zb3 * 16 + zb4 * 4096.
+            Let mutable za0 be 524288 - zz0.
+            If za0 is less than 0:
+                Set za0 to 0 - za0.
+            If za0 is at least 524092:
+                Set zbOk to 0.
+            Let mutable za1 be 524288 - zz1.
+            If za1 is less than 0:
+                Set za1 to 0 - za1.
+            If za1 is at least 524092:
+                Set zbOk to 0.
+    If zbOk is equal to 0:
+        Return 0.
+    Let tr be shake256(pk, 64).
+    Let mutable muIn be a new Seq of Int.
+    Repeat for x in tr:
+        Push x to muIn.
+    Push 0 to muIn.
+    Push 0 to muIn.
+    Repeat for x in msg:
+        Push x to muIn.
+    Let mu be shake256(muIn, 64).
+    Let cTilde be mldsaSubRange(sig, 0, 48).
+    Let cHat be mldsaNtt(mldsaIntsToW32(mldsaSampleInBall(cTilde))).
+    Let mutable zHatFlat be a new Seq of Word32.
+    Repeat for j from 0 to 4:
+        Let zj be mldsaUnpackZ(mldsaSubRange(sig, 48 + 640 * j, 640)).
+        Repeat for x in mldsaNtt(mldsaIntsToW32(zj)):
+            Push x to zHatFlat.
+    Let hAll be mldsaUnpackHint(mldsaSubRange(sig, 3248, 61)).
+    Let mutable ctIn be a new Seq of Int.
+    Repeat for x in mu:
+        Push x to ctIn.
+    Repeat for i from 0 to 5:
+        Let mutable acc be a new Seq of Word32.
+        Repeat for k from 1 to 256:
+            Push word32(0) to acc.
+        Repeat for j from 0 to 4:
+            Let mutable seed be a new Seq of Int.
+            Repeat for x in rho:
+                Push x to seed.
+            Push j to seed.
+            Push i to seed.
+            Let aHatIJ be mldsaExpandAElem(seed).
+            Set acc to mldsaPolyAdd(acc, pointwiseMontgomery(mldsaIntsToW32(aHatIJ), mldsaSubRangeW(zHatFlat, 256 * j, 256))).
+        Let t1i be mldsaUnpackT1(mldsaSubRange(pk, 32 + 320 * i, 320)).
+        Let t1dHat be mldsaNtt(mldsaScaleT1(t1i)).
+        Set acc to mldsaPolySub(acc, pointwiseMontgomery(cHat, t1dHat)).
+        Let wp be mldsaInvNttToMont(acc).
+        Let mutable w1 be a new Seq of Int.
+        Repeat for c from 0 to 255:
+            Let hc be item (i * 256 + c + 1) of hAll.
+            Let wc be mldsaToS32(item (c + 1) of wp).
+            Push mldsaUseHint(hc, wc) to w1.
+        Repeat for x in mldsaW1Encode(w1):
+            Push x to ctIn.
+    Let cTildeP be shake256(ctIn, 48).
+    Let mutable eq be 1.
+    Repeat for k from 1 to 48:
+        Let diff be (item k of cTilde) - (item k of cTildeP).
+        If diff is greater than 0:
+            Set eq to 0.
+        If diff is less than 0:
+            Set eq to 0.
+    Return eq.
+
+## ML-DSA keygen blocks — ExpandS (RejBounded η=4) + Power2Round→t1 + pack_t1.
+
+## Note
+Rejection-samples eta-bounded coefficients from a buffer.
+
+## To mldsaRejBoundedBuf (buf: Seq of Int) -> Seq of Int:
+    Let mutable a be a new Seq of Int.
+    Let mutable pos be 0.
+    Let mutable ctr be 0.
+    While ctr is less than 256:
+        Let b be item (pos + 1) of buf.
+        Set pos to pos + 1.
+        Let lo be b % 16.
+        Let hi be b / 16.
+        If lo is less than 9:
+            Push (4 - lo) to a.
+            Set ctr to ctr + 1.
+        If hi is less than 9:
+            If ctr is less than 256:
+                Push (4 - hi) to a.
+                Set ctr to ctr + 1.
+    Return a.
+
+## Note
+Expands one secret vector polynomial from the seed.
+
+## To mldsaExpandSElem (seed: Seq of Int) -> Seq of Int:
+    Return mldsaRejBoundedBuf(shake256(seed, 512)).
+
+## Note
+The high half of Power2Round: t1 from t (FIPS 204).
+
+## To mldsaPower2RoundT1 (t: Int) -> Int:
+    Let r be ((t % 8380417) + 8380417) % 8380417.
+    Return (r + 4095) / 8192.
+
+## Note
+Packs 10-bit t1 coefficients into public-key bytes.
+
+## To mldsaPackT1 (t1: Seq of Int) -> Seq of Int:
+    Let mutable r be a new Seq of Int.
+    Repeat for i from 0 to 63:
+        Let a0 be item (4 * i + 1) of t1.
+        Let a1 be item (4 * i + 2) of t1.
+        Let a2 be item (4 * i + 3) of t1.
+        Let a3 be item (4 * i + 4) of t1.
+        Push (a0 % 256) to r.
+        Push ((a0 / 256 + a1 * 4) % 256) to r.
+        Push ((a1 / 64 + a2 * 16) % 256) to r.
+        Push ((a2 / 16 + a3 * 64) % 256) to r.
+        Push (a3 / 4) to r.
+    Return r.
+
+## ML-DSA sign glue — sk decode (η/t0), pack (z/hint), low-bits + make-hint (FIPS-204 Algorithm 2).
+
+## Note
+Unpacks eta-range secret coefficients.
+
+## To mldsaUnpackEta (b: Seq of Int) -> Seq of Int:
+    Let mutable r be a new Seq of Int.
+    Repeat for i from 0 to 255:
+        Let byte be item (i / 2 + 1) of b.
+        Let mutable nib be byte % 16.
+        If (i % 2) is equal to 1:
+            Set nib to byte / 16.
+        Push (4 - nib) to r.
+    Return r.
+
+## Note
+Unpacks the 13-bit t0 coefficients of a secret key.
+
+## To mldsaUnpackT0 (b: Seq of Int) -> Seq of Int:
+    Let mutable r be a new Seq of Int.
+    Repeat for i from 0 to 31:
+        Let c0 be item (13 * i + 1) of b.
+        Let c1 be item (13 * i + 2) of b.
+        Let c2 be item (13 * i + 3) of b.
+        Let c3 be item (13 * i + 4) of b.
+        Let c4 be item (13 * i + 5) of b.
+        Let c5 be item (13 * i + 6) of b.
+        Let c6 be item (13 * i + 7) of b.
+        Let c7 be item (13 * i + 8) of b.
+        Let c8 be item (13 * i + 9) of b.
+        Let c9 be item (13 * i + 10) of b.
+        Let c10 be item (13 * i + 11) of b.
+        Let c11 be item (13 * i + 12) of b.
+        Let c12 be item (13 * i + 13) of b.
+        Push (4096 - ((c0 + c1 * 256) % 8192)) to r.
+        Push (4096 - ((c1 / 32 + c2 * 8 + c3 * 2048) % 8192)) to r.
+        Push (4096 - ((c3 / 4 + c4 * 64) % 8192)) to r.
+        Push (4096 - ((c4 / 128 + c5 * 2 + c6 * 512) % 8192)) to r.
+        Push (4096 - ((c6 / 16 + c7 * 16 + c8 * 4096) % 8192)) to r.
+        Push (4096 - ((c8 / 2 + c9 * 128) % 8192)) to r.
+        Push (4096 - ((c9 / 64 + c10 * 4 + c11 * 1024) % 8192)) to r.
+        Push (4096 - ((c11 / 8 + c12 * 32) % 8192)) to r.
+    Return r.
+
+## Note
+The low-bits decomposition of a coefficient (FIPS 204 LowBits).
+
+## To mldsaLowBits (r: Int) -> Int:
+    Let rr be mldsaFreezeI(r).
+    Let mutable a1 be (rr + 127) / 128.
+    Set a1 to (a1 * 1025 + 2097152) / 4194304.
+    Set a1 to a1 % 16.
+    Let mutable a0 be rr - a1 * 523776.
+    If a0 is greater than 4190208:
+        Set a0 to a0 - 8380417.
+    Return a0.
+
+## Note
+Computes the hint bit for one coefficient (FIPS 204 MakeHint).
+
+## To mldsaMakeHint (z: Int) and (r: Int) -> Int:
+    If mldsaHighBits(r) is equal to mldsaHighBits(r + z):
+        Return 0.
+    Return 1.
+
+## Note
+Packs signed z coefficients into signature bytes.
+
+## To mldsaPackZ (p: Seq of Int) -> Seq of Int:
+    Let mutable r be a new Seq of Int.
+    Repeat for i from 0 to 127:
+        Let t0 be 524288 - (item (2 * i + 1) of p).
+        Let t1 be 524288 - (item (2 * i + 2) of p).
+        Push (t0 % 256) to r.
+        Push ((t0 / 256) % 256) to r.
+        Push ((t0 / 65536) + (t1 % 16) * 16) to r.
+        Push ((t1 / 16) % 256) to r.
+        Push ((t1 / 4096) % 256) to r.
+    Return r.
+
+## Note
+Packs hint positions into the signature's hint encoding.
+
+## To mldsaPackHint (h: Seq of Int) -> Seq of Int:
+    Let mutable r be a new Seq of Int.
+    Repeat for x from 1 to 61:
+        Push 0 to r.
+    Let mutable k be 0.
+    Repeat for i from 0 to 5:
+        Repeat for j from 0 to 255:
+            If (item (i * 256 + j + 1) of h) is greater than 0:
+                Set item (k + 1) of r to j.
+                Set k to k + 1.
+        Set item (55 + i + 1) of r to k.
+    Return r.
+
+## ML-DSA sign — the full Logos deterministic signature (FIPS-204 Algorithm 2, rnd=0).
+
+## Note
+Centers a value into the symmetric range around zero.
+
+## To mldsaCenterI (x: Int) -> Int:
+    Let r be mldsaFreezeI(x).
+    If r is greater than 4190208:
+        Return r - 8380417.
+    Return r.
+
+## Note
+ML-DSA-65 signing written in LOGOS: the full rejection loop.
+
+## To mldsaSignLogos (sk: Seq of Int) and (msg: Seq of Int) -> Seq of Int:
+    Let rho be mldsaSubRange(sk, 0, 32).
+    Let kk be mldsaSubRange(sk, 32, 32).
+    Let tr be mldsaSubRange(sk, 64, 64).
+    Let mutable s1HatFlat be a new Seq of Word32.
+    Repeat for j from 0 to 4:
+        Repeat for x in mldsaNtt(mldsaIntsToW32(mldsaUnpackEta(mldsaSubRange(sk, 128 + 128 * j, 128)))):
+            Push x to s1HatFlat.
+    Let mutable s2HatFlat be a new Seq of Word32.
+    Repeat for i from 0 to 5:
+        Repeat for x in mldsaNtt(mldsaIntsToW32(mldsaUnpackEta(mldsaSubRange(sk, 768 + 128 * i, 128)))):
+            Push x to s2HatFlat.
+    Let mutable t0HatFlat be a new Seq of Word32.
+    Repeat for i from 0 to 5:
+        Repeat for x in mldsaNtt(mldsaIntsToW32(mldsaUnpackT0(mldsaSubRange(sk, 1536 + 416 * i, 416)))):
+            Push x to t0HatFlat.
+    Let mutable muIn be a new Seq of Int.
+    Repeat for x in tr:
+        Push x to muIn.
+    Push 0 to muIn.
+    Push 0 to muIn.
+    Repeat for x in msg:
+        Push x to muIn.
+    Let mu be shake256(muIn, 64).
+    Let mutable rpIn be a new Seq of Int.
+    Repeat for x in kk:
+        Push x to rpIn.
+    Repeat for z from 1 to 32:
+        Push 0 to rpIn.
+    Repeat for x in mu:
+        Push x to rpIn.
+    Let rhoPp be shake256(rpIn, 64).
+    Let mutable kappa be 0.
+    Let mutable done be 0.
+    Let mutable sigOut be a new Seq of Int.
+    While done is equal to 0:
+        Let mutable yFlat be a new Seq of Int.
+        Let mutable yHatFlat be a new Seq of Word32.
+        Repeat for j from 0 to 4:
+            Let mutable ms be a new Seq of Int.
+            Repeat for x in rhoPp:
+                Push x to ms.
+            Push ((kappa + j) % 256) to ms.
+            Push ((kappa + j) / 256) to ms.
+            Let yj be mldsaUnpackZ(shake256(ms, 640)).
+            Repeat for x in yj:
+                Push x to yFlat.
+            Repeat for x in mldsaNtt(mldsaIntsToW32(yj)):
+                Push x to yHatFlat.
+        Let mutable wFlat be a new Seq of Word32.
+        Let mutable ctIn be a new Seq of Int.
+        Repeat for x in mu:
+            Push x to ctIn.
+        Repeat for i from 0 to 5:
+            Let mutable acc be a new Seq of Word32.
+            Repeat for kc from 1 to 256:
+                Push word32(0) to acc.
+            Repeat for j from 0 to 4:
+                Let mutable seedA be a new Seq of Int.
+                Repeat for x in rho:
+                    Push x to seedA.
+                Push j to seedA.
+                Push i to seedA.
+                Set acc to mldsaPolyAdd(acc, pointwiseMontgomery(mldsaIntsToW32(mldsaExpandAElem(seedA)), mldsaSubRangeW(yHatFlat, 256 * j, 256))).
+            Let wi be mldsaInvNttToMont(acc).
+            Repeat for x in wi:
+                Push x to wFlat.
+            Let mutable w1i be a new Seq of Int.
+            Repeat for c from 1 to 256:
+                Push mldsaHighBits(mldsaToS32(item c of wi)) to w1i.
+            Repeat for x in mldsaW1Encode(w1i):
+                Push x to ctIn.
+        Let cTilde be shake256(ctIn, 48).
+        Let cHat be mldsaNtt(mldsaIntsToW32(mldsaSampleInBall(cTilde))).
+        Let mutable zFlat be a new Seq of Int.
+        Let mutable okZ be 1.
+        Repeat for j from 0 to 4:
+            Let cs1j be mldsaInvNttToMont(pointwiseMontgomery(cHat, mldsaSubRangeW(s1HatFlat, 256 * j, 256))).
+            Repeat for c from 0 to 255:
+                Let zc be mldsaCenterI((item (256 * j + c + 1) of yFlat) + mldsaToS32(item (c + 1) of cs1j)).
+                Let mutable az be zc.
+                If az is less than 0:
+                    Set az to 0 - az.
+                If az is at least 524092:
+                    Set okZ to 0.
+                Push zc to zFlat.
+        Repeat for i from 0 to 5:
+            Let cs2i be mldsaInvNttToMont(pointwiseMontgomery(cHat, mldsaSubRangeW(s2HatFlat, 256 * i, 256))).
+            Repeat for c from 0 to 255:
+                Let r0c be mldsaLowBits((mldsaToS32(item (256 * i + c + 1) of wFlat)) - (mldsaToS32(item (c + 1) of cs2i))).
+                Let mutable ar be r0c.
+                If ar is less than 0:
+                    Set ar to 0 - ar.
+                If ar is at least 261692:
+                    Set okZ to 0.
+        If okZ is equal to 0:
+            Set kappa to kappa + 5.
+        If okZ is greater than 0:
+            Let mutable hFlat be a new Seq of Int.
+            Repeat for z from 1 to 1536:
+                Push 0 to hFlat.
+            Let mutable weight be 0.
+            Let mutable okH be 1.
+            Repeat for i from 0 to 5:
+                Let ct0i be mldsaInvNttToMont(pointwiseMontgomery(cHat, mldsaSubRangeW(t0HatFlat, 256 * i, 256))).
+                Let cs2i be mldsaInvNttToMont(pointwiseMontgomery(cHat, mldsaSubRangeW(s2HatFlat, 256 * i, 256))).
+                Repeat for c from 0 to 255:
+                    Let ct0c be mldsaToS32(item (c + 1) of ct0i).
+                    Let rArg be (mldsaToS32(item (256 * i + c + 1) of wFlat)) - (mldsaToS32(item (c + 1) of cs2i)) + ct0c.
+                    Let bit be mldsaMakeHint(0 - ct0c, rArg).
+                    Set item (256 * i + c + 1) of hFlat to bit.
+                    Set weight to weight + bit.
+                    Let mutable ac be mldsaCenterI(ct0c).
+                    If ac is less than 0:
+                        Set ac to 0 - ac.
+                    If ac is at least 261888:
+                        Set okH to 0.
+            If weight is greater than 55:
+                Set okH to 0.
+            If okH is equal to 0:
+                Set kappa to kappa + 5.
+            If okH is greater than 0:
+                Repeat for x in cTilde:
+                    Push x to sigOut.
+                Repeat for j from 0 to 4:
+                    Repeat for x in mldsaPackZ(mldsaSubRange(zFlat, 256 * j, 256)):
+                        Push x to sigOut.
+                Repeat for x in mldsaPackHint(hFlat):
+                    Push x to sigOut.
+                Set done to 1.
+    Return sigOut.
+
+## ML-DSA keygen — the full Logos public key: pk = ρ ‖ pack_t1(Power2Round(A·s1 + s2).hi).
+
+## Note
+ML-DSA-65 key generation written in LOGOS from a 32-byte seed.
+
+## To mldsaKeygenLogos (seed: Seq of Int) -> Seq of Int:
+    Let mutable hIn be a new Seq of Int.
+    Repeat for x in seed:
+        Push x to hIn.
+    Push 6 to hIn.
+    Push 5 to hIn.
+    Let hash be shake256(hIn, 128).
+    Let rho be mldsaSubRange(hash, 0, 32).
+    Let rhoPrime be mldsaSubRange(hash, 32, 64).
+    Let mutable s1HatFlat be a new Seq of Word32.
+    Repeat for j from 0 to 4:
+        Let mutable sd be a new Seq of Int.
+        Repeat for x in rhoPrime:
+            Push x to sd.
+        Push (j % 256) to sd.
+        Push (j / 256) to sd.
+        Let s1j be mldsaExpandSElem(sd).
+        Repeat for x in mldsaNtt(mldsaIntsToW32(s1j)):
+            Push x to s1HatFlat.
+    Let mutable pk be a new Seq of Int.
+    Repeat for x in rho:
+        Push x to pk.
+    Repeat for i from 0 to 5:
+        Let mutable acc be a new Seq of Word32.
+        Repeat for kc from 1 to 256:
+            Push word32(0) to acc.
+        Repeat for j from 0 to 4:
+            Let mutable seedA be a new Seq of Int.
+            Repeat for x in rho:
+                Push x to seedA.
+            Push j to seedA.
+            Push i to seedA.
+            Let aHatIJ be mldsaExpandAElem(seedA).
+            Set acc to mldsaPolyAdd(acc, pointwiseMontgomery(mldsaIntsToW32(aHatIJ), mldsaSubRangeW(s1HatFlat, 256 * j, 256))).
+        Let ti be mldsaInvNttToMont(acc).
+        Let mutable sd2 be a new Seq of Int.
+        Repeat for x in rhoPrime:
+            Push x to sd2.
+        Push ((5 + i) % 256) to sd2.
+        Push ((5 + i) / 256) to sd2.
+        Let s2i be mldsaExpandSElem(sd2).
+        Let mutable t1 be a new Seq of Int.
+        Repeat for c from 0 to 255:
+            Let tc be (mldsaToS32(item (c + 1) of ti)) + (item (c + 1) of s2i).
+            Push mldsaPower2RoundT1(tc) to t1.
+        Repeat for x in mldsaPackT1(t1):
+            Push x to pk.
+    Return pk.
+
+## ML-DSA keypair — sk packing (pack_eta / pack_t0 / power2round-low) + the full pk‖sk keypair.
+
+## Note
+The low half of Power2Round: t0 from t (FIPS 204).
+
+## To mldsaPower2RoundT0 (t: Int) -> Int:
+    Let r be mldsaFreezeI(t).
+    Let r1 be (r + 4095) / 8192.
+    Return r - r1 * 8192.
+
+## Note
+Packs eta-range secret coefficients into key bytes.
+
+## To mldsaPackEta (p: Seq of Int) -> Seq of Int:
+    Let mutable r be a new Seq of Int.
+    Repeat for i from 0 to 127:
+        Let lo be 4 - (item (2 * i + 1) of p).
+        Let hi be 4 - (item (2 * i + 2) of p).
+        Push (lo + hi * 16) to r.
+    Return r.
+
+## Note
+Packs 13-bit t0 coefficients into secret-key bytes.
+
+## To mldsaPackT0 (p: Seq of Int) -> Seq of Int:
+    Let mutable r be a new Seq of Int.
+    Repeat for i from 0 to 31:
+        Let t0 be 4096 - (item (8 * i + 1) of p).
+        Let t1 be 4096 - (item (8 * i + 2) of p).
+        Let t2 be 4096 - (item (8 * i + 3) of p).
+        Let t3 be 4096 - (item (8 * i + 4) of p).
+        Let t4 be 4096 - (item (8 * i + 5) of p).
+        Let t5 be 4096 - (item (8 * i + 6) of p).
+        Let t6 be 4096 - (item (8 * i + 7) of p).
+        Let t7 be 4096 - (item (8 * i + 8) of p).
+        Push (t0 % 256) to r.
+        Push ((t0 / 256 + t1 * 32) % 256) to r.
+        Push ((t1 / 8) % 256) to r.
+        Push ((t1 / 2048 + t2 * 4) % 256) to r.
+        Push ((t2 / 64 + t3 * 128) % 256) to r.
+        Push ((t3 / 2) % 256) to r.
+        Push ((t3 / 512 + t4 * 16) % 256) to r.
+        Push ((t4 / 16) % 256) to r.
+        Push ((t4 / 4096 + t5 * 2) % 256) to r.
+        Push ((t5 / 128 + t6 * 64) % 256) to r.
+        Push ((t6 / 4) % 256) to r.
+        Push ((t6 / 1024 + t7 * 8) % 256) to r.
+        Push ((t7 / 32) % 256) to r.
+    Return r.
+
+## Note
+ML-DSA-65 keypair written in LOGOS: public and secret key bytes.
+
+## To mldsaKeypairLogos (seed: Seq of Int) -> Seq of Int:
+    Let mutable hIn be a new Seq of Int.
+    Repeat for x in seed:
+        Push x to hIn.
+    Push 6 to hIn.
+    Push 5 to hIn.
+    Let hash be shake256(hIn, 128).
+    Let rho be mldsaSubRange(hash, 0, 32).
+    Let rhoPrime be mldsaSubRange(hash, 32, 64).
+    Let kk be mldsaSubRange(hash, 96, 32).
+    Let mutable s1Flat be a new Seq of Int.
+    Let mutable s1HatFlat be a new Seq of Word32.
+    Repeat for j from 0 to 4:
+        Let mutable sd be a new Seq of Int.
+        Repeat for x in rhoPrime:
+            Push x to sd.
+        Push (j % 256) to sd.
+        Push (j / 256) to sd.
+        Let s1j be mldsaExpandSElem(sd).
+        Repeat for x in s1j:
+            Push x to s1Flat.
+        Repeat for x in mldsaNtt(mldsaIntsToW32(s1j)):
+            Push x to s1HatFlat.
+    Let mutable s2Flat be a new Seq of Int.
+    Repeat for i from 0 to 5:
+        Let mutable sd2 be a new Seq of Int.
+        Repeat for x in rhoPrime:
+            Push x to sd2.
+        Push ((5 + i) % 256) to sd2.
+        Push ((5 + i) / 256) to sd2.
+        Let s2i be mldsaExpandSElem(sd2).
+        Repeat for x in s2i:
+            Push x to s2Flat.
+    Let mutable pk be a new Seq of Int.
+    Repeat for x in rho:
+        Push x to pk.
+    Let mutable t0Flat be a new Seq of Int.
+    Repeat for i from 0 to 5:
+        Let mutable acc be a new Seq of Word32.
+        Repeat for kc from 1 to 256:
+            Push word32(0) to acc.
+        Repeat for j from 0 to 4:
+            Let mutable seedA be a new Seq of Int.
+            Repeat for x in rho:
+                Push x to seedA.
+            Push j to seedA.
+            Push i to seedA.
+            Set acc to mldsaPolyAdd(acc, pointwiseMontgomery(mldsaIntsToW32(mldsaExpandAElem(seedA)), mldsaSubRangeW(s1HatFlat, 256 * j, 256))).
+        Let ti be mldsaInvNttToMont(acc).
+        Let mutable t1 be a new Seq of Int.
+        Repeat for c from 0 to 255:
+            Let tc be (mldsaToS32(item (c + 1) of ti)) + (item (256 * i + c + 1) of s2Flat).
+            Push mldsaPower2RoundT1(tc) to t1.
+            Push mldsaPower2RoundT0(tc) to t0Flat.
+        Repeat for x in mldsaPackT1(t1):
+            Push x to pk.
+    Let tr be shake256(pk, 64).
+    Let mutable out be a new Seq of Int.
+    Repeat for x in pk:
+        Push x to out.
+    Repeat for x in rho:
+        Push x to out.
+    Repeat for x in kk:
+        Push x to out.
+    Repeat for x in tr:
+        Push x to out.
+    Repeat for j from 0 to 4:
+        Repeat for x in mldsaPackEta(mldsaSubRange(s1Flat, 256 * j, 256)):
+            Push x to out.
+    Repeat for i from 0 to 5:
+        Repeat for x in mldsaPackEta(mldsaSubRange(s2Flat, 256 * i, 256)):
+            Push x to out.
+    Repeat for i from 0 to 5:
+        Repeat for x in mldsaPackT0(mldsaSubRange(t0Flat, 256 * i, 256)):
+            Push x to out.
+    Return out.

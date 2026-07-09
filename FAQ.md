@@ -73,7 +73,7 @@ LOGOS doesn't just say "unsat" — **verified conflict detection** produces a ke
 
 ### What does LOGOS do for hardware?
 
-English specs become **IEEE 1800-2023 compliant SystemVerilog Assertions** — property connectives, LTL operators, sequence composition, abort operators, local variables, bounded delays ("within 4 cycles" → `##[0:4]`), the works. The 1800-2023 upgrade (array `.map()`, `type(this)`, `rand real` checker variables, triple-quoted action blocks) shipped in v0.9.16.
+English specs become **IEEE 1800-2023 compliant SystemVerilog Assertions** — property connectives, LTL operators, sequence composition, abort operators, local variables, bounded delays ("within 4 cycles" → `##[0:4]`), the works. The 1800-2023 upgrade (array `.map()`, `type(this)`, `rand real` checker variables, triple-quoted action blocks) is fully supported.
 
 ### Is it just assertion translation?
 
@@ -116,7 +116,7 @@ LOGOS has a self-applicable partial evaluator (written in LOGOS itself) working 
 
 ### How big is the test suite?
 
-**~8,700 tests across 13 crates**, built strictly test-first. House philosophy: *tests are the IP; code is ephemeral*. Tests are organized as phases by linguistic and logical complexity, so the suite doubles as a map of exactly which phenomena are supported.
+**Thousands of tests across the whole workspace**, built strictly test-first. House philosophy: *tests are the IP; code is ephemeral*. Tests are organized as phases by linguistic and logical complexity, so the suite doubles as a map of exactly which phenomena are supported.
 
 ### What's the architecture, briefly?
 
@@ -127,7 +127,7 @@ English → Lexer → Parser → AST → Semantics (DRS / events) → FOL
                                       └→ Imperative codegen → Rust
 ```
 
-Thirteen crates with lockstep versioning, published to crates.io, plus an LSP server and a web playground.
+A workspace of Rust crates with lockstep versioning, published to crates.io, plus an LSP server and a web playground.
 
 ---
 

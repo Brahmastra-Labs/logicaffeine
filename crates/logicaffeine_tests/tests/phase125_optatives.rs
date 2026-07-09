@@ -1,4 +1,4 @@
-//! Phase 125 — §1.2 Optatives (MISSING_ENGLISH.md).
+//! Phase 125 — §1.2 Optatives (work/MISSING_ENGLISH.md).
 //!
 //! Wish clauses with no asserted truth:
 //!   "May you prosper!"        → Wish(speaker, ⟨Prosper(you)⟩)

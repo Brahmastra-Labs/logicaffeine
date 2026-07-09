@@ -1,4 +1,6 @@
 use dioxus::prelude::*;
+#[cfg(all(feature = "split", target_arch = "wasm32"))]
+use dioxus::wasm_split;
 use crate::ui::router::Route;
 use crate::ui::components::mixed_text::MixedText;
 use crate::ui::components::xp_popup::XpPopup;
@@ -261,8 +263,17 @@ const REVIEW_STYLE: &str = r#"
 }
 "#;
 
-#[component]
+#[component(lazy)]
 pub fn Review() -> Element {
+    rsx! {
+        crate::ui::components::lexicon_gate::LexiconGate {
+            ReviewInner {}
+        }
+    }
+}
+
+#[component]
+fn ReviewInner() -> Element {
     let mut current_index = use_signal(|| 0usize);
     let mut answer = use_signal(String::new);
     let mut selected_choice = use_signal(|| None::<usize>);

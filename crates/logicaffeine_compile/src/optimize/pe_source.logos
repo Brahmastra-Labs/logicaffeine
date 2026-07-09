@@ -41,16 +41,34 @@
         When PEStateR (e, f, d, se, sr, os):
             Return se.
 
+## To peEnvBind (m: mutable Map of Text to CVal) and (k: Text) and (v: CVal):
+    Set item k of m to v.
+
+## To peEnvDrop (m: mutable Map of Text to CVal) and (k: Text):
+    Remove k from m.
+
+## To peSeBind (m: mutable Map of Text to CExpr) and (k: Text) and (v: CExpr):
+    Set item k of m to v.
+
+## To peSeDrop (m: mutable Map of Text to CExpr) and (k: Text):
+    Remove k from m.
+
+## To peOsPush (s: mutable Seq of Text) and (v: Text):
+    Push v to s.
+
+## To peFuncBind (m: mutable Map of Text to CFunc) and (k: Text) and (v: CFunc):
+    Set item k of m to v.
+
 ## To peStateWithStaticBinding (st: PEState) and (name: Text) and (val: CExpr) -> PEState:
     Inspect st:
         When PEStateR (e, f, d, se, sr, os):
-            Set item name of se to val.
+            peSeBind(se, name, val).
             Return a new PEStateR with env e and funcs f and depth d and staticEnv se and specResults sr and onStack os.
 
 ## To peStateRemoveStatic (st: PEState) and (name: Text) -> PEState:
     Inspect st:
         When PEStateR (e, f, d, se, sr, os):
-            Remove name from se.
+            peSeDrop(se, name).
             Return a new PEStateR with env e and funcs f and depth d and staticEnv se and specResults sr and onStack os.
 
 ## To peStateWithEnvDepthStatic (st: PEState) and (newEnv: Map of Text to CVal) and (d: Int) and (newSe: Map of Text to CExpr) -> PEState:
@@ -385,6 +403,99 @@
             Return false.
         Otherwise:
             Return true.
+
+## To isPeValueForCopyProp (e: CExpr) -> Bool:
+    Let sv be isStaticValue(e).
+    If sv:
+        Return true.
+    Inspect e:
+        When CList (cpvItems):
+            Return true.
+        When CTuple (cpvTup):
+            Return true.
+        When CNew (cpvTy, cpvNames, cpvVals):
+            Return true.
+        When CNewVariant (cpvTag, cpvNms, cpvVls):
+            Return true.
+        When COptionSome (cpvInner):
+            Return true.
+        When CRange (cpvS, cpvE):
+            Return true.
+        Otherwise:
+            Return false.
+
+## To exprRefsAnyMutated (e: CExpr) and (muts: Seq of Text) -> Bool:
+    Inspect e:
+        When CVar (ravVn):
+            Repeat for ravM in muts:
+                If ravVn is equal to ravM:
+                    Return true.
+            Return false.
+        When CBinOp (ravOp, ravL, ravR):
+            Let ravA be exprRefsAnyMutated(ravL, muts).
+            If ravA:
+                Return true.
+            Return exprRefsAnyMutated(ravR, muts).
+        When CNot (ravNi):
+            Return exprRefsAnyMutated(ravNi, muts).
+        When CIndex (ravIc, ravIi):
+            Let ravB be exprRefsAnyMutated(ravIc, muts).
+            If ravB:
+                Return true.
+            Return exprRefsAnyMutated(ravIi, muts).
+        When CLen (ravLt):
+            Return exprRefsAnyMutated(ravLt, muts).
+        When CFieldAccess (ravFt, ravFf):
+            Return exprRefsAnyMutated(ravFt, muts).
+        When CMapGet (ravMt, ravMk):
+            Let ravC be exprRefsAnyMutated(ravMt, muts).
+            If ravC:
+                Return true.
+            Return exprRefsAnyMutated(ravMk, muts).
+        When CContains (ravCc, ravCe):
+            Let ravD be exprRefsAnyMutated(ravCc, muts).
+            If ravD:
+                Return true.
+            Return exprRefsAnyMutated(ravCe, muts).
+        When CSlice (ravSc, ravSs, ravSe):
+            Let ravE be exprRefsAnyMutated(ravSc, muts).
+            If ravE:
+                Return true.
+            Let ravF be exprRefsAnyMutated(ravSs, muts).
+            If ravF:
+                Return true.
+            Return exprRefsAnyMutated(ravSe, muts).
+        When CUnion (ravUl, ravUr):
+            Let ravG be exprRefsAnyMutated(ravUl, muts).
+            If ravG:
+                Return true.
+            Return exprRefsAnyMutated(ravUr, muts).
+        When CIntersection (ravIl, ravIr):
+            Let ravH be exprRefsAnyMutated(ravIl, muts).
+            If ravH:
+                Return true.
+            Return exprRefsAnyMutated(ravIr, muts).
+        When CCopy (ravCt):
+            Return exprRefsAnyMutated(ravCt, muts).
+        When CInt (ravVi):
+            Return false.
+        When CBool (ravVb):
+            Return false.
+        When CText (ravVt):
+            Return false.
+        When CFloat (ravVf):
+            Return false.
+        Otherwise:
+            Return true.
+
+## To shouldCopyProp (e: CExpr) and (muts: Seq of Text) -> Bool:
+    Let scpSv be isPeValueForCopyProp(e).
+    If scpSv:
+        Return true.
+    Let scpRm be exprRefsAnyMutated(e, muts).
+    If scpRm:
+        Return false.
+    Return true.
 
 ## To isRefAggregate (e: CExpr) -> Bool:
     Inspect e:
@@ -807,7 +918,7 @@
         Otherwise:
             Return e.
 
-## To applyPosFacts (cond: CExpr) and (se: Map of Text to CExpr) -> Bool:
+## To applyPosFacts (cond: CExpr) and (se: mutable Map of Text to CExpr) -> Bool:
     Inspect cond:
         When CBinOp (cop, cleft, cright):
             If cop equals "&&":
@@ -836,7 +947,7 @@
         Otherwise:
             Return true.
 
-## To applyNegFacts (cond: CExpr) and (se: Map of Text to CExpr) -> Bool:
+## To applyNegFacts (cond: CExpr) and (se: mutable Map of Text to CExpr) -> Bool:
     Inspect cond:
         When CBinOp (cop, cleft, cright):
             If cop equals "==":
@@ -861,7 +972,7 @@
         Otherwise:
             Return true.
 
-## To clearGuardFacts (cond: CExpr) and (se: Map of Text to CExpr) -> Bool:
+## To clearGuardFacts (cond: CExpr) and (se: mutable Map of Text to CExpr) -> Bool:
     Inspect cond:
         When CBinOp (cop, cleft, cright):
             If cop equals "&&":
@@ -1057,7 +1168,8 @@
                 Let peArgsCopy be copy of peArgs.
                 Push (a new CList with items peArgsCopy) to newSnapshots.
                 Let embedKeyStr3 be "{embedKey}".
-                Set item embedKeyStr3 of specRes to (a new CList with items newSnapshots).
+                Let newSnapWrap be a new CList with items newSnapshots.
+                peSeBind(specRes, embedKeyStr3, newSnapWrap).
                 Let fn2 be "{fn1}".
                 Let func be item fn2 of funcs.
                 Inspect func:
@@ -1078,7 +1190,7 @@
                         Let childState be peStateWithEnvDepthStatic(state, callEnv, depth - 1, childSEnv).
                         Let mk2 be "{memoKeyStr}".
                         Let childStack be peOnStack(childState).
-                        Push mk2 to childStack.
+                        peOsPush(childStack, mk2).
                         Let peBody be peBlock(body, childState).
                         Let embedKeyPop be "__embed_{fn1}".
                         If specRes contains embedKeyPop:
@@ -1086,7 +1198,8 @@
                             Inspect curSnaps:
                                 When CList (curSnapList):
                                     Let prunedSnaps be seqDropLast(curSnapList).
-                                    Set item embedKeyPop of specRes to (a new CList with items prunedSnaps).
+                                    Let prunedWrap be a new CList with items prunedSnaps.
+                                    peSeBind(specRes, embedKeyPop, prunedWrap).
                                 Otherwise:
                                     Let skipPop be true.
                         Let rawResult be extractReturn(peBody).
@@ -1099,7 +1212,7 @@
                                 Let skip be true.
                         Let mk3 be "{memoKeyStr}".
                         Let bodyResultCopy be copy of bodyResult.
-                        Set item mk3 of specRes to bodyResultCopy.
+                        peSeBind(specRes, mk3, bodyResultCopy).
                         Return bodyResult.
                     Otherwise:
                         Let fn3 be "{fn1}".
@@ -1153,7 +1266,8 @@
                 Let normArgsCopy be copy of normArgs.
                 Push (a new CList with items normArgsCopy) to pembNewSnaps.
                 Let pembK2 be "{pembKey}".
-                Set item pembK2 of pembSpec to (a new CList with items pembNewSnaps).
+                Let pembNewWrap be a new CList with items pembNewSnaps.
+                peSeBind(pembSpec, pembK2, pembNewWrap).
                 Let specKey be makeCycleKey(fn1, peArgs).
                 Let specKeyStr be "{specKey}".
                 Let specCache be peOnStack(state).
@@ -1189,7 +1303,7 @@
                                 Set item pk4 of callEnv to a new VNothing.
                             Set pidx to pidx + 1.
                         Let sk3 be "{specKeyStr}".
-                        Push sk3 to specCache.
+                        peOsPush(specCache, sk3).
                         Let placeholderBody be a new Seq of CStmt.
                         Let sk4 be "{specKeyStr}".
                         Let phDynParams be a new Seq of Text.
@@ -1199,7 +1313,7 @@
                         Let phPT be a new Seq of Text.
                         Let placeholderFunc be a new CFuncDef with name sk4 and params phDynParams and paramTypes phPT and returnType "Any" and body placeholderBody.
                         Let sk5 be "{specKeyStr}".
-                        Set item sk5 of funcs to placeholderFunc.
+                        peFuncBind(funcs, sk5, placeholderFunc).
                         Let childState be peStateWithEnvDepthStatic(state, callEnv, depth - 1, childSEnv).
                         Let peBody be peBlock(body, childState).
                         Let pembKeyPop be "__pemb_{fn1}".
@@ -1208,7 +1322,8 @@
                             Inspect pembCur:
                                 When CList (pembCurList):
                                     Let pembPruned be seqDropLast(pembCurList).
-                                    Set item pembKeyPop of pembSpec to (a new CList with items pembPruned).
+                                    Let pembPrunedWrap be a new CList with items pembPruned.
+                                    peSeBind(pembSpec, pembKeyPop, pembPrunedWrap).
                                 Otherwise:
                                     Let skipPopW be true.
                         Let rawResult2 be extractReturn(peBody).
@@ -1221,7 +1336,7 @@
                         Let spPT be a new Seq of Text.
                         Let specFunc be a new CFuncDef with name sk6 and params spDynParams and paramTypes spPT and returnType "Any" and body peBody.
                         Let sk7 be "{specKeyStr}".
-                        Set item sk7 of funcs to specFunc.
+                        peFuncBind(funcs, sk7, specFunc).
                         Let mutable emitSpecCall be false.
                         Inspect bodyResult:
                             When CCall (brFn, brArgs):
@@ -1522,6 +1637,13 @@
             Return a new CDateToday.
         When CEscExpr (escCode):
             Return a new CEscExpr with code escCode.
+        When CManifestOf (zn):
+            Let peZone be peExpr(zn, state).
+            Return a new CManifestOf with zn peZone.
+        When CChunkAt (idx, zn):
+            Let peIdx be peExpr(idx, state).
+            Let peZone be peExpr(zn, state).
+            Return a new CChunkAt with idx peIdx and zn peZone.
 
 ## To collectSetVars (stmts: Seq of CStmt) -> Seq of Text:
     Let result be a new Seq of Text.
@@ -1544,6 +1666,50 @@
                 Let rVars be collectSetVars(rBody).
                 Repeat for rv in rVars:
                     Push rv to result.
+            When CRepeatRange (rrVar, rrStart, rrEnd, rrBody):
+                Let rrVars be collectSetVars(rrBody).
+                Repeat for rrv in rrVars:
+                    Push rrv to result.
+            When CInspect (inspTarget, inspArms):
+                Repeat for cinsArm in inspArms:
+                    Inspect cinsArm:
+                        When CWhen (cwName, cwBindings, cwBody):
+                            Let cwVars be collectSetVars(cwBody).
+                            Repeat for cwv in cwVars:
+                                Push cwv to result.
+                        Otherwise:
+                            Let skipCinsArm be true.
+            When CSelect (selBranches):
+                Repeat for cselBr in selBranches:
+                    Inspect cselBr:
+                        When CSelectRecv (csrChan, csrVar, csrBody):
+                            Let csrVars be collectSetVars(csrBody).
+                            Repeat for csrv in csrVars:
+                                Push csrv to result.
+                        When CSelectTimeout (cstDur, cstBody):
+                            Let cstVars be collectSetVars(cstBody).
+                            Repeat for cstv in cstVars:
+                                Push cstv to result.
+                        Otherwise:
+                            Let skipCselBr be true.
+            When CZone (zoneName, zoneKind, zoneBody):
+                Let zVars be collectSetVars(zoneBody).
+                Repeat for zv in zVars:
+                    Push zv to result.
+            When CConcurrent (concBranches):
+                Repeat for concBranch in concBranches:
+                    Let concVars be collectSetVars(concBranch).
+                    Repeat for ccv in concVars:
+                        Push ccv to result.
+            When CParallel (parBranches):
+                Repeat for parBranch in parBranches:
+                    Let parVars be collectSetVars(parBranch).
+                    Repeat for pcv in parVars:
+                        Push pcv to result.
+            When CLaunchTask (ltBody, ltHandle):
+                Let ltVars be collectSetVars(ltBody).
+                Repeat for ltv in ltVars:
+                    Push ltv to result.
             Otherwise:
                 Let skip be true.
     Return result.
@@ -1562,6 +1728,8 @@
     Let env be peEnv(state).
     Let funcs be peFuncs(state).
     Let depth be peDepth(state).
+    Let mutable blockMutatedDone be false.
+    Let mutable blockMutated be a new Seq of Text.
     Let blockResult be a new Seq of CStmt.
     Repeat for s in stmts:
         Let alreadyReturned be hasReturn(blockResult).
@@ -1582,12 +1750,14 @@
                             Let sEnvAl be peStaticEnv(state).
                             Let aliasSrcK be "{aliasSrc}".
                             If sEnvAl contains aliasSrcK:
-                                Remove aliasSrcK from sEnvAl.
-                            Set item aliasSrcK of env to a new VNothing.
+                                peSeDrop(sEnvAl, aliasSrcK).
+                            Let aliasSrcK2 be "{aliasSrc}".
+                            peEnvBind(env, aliasSrcK2, (a new VNothing)).
                             Let ltAlK be "{letName}".
                             If sEnvAl contains ltAlK:
-                                Remove ltAlK from sEnvAl.
-                            Set item ltAlK of env to a new VNothing.
+                                peSeDrop(sEnvAl, ltAlK).
+                            Let ltAlK2 be "{letName}".
+                            peEnvBind(env, ltAlK2, (a new VNothing)).
                             Let ltAlName be "{letName}".
                             Let ltAlExpr be copy of letExpr.
                             Push (a new CLet with name ltAlName and expr ltAlExpr) to blockResult.
@@ -1604,9 +1774,9 @@
                             Let trackedSet be a new CNew with typeName "Set" and fieldNames setEmptyNames and fields setEmptyVals.
                             Let lsk be "{letName}".
                             Let sEnvLs be peStaticEnv(state).
-                            Set item lsk of sEnvLs to trackedSet.
+                            peSeBind(sEnvLs, lsk, trackedSet).
                             Let lsk2 be "{letName}".
-                            Set item lsk2 of env to a new VNothing.
+                            peEnvBind(env, lsk2, (a new VNothing)).
                             Let lsName be "{letName}".
                             Let lsVal be copy of peVal.
                             Push (a new CLet with name lsName and expr lsVal) to blockResult.
@@ -1616,42 +1786,71 @@
                 If not aliasedRef:
                     If not letHandled:
                         Let valSV be isStaticValue(peVal).
-                        Let cpSafe be isCopyPropSafe(peVal).
-                        If cpSafe:
+                        Let cpvL be isPeValueForCopyProp(peVal).
+                        Let mutable cpOk be cpvL.
+                        If not cpvL:
+                            If not blockMutatedDone:
+                                Set blockMutated to collectSetVars(stmts).
+                                Set blockMutatedDone to true.
+                            Let rmmL be exprRefsAnyMutated(peVal, blockMutated).
+                            If not rmmL:
+                                Set cpOk to true.
+                        If cpOk:
                             Let letNameS be "{letName}".
                             Let peValS be copy of peVal.
                             Let sEnvL be peStaticEnv(state).
-                            Set item letNameS of sEnvL to peValS.
+                            peSeBind(sEnvL, letNameS, peValS).
                         Otherwise:
                             Let sEnvL2 be peStaticEnv(state).
                             Let letNameR be "{letName}".
                             If sEnvL2 contains letNameR:
-                                Remove letNameR from sEnvL2.
+                                peSeDrop(sEnvL2, letNameR).
                         If valSV:
-                            Set item letName of env to exprToVal(peVal).
+                            peEnvBind(env, letName, exprToVal(peVal)).
                         Otherwise:
                             Let letKey be "{letName}".
-                            Set item letKey of env to a new VNothing.
+                            peEnvBind(env, letKey, (a new VNothing)).
                             Push (a new CLet with name letName and expr peVal) to blockResult.
             When CSet (setName, setExpr):
                 Let peVal be peExpr(setExpr, state).
                 Let valSV2 be isStaticValue(peVal).
-                Let cpSafeS be isCopyPropSafe(peVal).
-                If cpSafeS:
+                Let cpvSL be isPeValueForCopyProp(peVal).
+                Let mutable cpOkS be cpvSL.
+                If not cpvSL:
+                    If not blockMutatedDone:
+                        Set blockMutated to collectSetVars(stmts).
+                        Set blockMutatedDone to true.
+                    Let rmmSL be exprRefsAnyMutated(peVal, blockMutated).
+                    If not rmmSL:
+                        Set cpOkS to true.
+                Let sEnvCS be peStaticEnv(state).
+                Let setNameChk be "{setName}".
+                Let mutable priorWasStatic be false.
+                Let mutable priorStaticVal be (a new CInt with value 0).
+                If sEnvCS contains setNameChk:
+                    Let setNameItm be "{setName}".
+                    Let priorCV be item setNameItm of sEnvCS.
+                    Let pcvStatic be isStaticValue(priorCV).
+                    If pcvStatic:
+                        Set priorWasStatic to true.
+                        Set priorStaticVal to copy of priorCV.
+                If cpOkS:
                     Let setNameS be "{setName}".
                     Let peValS be copy of peVal.
-                    Let sEnvS be peStaticEnv(state).
-                    Set item setNameS of sEnvS to peValS.
+                    peSeBind(sEnvCS, setNameS, peValS).
                 Otherwise:
-                    Let sEnvS2 be peStaticEnv(state).
                     Let setNameR be "{setName}".
-                    If sEnvS2 contains setNameR:
-                        Remove setNameR from sEnvS2.
+                    If sEnvCS contains setNameR:
+                        Let setNameD be "{setName}".
+                        peSeDrop(sEnvCS, setNameD).
                 If valSV2:
-                    Set item setName of env to exprToVal(peVal).
+                    peEnvBind(env, setName, exprToVal(peVal)).
                 Otherwise:
+                    If priorWasStatic:
+                        Let setNameL be "{setName}".
+                        Push (a new CLet with name setNameL and expr priorStaticVal) to blockResult.
                     Let setKey be "{setName}".
-                    Set item setKey of env to a new VNothing.
+                    peEnvBind(env, setKey, (a new VNothing)).
                     Push (a new CSet with name setName and expr peVal) to blockResult.
             When CIf (ifCond, thenBlock, elseBlock):
                 Let peCond be peExpr(ifCond, state).
@@ -1672,14 +1871,68 @@
                             Let elseRes2 be peBlock(elseBlock, state).
                             Push (a new CIf with cond peCond and thenBlock thenRes2 and elseBlock elseRes2) to blockResult.
                 Otherwise:
+                    Let thenModsIf be collectSetVars(thenBlock).
+                    Let elseModsIf be collectSetVars(elseBlock).
+                    Let allModsIf be a new Seq of Text.
+                    Repeat for tmI in thenModsIf:
+                        Push tmI to allModsIf.
+                    Repeat for emI in elseModsIf:
+                        Push emI to allModsIf.
                     Let ifSeShared be peStaticEnv(state).
+                    Repeat for pmI in allModsIf:
+                        Let pmK1 be "{pmI}".
+                        If ifSeShared contains pmK1:
+                            Let pmK2 be "{pmI}".
+                            Let pmV be item pmK2 of ifSeShared.
+                            Let pmK3 be "{pmI}".
+                            Push (a new CLet with name pmK3 and expr pmV) to blockResult.
+                            Let pmK4 be "{pmI}".
+                            peSeDrop(ifSeShared, pmK4).
+                            Let pmK5 be "{pmI}".
+                            peEnvBind(env, pmK5, (a new VNothing)).
                     Let posR be applyPosFacts(peCond, ifSeShared).
                     Let thenRes3 be peBlock(thenBlock, state).
+                    Let thenFinal be a new Seq of CStmt.
+                    Repeat for tstmt in thenRes3:
+                        Push tstmt to thenFinal.
+                    Let sEnvThenIf be peStaticEnv(state).
+                    Repeat for tmv in thenModsIf:
+                        Let tmvK1 be "{tmv}".
+                        If sEnvThenIf contains tmvK1:
+                            Let tmvK2 be "{tmv}".
+                            Let tmvV be item tmvK2 of sEnvThenIf.
+                            Let tmvK3 be "{tmv}".
+                            Push (a new CSet with name tmvK3 and expr tmvV) to thenFinal.
                     Let clr1 be clearGuardFacts(peCond, ifSeShared).
+                    Repeat for rmv in allModsIf:
+                        Let rmvK1 be "{rmv}".
+                        If sEnvThenIf contains rmvK1:
+                            Let rmvK2 be "{rmv}".
+                            peSeDrop(sEnvThenIf, rmvK2).
+                            Let rmvK3 be "{rmv}".
+                            peEnvBind(env, rmvK3, (a new VNothing)).
                     Let negR be applyNegFacts(peCond, ifSeShared).
                     Let elseRes3 be peBlock(elseBlock, state).
+                    Let elseFinal be a new Seq of CStmt.
+                    Repeat for estmt in elseRes3:
+                        Push estmt to elseFinal.
+                    Let sEnvElseIf be peStaticEnv(state).
+                    Repeat for emv in elseModsIf:
+                        Let emvK1 be "{emv}".
+                        If sEnvElseIf contains emvK1:
+                            Let emvK2 be "{emv}".
+                            Let emvV be item emvK2 of sEnvElseIf.
+                            Let emvK3 be "{emv}".
+                            Push (a new CSet with name emvK3 and expr emvV) to elseFinal.
                     Let clr2 be clearGuardFacts(peCond, ifSeShared).
-                    Push (a new CIf with cond peCond and thenBlock thenRes3 and elseBlock elseRes3) to blockResult.
+                    Repeat for dmv in allModsIf:
+                        Let dmvK1 be "{dmv}".
+                        If sEnvElseIf contains dmvK1:
+                            Let dmvK2 be "{dmv}".
+                            peSeDrop(sEnvElseIf, dmvK2).
+                            Let dmvK3 be "{dmv}".
+                            peEnvBind(env, dmvK3, (a new VNothing)).
+                    Push (a new CIf with cond peCond and thenBlock thenFinal and elseBlock elseFinal) to blockResult.
             When CWhile (whileCond, whileBody):
                 Let modVars be collectSetVars(whileBody).
                 Let wEnv0 be peEnv(state).
@@ -1771,9 +2024,9 @@
                             Let mvK3 be "{mv}".
                             Push (a new CLet with name mvK3 and expr prevVal) to blockResult.
                             Let mvK4 be "{mv}".
-                            Remove mvK4 from sEnvW.
+                            peSeDrop(sEnvW, mvK4).
                             Let mvK5 be "{mv}".
-                            Set item mvK5 of env to a new VNothing.
+                            peEnvBind(env, mvK5, (a new VNothing)).
                     Let peCondF be peExpr(whileCond, state).
                     Let peBodyF be peBlock(whileBody, state).
                     Let sEnvPostF be peStaticEnv(state).
@@ -1781,9 +2034,9 @@
                         Let mvFK be "{mvF}".
                         If sEnvPostF contains mvFK:
                             Let mvFK2 be "{mvF}".
-                            Remove mvFK2 from sEnvPostF.
+                            peSeDrop(sEnvPostF, mvFK2).
                             Let mvFK3 be "{mvF}".
-                            Set item mvFK3 of env to a new VNothing.
+                            peEnvBind(env, mvFK3, (a new VNothing)).
                     Push (a new CWhile with cond peCondF and body peBodyF) to blockResult.
             When CReturn (retExpr):
                 Let peVal be peExpr(retExpr, state).
@@ -1805,9 +2058,9 @@
                     Let ptk3 be "{pushTarget}".
                     Push (a new CLet with name ptk3 and expr ptPrev) to blockResult.
                     Let ptk4 be "{pushTarget}".
-                    Remove ptk4 from sEnvPush.
+                    peSeDrop(sEnvPush, ptk4).
                     Let ptk5 be "{pushTarget}".
-                    Set item ptk5 of env to a new VNothing.
+                    peEnvBind(env, ptk5, (a new VNothing)).
                 Let peVal be peExpr(pushExpr, state).
                 Push (a new CPush with expr peVal and target pushTarget) to blockResult.
             When CSetIdx (siTarget, siIdx, siVal):
@@ -1842,7 +2095,7 @@
                                                 Push (copy of peVal) to newSiVals.
                                             Let siUpdatedMap be a new CNew with typeName "Map" and fieldNames newSiNames and fields newSiVals.
                                             Let sik6 be "{siTarget}".
-                                            Set item sik6 of sEnvSI to siUpdatedMap.
+                                            peSeBind(sEnvSI, sik6, siUpdatedMap).
                                             Set siHandled to true.
                                     Otherwise:
                                         Let skipSi2 be true.
@@ -1852,9 +2105,9 @@
                         Let sik3 be "{siTarget}".
                         Push (a new CLet with name sik3 and expr siPrev) to blockResult.
                         Let sik4 be "{siTarget}".
-                        Remove sik4 from sEnvSI.
+                        peSeDrop(sEnvSI, sik4).
                         Let sik5 be "{siTarget}".
-                        Set item sik5 of env to a new VNothing.
+                        peEnvBind(env, sik5, (a new VNothing)).
                 Push (a new CSetIdx with target siTarget and idx peIdx and val peVal) to blockResult.
             When CMapSet (msTarget, msKey, msVal):
                 Let peKey be peExpr(msKey, state).
@@ -1890,7 +2143,7 @@
                                         If foundField:
                                             Let msUpdated be a new CNewVariant with tag msTag and fnames newMsNames and fvals newMsVals.
                                             Let msk6 be "{msTarget}".
-                                            Set item msk6 of sEnvMS to msUpdated.
+                                            peSeBind(sEnvMS, msk6, msUpdated).
                                             Set updatedMS to true.
                                     Otherwise:
                                         Let skipMsSafe be true.
@@ -1919,7 +2172,7 @@
                                             If foundMp:
                                                 Let mpUpdated be a new CNew with typeName "Map" and fieldNames newMpNames and fields newMpVals.
                                                 Let mpk be "{msTarget}".
-                                                Set item mpk of sEnvMS to mpUpdated.
+                                                peSeBind(sEnvMS, mpk, mpUpdated).
                                                 Set updatedMS to true.
                                     Otherwise:
                                         Let skipMp2 be true.
@@ -1929,9 +2182,9 @@
                     Push (a new CLet with name msk3 and expr msPrev) to blockResult.
                     If not updatedMS:
                         Let msk4 be "{msTarget}".
-                        Remove msk4 from sEnvMS.
+                        peSeDrop(sEnvMS, msk4).
                         Let msk5 be "{msTarget}".
-                        Set item msk5 of env to a new VNothing.
+                        peEnvBind(env, msk5, (a new VNothing)).
                 Push (a new CMapSet with target msTarget and key peKey and val peVal) to blockResult.
             When CPop (popTarget):
                 Let sEnvPop be peStaticEnv(state).
@@ -1942,9 +2195,9 @@
                     Let ppk3 be "{popTarget}".
                     Push (a new CLet with name ppk3 and expr ppPrev) to blockResult.
                     Let ppk4 be "{popTarget}".
-                    Remove ppk4 from sEnvPop.
+                    peSeDrop(sEnvPop, ppk4).
                     Let ppk5 be "{popTarget}".
-                    Set item ppk5 of env to a new VNothing.
+                    peEnvBind(env, ppk5, (a new VNothing)).
                 Push (a new CPop with target popTarget) to blockResult.
             When CRepeat (repVar, repColl, repBody):
                 Let peColl be peExpr(repColl, state).
@@ -1956,10 +2209,10 @@
                             Set didUnroll to true.
                             Repeat for listItem in listItems:
                                 Let rv be "{repVar}".
-                                Set item rv of env to exprToVal(listItem).
+                                peEnvBind(env, rv, exprToVal(listItem)).
                                 Let rv2 be "{repVar}".
                                 Let sEnvR be peStaticEnv(state).
-                                Set item rv2 of sEnvR to listItem.
+                                peSeBind(sEnvR, rv2, listItem).
                                 Let unrolledBody be peBlock(repBody, state).
                                 Let mutable hasBreakOrReturn be false.
                                 Repeat for us in unrolledBody:
@@ -1987,21 +2240,21 @@
                             Let rmvK3 be "{rmv}".
                             Push (a new CLet with name rmvK3 and expr rmvPrev) to blockResult.
                             Let rmvK4 be "{rmv}".
-                            Remove rmvK4 from sEnvF.
+                            peSeDrop(sEnvF, rmvK4).
                             Let rmvK5 be "{rmv}".
-                            Set item rmvK5 of env to a new VNothing.
+                            peEnvBind(env, rmvK5, (a new VNothing)).
                     If sEnvF contains repVar:
-                        Remove repVar from sEnvF.
+                        peSeDrop(sEnvF, repVar).
                     Let repVarEnvKey be "{repVar}".
-                    Set item repVarEnvKey of env to a new VNothing.
+                    peEnvBind(env, repVarEnvKey, (a new VNothing)).
                     Let peBody be peBlock(repBody, state).
                     Let sEnvF2 be peStaticEnv(state).
                     Repeat for rmv2 in repModVars:
                         Let rmv2K be "{rmv2}".
                         If sEnvF2 contains rmv2K:
-                            Remove rmv2K from sEnvF2.
+                            peSeDrop(sEnvF2, rmv2K).
                     If sEnvF2 contains repVar:
-                        Remove repVar from sEnvF2.
+                        peSeDrop(sEnvF2, repVar).
                     Push (a new CRepeat with var repVar and coll peColl and body peBody) to blockResult.
             When CRepeatRange (rrVar, rrStart, rrEnd, rrBody):
                 Let peStart be peExpr(rrStart, state).
@@ -2022,11 +2275,11 @@
                                         While ri is at most endVal:
                                             If not stopUnrollRR:
                                                 Let rrKey be "{rrVar}".
-                                                Set item rrKey of env to a new VInt with value ri.
+                                                peEnvBind(env, rrKey, (a new VInt with value ri)).
                                                 Let rrValExpr be a new CInt with value ri.
                                                 Let rrKey2 be "{rrVar}".
                                                 Let sEnvRR be peStaticEnv(state).
-                                                Set item rrKey2 of sEnvRR to rrValExpr.
+                                                peSeBind(sEnvRR, rrKey2, rrValExpr).
                                                 Let unrolledBody be peBlock(rrBody, state).
                                                 Repeat for us in unrolledBody:
                                                     If not stopUnrollRR:
@@ -2054,17 +2307,17 @@
                             Let rrmvK3 be "{rrmv}".
                             Push (a new CLet with name rrmvK3 and expr rrmvPrev) to blockResult.
                             Let rrmvK4 be "{rrmv}".
-                            Remove rrmvK4 from sEnvRR2.
+                            peSeDrop(sEnvRR2, rrmvK4).
                             Let rrmvK5 be "{rrmv}".
-                            Set item rrmvK5 of env to a new VNothing.
+                            peEnvBind(env, rrmvK5, (a new VNothing)).
                     Let peBody be peBlock(rrBody, state).
                     Let sEnvRR3 be peStaticEnv(state).
                     Repeat for rrmv2 in rrModVars:
                         Let rrmv2K be "{rrmv2}".
                         If sEnvRR3 contains rrmv2K:
-                            Remove rrmv2K from sEnvRR3.
+                            peSeDrop(sEnvRR3, rrmv2K).
                     If sEnvRR3 contains rrVar:
-                        Remove rrVar from sEnvRR3.
+                        peSeDrop(sEnvRR3, rrVar).
                     Push (a new CRepeatRange with var rrVar and start peStart and end peEnd and body peBody) to blockResult.
             When CBreak:
                 Push a new CBreak to blockResult.
@@ -2072,10 +2325,11 @@
                 Let sEnvFd be peStaticEnv(state).
                 Let fdk be "{fdName}".
                 If sEnvFd contains fdk:
+                    Let fdk2 be "{fdName}".
                     Let fdPrev be item fdk of sEnvFd.
                     Push (a new CLet with name fdName and expr fdPrev) to blockResult.
-                    Remove fdk from sEnvFd.
-                    Set item fdk of env to a new VNothing.
+                    peSeDrop(sEnvFd, fdk).
+                    peEnvBind(env, fdk2, (a new VNothing)).
             When CAdd (addElem, addTarget):
                 Let peVal be peExpr(addElem, state).
                 Let sEnvAdd be peStaticEnv(state).
@@ -2101,7 +2355,7 @@
                                         Push (copy of peVal) to newAdVals.
                                     Let adUpdated be a new CNew with typeName "Set" and fieldNames newAdNames and fields newAdVals.
                                     Let adk6 be "{addTarget}".
-                                    Set item adk6 of sEnvAdd to adUpdated.
+                                    peSeBind(sEnvAdd, adk6, adUpdated).
                                     Set addHandled to true.
                         Otherwise:
                             Let skipAd be true.
@@ -2109,9 +2363,9 @@
                         Let adk3 be "{addTarget}".
                         Push (a new CLet with name adk3 and expr adPrev) to blockResult.
                         Let adk4 be "{addTarget}".
-                        Remove adk4 from sEnvAdd.
+                        peSeDrop(sEnvAdd, adk4).
                         Let adk5 be "{addTarget}".
-                        Set item adk5 of env to a new VNothing.
+                        peEnvBind(env, adk5, (a new VNothing)).
                 Push (a new CAdd with elem peVal and target addTarget) to blockResult.
             When CRemove (remElem, remTarget):
                 Let sEnvRem be peStaticEnv(state).
@@ -2122,9 +2376,9 @@
                     Let rmk3 be "{remTarget}".
                     Push (a new CLet with name rmk3 and expr rmPrev) to blockResult.
                     Let rmk4 be "{remTarget}".
-                    Remove rmk4 from sEnvRem.
+                    peSeDrop(sEnvRem, rmk4).
                     Let rmk5 be "{remTarget}".
-                    Set item rmk5 of env to a new VNothing.
+                    peEnvBind(env, rmk5, (a new VNothing)).
                 Let peVal be peExpr(remElem, state).
                 Push (a new CRemove with elem peVal and target remTarget) to blockResult.
             When CSetField (sfTarget, sfField, sfValExpr):
@@ -2136,9 +2390,9 @@
                     Let sfk3 be "{sfTarget}".
                     Push (a new CLet with name sfk3 and expr sfPrev) to blockResult.
                     Let sfk4 be "{sfTarget}".
-                    Remove sfk4 from sEnvSF.
+                    peSeDrop(sEnvSF, sfk4).
                     Let sfk5 be "{sfTarget}".
-                    Set item sfk5 of env to a new VNothing.
+                    peEnvBind(env, sfk5, (a new VNothing)).
                 Let peVal be peExpr(sfValExpr, state).
                 Push (a new CSetField with target sfTarget and field sfField and val peVal) to blockResult.
             When CStructDef (sdName, sdFieldNames):
@@ -2162,15 +2416,15 @@
                                                 Let b2 be "{b}".
                                                 Let bvalCopy be copy of bval.
                                                 Let sEnvI be peStaticEnv(state).
-                                                Set item b2 of sEnvI to bvalCopy.
-                                                Set item b of env to exprToVal(bval).
+                                                peSeBind(sEnvI, b2, bvalCopy).
+                                                peEnvBind(env, b, exprToVal(bval)).
                                             Otherwise:
                                                 Let b3 be "{b}".
-                                                Set item b3 of env to a new VNothing.
+                                                peEnvBind(env, b3, (a new VNothing)).
                                                 Let b4 be "{b}".
                                                 Let bvalCopy2 be copy of bval.
                                                 Let sEnvI2 be peStaticEnv(state).
-                                                Set item b4 of sEnvI2 to bvalCopy2.
+                                                peSeBind(sEnvI2, b4, bvalCopy2).
                                                 Push (a new CLet with name b and expr bval) to blockResult.
                                             Set bidx to bidx + 1.
                                         Let matchedBody be peBlock(wBody, state).
@@ -2204,15 +2458,15 @@
                                                 Let b2 be "{b}".
                                                 Let bvalCopy be copy of bval.
                                                 Let sEnvI be peStaticEnv(state).
-                                                Set item b2 of sEnvI to bvalCopy.
-                                                Set item b of env to exprToVal(bval).
+                                                peSeBind(sEnvI, b2, bvalCopy).
+                                                peEnvBind(env, b, exprToVal(bval)).
                                             Otherwise:
                                                 Let b3 be "{b}".
-                                                Set item b3 of env to a new VNothing.
+                                                peEnvBind(env, b3, (a new VNothing)).
                                                 Let b4 be "{b}".
                                                 Let bvalCopy2 be copy of bval.
                                                 Let sEnvI2 be peStaticEnv(state).
-                                                Set item b4 of sEnvI2 to bvalCopy2.
+                                                peSeBind(sEnvI2, b4, bvalCopy2).
                                                 Push (a new CLet with name b and expr bval) to blockResult.
                                             Set bidx to bidx + 1.
                                         Let matchedBody be peBlock(wBody, state).
@@ -2350,6 +2604,10 @@
                 Let peSmTarget be peExpr(smTarget, state).
                 Let peSmMsg be peExpr(smMsg, state).
                 Push (a new CSendMessage with target peSmTarget and msg peSmMsg) to blockResult.
+            When CStreamMessage (stTarget, stVals):
+                Let peStTarget be peExpr(stTarget, state).
+                Let peStVals be peExpr(stVals, state).
+                Push (a new CStreamMessage with target peStTarget and values peStVals) to blockResult.
             When CAwaitMessage (amTarget):
                 Push (a new CAwaitMessage with target amTarget) to blockResult.
             When CListen (listenAddr, listenHandler):

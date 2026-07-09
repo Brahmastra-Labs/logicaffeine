@@ -1,6 +1,6 @@
 [package]
 name = "logicaffeine-proof"
-version = "0.9.17"
+version.workspace = true
 edition.workspace = true
 authors.workspace = true
 repository.workspace = true
@@ -9,7 +9,7 @@ keywords.workspace = true
 categories.workspace = true
 rust-version.workspace = true
 license = "BUSL-1.1"
-description = "Backward-chaining proof engine with Socratic hints"
+description = "Backward-chaining proof engine (certified SAT/CDCL, tactics, Socratic hints) plus the number-theory / cryptanalysis substrate (factoring, isogeny, lattice, order-finding)"
 readme = "README.md"
 
 [features]
@@ -17,7 +17,15 @@ default = []
 verification = ["dep:logicaffeine-verify"]
 
 [dependencies]
-logicaffeine-base = { version = "0.9.17", path = "../logicaffeine_base" }
-logicaffeine-kernel = { version = "0.9.17", path = "../logicaffeine_kernel" }
-logicaffeine-verify = { version = "0.9.17", path = "../logicaffeine_verify", optional = true }
+logicaffeine-base = { workspace = true }
+logicaffeine-kernel = { workspace = true }
+logicaffeine-verify = { workspace = true, optional = true }
 # CRITICAL: NO LANGUAGE DEPENDENCY - Liskov Invariant
+
+[dev-dependencies]
+tempfile = "3"
+
+# Solver-vs-Z3 benchmark generator (emits benchmarks/results/solvers.json). Z3-gated.
+[[example]]
+name = "solver_bench"
+required-features = ["verification"]

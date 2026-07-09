@@ -1,50 +1,100 @@
 #![cfg_attr(docsrs, feature(doc_cfg))]
+#![doc = include_str!("../README.md")]
 
-//! # Logicaffeine Proof Engine
-//!
-//! Core structures for proof representation and verification.
-//!
-//! This module defines the "Shape of Truth." A proof is not a boolean;
-//! it is a recursive tree of inference rules that can be inspected,
-//! transformed, and verified.
-//!
-//! ## Curry-Howard Correspondence
-//!
-//! The proof engine implements the propositions-as-types paradigm:
-//!
-//! - **A Proposition is a Type** — logical formulas correspond to types
-//! - **A Proof is a Program** — derivation trees are proof terms
-//! - **Verification is Type Checking** — the kernel validates proof terms
-//!
-//! ## Architecture Invariant
-//!
-//! This crate has **no dependency** on the language crate (Liskov boundary).
-//! The conversion from `LogicExpr` → [`ProofExpr`] lives in the language crate,
-//! ensuring the proof engine remains pure and reusable.
+// Number-theory / cryptanalysis substrate — factoring, elliptic/isogeny, lattice, order-finding.
+// These are prover tools (the hardness lens behind isogeny/ait/oracle), not runtime crypto; they
+// depend only on `logicaffeine_base::numeric`.
+pub mod cyclotomic;
+pub mod elliptic;
+pub mod factor;
+pub mod fp2;
+pub mod hyperelliptic;
+pub mod lattice;
+pub mod period;
 
 pub mod arith;
 pub mod cdcl;
 pub mod cnf;
 pub mod dimacs;
 pub mod proof;
+pub mod proof_emit;
+pub mod complexity;
+pub mod ait;
+pub mod isogeny;
+pub mod coalgebra;
+pub mod groupoid;
+pub mod category_collapse;
+pub mod two_group;
+pub mod proof_rewrite;
+pub mod trace_determinism;
+pub mod progress_complex;
+pub mod cubical;
+pub mod kan_complex;
+pub mod two_type;
+pub mod eilenberg_maclane;
+pub mod postnikov;
+pub mod steenrod;
 pub mod pr;
+pub mod affine;
+pub mod affine_gfp;
 pub mod families;
+pub mod gf2;
+pub mod hypercube;
+pub mod census;
+pub mod cofactor;
+pub mod res_width;
 pub mod rup;
 pub mod sat;
+pub mod satcli;
+pub mod solve;
+pub mod xor_drat;
+pub mod xor_engine;
 pub mod bmc;
 pub mod cardinality;
+pub mod counting_principle;
 pub mod matching;
+pub mod ordering;
+pub mod parity_cardinality;
 pub mod pigeonhole;
+pub mod pseudo_boolean;
 pub mod symmetry;
 pub mod symmetry_detect;
 pub mod sym_certify;
+pub mod sym_dynamic;
+pub mod lyapunov;
+pub mod inprocess;
+pub mod sdcl;
 pub mod xorsat;
+pub mod lll;
+pub mod modp;
+pub mod modm;
+pub mod orbit_stability;
+pub mod polycalc;
+pub mod polycalc_gfp;
+pub mod polycalc_zm;
+pub mod sos;
+pub mod permgroup;
+pub mod sym_break;
 pub mod hornsat;
 pub mod twosat;
+pub mod interval_sched;
+pub mod register_alloc;
 pub mod optimize;
 pub mod certifier;
+pub mod counterexample;
+pub mod crush;
+pub mod decide;
+pub mod development;
+pub mod discrimination;
+pub mod lemma_index;
 pub mod engine;
+pub mod simp;
+pub mod formula;
+pub mod tactic;
+pub mod tactic_script;
+pub mod rule_search;
 pub mod linarith_solve;
+pub mod omega_solve;
 pub mod grounding;
 pub mod grid_solver;
 pub mod error;
@@ -484,6 +534,12 @@ pub enum InferenceRule {
     /// Stores the specific term 'c' used to instantiate the universal.
     UniversalInst(String),
 
+    /// Logic: ∀x P(x) ⊢ P(t) at an arbitrary witness TERM (a compound like
+    /// `add(a, Zero)`, not just a name). `UniversalInst` keeps the name-only
+    /// fast path; this carries the full term for instantiations that
+    /// `simp`/`crush` produce by matching.
+    UniversalInstTerm(ProofTerm),
+
     /// Logic: Γ, x:T ⊢ P(x) implies Γ ⊢ ∀x:T. P(x)
     /// Stores variable name and type name for Lambda construction.
     UniversalIntro { variable: String, var_type: String },
@@ -578,6 +634,20 @@ pub enum InferenceRule {
     /// `le_sub a b p₀`. The Farkas "collect to a single side" primitive.
     LeSub,
 
+    /// `a < b` ⊢ `(a + 1) ≤ b` — integer DISCRETENESS. Operands from the conclusion
+    /// `le(add a 1, b) = true`; `premise[0]` proves `a < b` (`lt(a,b) = true`).
+    /// Certifies to `lt_succ_le a b p₀`. This is the one step rational Fourier-Motzkin
+    /// lacks — the `omega` primitive that refutes strict systems the rational solver
+    /// reports satisfiable.
+    LtSuccLe,
+
+    /// `a < (b + 1)` ⊢ `a ≤ b` — the upper-side discreteness companion. Operands
+    /// from the conclusion `le(a, b) = true`; `premise[0]` proves `a < b+1`
+    /// (`lt(a, add b 1) = true`). Certifies to `lt_add1_le a b p₀`. Preferred over
+    /// `LtSuccLe` when the strict bound is already `b+1`, since it cancels the
+    /// constant instead of propagating it into the Farkas reconstruction.
+    LtAdd1Le,
+
     // --- Equality ---
 
     /// Leibniz's Law / Substitution of Equals
@@ -603,6 +673,13 @@ pub enum InferenceRule {
     /// arithmetic oracle ([`crate::arith::prove_int_eq`]) into a kernel-checked
     /// proof (computation + the ring axioms). The conclusion is the `Identity`.
     ArithDecision,
+
+    /// Proof by kernel evaluation: a closed decidable proposition (a ground
+    /// comparison or Bool/Nat equality) discharged via `native_decide`. The
+    /// leaf carries only the claim; certification re-runs the evaluator and
+    /// the kernel checks the resulting `of_decide_eq_true`/`ofReduceBool`
+    /// term, so a lying leaf is rejected.
+    NativeDecide,
 
     // --- Fallbacks ---
 
@@ -642,7 +719,7 @@ pub enum InferenceRule {
     /// Logic: `A ∨ B`, `A ⊢ C`, `B ⊢ C` ⊢ `C` — disjunction elimination to a common
     /// conclusion (here always `⊥`, for the grounded-grid contradiction prover).
     /// Premises: `[A∨B, left-branch (C assuming A), right-branch (C assuming B)]`.
-    /// Unlike [`DisjunctionElim`] (disjunctive syllogism, which needs a refuted
+    /// Unlike `DisjunctionElim` (disjunctive syllogism, which needs a refuted
     /// disjunct) this eliminates BOTH disjuncts by case analysis — the move a grid's
     /// of-pair / either-or / closure clause needs. The disjuncts (and, when a disjunct
     /// is a conjunction, each of its conjuncts) are bound as local hypotheses in the
@@ -732,6 +809,7 @@ impl DerivationTree {
 
         let rule_name = match &self.rule {
             InferenceRule::UniversalInst(var) => format!("UniversalInst({})", var),
+            InferenceRule::UniversalInstTerm(term) => format!("UniversalInst({})", term),
             InferenceRule::UniversalIntro { variable, var_type } => {
                 format!("UniversalIntro({}:{})", variable, var_type)
             }

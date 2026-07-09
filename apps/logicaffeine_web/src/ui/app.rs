@@ -417,6 +417,10 @@ pub fn App() -> Element {
         div {
             "data-theme": "{current_theme.data_attr()}",
             id: "app-root",
+            // No explicit SuspenseBoundary: lazy route chunks suspend against
+            // the implicit root boundary (the wasm-split harness shape). The
+            // CSR takeover that swaps out the prerendered copy is DOM-driven —
+            // see the MutationObserver in index.html.
             Router::<Route> {}
         }
     }

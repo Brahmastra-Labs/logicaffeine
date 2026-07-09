@@ -337,16 +337,17 @@ Show e's x.";
 /// the static value tracking of both names must be invalidated so a mutation through one is
 /// not folded away on the other. Conservative + correct.
 #[test]
-fn partial_alias_mutation_invalidates_source() {
+fn partial_alias_binding_isolates_under_value_semantics() {
     let program = "\
 ## Main
 Let mutable d be 0.
 Repeat for i from 1 to 100:
     Set d to d + i.
 Let s be [1, 2, 3].
-Let a be s.
+Let mutable a be s.
 Set item 1 of a to d.
 Show item 1 of s.";
-    // s[1] was mutated to d (=5050) through the alias a; reference semantics.
-    assert_run_equals(program, "5050");
+    // Value semantics: `Let a be s` binds an independent value, so writing a[1]
+    // leaves s[1] at its original 1. The PE residual and the tree-walker agree.
+    assert_run_equals(program, "1");
 }

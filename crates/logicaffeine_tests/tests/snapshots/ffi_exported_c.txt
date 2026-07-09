@@ -127,7 +127,7 @@ fn logos_handle_registry() -> &'static std::sync::Mutex<HandleRegistry> {
 #[export_name = "logos_add"]
 pub extern "C" fn add(a: i64, b: i64) -> i64 {
     match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-    return (a + b);
+    return logos_add_i64(a, b);
     })) {
         Ok(__v) => __v,
         Err(__panic) => {

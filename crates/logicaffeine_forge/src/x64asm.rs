@@ -121,14 +121,17 @@ pub enum Cond {
     /// ZF=1) — the "comparison FALSE" branch for a float `>`/`<` BranchF, where
     /// NaN (ZF=1) must TAKE the false branch.
     BeU,
-    /// UNSIGNED below: `cc=0x2` (`jb`). The strict ordered-less primitive used
-    /// by the epsilon equality (`|a-b| < EPSILON` via `ucomisd EPS, |a-b|` then
-    /// `setb`/`jb`); NaN folds to FALSE.
+    /// UNSIGNED below: `cc=0x2` (`jb`). After `ucomisd`, the strict
+    /// ordered-less primitive (CF=1); NaN folds to FALSE.
     BU,
     /// PARITY EVEN (`jp`/`jpe`): `cc=0xA`. After `ucomisd`, PF=1 ⟺ the operands
     /// were UNORDERED (a NaN). The `DivF` zero-divisor guard uses this to skip
     /// the side-exit on a NaN divisor (NaN is not `0.0`).
     ParityEven,
+    /// PARITY ODD (`jnp`/`jpo`): `cc=0xB`. After `ucomisd`, PF=0 ⟺ ORDERED —
+    /// the second half of the IEEE `==` test (`sete && setnp`), so a NaN
+    /// compare yields false exactly like the reference `a == b`.
+    ParityOdd,
     /// OVERFLOW (`jo`): `cc=0x0`. OF=1 after a signed `add`/`sub`/`imul` — the
     /// integer-overflow side-exit (`jo deopt`) for exact arithmetic: on overflow
     /// the native tier deopts so the exact VM recomputes (and promotes to BigInt).
@@ -151,6 +154,7 @@ impl Cond {
             Cond::BeU => 0x6, // BE (unsigned): NA
             Cond::BU => 0x2,  // B  (unsigned): C
             Cond::ParityEven => 0xA, // P/PE (parity even): unordered after ucomisd
+            Cond::ParityOdd => 0xB,  // NP/PO (parity odd): ordered after ucomisd
             Cond::Overflow => 0x0, // O (overflow): OF=1 after signed add/sub/imul
         }
     }

@@ -1,4 +1,4 @@
-// WS5 (FINISH_INTERPRETER.md Phase 12) — the true-multicore WebAssembly threads primitive.
+// WS5 (work/FINISH_INTERPRETER.md Phase 12) — the true-multicore WebAssembly threads primitive.
 //
 // NOT a crate — a single source file compiled by `scripts/test-wasm-threads.sh` with a raw
 // `rustc --target wasm32-unknown-unknown --crate-type=cdylib` and `+atomics` + shared,

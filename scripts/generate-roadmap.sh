@@ -22,7 +22,7 @@ OUT="$ROOT/apps/logicaffeine_web/src/ui/pages/roadmap_history.json"
 # (e.g. "First public release.", "(skipped — …)").
 records="$(awk '
   /^## \[/ {
-    if (ver != "") print ver "\t" date "\t" title
+    if (ver != "" && ver != "Unreleased") print ver "\t" date "\t" title
     line = $0
     ver = line; sub(/^## \[/, "", ver); sub(/\].*/, "", ver)
     date = line; if (line ~ /\] - /) { date = line; sub(/.*\] - /, "", date) } else { date = "" }
@@ -38,7 +38,7 @@ records="$(awk '
       title = l; want = 0
     }
   }
-  END { if (ver != "") print ver "\t" date "\t" title }
+  END { if (ver != "" && ver != "Unreleased") print ver "\t" date "\t" title }
 ' "$CHANGELOG")"
 
 # --- Derive a brief, clean headline from a title source ----------------------

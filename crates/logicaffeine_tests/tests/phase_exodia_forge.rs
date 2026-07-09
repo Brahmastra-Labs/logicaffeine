@@ -12,7 +12,7 @@
 #![cfg(all(not(target_arch = "wasm32"), feature = "verification"))]
 
 use logicaffeine_synth::spec::{
-    all_specs, prove_commutative, prove_min_div_wraps, prove_spec_satisfiable,
+    all_specs, prove_commutative, prove_min_div_excluded, prove_spec_satisfiable,
 };
 use logicaffeine_synth::witness::check_spec_with_witnesses;
 
@@ -42,11 +42,11 @@ fn sub_is_not_commutative() {
     assert!(prove_commutative("sub").is_err(), "sub commuting would be a prover bug");
 }
 
-/// The locked wrapping rim: ⌊MIN / −1⌋ wraps to MIN in the spec model,
-/// exactly as `wrapping_div` does at runtime.
+/// Exact arithmetic: the div spec's precondition EXCLUDES ⌊MIN / −1⌋, so the
+/// spec claims no value where the machine side-exits to the promoting tiers.
 #[test]
-fn min_div_minus_one_wraps_in_the_model() {
-    prove_min_div_wraps().unwrap_or_else(|e| panic!("{e}"));
+fn min_div_minus_one_is_excluded_from_the_model() {
+    prove_min_div_excluded().unwrap_or_else(|e| panic!("{e}"));
 }
 
 // ── Sharding ─────────────────────────────────────────────────────────────────

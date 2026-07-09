@@ -1,0 +1,9 @@
+{
+  "name": "logicaffeine-gate-stub",
+  "publisher": "brahmastra-labs",
+  "version": "0.0.0",
+  "engines": {
+    "vscode": "^1.75.0"
+  },
+  "description": "Empty development-host extension for the VSIX install gate; the extension under test is the INSTALLED one."
+}

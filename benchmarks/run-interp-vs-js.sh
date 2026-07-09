@@ -436,7 +436,7 @@ OS=$(detect_os)
 if [ -n "${LOGOS_VERSION:-}" ]; then
     LOGOS_VER="$LOGOS_VERSION"
 else
-    LOGOS_VER=$(grep '^version' "$SCRIPT_DIR/../apps/logicaffeine_cli/Cargo.toml" | head -1 | sed 's/.*"\(.*\)".*/\1/')
+    LOGOS_VER=$(grep '^version' "$SCRIPT_DIR/../Cargo.toml" | head -1 | sed 's/.*"\(.*\)".*/\1/')
 fi
 NODE_VER=$(node --version 2>/dev/null || echo "unknown")
 PY_VER=$(python3 --version 2>/dev/null | sed 's/Python //' || echo "")

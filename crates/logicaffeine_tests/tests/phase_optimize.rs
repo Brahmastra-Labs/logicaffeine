@@ -2021,8 +2021,11 @@ Show x.
 Show y.
 "#;
     let rust = compile_to_rust(source).unwrap();
+    // Unproven Int arithmetic emits the checked-exact helpers — still two
+    // DISTINCT expressions, which is what this lock is about.
     assert!(
-        rust.contains("(a + b)") && rust.contains("(a * b)"),
+        (rust.contains("logos_add_exact(a, b)") || rust.contains("logos_add_i64(a, b)"))
+            && (rust.contains("logos_mul_exact(a, b)") || rust.contains("logos_mul_i64(a, b)")),
         "Different operators should not be CSE'd, got:\n{}",
         rust
     );
@@ -2681,7 +2684,10 @@ Show scale(5).
     let rust = compile_to_rust(source).unwrap();
     let fn_body = rust.split("fn scale(").nth(1).unwrap_or("");
     assert!(
-        fn_body.contains("* 8") || fn_body.contains("8 *"),
+        fn_body.contains("* 8")
+            || fn_body.contains("8 *")
+            || fn_body.contains("logos_mul_exact(x, 8)")
+            || fn_body.contains("logos_mul_i64(x, 8)"),
         "unbounded x * 8 must stay an exact multiply (not an unsound wrapping shift). Got:\n{}",
         rust
     );

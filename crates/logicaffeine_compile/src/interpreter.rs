@@ -98,14 +98,17 @@ pub struct ClosureValue {
     pub generated: Option<std::rc::Rc<crate::concurrency::marshal::GenExpr>>,
 }
 
-/// The Map payload behind `RuntimeValue::Map`. FxHash instead of the standard
-/// library's SipHash: map-heavy programs hash on every get/insert, and the
-/// keys here are small values (ints, short texts) where Fx is several times
-/// faster — with no DoS-resistance requirement (a single-program interpreter
-/// hashing its own program's keys). Both engines share this alias, so map
-/// iteration order — arbitrary but deterministic per build — is identical
-/// between the VM and the tree-walker.
-pub type MapStorage = rustc_hash::FxHashMap<RuntimeValue, RuntimeValue>;
+/// The Map payload behind `RuntimeValue::Map`. INSERTION-ORDERED (`IndexMap`):
+/// iteration, display, and marshaling follow the order keys were first
+/// inserted — the LOGOS `Map` contract, identical across the tree-walker, the
+/// VM, the AOT `LogosMap`, and the direct-WASM linear map. FxHash instead of
+/// the standard library's SipHash: map-heavy programs hash on every
+/// get/insert, and the keys here are small values (ints, short texts) where
+/// Fx is several times faster — with no DoS-resistance requirement (a
+/// single-program interpreter hashing its own program's keys). NOTE: removal
+/// must go through `shift_remove` (order-preserving), never `swap_remove`.
+pub type MapStorage =
+    indexmap::IndexMap<RuntimeValue, RuntimeValue, std::hash::BuildHasherDefault<rustc_hash::FxHasher>>;
 
 /// The List payload behind `RuntimeValue::List`: homogeneous all-Int and
 /// all-Float lists store UNBOXED vectors (cache-dense, and the JIT can pin a
@@ -116,7 +119,7 @@ pub type MapStorage = rustc_hash::FxHashMap<RuntimeValue, RuntimeValue>;
 ///
 /// Hot paths take `&self`/`&mut self` borrows only — no Rc refcount traffic.
 /// `Clone` snapshots a buffer's contents for the region deopt-rollback of an
-/// in-place-mutated array (see [`crate::vm::native_tier::ArrayPin::mutated`]).
+/// in-place-mutated array (see `crate::vm::native_tier::ArrayPin::mutated`).
 #[derive(Debug, Clone)]
 pub enum ListRepr {
     Boxed(Vec<RuntimeValue>),
@@ -192,6 +195,17 @@ pub enum ListRepr {
         field_names: Vec<String>,
         len: usize,
     },
+    /// A received NUMERIC column (`T_INTS_ALIGNED`/`T_FLOATS_ALIGNED`) held as RAW WIRE BYTES and
+    /// read ZERO-COPY: the 8-byte-aligned blob is the array. `len` is O(1) from the header (no
+    /// decode); `get(i)` reads element `i` straight out of the borrowed `&[i64]`/`&[f64]` (capnp's
+    /// `List<i64>` read-in-place); a partial read touches only what it reads. ANY mutation
+    /// materializes to `Ints`/`Floats` first. Built only by the `view` receive path for an aligned
+    /// column whose blob is 8-aligned in the received buffer (else the caller decodes eagerly).
+    WireColumn {
+        bytes: Rc<Vec<u8>>,
+        len: usize,
+        floats: bool,
+    },
 }
 
 impl ListRepr {
@@ -203,6 +217,44 @@ impl ListRepr {
             view.structs_schema()?
         };
         Some(ListRepr::WireStructs { bytes, type_name, field_names, len })
+    }
+
+    /// Wrap a received aligned numeric column (`T_INTS_ALIGNED`/`T_FLOATS_ALIGNED`) as a lazy
+    /// zero-copy backing. `None` unless the blob reads as an 8-aligned `&[i64]`/`&[f64]` in this
+    /// buffer (so every later read is a sound slice cast); the caller then decodes eagerly.
+    pub fn from_aligned_column_view(bytes: Rc<Vec<u8>>) -> Option<ListRepr> {
+        let view = crate::concurrency::marshal::view_message(&bytes)?;
+        if let Some(s) = view.as_i64_slice() {
+            return Some(ListRepr::WireColumn { len: s.len(), floats: false, bytes });
+        }
+        if let Some(s) = view.as_f64_slice() {
+            return Some(ListRepr::WireColumn { len: s.len(), floats: true, bytes });
+        }
+        None
+    }
+
+    /// Wrap ANY received self-describing view (record list OR aligned numeric column) as a lazy
+    /// zero-copy backing, or `None` for anything else (the caller decodes eagerly).
+    pub fn from_received_view(bytes: Rc<Vec<u8>>) -> Option<ListRepr> {
+        Self::from_record_list_view(bytes.clone()).or_else(|| Self::from_aligned_column_view(bytes))
+    }
+
+    fn wire_column_get(bytes: &[u8], floats: bool, i: usize) -> Option<RuntimeValue> {
+        let view = crate::concurrency::marshal::view_message(bytes)?;
+        if floats {
+            view.as_f64_slice()?.get(i).map(|&f| RuntimeValue::Float(f))
+        } else {
+            view.as_i64_slice()?.get(i).map(|&n| RuntimeValue::Int(n))
+        }
+    }
+
+    fn wire_column_to_values(bytes: &[u8], floats: bool) -> Vec<RuntimeValue> {
+        let Some(view) = crate::concurrency::marshal::view_message(bytes) else { return Vec::new() };
+        if floats {
+            view.as_f64_slice().map(|s| s.iter().map(|&f| RuntimeValue::Float(f)).collect()).unwrap_or_default()
+        } else {
+            view.as_i64_slice().map(|s| s.iter().map(|&n| RuntimeValue::Int(n)).collect()).unwrap_or_default()
+        }
     }
 
     /// Materialize a single row of a lazy `WireStructs` into an owned `StructValue` by reading each
@@ -220,7 +272,7 @@ impl ListRepr {
         let view = crate::concurrency::marshal::view_message(bytes)?;
         let mut fields = HashMap::with_capacity(field_names.len());
         for name in field_names {
-            let cell = view.structs_row_field(i, name)?.decode()?;
+            let cell = view.structs_row_field_value(i, name)?;
             fields.insert(name.clone(), cell);
         }
         Some(RuntimeValue::Struct(Box::new(StructValue { type_name: type_name.to_string(), fields })))
@@ -259,6 +311,19 @@ impl ListRepr {
                     })
                     .collect(),
             )
+        } else if !values.is_empty() && values.iter().all(|v| matches!(v, RuntimeValue::Text(_))) {
+            // A homogeneous string list de-boxes to one flat contiguous buffer (bytes + end
+            // offsets). It encodes as a single memcpy of the bytes — and the wire form is
+            // byte-identical to the boxed path — instead of one scattered copy per string.
+            let mut data = Vec::new();
+            let mut ends = Vec::with_capacity(values.len());
+            for v in &values {
+                if let RuntimeValue::Text(s) = v {
+                    data.extend_from_slice(s.as_bytes());
+                    ends.push(data.len() as u32);
+                }
+            }
+            ListRepr::strings(data, ends)
         } else if let Some((type_name, field_names)) = Self::struct_schema(&values) {
             // A homogeneous struct list de-boxes to columns: one packed `ListRepr`
             // per field (recursively, so nested structs stay columnar too).
@@ -417,12 +482,30 @@ impl ListRepr {
             ListRepr::Strings { ends, .. } => ends.len(),
             ListRepr::Structs { columns, .. } => columns.first().map_or(0, |c| c.len()),
             ListRepr::Inductives { ctors, .. } => ctors.len(),
-            ListRepr::WireStructs { len, .. } => *len,
+            ListRepr::WireStructs { len, .. } | ListRepr::WireColumn { len, .. } => *len,
         }
     }
 
     pub fn is_empty(&self) -> bool {
         self.len() == 0
+    }
+
+    /// A human label for the underlying storage layout — for the debugger's memory
+    /// view. It teaches that a list of ints is a *packed* `Vec<i64>` (not boxed
+    /// values), a struct list is columnar (struct-of-arrays), and so on: the dense
+    /// representations the VM picks automatically.
+    pub fn storage_label(&self) -> &'static str {
+        match self {
+            ListRepr::Boxed(_) => "boxed values",
+            ListRepr::Ints(_) => "packed Vec<i64>",
+            ListRepr::IntsI32(_) => "packed Vec<i32> (narrowed)",
+            ListRepr::Floats(_) => "packed Vec<f64>",
+            ListRepr::Bools(_) => "packed Vec<bool>",
+            ListRepr::Strings { .. } => "flat string buffer",
+            ListRepr::Structs { .. } => "columnar (struct-of-arrays)",
+            ListRepr::Inductives { .. } => "columnar tagged-union",
+            ListRepr::WireStructs { .. } | ListRepr::WireColumn { .. } => "wire view (lazy)",
+        }
     }
 
     /// Drop every element past `n` (no-op when already `<= n`). The region
@@ -459,7 +542,7 @@ impl ListRepr {
                 }
             }
             // A structural mutation de-lazies the received view first.
-            ListRepr::WireStructs { .. } => {
+            ListRepr::WireStructs { .. } | ListRepr::WireColumn { .. } => {
                 if n < self.len() {
                     self.make_boxed().truncate(n);
                 }
@@ -499,6 +582,7 @@ impl ListRepr {
             ListRepr::WireStructs { bytes, type_name, field_names, len } => {
                 Self::wire_struct_row(bytes, type_name, field_names, *len, i)
             }
+            ListRepr::WireColumn { bytes, floats, .. } => Self::wire_column_get(bytes, *floats, i),
         }
     }
 
@@ -515,7 +599,7 @@ impl ListRepr {
             // The lazy zero-copy receive: locate and decode JUST this cell in place — no row
             // reconstruction, no decode of the other rows/fields.
             ListRepr::WireStructs { bytes, .. } => {
-                crate::concurrency::marshal::view_message(bytes)?.structs_row_field(i, name)?.decode()
+                crate::concurrency::marshal::view_message(bytes)?.structs_row_field_value(i, name)
             }
             _ => None,
         }
@@ -617,7 +701,7 @@ impl ListRepr {
                             view.as_ref().and_then(|v| {
                                 let mut fields = HashMap::with_capacity(field_names.len());
                                 for name in field_names.iter() {
-                                    let cell = v.structs_row_field(i, name).and_then(|c| c.decode())?;
+                                    let cell = v.structs_row_field_value(i, name)?;
                                     fields.insert(name.clone(), cell);
                                 }
                                 Some(RuntimeValue::Struct(Box::new(StructValue {
@@ -628,6 +712,14 @@ impl ListRepr {
                         })
                         .collect()
                 };
+                *self = ListRepr::Boxed(boxed);
+                match self {
+                    ListRepr::Boxed(v) => v,
+                    _ => unreachable!(),
+                }
+            }
+            ListRepr::WireColumn { bytes, floats, .. } => {
+                let boxed = Self::wire_column_to_values(bytes, *floats);
                 *self = ListRepr::Boxed(boxed);
                 match self {
                     ListRepr::Boxed(v) => v,
@@ -733,7 +825,7 @@ impl ListRepr {
             // Removing from a columnar store: de-columnarize, then pop.
             ListRepr::Structs { .. } => self.make_boxed().pop(),
             ListRepr::Inductives { .. } => self.make_boxed().pop(),
-            ListRepr::WireStructs { .. } => self.make_boxed().pop(),
+            ListRepr::WireStructs { .. } | ListRepr::WireColumn { .. } => self.make_boxed().pop(),
         }
     }
 
@@ -762,7 +854,7 @@ impl ListRepr {
             ListRepr::Strings { .. } => self.make_boxed().remove(i),
             ListRepr::Structs { .. } => self.make_boxed().remove(i),
             ListRepr::Inductives { .. } => self.make_boxed().remove(i),
-            ListRepr::WireStructs { .. } => self.make_boxed().remove(i),
+            ListRepr::WireStructs { .. } | ListRepr::WireColumn { .. } => self.make_boxed().remove(i),
         }
     }
 
@@ -795,8 +887,8 @@ impl ListRepr {
                 .find(|&i| self.get(i).is_some_and(|v| crate::semantics::compare::values_equal(&v, needle))),
             (ListRepr::Inductives { .. }, _) => (0..self.len())
                 .find(|&i| self.get(i).is_some_and(|v| crate::semantics::compare::values_equal(&v, needle))),
-            // The lazy receive: reconstruct rows on demand and compare (search over received records).
-            (ListRepr::WireStructs { .. }, _) => (0..self.len())
+            // The lazy receive: reconstruct rows/elements on demand and compare.
+            (ListRepr::WireStructs { .. }, _) | (ListRepr::WireColumn { .. }, _) => (0..self.len())
                 .find(|&i| self.get(i).is_some_and(|v| crate::semantics::compare::values_equal(&v, needle))),
         }
     }
@@ -826,6 +918,7 @@ impl ListRepr {
             ListRepr::WireStructs { bytes, type_name, field_names, len } => (0..*len)
                 .filter_map(|i| Self::wire_struct_row(bytes, type_name, field_names, *len, i))
                 .collect(),
+            ListRepr::WireColumn { bytes, floats, .. } => Self::wire_column_to_values(bytes, *floats),
         }
     }
 
@@ -852,8 +945,8 @@ impl ListRepr {
             ListRepr::Inductives { .. } => {
                 ListRepr::from_values((start..=end).filter_map(|i| self.get(i)).collect())
             }
-            // Reconstruct just the sliced rows from the received view (re-columnarized).
-            ListRepr::WireStructs { .. } => {
+            // Reconstruct just the sliced rows/elements from the received view.
+            ListRepr::WireStructs { .. } | ListRepr::WireColumn { .. } => {
                 ListRepr::from_values((start..=end).filter_map(|i| self.get(i)).collect())
             }
         }
@@ -885,11 +978,26 @@ pub enum RuntimeValue {
     /// `Hash`/ordering never need a cross-`Int` arm. `Rc` keeps `Clone` O(1).
     BigInt(Rc<logicaffeine_base::BigInt>),
     /// An exact rational number — the result of an integer division that does NOT
-    /// divide evenly (`7 / 2 → 7/2`), the way `Int` "overflows" into [`BigInt`].
+    /// divide evenly (`7 / 2 → 7/2`), the way `Int` "overflows" into `BigInt`.
     /// INVARIANT: never a whole number — build via [`RuntimeValue::from_rational`],
     /// which downsizes an integer-valued rational to `Int`/`BigInt`, so a value has
     /// one canonical representation and `Eq`/`Hash` need no cross-`Int` arm.
     Rational(Rc<logicaffeine_base::Rational>),
+    /// An exact base-10 fixed-point number — money's type. Distinct from `Rational`:
+    /// it carries a *scale* (decimal places) for faithful display (`19.99`, not
+    /// `1999/100`), and unlike `Int`/`BigInt`/`Rational` it does NOT downsize on a
+    /// whole value (`20.00` stays `Decimal`, not `Int`), because the scale is meaning.
+    /// `+ − ×` are exact and keep it `Decimal`; `÷` and a `Rational` operand promote to
+    /// the exact `Rational` (base-10 division need not terminate). `Rc` keeps `Clone` O(1).
+    Decimal(Rc<logicaffeine_base::Decimal>),
+    /// An exact complex number `re + im·i`, each part a `Rational`. The field that closes
+    /// the tower for `√` of a negative and for EE/signal math: `i·i = −1` exactly. NOT
+    /// ordered (complex numbers have no total order), so it never appears in `compare`.
+    Complex(Rc<logicaffeine_base::Complex>),
+    /// An element of the ring ℤ/nℤ — an integer modulo a fixed modulus (the arbitrary-modulus
+    /// generalisation of `Word`). Arithmetic wraps into `[0, modulus)`; the crypto/number-theory
+    /// substrate (modular exponentiation, inverse). Equal only at the same value AND modulus.
+    Modular(Rc<logicaffeine_base::Modular>),
     Float(f64),
     Bool(bool),
     Text(Rc<String>),
@@ -920,81 +1028,165 @@ pub enum RuntimeValue {
     /// interior-mutation/aliasing semantics as `Set`/`List`/`Map`, so mutating a struct's
     /// CRDT field through a field access updates the shared value in place.
     Crdt(Rc<RefCell<crate::semantics::crdt::CrdtValue>>),
+    /// A fixed-width wrapping integer (`Word32`/`Word64`) — the ring ℤ/2ᵏ the bit-twiddling
+    /// primitives (ChaCha20 over `Word32`, Keccak over `Word64`) compute over. Distinct from
+    /// `Int`: its arithmetic wraps and it never promotes to `BigInt`.
+    Word(logicaffeine_base::WordVal),
+    /// A SIMD lane vector (`Lanes8Word32` = 8×`Word32` = one `__m256i`) — a fixed-width vector over
+    /// the Word ring. The tree-walker carries the scalar-lane representation and computes each op as
+    /// independent scalar lanes (the spec); AOT lowers the same op to an AVX2 intrinsic. Boxed in `Rc`
+    /// so the 256-bit lane payload stays out of the 16-byte `RuntimeValue` (the NaN-box invariant).
+    Lanes(Rc<logicaffeine_base::LanesVal>),
+    /// A physical quantity — an exact magnitude carrying a `Dimension` and a display unit
+    /// (`2 inches`, `9.8 m/s²`). The magnitude rides the exact rational tower, so unit conversion
+    /// is lossless (`2 inches + 5 cm in feet = 42/127 ft`); `+ −` and comparison require the SAME
+    /// dimension (else a typed error, like Word width-mismatch), `× ÷` combine dimensions. The
+    /// display unit travels with the value so `Show` renders it faithfully.
+    Quantity(Rc<QuantityValue>),
+    /// An exact monetary amount in a currency (`19.99 USD`). The amount rides the Decimal tower so it
+    /// never float-drifts; `+ −` and comparison require the SAME currency (else a typed error, like a
+    /// dimension mismatch), `× ÷` scale by a number. The currency travels with the value.
+    Money(Rc<logicaffeine_base::Money>),
+    /// A 128-bit UUID (RFC 9562). `Ord` by bytes — so v6/v7 ids sort chronologically — and a stable
+    /// canonical text form. `Rc`-boxed to keep `RuntimeValue` at 16 bytes (the value itself is a
+    /// `Copy [u8;16]`; the compiled tier carries it unboxed).
+    Uuid(Rc<logicaffeine_base::Uuid>),
 }
 
-impl PartialEq for RuntimeValue {
-    fn eq(&self, other: &Self) -> bool {
-        match (self, other) {
-            (RuntimeValue::Int(a), RuntimeValue::Int(b)) => a == b,
-            // BigInt holds only out-of-i64 values (the `from_bigint` invariant), so a
-            // BigInt is never equal to an Int and BigInt==BigInt is exact magnitude eq.
-            (RuntimeValue::BigInt(a), RuntimeValue::BigInt(b)) => a == b,
-            // A Rational is never whole (the `from_rational` invariant), so it is never
-            // equal to an Int/BigInt; Rational==Rational is exact (reduced form is canonical).
-            (RuntimeValue::Rational(a), RuntimeValue::Rational(b)) => a == b,
-            (RuntimeValue::Float(a), RuntimeValue::Float(b)) => a.to_bits() == b.to_bits(),
-            (RuntimeValue::Bool(a), RuntimeValue::Bool(b)) => a == b,
-            (RuntimeValue::Text(a), RuntimeValue::Text(b)) => **a == **b,
-            (RuntimeValue::Char(a), RuntimeValue::Char(b)) => a == b,
-            (RuntimeValue::Nothing, RuntimeValue::Nothing) => true,
-            (RuntimeValue::Duration(a), RuntimeValue::Duration(b)) => a == b,
-            (RuntimeValue::Date(a), RuntimeValue::Date(b)) => a == b,
-            (RuntimeValue::Moment(a), RuntimeValue::Moment(b)) => a == b,
-            (RuntimeValue::Span { months: m1, days: d1 }, RuntimeValue::Span { months: m2, days: d2 }) => {
-                m1 == m2 && d1 == d2
-            }
-            (RuntimeValue::Time(a), RuntimeValue::Time(b)) => a == b,
-            (RuntimeValue::Chan(a), RuntimeValue::Chan(b)) => a == b,
-            (RuntimeValue::TaskHandle(a), RuntimeValue::TaskHandle(b)) => a == b,
-            (RuntimeValue::Peer(a), RuntimeValue::Peer(b)) => **a == **b,
-            (RuntimeValue::Function(a), RuntimeValue::Function(b)) => a.body_index == b.body_index,
-            // Two CRDTs are equal when they observe the same elements (a sequence also
-            // compares order) — the convergence-relevant view, ignoring internal tags.
-            (RuntimeValue::Crdt(a), RuntimeValue::Crdt(b)) => {
-                crate::semantics::crdt::crdt_values_equal(&a.borrow(), &b.borrow())
-            }
-            _ => false,
+/// The payload of a [`RuntimeValue::Quantity`]: the physical quantity (magnitude in SI base +
+/// dimension) plus the unit it should be displayed in. Equality/hashing are by physical value
+/// (SI magnitude + dimension) — the display unit is presentation only, so `2 inches` equals
+/// `5.08 centimetres`.
+#[derive(Clone, Debug)]
+pub struct QuantityValue {
+    pub q: logicaffeine_base::Quantity,
+    pub unit: logicaffeine_base::Unit,
+}
+
+impl QuantityValue {
+    /// The faithful display: the magnitude expressed in the carried unit, then its symbol —
+    /// `42/127 ft`, `2 in`, `20 °C`. A synthetic SI unit (empty symbol, produced by a
+    /// dimension-combining `× ÷`) shows the dimension signature instead (`12 L^2`).
+    pub fn display(&self) -> String {
+        let magnitude = self
+            .q
+            .in_unit(&self.unit)
+            .expect("a Quantity's display unit always shares its dimension");
+        if self.unit.symbol.is_empty() {
+            format!("{} {}", magnitude, self.q.dimension())
+        } else {
+            format!("{} {}", magnitude, self.unit.symbol)
         }
     }
 }
 
+impl PartialEq for RuntimeValue {
+    /// ONE equality: delegates to [`crate::semantics::compare::values_equal`],
+    /// so map-key lookup, set membership, and the language's `==` can never
+    /// disagree. Structural for collections/structs, EXACT across numeric
+    /// types (`1 == 1.0`), IEEE for floats — coherent with the unified
+    /// numeric `Hash` below (equal values hash equal).
+    fn eq(&self, other: &Self) -> bool {
+        crate::semantics::compare::values_equal(self, other)
+    }
+}
+
+/// NOTE: `eq` is IEEE on floats, so `NaN != NaN` — strictly this bends `Eq`'s
+/// reflexivity for the one value IEEE defines as not equal to itself. The
+/// trade is deliberate: map keys behave exactly like the language's own `==`
+/// (a NaN key is unfindable, as IEEE intends) instead of maps and `==`
+/// silently disagreeing about float identity. Everything else is a total
+/// equivalence.
 impl Eq for RuntimeValue {}
 
 impl std::hash::Hash for RuntimeValue {
+    /// The hash/equality coherence law: values that compare equal MUST hash
+    /// equal. Numeric types are cross-type equal (`1 == 1.0 == 1/1`), so they
+    /// share ONE hash stream — the unified numeric hash (value mod 2^61 − 1,
+    /// `base::numeric`) with NO discriminant prefix. Everything else keeps
+    /// its discriminant-prefixed per-type hash (collisions between UNEQUAL
+    /// values are always allowed; only equal ⇒ equal-hash is required).
     fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
-        std::mem::discriminant(self).hash(state);
+        use logicaffeine_base::numeric;
         match self {
-            RuntimeValue::Int(n) => n.hash(state),
-            RuntimeValue::BigInt(b) => b.hash(state),
-            RuntimeValue::Rational(r) => r.hash(state),
-            RuntimeValue::Float(f) => f.to_bits().hash(state),
-            RuntimeValue::Bool(b) => b.hash(state),
-            RuntimeValue::Text(s) => s.hash(state),
-            RuntimeValue::Char(c) => c.hash(state),
-            RuntimeValue::Nothing => {}
-            RuntimeValue::Duration(d) => d.hash(state),
-            RuntimeValue::Date(d) => d.hash(state),
-            RuntimeValue::Moment(m) => m.hash(state),
-            RuntimeValue::Span { months, days } => { months.hash(state); days.hash(state); }
-            RuntimeValue::Time(t) => t.hash(state),
-            // Collections are not meaningfully hashable — hash by identity/length
-            RuntimeValue::List(items) => items.borrow().len().hash(state),
-            RuntimeValue::Tuple(items) => items.len().hash(state),
-            RuntimeValue::Set(items) => items.borrow().len().hash(state),
-            RuntimeValue::Map(m) => m.borrow().len().hash(state),
-            RuntimeValue::Struct(s) => s.type_name.hash(state),
-            RuntimeValue::Inductive(i) => { i.inductive_type.hash(state); i.constructor.hash(state); }
-            RuntimeValue::Function(f) => f.body_index.hash(state),
-            RuntimeValue::Chan(c) => c.0.hash(state),
-            RuntimeValue::TaskHandle(t) => t.0.hash(state),
-            RuntimeValue::Peer(topic) => topic.hash(state),
-            RuntimeValue::Crdt(c) => c.borrow().len().hash(state),
+            // ── The unified numeric stream (no discriminant) ─────────────
+            RuntimeValue::Int(n) => state.write_u64(numeric::numeric_hash_i64(*n)),
+            RuntimeValue::BigInt(b) => state.write_u64(numeric::numeric_hash_bigint(b)),
+            RuntimeValue::Float(f) => state.write_u64(numeric::numeric_hash_f64(*f)),
+            RuntimeValue::Rational(r) => state.write_u64(numeric::numeric_hash_rational(r)),
+            // ── Discriminant-prefixed per-type hashes ────────────────────
+            other => {
+                std::mem::discriminant(other).hash(state);
+                match other {
+                    RuntimeValue::Int(_)
+                    | RuntimeValue::BigInt(_)
+                    | RuntimeValue::Float(_)
+                    | RuntimeValue::Rational(_) => unreachable!("handled above"),
+                    RuntimeValue::Decimal(d) => d.hash(state),
+                    RuntimeValue::Complex(c) => c.hash(state),
+                    RuntimeValue::Modular(m) => m.hash(state),
+                    RuntimeValue::Bool(b) => b.hash(state),
+                    RuntimeValue::Text(s) => s.hash(state),
+                    RuntimeValue::Char(c) => c.hash(state),
+                    RuntimeValue::Nothing => {}
+                    RuntimeValue::Duration(d) => d.hash(state),
+                    RuntimeValue::Date(d) => d.hash(state),
+                    RuntimeValue::Moment(m) => m.hash(state),
+                    RuntimeValue::Span { months, days } => { months.hash(state); days.hash(state); }
+                    RuntimeValue::Time(t) => t.hash(state),
+                    // Tuples are VALUE keys: content-hashed, in order —
+                    // coherent with their structural equality.
+                    RuntimeValue::Tuple(items) => {
+                        items.len().hash(state);
+                        for v in items.iter() {
+                            v.hash(state);
+                        }
+                    }
+                    // Structs are VALUE keys: type + an ORDER-INSENSITIVE
+                    // field fold (the fields map iterates nondeterministically,
+                    // and equal structs must hash equal).
+                    RuntimeValue::Struct(s) => {
+                        s.type_name.hash(state);
+                        let mut fold: u64 = 0;
+                        for (k, v) in &s.fields {
+                            let mut h = rustc_hash::FxHasher::default();
+                            std::hash::Hash::hash(k, &mut h);
+                            std::hash::Hash::hash(v, &mut h);
+                            fold = fold.wrapping_add(std::hash::Hasher::finish(&h));
+                        }
+                        state.write_u64(fold);
+                    }
+                    // Mutable containers hash by LENGTH — consistent with
+                    // structural equality (equal ⇒ equal length), and they
+                    // are rejected as map keys at insert anyway.
+                    RuntimeValue::List(items) => items.borrow().len().hash(state),
+                    RuntimeValue::Set(items) => items.borrow().len().hash(state),
+                    RuntimeValue::Map(m) => m.borrow().len().hash(state),
+                    RuntimeValue::Inductive(i) => { i.inductive_type.hash(state); i.constructor.hash(state); }
+                    RuntimeValue::Function(f) => f.body_index.hash(state),
+                    RuntimeValue::Chan(c) => c.0.hash(state),
+                    RuntimeValue::TaskHandle(t) => t.0.hash(state),
+                    RuntimeValue::Peer(topic) => topic.hash(state),
+                    RuntimeValue::Crdt(c) => c.borrow().len().hash(state),
+                    RuntimeValue::Word(w) => w.hash(state),
+                    RuntimeValue::Lanes(v) => v.hash(state),
+                    // Hash the physical value (SI magnitude + dimension), consistent with `eq`
+                    // ignoring the display unit.
+                    RuntimeValue::Quantity(qv) => {
+                        qv.q.magnitude_si().hash(state);
+                        qv.q.dimension().hash(state);
+                    }
+                    // Hash by value (currency + amount), consistent with `eq`.
+                    RuntimeValue::Money(m) => m.hash(state),
+                    RuntimeValue::Uuid(u) => u.hash(state),
+                }
+            }
         }
     }
 }
 
 impl RuntimeValue {
-    /// Build an integer value from a [`BigInt`], DOWNSIZING to [`RuntimeValue::Int`]
+    /// Build an integer value from a `BigInt`, DOWNSIZING to [`RuntimeValue::Int`]
     /// whenever the value fits `i64`. This is the single chokepoint that maintains
     /// the `BigInt`-is-always-out-of-range invariant, so every integer has one
     /// canonical representation — the "downsize when it provably fits" rule, applied
@@ -1006,11 +1198,11 @@ impl RuntimeValue {
         }
     }
 
-    /// Build a number from a [`Rational`], DOWNSIZING to an exact integer
+    /// Build a number from a `Rational`, DOWNSIZING to an exact integer
     /// (`Int`/`BigInt`) whenever the denominator reduces to `1`. This is the single
     /// chokepoint that maintains the `Rational`-is-never-whole invariant, so an
     /// integer-valued result (`6 / 2 → 3`) is an `Int`, not a `Rational` — exactly the
-    /// "downsize when it provably fits" rule [`from_bigint`] applies for integers.
+    /// "downsize when it provably fits" rule `from_bigint` applies for integers.
     pub fn from_rational(r: logicaffeine_base::Rational) -> RuntimeValue {
         match r.to_bigint() {
             Some(whole) => RuntimeValue::from_bigint(whole),
@@ -1028,6 +1220,9 @@ impl RuntimeValue {
             // reports "Int", keeping the type stable across promotion/downsizing.
             RuntimeValue::BigInt(_) => "Int",
             RuntimeValue::Rational(_) => "Rational",
+            RuntimeValue::Decimal(_) => "Decimal",
+            RuntimeValue::Complex(_) => "Complex",
+            RuntimeValue::Modular(_) => "Modular",
             RuntimeValue::Float(_) => "Float",
             RuntimeValue::Bool(_) => "Bool",
             RuntimeValue::Text(_) => "Text",
@@ -1049,6 +1244,17 @@ impl RuntimeValue {
             RuntimeValue::TaskHandle(_) => "Task",
             RuntimeValue::Peer(_) => "PeerAgent",
             RuntimeValue::Crdt(c) => c.borrow().kind(),
+            RuntimeValue::Word(w) => {
+                if w.width() == 32 {
+                    "Word32"
+                } else {
+                    "Word64"
+                }
+            }
+            RuntimeValue::Lanes(v) => v.type_name(),
+            RuntimeValue::Quantity(_) => "Quantity",
+            RuntimeValue::Money(_) => "Money",
+            RuntimeValue::Uuid(_) => "Uuid",
         }
     }
 
@@ -1113,10 +1319,23 @@ impl RuntimeValue {
         }
     }
 
+    /// Falsy: `false`, numeric zero (Int/Float/BigInt/Rational/Decimal/Complex/Word),
+    /// `nothing`, and empty Text/List/Set/Map. Everything else is truthy.
+    /// (`-0.0` is zero; NaN is nonzero and therefore truthy.)
     pub fn is_truthy(&self) -> bool {
         match self {
             RuntimeValue::Bool(b) => *b,
             RuntimeValue::Int(n) => *n != 0,
+            RuntimeValue::Float(f) => *f != 0.0,
+            RuntimeValue::BigInt(b) => !b.is_zero(),
+            RuntimeValue::Rational(r) => !r.is_zero(),
+            RuntimeValue::Decimal(d) => !d.is_zero(),
+            RuntimeValue::Complex(c) => !c.is_zero(),
+            RuntimeValue::Word(w) => w.to_u64() != 0,
+            RuntimeValue::Text(s) => !s.is_empty(),
+            RuntimeValue::List(l) => l.borrow().len() != 0,
+            RuntimeValue::Set(s) => !s.borrow().is_empty(),
+            RuntimeValue::Map(m) => !m.borrow().is_empty(),
             RuntimeValue::Nothing => false,
             _ => true,
         }
@@ -1130,9 +1349,22 @@ impl RuntimeValue {
     pub fn to_display_string(&self) -> String {
         match self {
             RuntimeValue::Int(n) => n.to_string(),
+            RuntimeValue::Word(w) => w.to_string(),
+            // A lane vector renders like a Seq of its lanes — `[l0, l1, ...]` of unsigned values.
+            RuntimeValue::Lanes(v) => {
+                let parts: Vec<String> =
+                    (0..v.lanes()).map(|i| v.lane(i).to_string()).collect();
+                format!("[{}]", parts.join(", "))
+            }
             RuntimeValue::BigInt(b) => b.to_string(),
             RuntimeValue::Rational(r) => r.to_string(),
-            RuntimeValue::Float(f) => format!("{:.6}", f).trim_end_matches('0').trim_end_matches('.').to_string(),
+            RuntimeValue::Decimal(d) => d.to_string(),
+            RuntimeValue::Complex(c) => c.to_string(),
+            RuntimeValue::Modular(m) => m.to_string(),
+            RuntimeValue::Quantity(qv) => qv.display(),
+            RuntimeValue::Money(m) => m.to_string(),
+            RuntimeValue::Uuid(u) => u.to_string(),
+            RuntimeValue::Float(f) => logicaffeine_data::fmt::fmt_f64(*f),
             RuntimeValue::Bool(b) => if *b { "true" } else { "false" }.to_string(),
             RuntimeValue::Text(s) => s.as_str().to_string(),
             RuntimeValue::Char(c) => c.to_string(),
@@ -1162,11 +1394,17 @@ impl RuntimeValue {
                 if s.fields.is_empty() {
                     s.type_name.clone()
                 } else {
-                    let field_strs: Vec<String> = s.fields
+                    // `fields` is a `HashMap` (random iteration order), so sort by field NAME to make
+                    // the display DETERMINISTIC — otherwise `TypeName { … }` order varies per run and
+                    // can't be a byte-identical target for the VM/AOT tiers.
+                    let mut field_strs: Vec<(&str, String)> = s
+                        .fields
                         .iter()
-                        .map(|(k, v)| format!("{}: {}", k, v.to_display_string()))
+                        .map(|(k, v)| (k.as_str(), v.to_display_string()))
                         .collect();
-                    format!("{} {{ {} }}", s.type_name, field_strs.join(", "))
+                    field_strs.sort_by(|a, b| a.0.cmp(b.0));
+                    let joined: Vec<String> = field_strs.iter().map(|(k, v)| format!("{k}: {v}")).collect();
+                    format!("{} {{ {} }}", s.type_name, joined.join(", "))
                 }
             }
             RuntimeValue::Inductive(ind) => {
@@ -1285,11 +1523,8 @@ impl RuntimeValue {
                 parts.join(" and ")
             }
             RuntimeValue::Time(nanos) => {
-                // Convert nanoseconds from midnight to HH:MM format
-                let total_seconds = *nanos / 1_000_000_000;
-                let hours = total_seconds / 3600;
-                let minutes = (total_seconds % 3600) / 60;
-                format!("{:02}:{:02}", hours, minutes)
+                // The wall-clock time-of-day, lossless to the nanosecond (HH:MM:SS[.frac]).
+                logicaffeine_base::temporal::format_time_of_day(*nanos)
             }
         }
     }
@@ -1466,16 +1701,6 @@ pub enum ClosureBodyRef<'a> {
 const REDUNDANT_K: usize = 4;
 const REDUNDANT_N: usize = 6;
 
-/// A buffered inbound message. A self-describing record list is kept as raw frame bytes so its
-/// decode can be deferred to `Await` (where the `view` knob decides lazy-vs-eager); every other
-/// shape is decoded in arrival order at drain (preserving the schema cache's keyframe ordering).
-enum RecvSlot {
-    /// Already decoded (scalars, structs, maps, `Send cached`/`compressed` bodies — order-sensitive).
-    Decoded(RuntimeValue),
-    /// A deferrable, self-describing record-list frame — decoded (lazily or eagerly) at `Await`.
-    RawRecordList(Rc<Vec<u8>>),
-}
-
 pub struct Interpreter<'a> {
     /// Shared, mostly-immutable context — interner, function/struct tables,
     /// platform handles, pre-interned builtin symbols. Held directly for the
@@ -1490,34 +1715,11 @@ pub struct Interpreter<'a> {
     /// Set when this interpreter is a scheduled concurrent task: the side-channel
     /// to the scheduler. `None` for ordinary single-task execution.
     yield_state: Option<crate::concurrency::bridge::Yield<'a>>,
-    /// The live relay connection, established by `Connect`/`Listen` and used by
-    /// `Sync`. `None` until the program connects. Cross-target: a native WS client
-    /// or a browser WebSocket behind the one `Net` API.
-    net: Option<logicaffeine_system::net::Net>,
-    /// This node's inbox topic — its identity on the relay, set by
-    /// `Listen at "<addr>"`. `Send … to <peer>` tags messages with it as the
-    /// sender; `Await … from <peer>` receives on it. `None` until the program
-    /// `Listen`s — sending is allowed without it (anonymous), awaiting is not.
-    inbox: Option<Rc<String>>,
-    /// Messages delivered to the `inbox` and not yet consumed by an `Await`, kept
-    /// `(sender, slot)` so an `Await … from <peer>` can match by sender while leaving
-    /// messages from other peers queued for their own `Await`. A self-describing record
-    /// list is held UNDECODED ([`RecvSlot::RawRecordList`]) so `Await view` can wrap it
-    /// zero-copy; everything else is decoded in arrival order at drain.
-    received: std::collections::VecDeque<(String, RecvSlot)>,
-    /// `Send cached` schema dictionaries — one per destination peer (a struct schema
-    /// is sent once to a peer, referenced thereafter). Content-addressed, so safe.
-    send_schema: std::collections::HashMap<String, crate::concurrency::marshal::WireSchemaCache>,
-    /// The receive-side schema dictionary. Decoding ALWAYS goes through it, so a
-    /// `Send cached` reference resolves; content-addressing makes one cache safe for
-    /// messages from any number of senders, in any order.
-    recv_schema: crate::concurrency::marshal::WireSchemaCache,
-    /// Monotonic id stamped on each `Send redundant` message so its FEC shards can be
-    /// regrouped by a receiver.
-    send_msg_id: u64,
-    /// Receive-side buffer of incoming FEC shards, keyed by their message id, until
-    /// enough (K) arrive to reconstruct (`Send redundant`).
-    recv_shards: std::collections::HashMap<u64, Vec<Vec<u8>>>,
+    /// All peer-messaging state — the relay handle, this node's inbox topic, the received-message
+    /// buffer, the wire schema caches, and the FEC shard buffer — lifted into one shared
+    /// [`crate::concurrency::net_inbox::NetInbox`] so the bytecode VM's task driver owns the SAME
+    /// inbox and networking runs byte-identically on both tiers (no tier silently differs).
+    netbox: crate::concurrency::net_inbox::NetInbox,
 }
 
 /// The shared interpreter context: function definitions, type metadata, platform
@@ -1644,13 +1846,7 @@ impl<'a> Interpreter<'a> {
             task: TaskState::new(),
             output: Vec::new(),
             yield_state: None,
-            net: None,
-            inbox: None,
-            received: std::collections::VecDeque::new(),
-            send_schema: std::collections::HashMap::new(),
-            recv_schema: crate::concurrency::marshal::WireSchemaCache::content_addressed(),
-            send_msg_id: 0,
-            recv_shards: std::collections::HashMap::new(),
+            netbox: crate::concurrency::net_inbox::NetInbox::new(),
         }
     }
 
@@ -1759,6 +1955,9 @@ impl<'a> Interpreter<'a> {
     /// Execute a program (list of statements).
     /// Phase 55: Now async for VFS operations.
     pub async fn run(&mut self, stmts: &[Stmt<'a>]) -> Result<(), String> {
+        // A program begins with no ambient exchange rates in scope — the same clean slate an
+        // AOT-compiled binary gets from a fresh process. Conversion reads what the program installs.
+        logicaffeine_base::money::clear_ambient_rates();
         for stmt in stmts {
             match self.execute_stmt(stmt).await? {
                 ControlFlow::Return(_) => break,
@@ -1766,6 +1965,35 @@ impl<'a> Interpreter<'a> {
                 ControlFlow::Continue => {}
             }
         }
+        Ok(())
+    }
+
+    /// Activate the PNP one-time-pad session for a `Connect`/`Listen` `with pad "<path>" as <role>`
+    /// clause: read the pad file, build the quality-gated pool, and install the directional session on
+    /// the channel so every subsequent `Send`/receive on this thread is sealed. Fail-closed on any
+    /// error (unreadable or non-random pad) — the caller propagates it as a program error, never
+    /// proceeding to send plaintext.
+    #[cfg(not(target_arch = "wasm32"))]
+    async fn activate_pnp_session(&mut self, bind: &crate::ast::SecurePad<'a>) -> Result<(), String> {
+        let path = self.evaluate_expr(bind.pad).await?.to_display_string();
+        let bytes = std::fs::read(&path)
+            .map_err(|e| format!("one-time pad '{path}' could not be read: {e}"))?;
+        let pool = crate::concurrency::pnp::PadPool::shared(bytes)
+            .map_err(|e| format!("one-time pad '{path}' rejected (not truly random / too small): {e:?}"))?;
+        let role = match bind.role {
+            crate::ast::SecureRole::Initiator => crate::concurrency::pnp::Role::Initiator,
+            crate::ast::SecureRole::Responder => crate::concurrency::pnp::Role::Responder,
+        };
+        let session: std::rc::Rc<dyn crate::concurrency::channel::ActiveSession> =
+            std::rc::Rc::new(pool.session(role));
+        crate::concurrency::channel::install_session(Some(session));
+        Ok(())
+    }
+
+    /// On wasm the pad is provisioned through the VFS handle rather than host files (a future wiring);
+    /// the clause is accepted but installs no session, matching the offline single-node tiers.
+    #[cfg(target_arch = "wasm32")]
+    async fn activate_pnp_session(&mut self, _bind: &crate::ast::SecurePad<'a>) -> Result<(), String> {
         Ok(())
     }
 
@@ -1839,6 +2067,14 @@ impl<'a> Interpreter<'a> {
                         }
                         Pattern::Tuple(syms) => {
                             if let RuntimeValue::Tuple(ref tuple_vals) = item {
+                                if syms.len() != tuple_vals.len() {
+                                    self.task.repeat_depth_async -= 1;
+                                    return Err(format!(
+                                        "Cannot bind a {}-tuple to {} names",
+                                        tuple_vals.len(),
+                                        syms.len()
+                                    ));
+                                }
                                 for (sym, val) in syms.iter().zip(tuple_vals.iter()) {
                                     self.define(*sym, val.clone());
                                 }
@@ -1921,6 +2157,7 @@ impl<'a> Interpreter<'a> {
             Stmt::Push { value, collection } => {
                 let val = self.evaluate_expr(value).await?;
                 if let Expr::Identifier(coll_sym) = collection {
+                    self.ensure_collection_owned(*coll_sym);
                     let coll_val = self.lookup(*coll_sym)?;
                     crate::semantics::collections::list_push(&coll_val, val)?;
                 } else if let Expr::FieldAccess { object, field } = collection {
@@ -1932,13 +2169,19 @@ impl<'a> Interpreter<'a> {
                         return Err("Push to nested field access not supported".to_string());
                     }
                 } else {
-                    return Err("Push collection must be an identifier or field access".to_string());
+                    // Any place expression is an l-value: `Push 5 to item i of
+                    // grid`. Collections are shared handles, so pushing through
+                    // the evaluated handle mutates in place — the same aliasing
+                    // model as `Add`/`Remove` below.
+                    let coll_val = self.evaluate_expr(collection).await?;
+                    crate::semantics::collections::list_push(&coll_val, val)?;
                 }
                 Ok(ControlFlow::Continue)
             }
 
             Stmt::Pop { collection, into } => {
                 if let Expr::Identifier(coll_sym) = collection {
+                    self.ensure_collection_owned(*coll_sym);
                     let coll_val = self.lookup(*coll_sym)?;
                     let popped = crate::semantics::collections::list_pop(&coll_val)?;
                     if let Some(into_var) = into {
@@ -1952,6 +2195,9 @@ impl<'a> Interpreter<'a> {
 
             Stmt::Add { value, collection } => {
                 let val = self.evaluate_expr(value).await?;
+                if let Expr::Identifier(coll_sym) = collection {
+                    self.ensure_collection_owned(*coll_sym);
+                }
                 // The collection may be a bare variable OR a (CRDT/Set) struct field —
                 // `Add "Alice" to p's guests`. Field reads are shallow `Rc` clones, so
                 // mutating the resolved collection updates the value stored in the struct.
@@ -1962,6 +2208,9 @@ impl<'a> Interpreter<'a> {
 
             Stmt::Remove { value, collection } => {
                 let val = self.evaluate_expr(value).await?;
+                if let Expr::Identifier(coll_sym) = collection {
+                    self.ensure_collection_owned(*coll_sym);
+                }
                 let coll_val = self.evaluate_expr(collection).await?;
                 crate::semantics::collections::remove_from(&coll_val, &val)?;
                 Ok(ControlFlow::Continue)
@@ -1982,10 +2231,28 @@ impl<'a> Interpreter<'a> {
                             return Ok(ControlFlow::Continue);
                         }
                     }
+                    self.ensure_collection_owned(*coll_sym);
                     let coll_val = self.lookup(*coll_sym)?;
                     crate::semantics::collections::index_set(&coll_val, &idx_val, new_val)?;
                 } else {
-                    return Err("SetIndex collection must be an identifier".to_string());
+                    // Any place expression is an l-value: `Set item j of
+                    // (item i of grid) to v` writes the inner collection
+                    // through its shared handle.
+                    let coll_val = self.evaluate_expr(collection).await?;
+                    crate::semantics::collections::index_set(&coll_val, &idx_val, new_val)?;
+                }
+                Ok(ControlFlow::Continue)
+            }
+
+            Stmt::Splice { body } => {
+                // Scope-TRANSPARENT by contract (see the AST doc): no block
+                // scoping — the gensym'd desugar temporaries live in the
+                // enclosing scope.
+                for s in body.iter() {
+                    let flow = self.execute_stmt(s).await?;
+                    if !matches!(flow, ControlFlow::Continue) {
+                        return Ok(flow);
+                    }
                 }
                 Ok(ControlFlow::Continue)
             }
@@ -2088,11 +2355,12 @@ impl<'a> Interpreter<'a> {
             // `Send <message> to <peer>` — publish the message on the peer's inbox
             // topic over the relay, tagged with our own inbox as the sender so the
             // recipient's `Await … from us` can match it.
-            Stmt::SendMessage { message, destination, compression, cached, unchecked, layout, shared, computed } => {
+            Stmt::SendMessage { message, destination, compression, cached, unchecked, layout, shared, computed, indexed, deduped } => {
                 use crate::concurrency::marshal::{
                     default_integrity, message_to_wire_best, message_to_wire_cached, message_to_wire_with,
-                    with_compression_codec, with_integrity, with_numerics, with_structure, with_type_registry,
-                    WireCodec, WireGoal, WireIntegrity, WireNumerics, WireSchemaCache, WireStructure,
+                    with_compression_codec, with_dedup, with_integrity, with_numerics, with_structure,
+                    with_struct_view, with_type_registry, WireCodec, WireGoal, WireIntegrity, WireNumerics,
+                    WireSchemaCache, WireStructure,
                 };
                 use logicaffeine_language::ast::SendLayout;
                 let dest = self.evaluate_expr(destination).await?;
@@ -2141,8 +2409,11 @@ impl<'a> Interpreter<'a> {
                 } else {
                     msg
                 };
-                // Owned so the schema-cache borrow below doesn't alias `self.inbox`.
-                let from = self.inbox.as_ref().map(|t| t.to_string()).unwrap_or_default();
+                // Owned so the schema-cache borrow below doesn't alias the inbox topic.
+                let from = self.netbox.inbox.as_ref().map(|t| t.to_string()).unwrap_or_default();
+                // Advertise our type-registry epoch (set before the first-contact handshake below), so a
+                // same-program peer with a matching epoch negotiates type-id name elision.
+                self.netbox.my_profile.registry_epoch = self.build_wire_type_registry().epoch();
                 // The message is any language value, encoded faithfully for the wire. The
                 // sender's modifiers are the knobs for their link: `fast|compact|packed`
                 // is the size↔speed LAYOUT (fixed-memcpy / varint / group-varint);
@@ -2177,20 +2448,48 @@ impl<'a> Interpreter<'a> {
                 } else {
                     crate::concurrency::marshal::WireTypeRegistry::new(Vec::new())
                 };
-                let bytes = with_type_registry(registry, || -> Result<Vec<u8>, String> {
+                // `indexed`/`addressable` opts the record list into the random-access struct-view
+                // LAYOUT (row + field offset tables) so the receiver reaches any (row, field) in
+                // O(1). It wraps EVERY path below, so it composes with `compressed`, `cached`,
+                // `shared`, and `unchecked`. OFF by default (the dense columnar form is smaller).
+                // A PLAIN send (no explicit codec knob) routes through the SHARED negotiated encoder
+                // both tiers call, so the tree-walker and the VM net path stay byte-identical (the
+                // cross-tier lock holds). Any explicit knob — `fast`/`packed`/`smallest`/`cached`/
+                // `shared`/`indexed`/`compressed`/`computed`/`unchecked`/`redundant` — takes its own
+                // override path below.
+                let plain = !*computed
+                    && !*unchecked
+                    && !*shared
+                    && !*indexed
+                    && !*cached
+                    && !*deduped
+                    && compression.is_none()
+                    && matches!(layout, None | Some(SendLayout::Compact));
+                let bytes = if plain {
+                    // Pass the program's registry; type-id fires only when the peer's epoch matched
+                    // (negotiated), so a raw / different-program peer still gets the plain encoding.
+                    self.netbox.encode_negotiated(&from, &msg, &topic, self.build_wire_type_registry())?
+                } else {
+                    // `deduped` wraps the WHOLE encode: a subtree the same value reaches more than once
+                    // ships once + backrefs, and the receiver rebuilds the sharing. A no-op when the
+                    // knob is off, so the path below is byte-identical without it.
+                    with_dedup(*deduped, || with_struct_view(*indexed, || with_type_registry(registry, || -> Result<Vec<u8>, String> {
                     // `smallest`/`best`: the message-level auto-tuner measures every dial
                     // combination and ships the PROVABLY smallest encoding (never larger than
                     // any single knob). It subsumes the numerics/structure/compression knobs,
                     // and composes with `shared` (the registry is active here) and `redundant`
                     // (FEC shards the result below). The cross-message schema cache (`cached`)
-                    // is a separate optimization and keeps its own path.
-                    if matches!(layout, Some(SendLayout::Smallest)) && !*cached {
+                    // is a separate optimization and keeps its own path. `deduped` is excluded here:
+                    // the auto-tuner runs MANY encode passes, but the dedup id-table is per-encode, so
+                    // dedup takes the single-pass general path below instead.
+                    if matches!(layout, Some(SendLayout::Smallest)) && !*cached && !*deduped {
                         return with_integrity(integrity, || {
                             message_to_wire_best(&from, &msg, WireGoal::Smallest)
                         });
                     }
                     if *cached {
                         let cache = self
+                            .netbox
                             .send_schema
                             .entry(topic.clone())
                             .or_insert_with(WireSchemaCache::content_addressed);
@@ -2206,30 +2505,34 @@ impl<'a> Interpreter<'a> {
                             None => encode(),
                         }))
                     }
-                })?;
+                })))?
+                };
+                // Seal the encoded message under the active crypto session/suite — identity /
+                // byte-identical when none is engaged — before FEC/publish (compress → encrypt → FEC).
+                // A keyed session may fail closed (a one-time pad is exhausted): refuse the send rather
+                // than transmit plaintext.
+                let bytes = crate::concurrency::channel::seal_active_checked(bytes)
+                    .ok_or_else(|| "one-time pad exhausted — message not sent (PNP fail-closed)".to_string())?;
+                // Advertise our surface to this peer on FIRST contact — on its HANDSHAKE topic, never
+                // the data topic — so it can negotiate back. Absorbed by the peer's drain.
+                if let Some(hs) = self.netbox.first_contact_handshake(&topic) {
+                    self.netbox
+                        .publish(&crate::concurrency::net_inbox::handshake_topic_for(&topic), hs)?;
+                }
                 if matches!(layout, Some(SendLayout::Redundant)) {
                     // FEC: split the encoded message into K data + (N−K) parity shards and
                     // publish each as its own packet, so a receiver reconstructs the exact
                     // message from any K even if some are lost on the link.
-                    let msg_id = self.send_msg_id;
-                    self.send_msg_id = self.send_msg_id.wrapping_add(1);
+                    let msg_id = self.netbox.next_msg_id();
                     let shards = crate::concurrency::fec::frame_redundant(
                         msg_id, &bytes, REDUNDANT_K, REDUNDANT_N,
                     )
                     .ok_or_else(|| "redundant framing failed".to_string())?;
-                    let net = self
-                        .net
-                        .as_ref()
-                        .ok_or_else(|| "Send requires a prior Connect to a relay".to_string())?;
                     for shard in shards {
-                        net.publish(&topic, shard)?;
+                        self.netbox.publish(&topic, shard)?;
                     }
                 } else {
-                    let net = self
-                        .net
-                        .as_ref()
-                        .ok_or_else(|| "Send requires a prior Connect to a relay".to_string())?;
-                    net.publish(&topic, bytes)?;
+                    self.netbox.publish(&topic, bytes)?;
                 }
                 Ok(ControlFlow::Continue)
             }
@@ -2237,17 +2540,42 @@ impl<'a> Interpreter<'a> {
             // `Await … from <peer> into x` — block (cooperatively) until a message
             // from that peer arrives on our inbox, then bind it to `x`. Messages
             // from other peers stay queued for their own `Await`.
-            Stmt::AwaitMessage { source, into, view } => {
+            Stmt::AwaitMessage { source, into, view, stream } => {
                 let src = self.evaluate_expr(source).await?;
                 let want = Self::peer_topic_of(&src)?;
-                if self.inbox.is_none() {
+                if self.netbox.inbox.is_none() {
                     return Err("Await requires a prior Listen to establish an inbox".to_string());
                 }
-                if self.net.is_none() {
-                    return Err("Await requires a prior Connect to a relay".to_string());
-                }
-                let msg = self.await_message_from(&want, *view).await?;
+                // OFFLINE (no relay): the deterministic oracle reads from our own loopback outbox — a
+                // `Send … to <self>` already delivered the message locally, so `Await` resolves it (no
+                // real transport needed). A relay-connected node drains the relay instead.
+                let msg = if *stream {
+                    self.await_stream_from(&want).await?
+                } else {
+                    self.await_message_from(&want, *view).await?
+                };
                 self.define(*into, msg);
+                Ok(ControlFlow::Continue)
+            }
+
+            // `Stream <values> to <peer>` — batch the list into one framed stream message and
+            // publish it to the peer's inbox; `Await stream from us` deframes it back into a list.
+            Stmt::StreamMessage { values, destination } => {
+                let dest = self.evaluate_expr(destination).await?;
+                let topic = Self::peer_topic_of(&dest)?;
+                let list = self.evaluate_expr(values).await?;
+                let items = match &list {
+                    RuntimeValue::List(rc) => rc.borrow().to_values(),
+                    other => vec![other.clone()],
+                };
+                let from = self.netbox.inbox.as_ref().map(|t| t.to_string()).unwrap_or_default();
+                let registry = self.build_wire_type_registry();
+                let blob = crate::concurrency::marshal::with_type_registry(registry, || {
+                    crate::concurrency::marshal::frame_stream_message(&from, &items)
+                })?;
+                // Route through `publish`, which OFFLINE loops the framed stream back into our own inbox
+                // (a following `Await stream` deframes it) rather than requiring a relay.
+                self.netbox.publish(&topic, blob)?;
                 Ok(ControlFlow::Continue)
             }
 
@@ -2441,14 +2769,24 @@ impl<'a> Interpreter<'a> {
             // address surface as the compiled path: a libp2p multiaddr
             // (`/ip4/H/tcp/P`) normalizes to the relay's `ws://H:P`; a raw `ws://`
             // URL passes through.
-            Stmt::ConnectTo { address } => {
+            Stmt::ConnectTo { address, secure } => {
                 let raw = self.evaluate_expr(address).await?.to_display_string();
                 let url = logicaffeine_system::addr::multiaddr_to_ws_url(&raw)
                     .map_err(|e| format!("Connect address '{raw}' is not a ws:// URL or supported multiaddr: {e}"))?;
-                let net = logicaffeine_system::net::Net::connect(&url)
-                    .await
-                    .map_err(|e| format!("Connect to relay '{url}' failed: {e}"))?;
-                self.net = Some(net);
+                // Activate the one-time-pad session first, so a bad pad fails the connect (fail-closed).
+                if let Some(bind) = secure {
+                    self.activate_pnp_session(bind).await?;
+                }
+                // OFFLINE mode (the deterministic tree-walker/VM oracles, no relay transport): `Connect`
+                // is a local no-op — nothing to dial, so `net` stays None and the following ops run
+                // locally, exactly as `Listen`/`Send`/`Sync` already do offline. A relay-connected driver
+                // dials for real. The address is still validated so a malformed one errors on both paths.
+                if !crate::concurrency::net_inbox::net_is_offline() {
+                    let net = logicaffeine_system::net::Net::connect(&url)
+                        .await
+                        .map_err(|e| format!("Connect to relay '{url}' failed: {e}"))?;
+                    self.netbox.net = Some(net);
+                }
                 Ok(ControlFlow::Continue)
             }
             // `Listen at "<addr>"` — declare this node's identity: subscribe to its
@@ -2456,15 +2794,22 @@ impl<'a> Interpreter<'a> {
             // transport (a browser cannot bind a socket), so this needs a prior
             // `Connect`. The address is canonicalized so `/ip4/H/tcp/P` and the
             // `ws://H:P` form name the same inbox.
-            Stmt::Listen { address } => {
+            Stmt::Listen { address, secure } => {
                 let raw = self.evaluate_expr(address).await?.to_display_string();
                 let topic = logicaffeine_system::addr::canonical_topic(&raw);
-                let net = self
-                    .net
-                    .as_mut()
-                    .ok_or_else(|| "Listen requires a prior Connect to a relay".to_string())?;
-                net.subscribe(&topic).await?;
-                self.inbox = Some(Rc::new(topic));
+                let hs_topic = crate::concurrency::net_inbox::handshake_topic_for(&topic);
+                if let Some(bind) = secure {
+                    self.activate_pnp_session(bind).await?;
+                }
+                // LOCAL/OFFLINE mode (no relay): declare our inbox identity locally and skip the relay
+                // subscribe — a single node listening on its own address needs no transport. A relay-
+                // connected node subscribes so peers can reach it. Either way `Listen` never ERRORS.
+                if let Some(net) = self.netbox.net.as_mut() {
+                    net.subscribe(&topic).await?;
+                    // Also receive peers' capability handshakes on our dedicated handshake topic.
+                    net.subscribe(&hs_topic).await?;
+                }
+                self.netbox.inbox = Some(Rc::new(topic));
                 Ok(ControlFlow::Continue)
             }
             // `Let r be a PeerAgent at "<addr>"` — a handle to a remote peer; its
@@ -2529,24 +2874,89 @@ impl<'a> Interpreter<'a> {
             Stmt::Sync { var, topic } => {
                 let topic_str = self.evaluate_expr(topic).await?.to_display_string();
                 let current = self.lookup(*var)?.clone();
+                // Rich CRDT (ORSet / RGA / MVRegister) → δ-STATE sync: publish only what changed since
+                // our last sync on this topic (`delta_since`, per field), and merge incoming deltas IN
+                // PLACE through the shared `Rc`. The first sync ships the full state (delta since
+                // nothing); every later sync ships a handful of bytes for the NEW entries, never the
+                // whole collection. Idempotent + commutative, so redelivery / reordering still
+                // converges. Covers a bare CrdtValue var (field name "") AND every CrdtValue field of a
+                // `Shared` struct — which is how programs actually hold them.
+                let crdt_fields: Vec<(String, std::rc::Rc<std::cell::RefCell<crate::semantics::crdt::CrdtValue>>)> =
+                    match &current {
+                        RuntimeValue::Crdt(rc) => vec![(String::new(), rc.clone())],
+                        RuntimeValue::Struct(s) => s
+                            .fields
+                            .iter()
+                            .filter_map(|(k, v)| match v {
+                                RuntimeValue::Crdt(rc) => Some((k.clone(), rc.clone())),
+                                _ => None,
+                            })
+                            .collect(),
+                        _ => Vec::new(),
+                    };
+                if !crdt_fields.is_empty() {
+                    let field_key = |name: &str| format!("{topic_str}\u{0}{name}");
+                    // Each field's delta since the version we last shipped on this topic.
+                    let mut frame: Vec<(String, Vec<u8>)> = Vec::new();
+                    for (name, rc) in &crdt_fields {
+                        let since = self.netbox.sync_versions.get(&field_key(name)).cloned().unwrap_or_default();
+                        if let Some(d) = rc.borrow().delta_since_bytes(&since) {
+                            frame.push((name.clone(), d));
+                        }
+                    }
+                    let payload = serde_json::to_vec(&frame).unwrap_or_default();
+                    // LOCAL/OFFLINE mode (no relay): single-node δ-sync is a no-op — nothing arrives,
+                    // the local state stands; we still advance the per-field versions below. A relay-
+                    // connected deployment publishes its delta + merges incoming ones.
+                    if let Some(net) = self.netbox.net.as_mut() {
+                        net.subscribe(&topic_str).await?;
+                        if !frame.is_empty() {
+                            net.publish(&topic_str, payload)?;
+                        }
+                        let incoming = net.drain();
+                        // Merge every incoming field delta into the matching local CRDT field, in place.
+                        for (_t, data) in incoming {
+                            let Ok(fields) = serde_json::from_slice::<Vec<(String, Vec<u8>)>>(&data) else {
+                                continue;
+                            };
+                            for (name, delta) in fields {
+                                if let Some((_, rc)) = crdt_fields.iter().find(|(n, _)| *n == name) {
+                                    rc.borrow_mut().apply_delta_bytes(&delta);
+                                }
+                            }
+                        }
+                    }
+                    // Record the version we now hold per field, so the next sync ships only later changes.
+                    for (name, rc) in &crdt_fields {
+                        let v = rc.borrow().version();
+                        self.netbox.sync_versions.insert(field_key(name), v);
+                    }
+                    return Ok(ControlFlow::Continue);
+                }
                 // Encode the counter (Int) or counter-struct (named Int fields) as
                 // the relay wire form; `None` ⇒ nothing to publish yet.
                 let publish_bytes = crate::semantics::arith::crdt_to_wire(&current);
-                let net = self
-                    .net
-                    .as_mut()
-                    .ok_or_else(|| "Sync requires a prior Connect to a relay".to_string())?;
-                net.subscribe(&topic_str).await?;
-                if let Some(bytes) = publish_bytes {
-                    net.publish(&topic_str, bytes)?;
-                }
-                // Merge everything that has arrived since the last sync point,
-                // field by field — the same CRDT merge the in-process `Merge` uses.
-                let incoming = net.drain();
-                let mut merged = current;
-                for (_t, data) in incoming {
-                    merged = crate::semantics::arith::crdt_merge_wire(merged, &data);
-                }
+                // LOCAL/OFFLINE mode: with no relay connected (the playground/test path, and any
+                // program that never `Connect`ed), a `Sync` is a SINGLE-NODE no-op — the local CRDT
+                // value stands, deterministically. A real deployment that `Connect`ed to a relay takes
+                // the transport branch (publish our delta, merge everyone else's). Either way `Sync`
+                // never ERRORS, so a networked program runs identically on tree-walker, VM, and AOT.
+                let merged = if let Some(net) = self.netbox.net.as_mut() {
+                    net.subscribe(&topic_str).await?;
+                    if let Some(bytes) = publish_bytes {
+                        net.publish(&topic_str, bytes)?;
+                    }
+                    // Merge everything that has arrived since the last sync point, field by field —
+                    // the same CRDT merge the in-process `Merge` uses.
+                    let incoming = net.drain();
+                    let mut merged = current;
+                    for (_t, data) in incoming {
+                        merged = crate::semantics::arith::crdt_merge_wire(merged, &data);
+                    }
+                    merged
+                } else {
+                    current
+                };
                 self.assign(*var, merged)?;
                 Ok(ControlFlow::Continue)
             }
@@ -2685,7 +3095,7 @@ impl<'a> Interpreter<'a> {
 
             // Theorems and definitions are proof-layer declarations verified at
             // compile-time, not executed.
-            Stmt::Theorem(_) | Stmt::Definition(_) => Ok(ControlFlow::Continue),
+            Stmt::Theorem(_) | Stmt::Definition(_) | Stmt::Axiom(_) | Stmt::Theory(_) => Ok(ControlFlow::Continue),
         }
     }
 
@@ -2705,6 +3115,15 @@ impl<'a> Interpreter<'a> {
         }
         self.pop_scope();
         Ok(ControlFlow::Continue)
+    }
+
+    /// The loud message for a non-exhaustive `Inspect` — no arm matched the
+    /// scrutinee's actual variant and there was no `Otherwise`. Exhaustiveness
+    /// or a wildcard is required; a silent no-op hid the missing arm. Kept
+    /// value-agnostic so it is byte-identical to the VM's compile-time
+    /// `FailWith` (the VM cannot name the runtime variant at emit time).
+    fn inspect_unhandled(&self, _target: &RuntimeValue) -> String {
+        "Inspect has no arm for the value and no Otherwise (matches must be exhaustive)".to_string()
     }
 
     /// Execute Inspect (pattern matching).
@@ -2760,7 +3179,7 @@ impl<'a> Interpreter<'a> {
                 _ => {}
             }
         }
-        Ok(ControlFlow::Continue)
+        Err(self.inspect_unhandled(target))
     }
 
     /// Resolve a `Send … to <dest>` / `Await … from <src>` operand to a relay
@@ -2807,96 +3226,37 @@ impl<'a> Interpreter<'a> {
         crate::concurrency::marshal::WireTypeRegistry::new(schemas).with_enums(enums)
     }
 
-    /// Drain the relay into the `received` buffer, keeping only messages
-    /// addressed to our own inbox (parsed into `(sender, payload)`). Non-blocking.
-    fn drain_inbox(&mut self) {
-        let Some(inbox) = self.inbox.clone() else { return };
-        // Take ownership of the drained batch so the `net` borrow ends before we
-        // push into `self.received`.
-        let drained = match self.net.as_mut() {
-            Some(net) => net.drain(),
-            None => return,
-        };
-        // Install the program's type registry so any `Send shared` type-id message
-        // resolves to its schema; transparent to ordinary self-describing messages.
-        let registry = self.build_wire_type_registry();
-        crate::concurrency::marshal::with_type_registry(registry, || {
-        for (topic, data) in drained {
-            if topic.as_str() != inbox.as_str() {
-                continue;
-            }
-            // A `Send redundant` FEC shard (its magic can't collide with a normal
-            // message's small header byte): buffer it by message id and reconstruct the
-            // exact message once K shards of that id have arrived, then decode normally.
-            if let Some((msg_id, k, _n)) = crate::concurrency::fec::shard_header(&data) {
-                let buf = self.recv_shards.entry(msg_id).or_default();
-                buf.push(data);
-                let recovered = if buf.len() >= k {
-                    crate::concurrency::fec::reconstruct_redundant(buf)
-                } else {
-                    None
-                };
-                if let Some((_, payload)) = recovered {
-                    self.recv_shards.remove(&msg_id);
-                    self.enqueue_received(payload);
-                }
-            } else {
-                self.enqueue_received(data);
-            }
-        }
-        });
-    }
-
-    /// Buffer one inbound frame. A self-describing record list is held UNDECODED so `Await view`
-    /// can wrap it zero-copy (decode-on-touch); every other shape decodes eagerly through the
-    /// receive-side schema cache, in arrival order (so a `Send cached` reference resolves and the
-    /// keyframe ordering is preserved). Called under the program's type registry.
-    fn enqueue_received(&mut self, data: Vec<u8>) {
-        if let Some(sender) = crate::concurrency::marshal::peek_record_list_sender(&data) {
-            self.received.push_back((sender, RecvSlot::RawRecordList(Rc::new(data))));
-        } else if let Some((from, value)) =
-            crate::concurrency::marshal::message_from_wire_cached(&data, &mut self.recv_schema)
-        {
-            self.received.push_back((from, RecvSlot::Decoded(value)));
-        }
-    }
-
-    /// Block (cooperatively) until a message from `want` arrives on our inbox,
-    /// returning its payload. Messages from other senders stay queued for their
-    /// own `Await`. Yields a macrotask between polls so the browser event loop
-    /// (and the relay's delivery) keeps running.
+    /// Block (cooperatively) until a message from `want` arrives on our inbox, returning its payload.
+    /// Drives the shared [`NetInbox`]: try the buffer, else drain the relay and retry, yielding a
+    /// macrotask between polls so the browser event loop (and the relay's delivery) keeps running.
+    /// Messages from other senders stay queued for their own `Await`.
     async fn await_message_from(&mut self, want: &str, view: bool) -> Result<RuntimeValue, String> {
         loop {
-            if let Some(pos) = self.received.iter().position(|(from, _)| from == want) {
-                return Ok(self.take_received(pos, view));
+            if let Some(v) = self.netbox.try_take_message(want, view) {
+                return Ok(v);
             }
-            self.drain_inbox();
-            if let Some(pos) = self.received.iter().position(|(from, _)| from == want) {
-                return Ok(self.take_received(pos, view));
+            let registry = self.build_wire_type_registry();
+            self.netbox.drain(registry);
+            if let Some(v) = self.netbox.try_take_message(want, view) {
+                return Ok(v);
             }
             Self::poll_tick().await;
         }
     }
 
-    /// Pop the buffered message at `pos` and realize its payload. A deferred record list is wrapped
-    /// LAZILY under `view` (the zero-copy receive — no rows decoded until touched) or fully decoded
-    /// otherwise; an already-decoded slot is returned as-is. A malformed deferred frame degrades to
-    /// `Nothing` (never a panic).
-    fn take_received(&mut self, pos: usize, view: bool) -> RuntimeValue {
-        let (_, slot) = self.received.remove(pos).unwrap();
-        match slot {
-            RecvSlot::Decoded(value) => value,
-            RecvSlot::RawRecordList(bytes) => {
-                if view {
-                    ListRepr::from_record_list_view(bytes)
-                        .map(|l| RuntimeValue::List(Rc::new(RefCell::new(l))))
-                        .unwrap_or(RuntimeValue::Nothing)
-                } else {
-                    crate::concurrency::marshal::message_from_wire(&bytes)
-                        .map(|(_, v)| v)
-                        .unwrap_or(RuntimeValue::Nothing)
-                }
+    /// Block until a batch STREAM from `want` arrives, then deframe it into a list (mirrors
+    /// [`await_message_from`] over a `RecvSlot::Stream`).
+    async fn await_stream_from(&mut self, want: &str) -> Result<RuntimeValue, String> {
+        loop {
+            if let Some(v) = self.netbox.try_take_stream(want) {
+                return Ok(v);
             }
+            let registry = self.build_wire_type_registry();
+            self.netbox.drain(registry);
+            if let Some(v) = self.netbox.try_take_stream(want) {
+                return Ok(v);
+            }
+            Self::poll_tick().await;
         }
     }
 
@@ -2935,10 +3295,6 @@ impl<'a> Interpreter<'a> {
                 match op {
                     BinaryOpKind::And => {
                         let left_val = self.evaluate_expr(left).await?;
-                        if matches!(left_val, RuntimeValue::Int(_)) {
-                            let right_val = self.evaluate_expr(right).await?;
-                            return self.apply_binary_op(*op, left_val, right_val);
-                        }
                         if !left_val.is_truthy() {
                             return Ok(RuntimeValue::Bool(false));
                         }
@@ -2947,10 +3303,6 @@ impl<'a> Interpreter<'a> {
                     }
                     BinaryOpKind::Or => {
                         let left_val = self.evaluate_expr(left).await?;
-                        if matches!(left_val, RuntimeValue::Int(_)) {
-                            let right_val = self.evaluate_expr(right).await?;
-                            return self.apply_binary_op(*op, left_val, right_val);
-                        }
                         if left_val.is_truthy() {
                             return Ok(RuntimeValue::Bool(true));
                         }
@@ -3490,13 +3842,7 @@ impl<'a> Interpreter<'a> {
             task: TaskState::new(),
             output: Vec::new(),
             yield_state: Some(ys.clone()),
-            net: None,
-            inbox: None,
-            received: std::collections::VecDeque::new(),
-            send_schema: std::collections::HashMap::new(),
-            recv_schema: crate::concurrency::marshal::WireSchemaCache::content_addressed(),
-            send_msg_id: 0,
-            recv_shards: std::collections::HashMap::new(),
+            netbox: crate::concurrency::net_inbox::NetInbox::new(),
         };
         let fut = Box::pin(async move {
             child.call_function_with_values(function, args).await.map(|_| ())
@@ -3691,6 +4037,57 @@ impl<'a> Interpreter<'a> {
             .ok_or_else(|| format!("Undefined variable: {}", self.ctx.interner.resolve(name)))
     }
 
+    /// True if `sym` is a `mutable` parameter of the function whose body is
+    /// currently executing. Such a parameter passes by reference (Mutable Value
+    /// Semantics escape hatch), so its mutations must reach the caller's
+    /// collection in place — copy-on-write is suppressed for it.
+    fn is_mutable_param(&self, sym: Symbol) -> bool {
+        let Some(fn_sym) = self.task.tco_fn_sync.or(self.task.tco_fn_async) else {
+            return false;
+        };
+        let Some(fdef) = self.ctx.functions.get(&fn_sym) else {
+            return false;
+        };
+        fdef.params
+            .iter()
+            .any(|(p, ty)| *p == sym && matches!(ty, crate::ast::stmt::TypeExpr::Mutable { .. }))
+    }
+
+    /// Copy-on-write for value semantics. Before mutating the collection bound to
+    /// `sym`, ensure it is uniquely owned: if another binding shares the same
+    /// allocation (`Rc` strong count > 1) — from `Let b be a`, a plain parameter,
+    /// or storage inside another collection — replace `sym` with a deep copy so
+    /// the mutation cannot be observed through that other binding. Sound: it
+    /// never UNDER-copies (any alias bumps the count), so it can only ever copy
+    /// when it might otherwise alias. A `mutable` parameter is exempt — it
+    /// deliberately mutates the caller's collection in place.
+    fn ensure_collection_owned(&mut self, sym: Symbol) {
+        // MVS migration gate. Copy-on-write value semantics for collections must
+        // land in LOCKSTEP across the tree-walker, VM, and AOT: the debug shadow
+        // oracle (ui_bridge) cross-checks the VM against the tree-walker on every
+        // program, so flipping one engine alone makes every aliasing-observable
+        // program diverge. This tree-walker COW is implemented and validated;
+        // it stays gated (off by default) until the VM + AOT flip together.
+        if !crate::semantics::collections::value_semantics_enabled() {
+            return;
+        }
+        if self.is_mutable_param(sym) {
+            return;
+        }
+        let shared = match self.task.env.lookup(sym) {
+            Some(RuntimeValue::List(rc)) => Rc::strong_count(rc) > 1,
+            Some(RuntimeValue::Map(rc)) => Rc::strong_count(rc) > 1,
+            Some(RuntimeValue::Set(rc)) => Rc::strong_count(rc) > 1,
+            _ => false,
+        };
+        if shared {
+            let owned = self.task.env.lookup(sym).map(|v| v.deep_clone());
+            if let Some(owned) = owned {
+                self.task.env.assign(sym, owned);
+            }
+        }
+    }
+
     /// Evaluate a policy condition against a subject value.
     fn evaluate_policy_condition(
         &self,
@@ -3707,6 +4104,27 @@ impl<'a> Interpreter<'a> {
         )
     }
 
+    /// The program's global bindings after execution, as sorted
+    /// `(name, type, value)` rows — the substrate for the REPL's `:vars`
+    /// inspection (see [`crate::repl::ReplSession::vars`]).
+    pub fn global_bindings(&self) -> Vec<(String, String, String)> {
+        let mut rows: Vec<(String, String, String)> = self
+            .task
+            .env
+            .globals
+            .iter()
+            .map(|(sym, value)| {
+                (
+                    self.ctx.interner.resolve(*sym).to_string(),
+                    value.type_name().to_string(),
+                    value.to_display_string(),
+                )
+            })
+            .collect();
+        rows.sort();
+        rows
+    }
+
     // =========================================================================
     // Sync execution path — eliminates async/Future overhead for pure programs
     // =========================================================================
@@ -3714,6 +4132,8 @@ impl<'a> Interpreter<'a> {
     /// Execute a program synchronously (no async/Future allocation).
     /// Use when `needs_async(stmts)` returns false.
     pub fn run_sync(&mut self, stmts: &[Stmt<'a>]) -> Result<(), String> {
+        // Hermetic program start: no ambient exchange rates carried in (mirrors a fresh AOT process).
+        logicaffeine_base::money::clear_ambient_rates();
         for stmt in stmts {
             match self.execute_stmt_sync(stmt)? {
                 ControlFlow::Return(_) => break,
@@ -3792,6 +4212,14 @@ impl<'a> Interpreter<'a> {
                         }
                         Pattern::Tuple(syms) => {
                             if let RuntimeValue::Tuple(ref tuple_vals) = item {
+                                if syms.len() != tuple_vals.len() {
+                                    self.task.repeat_depth_sync -= 1;
+                                    return Err(format!(
+                                        "Cannot bind a {}-tuple to {} names",
+                                        tuple_vals.len(),
+                                        syms.len()
+                                    ));
+                                }
                                 for (sym, val) in syms.iter().zip(tuple_vals.iter()) {
                                     self.define(*sym, val.clone());
                                 }
@@ -3877,6 +4305,7 @@ impl<'a> Interpreter<'a> {
             Stmt::Push { value, collection } => {
                 let val = self.evaluate_expr_sync(value)?;
                 if let Expr::Identifier(coll_sym) = collection {
+                    self.ensure_collection_owned(*coll_sym);
                     let coll_val = self.lookup(*coll_sym)?;
                     crate::semantics::collections::list_push(&coll_val, val)?;
                 } else if let Expr::FieldAccess { object, field } = collection {
@@ -3888,13 +4317,17 @@ impl<'a> Interpreter<'a> {
                         return Err("Push to nested field access not supported".to_string());
                     }
                 } else {
-                    return Err("Push collection must be an identifier or field access".to_string());
+                    // Any place expression is an l-value; see the async Push
+                    // handler for the aliasing rationale.
+                    let coll_val = self.evaluate_expr_sync(collection)?;
+                    crate::semantics::collections::list_push(&coll_val, val)?;
                 }
                 Ok(ControlFlow::Continue)
             }
 
             Stmt::Pop { collection, into } => {
                 if let Expr::Identifier(coll_sym) = collection {
+                    self.ensure_collection_owned(*coll_sym);
                     let coll_val = self.lookup(*coll_sym)?;
                     let popped = crate::semantics::collections::list_pop(&coll_val)?;
                     if let Some(into_var) = into {
@@ -3908,6 +4341,9 @@ impl<'a> Interpreter<'a> {
 
             Stmt::Add { value, collection } => {
                 let val = self.evaluate_expr_sync(value)?;
+                if let Expr::Identifier(coll_sym) = collection {
+                    self.ensure_collection_owned(*coll_sym);
+                }
                 // Resolve the collection generally — a bare variable or a (CRDT/Set)
                 // struct field, e.g. `Add "Alice" to p's guests`.
                 let coll_val = self.evaluate_expr_sync(collection)?;
@@ -3917,6 +4353,9 @@ impl<'a> Interpreter<'a> {
 
             Stmt::Remove { value, collection } => {
                 let val = self.evaluate_expr_sync(value)?;
+                if let Expr::Identifier(coll_sym) = collection {
+                    self.ensure_collection_owned(*coll_sym);
+                }
                 let coll_val = self.evaluate_expr_sync(collection)?;
                 crate::semantics::collections::remove_from(&coll_val, &val)?;
                 Ok(ControlFlow::Continue)
@@ -3936,10 +4375,25 @@ impl<'a> Interpreter<'a> {
                             return Ok(ControlFlow::Continue);
                         }
                     }
+                    self.ensure_collection_owned(*coll_sym);
                     let coll_val = self.lookup(*coll_sym)?;
                     crate::semantics::collections::index_set(&coll_val, &idx_val, new_val)?;
                 } else {
-                    return Err("SetIndex collection must be an identifier".to_string());
+                    // Any place expression is an l-value; see the async
+                    // SetIndex handler for rationale.
+                    let coll_val = self.evaluate_expr_sync(collection)?;
+                    crate::semantics::collections::index_set(&coll_val, &idx_val, new_val)?;
+                }
+                Ok(ControlFlow::Continue)
+            }
+
+            Stmt::Splice { body } => {
+                // Scope-transparent; see the async Splice handler.
+                for s in body.iter() {
+                    let flow = self.execute_stmt_sync(s)?;
+                    if !matches!(flow, ControlFlow::Continue) {
+                        return Ok(flow);
+                    }
                 }
                 Ok(ControlFlow::Continue)
             }
@@ -4022,6 +4476,9 @@ impl<'a> Interpreter<'a> {
 
             Stmt::SendMessage { .. } => {
                 Err("Send (peer messaging) requires the async execution path".to_string())
+            }
+            Stmt::StreamMessage { .. } => {
+                Err("Stream (batch peer messaging) requires the async execution path".to_string())
             }
 
             Stmt::AwaitMessage { .. } => {
@@ -4227,7 +4684,7 @@ impl<'a> Interpreter<'a> {
                 Ok(ControlFlow::Continue)
             }
 
-            Stmt::Theorem(_) | Stmt::Definition(_) => {
+            Stmt::Theorem(_) | Stmt::Definition(_) | Stmt::Axiom(_) | Stmt::Theory(_) => {
                 Ok(ControlFlow::Continue)
             }
         }
@@ -4296,7 +4753,7 @@ impl<'a> Interpreter<'a> {
                 _ => {}
             }
         }
-        Ok(ControlFlow::Continue)
+        Err(self.inspect_unhandled(target))
     }
 
     fn evaluate_expr_sync(&mut self, expr: &Expr<'a>) -> Result<RuntimeValue, String> {
@@ -4322,10 +4779,6 @@ impl<'a> Interpreter<'a> {
                 match op {
                     BinaryOpKind::And => {
                         let left_val = self.evaluate_expr_sync(left)?;
-                        if matches!(left_val, RuntimeValue::Int(_)) {
-                            let right_val = self.evaluate_expr_sync(right)?;
-                            return self.apply_binary_op(*op, left_val, right_val);
-                        }
                         if !left_val.is_truthy() {
                             return Ok(RuntimeValue::Bool(false));
                         }
@@ -4334,10 +4787,6 @@ impl<'a> Interpreter<'a> {
                     }
                     BinaryOpKind::Or => {
                         let left_val = self.evaluate_expr_sync(left)?;
-                        if matches!(left_val, RuntimeValue::Int(_)) {
-                            let right_val = self.evaluate_expr_sync(right)?;
-                            return self.apply_binary_op(*op, left_val, right_val);
-                        }
                         if left_val.is_truthy() {
                             return Ok(RuntimeValue::Bool(true));
                         }
@@ -5346,7 +5795,7 @@ fn stmt_needs_async(stmt: &Stmt) -> bool {
         // Networking over the relay is async (dial + subscribe await).
         Stmt::Sync { .. } | Stmt::Listen { .. } | Stmt::ConnectTo { .. } => true,
         // Peer messaging rides the relay (subscribe/publish/poll) — async only.
-        Stmt::SendMessage { .. } | Stmt::AwaitMessage { .. } => true,
+        Stmt::SendMessage { .. } | Stmt::AwaitMessage { .. } | Stmt::StreamMessage { .. } => true,
         Stmt::If { then_block, else_block, .. } => {
             needs_async(then_block)
                 || else_block.as_ref().map_or(false, |b| needs_async(b))

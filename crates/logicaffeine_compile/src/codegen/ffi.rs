@@ -126,6 +126,7 @@ pub(crate) fn classify_type_for_c_abi(ty: &TypeExpr, interner: &Interner, regist
         }
         TypeExpr::Function { .. } => CAbiClass::ReferenceType,
         TypeExpr::Persistent { .. } => CAbiClass::ReferenceType,
+        TypeExpr::Mutable { inner } => classify_type_for_c_abi(inner, interner, registry),
     }
 }
 
@@ -145,6 +146,7 @@ fn is_value_type_field(ft: &FieldType, interner: &Interner) -> bool {
 
 pub(crate) fn mangle_type_for_c(ty: &TypeExpr, interner: &Interner) -> String {
     match ty {
+        TypeExpr::Mutable { inner } => mangle_type_for_c(inner, interner),
         TypeExpr::Primitive(sym) | TypeExpr::Named(sym) => {
             let name = interner.resolve(*sym);
             match name {
@@ -801,7 +803,7 @@ pub(crate) fn codegen_c_accessors(ty: &TypeExpr, interner: &Interner, registry: 
                 "Set" | "HashSet" if !params.is_empty() => {
                     let inner_rust_type = codegen_type_expr(&params[0], interner);
                     let is_inner_text = is_text_type(&params[0], interner);
-                    let set_type = format!("FxHashSet<{}>", inner_rust_type);
+                    let set_type = format!("Set<{}>", inner_rust_type);
 
                     // len
                     writeln!(out, "#[no_mangle]").unwrap();
@@ -842,7 +844,7 @@ pub(crate) fn codegen_c_accessors(ty: &TypeExpr, interner: &Interner, registry: 
                     writeln!(out, "#[no_mangle]").unwrap();
                     writeln!(out, "pub extern \"C\" fn logos_{}_create() -> LogosHandle {{", mangled).unwrap();
                     emit_catch_unwind_open(&mut out);
-                    emit_registry_create(&mut out, &format!("FxHashSet::<{}>::default()", inner_rust_type), &set_type);
+                    emit_registry_create(&mut out, &format!("Set::<{}>::default()", inner_rust_type), &set_type);
                     emit_catch_unwind_close(&mut out, "std::ptr::null_mut() as LogosHandle");
                     writeln!(out, "}}\n").unwrap();
 

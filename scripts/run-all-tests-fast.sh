@@ -111,11 +111,11 @@ fi
   echo " z3      : $(z3 --version 2>/dev/null)"
   if (( RUN_IGNORED )); then
     echo " command : cargo nextest run --workspace --features verification --profile full --cargo-profile test-opt --run-ignored all"
-    echo "         + cargo nextest run -p logicaffeine-compile --features wasm-jit --cargo-profile test-opt -E 'binary(wasm_jit_differential) + test(wasm_jit)'"
+    echo "         + cargo nextest run -p logicaffeine-compile --features wasm-jit --cargo-profile test-opt -E 'binary(wasm_jit_differential) + binary(wasm_aot_lock) + binary(wasm_aot_unit) + test(wasm_jit)'"
     echo "         + cargo test --workspace --features verification --profile test-opt --doc --no-fail-fast -- --include-ignored"
   else
     echo " command : cargo nextest run --workspace --features verification --profile full --cargo-profile test-opt   [--no-ignored]"
-    echo "         + cargo nextest run -p logicaffeine-compile --features wasm-jit --cargo-profile test-opt -E 'binary(wasm_jit_differential) + test(wasm_jit)'"
+    echo "         + cargo nextest run -p logicaffeine-compile --features wasm-jit --cargo-profile test-opt -E 'binary(wasm_jit_differential) + binary(wasm_aot_lock) + binary(wasm_aot_unit) + test(wasm_jit)'"
     echo "         + cargo test --workspace --features verification --profile test-opt --doc --no-fail-fast"
   fi
   echo "════════════════════════════════════════════════════════════════════"
@@ -151,28 +151,40 @@ fi
   echo "──────────────────────────────────────────────────────────────────────"
 } | tee -a "$LOG_FILE"
 
+# The SAT/coNP "P-vs-NP" research campaign in logicaffeine-proof is EXPLORATORY, not a
+# correctness lock: its probes run minutes-to-HOURS (exhaustive orbit/census/ladder
+# enumeration at growing n) and hung the baseline for 4h+ under --run-ignored. They are
+# excluded from the routine run and live in scripts/run-research-tests.sh instead — keep
+# the two lists in sync. The profile.full 30-min terminate-after backstops any straggler
+# not named here, so a newly-added probe can never silently hang the baseline again.
+RESEARCH_EXCLUDE='not binary(/^(cofactor_mirror|cofactor_climb|cofactor_lens|cofactor_family_counting|rigid_residue_census|sat_census|frege_generator_ladder|martin_lof_omega_kernel|reflection_mirror|orbit_stability_kernel|ultimate_symmetry_finder|hardness_retreat|hardness_witness_ladder|uniform_transfer_theorem|no_randomness_at_infinity|no_finite_randomness_infinity|family_emergence|pvnp_gunsight|ef_class_probe)$/)'
+
 NEXTEST_IGNORED_ARGS=()
 (( RUN_IGNORED )) && NEXTEST_IGNORED_ARGS+=(--run-ignored all)
-cargo nextest run --workspace --features verification --profile full --cargo-profile test-opt "${NEXTEST_IGNORED_ARGS[@]}" \
+cargo nextest run --workspace --features verification --profile full --cargo-profile test-opt "${NEXTEST_IGNORED_ARGS[@]}" -E "$RESEARCH_EXCLUDE" \
   2>&1 | tee -a "$LOG_FILE"
 NEXTEST_EXIT="${PIPESTATUS[0]}"
 PASS1_EPOCH="$(date +%s)"
 
-# --- pass 1b: WASM-JIT (isolated) ---------------------------------------------
-# Run the WASM-JIT codegen + differential tests in their own pass scoped to
-# logicaffeine-compile, so `wasmi` (pulled by the `wasm-jit` feature) never enters
-# the rest of the workspace's dependency graph. Enabling `wasm-jit` workspace-wide
-# changed feature unification and broke an unrelated async-closure lifetime in
-# `interp_networking`; isolating it keeps the WASM-JIT differential linked into the
-# suite without perturbing other crates.
+# --- pass 1b: WASM (isolated) -------------------------------------------------
+# Run the WASM tests in their own pass scoped to logicaffeine-compile, so `wasmi`
+# (pulled by the `wasm-jit` feature) never enters the rest of the workspace's
+# dependency graph. Enabling `wasm-jit` workspace-wide changed feature unification
+# and broke an unrelated async-closure lifetime in `interp_networking`; isolating
+# it keeps these linked into the suite without perturbing other crates. Covers BOTH
+# the browser WASM-JIT tier (`wasm_jit_differential` + the lib `vm::wasm::func`
+# `wasm_jit_*` tests) AND the direct AOT backend (`wasm_aot_lock` — the
+# WASM==VM==Treewalker parity lock with its exhaustive op catalog — and
+# `wasm_aot_unit`). The AOT lock MUST run here so a backend regression or a newly
+# unclassified VM op is caught by the standard suite, never only by a manual run.
 {
   echo
   echo "──────────────────────────────────────────────────────────────────────"
-  echo " PASS 1b — WASM-JIT codegen + differential (logicaffeine-compile, --features wasm-jit)"
+  echo " PASS 1b — WASM JIT tier + AOT backend + parity lock (logicaffeine-compile, --features wasm-jit)"
   echo "──────────────────────────────────────────────────────────────────────"
 } | tee -a "$LOG_FILE"
 cargo nextest run -p logicaffeine-compile --features wasm-jit --cargo-profile test-opt \
-  -E 'binary(wasm_jit_differential) + test(wasm_jit)' \
+  -E 'binary(wasm_jit_differential) + binary(wasm_aot_lock) + binary(wasm_aot_unit) + test(wasm_jit)' \
   2>&1 | tee -a "$LOG_FILE"
 WASMJIT_EXIT="${PIPESTATUS[0]}"
 

@@ -357,9 +357,13 @@ Show sumTo(10).
 "#;
     assert_exact_output(code, "55");
     let rust = compile_to_rust(code).unwrap();
-    // Either a for-range pattern or closed-form formula is acceptable
+    // Either a for-range pattern or the closed-form formula is acceptable. The
+    // closed form (`n*(n+1)/2`, loop eliminated) now emits its arithmetic
+    // through the exact helpers (overflow ruling v2) — the optimization still
+    // fires, only the spelling changed.
     let has_for_range = rust.contains("for i in");
-    let has_closed_form = rust.contains("n + 1") && rust.contains("/ 2");
+    let has_closed_form = (rust.contains("n + 1") || rust.contains("logos_add_exact(n, 1)"))
+        && (rust.contains("/ 2") || rust.contains("logos_div_exact"));
     assert!(has_for_range || has_closed_form,
         "Should use for-range pattern or closed-form formula, got:\n{}", rust);
 }
@@ -1297,8 +1301,13 @@ Show arr.
 "#;
     assert_exact_output(code, "[99, 20, 30]");
     let rust = compile_to_rust(code).unwrap();
-    assert!(rust.contains("[0]"),
-        "SetIndex literal 1 should simplify to [0], got:\n{}", rust);
+    // The 1-based literal `1` lowers to the 0-based index `0`. When the oracle
+    // proves it in range (a literal index into a known-length array) the store
+    // additionally elides the bounds check: `get_unchecked_mut(0)`. Either the
+    // checked `[0]` or the unchecked `get_unchecked_mut(0)` carries the
+    // simplified index.
+    assert!(rust.contains("[0]") || rust.contains("get_unchecked_mut(0)"),
+        "SetIndex literal 1 should simplify to index 0, got:\n{}", rust);
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -2021,6 +2030,10 @@ Show data.
 #[cfg(not(target_arch = "wasm32"))]
 #[test]
 fn e2e_opt_mut_borrow_param_codegen() {
+    // Borrow-hoisting (&mut [T]) is a REFERENCE-semantics opt; under value
+    // semantics it's disabled (replaced by last-use move / OPT-1C). Validate it
+    // under flag-off. (Per-test isolation via nextest.)
+    std::env::set_var("LOGOS_VALUE_SEMANTICS", "0");
     // When a function takes a Seq, only mutates elements (SetIndex),
     // and returns the same Seq, codegen should use &mut [T] parameter
     // instead of the move-return ownership pattern.
@@ -2063,6 +2076,8 @@ Show data.
 #[cfg(not(target_arch = "wasm32"))]
 #[test]
 fn e2e_opt_mut_borrow_param_siftdown_pattern() {
+    // Reference-semantics borrow opt — validate under flag-off.
+    std::env::set_var("LOGOS_VALUE_SEMANTICS", "0");
     // Heap sort siftDown pattern: takes arr, does SetIndex + swap, returns arr.
     // This is the critical pattern for heap_sort benchmark.
     let code = r#"## To siftDown (arr: Seq of Int) and (start: Int) and (endIdx: Int) -> Seq of Int:
@@ -2321,6 +2336,8 @@ Show sum.
 #[cfg(not(target_arch = "wasm32"))]
 #[test]
 fn e2e_opt_consume_alias_basic_codegen() {
+    // Reference-semantics consume-alias borrow opt — validate under flag-off.
+    std::env::set_var("LOGOS_VALUE_SEMANTICS", "0");
     // Function takes Seq, consumes into mutable alias, does SetIndex, returns alias.
     // Should detect consume-alias pattern and use &mut [T].
     let code = r#"## To setFirst (arr: Seq of Int) and (val: Int) -> Seq of Int:
@@ -2343,6 +2360,8 @@ Show data.
 #[cfg(not(target_arch = "wasm32"))]
 #[test]
 fn e2e_opt_consume_alias_quicksort_codegen() {
+    // Reference-semantics consume-alias borrow opt — validate under flag-off.
+    std::env::set_var("LOGOS_VALUE_SEMANTICS", "0");
     // Quicksort pattern: consume param into alias, SetIndex mutations,
     // self-recursive calls reassigning alias, return alias.
     let code = r#"## To qs (arr: Seq of Int, lo: Int, hi: Int) -> Seq of Int:
@@ -2381,6 +2400,8 @@ Show arr.
 #[cfg(not(target_arch = "wasm32"))]
 #[test]
 fn e2e_opt_consume_alias_heapsort_codegen() {
+    // Reference-semantics consume-alias borrow opt — validate under flag-off.
+    std::env::set_var("LOGOS_VALUE_SEMANTICS", "0");
     // Heapsort siftDown pattern: consume param into alias, SetIndex in while loop,
     // early returns + final return of alias.
     let code = r#"## To siftDown (arr: Seq of Int, start: Int, end: Int) -> Seq of Int:

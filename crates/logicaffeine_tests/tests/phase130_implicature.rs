@@ -1,4 +1,4 @@
-//! Phase 130 — §8.7 Conversational (scalar) implicature (MISSING_ENGLISH.md).
+//! Phase 130 — §8.7 Conversational (scalar) implicature (work/MISSING_ENGLISH.md).
 //!
 //! A weak scalar item ("some") implicates the negation of its stronger Horn
 //! alternative ("all") — defeasibly, via an `exh` operator:

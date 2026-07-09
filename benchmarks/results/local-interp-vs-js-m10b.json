@@ -1,0 +1,441 @@
+{
+  "schema_version": 1,
+  "metadata": {
+    "date": "2026-06-12T19:12:07Z",
+    "commit": "4d31c18",
+    "logos_version": "0.9.17",
+    "node": "v22.22.3",
+    "cpu": "Intel(R) Core(TM) i9-14900K",
+    "os": "Ubuntu 24.04.2 LTS x86_64",
+    "warmup": 1,
+    "runs": 5
+  },
+  "languages": [
+    {
+      "id": "logos_interp",
+      "label": "LOGOS (interpreted)",
+      "color": "#ff8c00",
+      "tier": "interpreted"
+    },
+    {
+      "id": "js",
+      "label": "Node v22.22.3",
+      "color": "#f7df1e",
+      "tier": "interpreted"
+    }
+  ],
+  "benchmarks": [
+    {
+      "id": "nbody",
+      "name": "N-Body Simulation",
+      "reference_size": "31506",
+      "interpreter_engine": "vm+jit",
+      "sizes": [
+        "50000",
+        "100000",
+        "4000000"
+      ],
+      "logos_source": "## To native args () -> Seq of Text\n## To native parseInt (s: Text) -> Int\n\n## Main\nLet arguments be args().\nLet n be parseInt(item 2 of arguments).\nLet pi be 3.141592653589793.\nLet solarMass be 4.0 * pi * pi.\nLet daysPerYear be 365.24.\n\nLet mutable bx be a new Seq of Float.\nLet mutable posY be a new Seq of Float.\nLet mutable bz be a new Seq of Float.\nLet mutable bvx be a new Seq of Float.\nLet mutable bvy be a new Seq of Float.\nLet mutable bvz be a new Seq of Float.\nLet mutable bm be a new Seq of Float.\n\nPush 0.0 to bx. Push 0.0 to posY. Push 0.0 to bz.\nPush 0.0 to bvx. Push 0.0 to bvy. Push 0.0 to bvz.\nPush solarMass to bm.\n\nPush 4.841431442464721 to bx. Push 0.0 - 1.1603200440274284 to posY. Push 0.0 - 0.10362204447112311 to bz.\nPush 0.001660076642744037 * daysPerYear to bvx. Push 0.007699011184197404 * daysPerYear to bvy. Push 0.0 - 0.0000690460016972063 * daysPerYear to bvz.\nPush 0.0009547919384243266 * solarMass to bm.\n\nPush 8.34336671824458 to bx. Push 4.124798564124305 to posY. Push 0.0 - 0.4035234171143214 to bz.\nPush 0.0 - 0.002767425107268624 * daysPerYear to bvx. Push 0.004998528012349172 * daysPerYear to bvy. Push 0.00002304172975737639 * daysPerYear to bvz.\nPush 0.0002858859806661308 * solarMass to bm.\n\nPush 12.894369562139131 to bx. Push 0.0 - 15.111151401698631 to posY. Push 0.0 - 0.22330757889265573 to bz.\nPush 0.002964601375647616 * daysPerYear to bvx. Push 0.0023784717395948095 * daysPerYear to bvy. Push 0.0 - 0.000029658956854023756 * daysPerYear to bvz.\nPush 0.00004366244043351563 * solarMass to bm.\n\nPush 15.379697114850917 to bx. Push 0.0 - 25.919314609987964 to posY. Push 0.17925877295037118 to bz.\nPush 0.0026806777249038932 * daysPerYear to bvx. Push 0.001628241700382423 * daysPerYear to bvy. Push 0.0 - 0.00009515922545197159 * daysPerYear to bvz.\nPush 0.00005151389020466114 * solarMass to bm.\n\nLet mutable px be 0.0.\nLet mutable py be 0.0.\nLet mutable pz be 0.0.\nLet mutable i be 1.\nWhile i is at most 5:\n    Set px to px + item i of bvx * item i of bm.\n    Set py to py + item i of bvy * item i of bm.\n    Set pz to pz + item i of bvz * item i of bm.\n    Set i to i + 1.\nSet item 1 of bvx to 0.0 - px / solarMass.\nSet item 1 of bvy to 0.0 - py / solarMass.\nSet item 1 of bvz to 0.0 - pz / solarMass.\n\nLet mutable e be 0.0.\nSet i to 1.\nWhile i is at most 5:\n    Set e to e + 0.5 * item i of bm * (item i of bvx * item i of bvx + item i of bvy * item i of bvy + item i of bvz * item i of bvz).\n    Let mutable j be i + 1.\n    While j is at most 5:\n        Let dx be item i of bx - item j of bx.\n        Let dy be item i of posY - item j of posY.\n        Let dz be item i of bz - item j of bz.\n        Set e to e - item i of bm * item j of bm / sqrt(dx * dx + dy * dy + dz * dz).\n        Set j to j + 1.\n    Set i to i + 1.\nShow \"{e:.9}\".\n\nLet dt be 0.01.\nLet mutable step be 0.\nWhile step is less than n:\n    Set i to 1.\n    While i is at most 5:\n        Let mutable j be i + 1.\n        While j is at most 5:\n            Let dx be item i of bx - item j of bx.\n            Let dy be item i of posY - item j of posY.\n            Let dz be item i of bz - item j of bz.\n            Let dist be sqrt(dx * dx + dy * dy + dz * dz).\n            Let mag be dt / (dist * dist * dist).\n            Set item i of bvx to item i of bvx - dx * item j of bm * mag.\n            Set item i of bvy to item i of bvy - dy * item j of bm * mag.\n            Set item i of bvz to item i of bvz - dz * item j of bm * mag.\n            Set item j of bvx to item j of bvx + dx * item i of bm * mag.\n            Set item j of bvy to item j of bvy + dy * item i of bm * mag.\n            Set item j of bvz to item j of bvz + dz * item i of bm * mag.\n            Set j to j + 1.\n        Set i to i + 1.\n    Set i to 1.\n    While i is at most 5:\n        Set item i of bx to item i of bx + dt * item i of bvx.\n        Set item i of posY to item i of posY + dt * item i of bvy.\n        Set item i of bz to item i of bz + dt * item i of bvz.\n        Set i to i + 1.\n    Set step to step + 1.\n\nSet e to 0.0.\nSet i to 1.\nWhile i is at most 5:\n    Set e to e + 0.5 * item i of bm * (item i of bvx * item i of bvx + item i of bvy * item i of bvy + item i of bvz * item i of bvz).\n    Let mutable j be i + 1.\n    While j is at most 5:\n        Let dx be item i of bx - item j of bx.\n        Let dy be item i of posY - item j of posY.\n        Let dz be item i of bz - item j of bz.\n        Set e to e - item i of bm * item j of bm / sqrt(dx * dx + dy * dy + dz * dz).\n        Set j to j + 1.\n    Set i to i + 1.\nShow \"{e:.9}\".",
+      "js_source": "const PI = 3.141592653589793;\nconst SOLAR_MASS = 4.0 * PI * PI;\nconst DAYS_PER_YEAR = 365.24;\n\nconst bodies = [\n    { x:0, y:0, z:0, vx:0, vy:0, vz:0, mass:SOLAR_MASS },\n    { x:4.84143144246472090e+00, y:-1.16032004402742839e+00, z:-1.03622044471123109e-01,\n      vx:1.66007664274403694e-03*DAYS_PER_YEAR, vy:7.69901118419740425e-03*DAYS_PER_YEAR,\n      vz:-6.90460016972063023e-05*DAYS_PER_YEAR, mass:9.54791938424326609e-04*SOLAR_MASS },\n    { x:8.34336671824457987e+00, y:4.12479856412430479e+00, z:-4.03523417114321381e-01,\n      vx:-2.76742510726862411e-03*DAYS_PER_YEAR, vy:4.99852801234917238e-03*DAYS_PER_YEAR,\n      vz:2.30417297573763929e-05*DAYS_PER_YEAR, mass:2.85885980666130812e-04*SOLAR_MASS },\n    { x:1.28943695621391310e+01, y:-1.51111514016986312e+01, z:-2.23307578892655734e-01,\n      vx:2.96460137564761618e-03*DAYS_PER_YEAR, vy:2.37847173959480950e-03*DAYS_PER_YEAR,\n      vz:-2.96589568540237556e-05*DAYS_PER_YEAR, mass:4.36624404335156298e-05*SOLAR_MASS },\n    { x:1.53796971148509165e+01, y:-2.59193146099879641e+01, z:1.79258772950371181e-01,\n      vx:2.68067772490389322e-03*DAYS_PER_YEAR, vy:1.62824170038242295e-03*DAYS_PER_YEAR,\n      vz:-9.51592254519715870e-05*DAYS_PER_YEAR, mass:5.15138902046611451e-05*SOLAR_MASS }\n];\n\nfunction offsetMomentum() {\n    let px=0, py=0, pz=0;\n    for (let i=0; i<5; i++) { px+=bodies[i].vx*bodies[i].mass; py+=bodies[i].vy*bodies[i].mass; pz+=bodies[i].vz*bodies[i].mass; }\n    bodies[0].vx=-px/SOLAR_MASS; bodies[0].vy=-py/SOLAR_MASS; bodies[0].vz=-pz/SOLAR_MASS;\n}\n\nfunction energy() {\n    let e=0;\n    for (let i=0; i<5; i++) {\n        e += 0.5*bodies[i].mass*(bodies[i].vx*bodies[i].vx+bodies[i].vy*bodies[i].vy+bodies[i].vz*bodies[i].vz);\n        for (let j=i+1; j<5; j++) {\n            const dx=bodies[i].x-bodies[j].x, dy=bodies[i].y-bodies[j].y, dz=bodies[i].z-bodies[j].z;\n            e -= bodies[i].mass*bodies[j].mass/Math.sqrt(dx*dx+dy*dy+dz*dz);\n        }\n    }\n    return e;\n}\n\nfunction advance(dt) {\n    for (let i=0; i<5; i++) {\n        for (let j=i+1; j<5; j++) {\n            const dx=bodies[i].x-bodies[j].x, dy=bodies[i].y-bodies[j].y, dz=bodies[i].z-bodies[j].z;\n            const dist=Math.sqrt(dx*dx+dy*dy+dz*dz);\n            const mag=dt/(dist*dist*dist);\n            bodies[i].vx-=dx*bodies[j].mass*mag; bodies[i].vy-=dy*bodies[j].mass*mag; bodies[i].vz-=dz*bodies[j].mass*mag;\n            bodies[j].vx+=dx*bodies[i].mass*mag; bodies[j].vy+=dy*bodies[i].mass*mag; bodies[j].vz+=dz*bodies[i].mass*mag;\n        }\n    }\n    for (let i=0; i<5; i++) { bodies[i].x+=dt*bodies[i].vx; bodies[i].y+=dt*bodies[i].vy; bodies[i].z+=dt*bodies[i].vz; }\n}\n\nconst n = parseInt(process.argv[2]);\noffsetMomentum();\nconsole.log(energy().toFixed(9));\nfor (let i=0; i<n; i++) advance(0.01);\nconsole.log(energy().toFixed(9));",
+      "scaling": {
+        "31506": {
+          "logos_interp": {
+            "mean_ms": 68.04335802000,
+            "median_ms": 67.73889922000,
+            "stddev_ms": 1.2304001780419672000,
+            "min_ms": 66.74610822000,
+            "max_ms": 69.94883522000,
+            "cv": 0.01808259048120928115,
+            "runs": 5,
+            "user_ms": 67.48686000,
+            "system_ms": 0.390012000
+          },
+          "js": {
+            "mean_ms": 30.676489800000005000,
+            "median_ms": 24.345492000,
+            "stddev_ms": 10.974877076758571000,
+            "min_ms": 21.964471000000003000,
+            "max_ms": 47.722056000000006000,
+            "cv": 0.35776182830274698545,
+            "runs": 5,
+            "user_ms": 27.4416000,
+            "system_ms": 6.526399999999999000
+          }
+        }
+      },
+      "compilation": {},
+      "timeouts": {}
+    },
+    {
+      "id": "spectral_norm",
+      "name": "Spectral Norm",
+      "reference_size": "171",
+      "interpreter_engine": "vm+jit",
+      "sizes": [
+        "1000",
+        "2000",
+        "5000"
+      ],
+      "logos_source": "## To native args () -> Seq of Text\n## To native parseInt (s: Text) -> Int\n\n## To aVal (i: Int, j: Int) -> Float:\n    Return 1.0 / ((i + j) * (i + j + 1) / 2 + i + 1).\n\n## To mulAv (n: Int, v: Seq of Float, out: Seq of Float) -> Seq of Float:\n    Let mutable result be out.\n    Let mutable i be 0.\n    While i is less than n:\n        Let mutable sum be 0.0.\n        Let mutable j be 0.\n        While j is less than n:\n            Set sum to sum + aVal(i, j) * item (j + 1) of v.\n            Set j to j + 1.\n        Set item (i + 1) of result to sum.\n        Set i to i + 1.\n    Return result.\n\n## To mulAtv (n: Int, v: Seq of Float, out: Seq of Float) -> Seq of Float:\n    Let mutable result be out.\n    Let mutable i be 0.\n    While i is less than n:\n        Let mutable sum be 0.0.\n        Let mutable j be 0.\n        While j is less than n:\n            Set sum to sum + aVal(j, i) * item (j + 1) of v.\n            Set j to j + 1.\n        Set item (i + 1) of result to sum.\n        Set i to i + 1.\n    Return result.\n\n## To mulAtav (n: Int, v: Seq of Float, result: Seq of Float, tmp: Seq of Float) -> Seq of Float:\n    Let t be mulAv(n, v, tmp).\n    Return mulAtv(n, t, result).\n\n## Main\nLet arguments be args().\nLet n be parseInt(item 2 of arguments).\nLet mutable u be a new Seq of Float.\nLet mutable v be a new Seq of Float.\nLet mutable tmp be a new Seq of Float.\nLet mutable i be 0.\nWhile i is less than n:\n    Push 1.0 to u.\n    Push 0.0 to v.\n    Push 0.0 to tmp.\n    Set i to i + 1.\nSet i to 0.\nWhile i is less than 10:\n    Set v to mulAtav(n, u, v, tmp).\n    Set u to mulAtav(n, v, u, tmp).\n    Set i to i + 1.\nLet mutable vbv be 0.0.\nLet mutable vv be 0.0.\nSet i to 1.\nWhile i is at most n:\n    Set vbv to vbv + item i of u * item i of v.\n    Set vv to vv + item i of v * item i of v.\n    Set i to i + 1.\nLet result be sqrt(vbv / vv).\nShow \"{result:.9}\".",
+      "js_source": "function A(i,j){return 1/((i+j)*(i+j+1)/2+i+1)}\nfunction mulAv(n,v,r){for(let i=0;i<n;i++){r[i]=0;for(let j=0;j<n;j++)r[i]+=A(i,j)*v[j]}}\nfunction mulAtv(n,v,r){for(let i=0;i<n;i++){r[i]=0;for(let j=0;j<n;j++)r[i]+=A(j,i)*v[j]}}\nfunction mulAtAv(n,v,r,t){mulAv(n,v,t);mulAtv(n,t,r)}\nconst n=parseInt(process.argv[2]);\nconst u=new Float64Array(n).fill(1),v=new Float64Array(n),t=new Float64Array(n);\nfor(let i=0;i<10;i++){mulAtAv(n,u,v,t);mulAtAv(n,v,u,t)}\nlet vBv=0,vv=0;\nfor(let i=0;i<n;i++){vBv+=u[i]*v[i];vv+=v[i]*v[i]}\nconsole.log(Math.sqrt(vBv/vv).toFixed(9));",
+      "scaling": {
+        "171": {
+          "logos_interp": {
+            "mean_ms": 145.40691218000,
+            "median_ms": 145.35207038000,
+            "stddev_ms": 5.012288350660126000,
+            "min_ms": 137.99649038000,
+            "max_ms": 151.82233738000,
+            "cv": 0.03447077085617076611,
+            "runs": 5,
+            "user_ms": 139.39862000,
+            "system_ms": 5.8236000
+          },
+          "js": {
+            "mean_ms": 31.7946894000,
+            "median_ms": 23.444632000,
+            "stddev_ms": 12.512155405583536000,
+            "min_ms": 21.522098000,
+            "max_ms": 46.963865000,
+            "cv": 0.39352972592912123242,
+            "runs": 5,
+            "user_ms": 26.718199999999998000,
+            "system_ms": 10.296799999999998000
+          }
+        }
+      },
+      "compilation": {},
+      "timeouts": {}
+    },
+    {
+      "id": "pi_leibniz",
+      "name": "Pi (Leibniz Series)",
+      "reference_size": "1917648",
+      "interpreter_engine": "vm+jit",
+      "sizes": [
+        "50000000",
+        "100000000",
+        "200000000"
+      ],
+      "logos_source": "## To native args () -> Seq of Text\n## To native parseInt (s: Text) -> Int\n\n## Main\nLet arguments be args().\nLet n be parseInt(item 2 of arguments).\nLet mutable sum be 0.0.\nLet mutable sign be 1.0.\nLet mutable k be 0.\nWhile k is less than n:\n    Set sum to sum + sign / (2.0 * k + 1.0).\n    Set sign to 0.0 - sign.\n    Set k to k + 1.\nLet result be sum * 4.0.\nShow \"{result:.15}\".",
+      "js_source": "const n = parseInt(process.argv[2]);\nlet sum = 0, sign = 1;\nfor (let k = 0; k < n; k++) { sum += sign / (2 * k + 1); sign = -sign; }\nconsole.log((sum * 4).toFixed(15));",
+      "scaling": {
+        "1917648": {
+          "logos_interp": {
+            "mean_ms": 22.677908099999998000,
+            "median_ms": 22.6780315000,
+            "stddev_ms": 2.619596924376497000,
+            "min_ms": 20.1893955000,
+            "max_ms": 26.5998855000,
+            "cv": 0.11551316430180335861,
+            "runs": 5,
+            "user_ms": 21.97544000,
+            "system_ms": 0.708056000
+          },
+          "js": {
+            "mean_ms": 23.089437400000003000,
+            "median_ms": 22.725273000,
+            "stddev_ms": 3.7384192556441953000,
+            "min_ms": 19.452282000,
+            "max_ms": 28.931461000000002000,
+            "cv": 0.16191036580407086117,
+            "runs": 5,
+            "user_ms": 18.848000,
+            "system_ms": 5.633999999999999000
+          }
+        }
+      },
+      "compilation": {},
+      "timeouts": {}
+    },
+    {
+      "id": "mandelbrot",
+      "name": "Mandelbrot Set",
+      "reference_size": "203",
+      "interpreter_engine": "vm+jit",
+      "sizes": [
+        "500",
+        "1000",
+        "2000"
+      ],
+      "logos_source": "## To native args () -> Seq of Text\n## To native parseInt (s: Text) -> Int\n\n## Main\nLet arguments be args().\nLet n be parseInt(item 2 of arguments).\nLet mutable count be 0.\nLet mutable y be 0.\nWhile y is less than n:\n    Let mutable x be 0.\n    While x is less than n:\n        Let cr be 2.0 * x / n - 1.5.\n        Let ci be 2.0 * y / n - 1.0.\n        Let mutable zr be 0.0.\n        Let mutable zi be 0.0.\n        Let mutable isInside be 1.\n        Let mutable iter be 0.\n        While iter is less than 50:\n            Let zr2 be zr * zr - zi * zi + cr.\n            Let zi2 be 2.0 * zr * zi + ci.\n            Set zr to zr2.\n            Set zi to zi2.\n            If zr * zr + zi * zi is greater than 4.0:\n                Set isInside to 0.\n                Set iter to 50.\n            Set iter to iter + 1.\n        If isInside equals 1:\n            Set count to count + 1.\n        Set x to x + 1.\n    Set y to y + 1.\nShow count.",
+      "js_source": "const n = parseInt(process.argv[2]);\nlet count = 0;\nfor (let y = 0; y < n; y++) for (let x = 0; x < n; x++) {\n    const cr = 2*x/n - 1.5, ci = 2*y/n - 1;\n    let zr = 0, zi = 0, inside = true;\n    for (let i = 0; i < 50; i++) {\n        const t = zr*zr - zi*zi + cr; zi = 2*zr*zi + ci; zr = t;\n        if (zr*zr + zi*zi > 4) { inside = false; break; }\n    }\n    if (inside) count++;\n}\nconsole.log(count);",
+      "scaling": {
+        "203": {
+          "logos_interp": {
+            "mean_ms": 20.87064644000,
+            "median_ms": 18.61931264000,
+            "stddev_ms": 3.4475417735853045000,
+            "min_ms": 17.91082364000,
+            "max_ms": 24.786659640000003000,
+            "cv": 0.16518615192377838489,
+            "runs": 5,
+            "user_ms": 21.222659999999997000,
+            "system_ms": 0.011859999999999953000
+          },
+          "js": {
+            "mean_ms": 22.3850916000,
+            "median_ms": 21.585345000000002000,
+            "stddev_ms": 1.7875470467567565000,
+            "min_ms": 20.464427000,
+            "max_ms": 24.535321000000002000,
+            "cv": 0.07985435479552634486,
+            "runs": 5,
+            "user_ms": 18.452199999999995000,
+            "system_ms": 6.0836000
+          }
+        }
+      },
+      "compilation": {},
+      "timeouts": {}
+    },
+    {
+      "id": "fib",
+      "name": "Recursive Fibonacci",
+      "reference_size": "30",
+      "interpreter_engine": "vm+jit",
+      "sizes": [
+        "30",
+        "35",
+        "40"
+      ],
+      "logos_source": "## To native args () -> Seq of Text\n## To native parseInt (s: Text) -> Int\n\n## To fib (n: Int) -> Int:\n    If n is less than 2:\n        Return n.\n    Return fib(n - 1) + fib(n - 2).\n\n## Main\nLet arguments be args().\nLet n be parseInt(item 2 of arguments).\nShow fib(n).",
+      "js_source": "function fib(n) {\n    if (n < 2) return n;\n    return fib(n - 1) + fib(n - 2);\n}\n\nconst n = parseInt(process.argv[2]);\nconsole.log(fib(n));",
+      "scaling": {
+        "30": {
+          "logos_interp": {
+            "mean_ms": 131.74531398000,
+            "median_ms": 128.32039318000,
+            "stddev_ms": 5.535301144888031000,
+            "min_ms": 127.73722718000,
+            "max_ms": 140.39169818000,
+            "cv": 0.04201516530393129812,
+            "runs": 5,
+            "user_ms": 126.47254000,
+            "system_ms": 5.1335600000000006000
+          },
+          "js": {
+            "mean_ms": 30.223042200000005000,
+            "median_ms": 27.48389000,
+            "stddev_ms": 6.29388006253795000,
+            "min_ms": 25.350907000000002000,
+            "max_ms": 41.102745000,
+            "cv": 0.20824773432430799301,
+            "runs": 5,
+            "user_ms": 23.883599999999998000,
+            "system_ms": 7.389999999999999000
+          }
+        }
+      },
+      "compilation": {},
+      "timeouts": {}
+    },
+    {
+      "id": "fib_iterative",
+      "name": "Iterative Fibonacci",
+      "reference_size": "3745763",
+      "interpreter_engine": "vm+jit",
+      "sizes": [
+        "100000000",
+        "500000000",
+        "1000000000"
+      ],
+      "logos_source": "## To native args () -> Seq of Text\n## To native parseInt (s: Text) -> Int\n\n## Main\nLet arguments be args().\nLet n be parseInt(item 2 of arguments).\nLet mutable a be 0.\nLet mutable b be 1.\nLet mutable i be 0.\nWhile i is less than n:\n    Let temp be b.\n    Set b to (a + b) % 1000000007.\n    Set a to temp.\n    Set i to i + 1.\nShow a.",
+      "js_source": "const n = parseInt(process.argv[2]);\nlet a = 0, b = 1;\nfor (let i = 0; i < n; i++) {\n    const temp = b;\n    b = (a + b) % 1000000007;\n    a = temp;\n}\nconsole.log(a);",
+      "scaling": {
+        "3745763": {
+          "logos_interp": {
+            "mean_ms": 29.361829319999998000,
+            "median_ms": 24.60367292000,
+            "stddev_ms": 7.275196282738859000,
+            "min_ms": 24.05178992000,
+            "max_ms": 40.09270292000,
+            "cv": 0.24777735077232781542,
+            "runs": 5,
+            "user_ms": 28.935639999999995000,
+            "system_ms": 0.490168000
+          },
+          "js": {
+            "mean_ms": 32.8724046000,
+            "median_ms": 33.092701000,
+            "stddev_ms": 6.549682447456159000,
+            "min_ms": 25.850747000,
+            "max_ms": 41.328505000,
+            "cv": 0.19924561428208263778,
+            "runs": 5,
+            "user_ms": 28.91000,
+            "system_ms": 5.320199999999999000
+          }
+        }
+      },
+      "compilation": {},
+      "timeouts": {}
+    },
+    {
+      "id": "collatz",
+      "name": "Collatz Conjecture",
+      "reference_size": "36369",
+      "interpreter_engine": "vm+jit",
+      "sizes": [
+        "1000000",
+        "5000000",
+        "10000000"
+      ],
+      "logos_source": "## To native args () -> Seq of Text\n## To native parseInt (s: Text) -> Int\n\n## Main\nLet arguments be args().\nLet n be parseInt(item 2 of arguments).\nLet mutable total be 0.\nLet mutable i be 1.\nWhile i is at most n:\n    Let mutable k be i.\n    While k is not 1:\n        If k % 2 equals 0:\n            Set k to k / 2.\n        Otherwise:\n            Set k to 3 * k + 1.\n        Set total to total + 1.\n    Set i to i + 1.\nShow total.",
+      "js_source": "const n = parseInt(process.argv[2]);\nlet total = 0;\nfor (let i = 1; i <= n; i++) {\n    let k = i;\n    while (k !== 1) {\n        if (k % 2 === 0) k = k / 2;\n        else k = 3 * k + 1;\n        total++;\n    }\n}\nconsole.log(total);",
+      "scaling": {
+        "36369": {
+          "logos_interp": {
+            "mean_ms": 32.757329700000004000,
+            "median_ms": 32.8326133000,
+            "stddev_ms": 0.6682034136019495000,
+            "min_ms": 32.0227563000,
+            "max_ms": 33.6648943000,
+            "cv": 0.02039859230656244298,
+            "runs": 5,
+            "user_ms": 31.4748000,
+            "system_ms": 1.21686000
+          },
+          "js": {
+            "mean_ms": 25.3278746000,
+            "median_ms": 24.599318000000002000,
+            "stddev_ms": 3.0782899600694373000,
+            "min_ms": 21.712423000,
+            "max_ms": 30.112643000,
+            "cv": 0.12153763427387773390,
+            "runs": 5,
+            "user_ms": 20.928000,
+            "system_ms": 5.7074000
+          }
+        }
+      },
+      "compilation": {},
+      "timeouts": {}
+    },
+    {
+      "id": "loop_sum",
+      "name": "Loop Sum",
+      "reference_size": "4351996",
+      "interpreter_engine": "vm+jit",
+      "sizes": [
+        "100000000",
+        "500000000",
+        "1000000000"
+      ],
+      "logos_source": "## To native args () -> Seq of Text\n## To native parseInt (s: Text) -> Int\n\n## Main\nLet arguments be args().\nLet n be parseInt(item 2 of arguments).\nLet mutable sum be 0.\nLet mutable i be 1.\nWhile i is at most n:\n    Set sum to (sum + i) % 1000000007.\n    Set i to i + 1.\nShow sum.",
+      "js_source": "const n = parseInt(process.argv[2]);\nlet sum = 0;\nfor (let i = 1; i <= n; i++) {\n    sum = (sum + i) % 1000000007;\n}\nconsole.log(sum);",
+      "scaling": {
+        "4351996": {
+          "logos_interp": {
+            "mean_ms": 29.822219700000003000,
+            "median_ms": 27.553100700000003000,
+            "stddev_ms": 5.587806793017496000,
+            "min_ms": 24.5850477000,
+            "max_ms": 38.8338267000,
+            "cv": 0.18737058640264444963,
+            "runs": 5,
+            "user_ms": 29.897120000000006000,
+            "system_ms": 0.12025199999999999000
+          },
+          "js": {
+            "mean_ms": 30.186818799999997000,
+            "median_ms": 26.553826000000003000,
+            "stddev_ms": 6.389059255499881000,
+            "min_ms": 24.912344000000003000,
+            "max_ms": 40.147266000,
+            "cv": 0.21165063128480042537,
+            "runs": 5,
+            "user_ms": 24.568399999999997000,
+            "system_ms": 6.780799999999999000
+          }
+        }
+      },
+      "compilation": {},
+      "timeouts": {}
+    },
+    {
+      "id": "counting_sort",
+      "name": "Counting Sort",
+      "reference_size": "800915",
+      "interpreter_engine": "vm+jit",
+      "sizes": [
+        "1000000",
+        "40000000"
+      ],
+      "logos_source": "## To native args () -> Seq of Text\n## To native parseInt (s: Text) -> Int\n\n## Main\nLet arguments be args().\nLet n be parseInt(item 2 of arguments).\nLet mutable arr be a new Seq of Int.\nLet mutable seed be 42.\nLet mutable i be 0.\nWhile i is less than n:\n    Set seed to (seed * 1103515245 + 12345) % 2147483648.\n    Push (seed / 65536) % 1000 to arr.\n    Set i to i + 1.\nLet mutable counts be a new Seq of Int.\nSet i to 0.\nWhile i is less than 1000:\n    Push 0 to counts.\n    Set i to i + 1.\nSet i to 1.\nWhile i is at most n:\n    Let v be item i of arr.\n    Set item (v + 1) of counts to (item (v + 1) of counts) + 1.\n    Set i to i + 1.\nLet mutable sorted be a new Seq of Int.\nLet mutable v be 0.\nWhile v is less than 1000:\n    Let mutable c be 0.\n    While c is less than item (v + 1) of counts:\n        Push v to sorted.\n        Set c to c + 1.\n    Set v to v + 1.\nLet mutable checksum be 0.\nSet i to 1.\nWhile i is at most n:\n    Set checksum to (checksum + item i of sorted) % 1000000007.\n    Set i to i + 1.\nShow \"\" + item 1 of sorted + \" \" + item n of sorted + \" \" + checksum.",
+      "js_source": "const n = parseInt(process.argv[2]);\nconst arr = new Array(n);\nlet seed = 42;\nfor (let i = 0; i < n; i++) {\n    seed = ((Math.imul(seed, 1103515245) + 12345) >>> 0) % 2147483648;\n    arr[i] = (seed >> 16) % 1000;\n}\nconst counts = new Array(1000).fill(0);\nfor (const v of arr) counts[v]++;\nconst sorted = [];\nfor (let v = 0; v < 1000; v++)\n    for (let c = 0; c < counts[v]; c++)\n        sorted.push(v);\nlet checksum = 0;\nfor (const v of sorted) checksum = (checksum + v) % 1000000007;\nconsole.log(`${sorted[0]} ${sorted[n - 1]} ${checksum}`);",
+      "scaling": {
+        "800915": {
+          "logos_interp": {
+            "mean_ms": 29.83392702000,
+            "median_ms": 29.711028420000004000,
+            "stddev_ms": 0.4675880829531471000,
+            "min_ms": 29.301910420000004000,
+            "max_ms": 30.43167842000,
+            "cv": 0.01567303166759395994,
+            "runs": 5,
+            "user_ms": 27.417599999999997000,
+            "system_ms": 2.4487600000000003000
+          },
+          "js": {
+            "mean_ms": 46.536459200000005000,
+            "median_ms": 44.248966000,
+            "stddev_ms": 3.610422999607277000,
+            "min_ms": 43.854239000,
+            "max_ms": 51.730073000,
+            "cv": 0.07758267521150978783,
+            "runs": 5,
+            "user_ms": 35.9276000,
+            "system_ms": 19.2984000
+          }
+        }
+      },
+      "compilation": {},
+      "timeouts": {}
+    },
+    {
+      "id": "heap_sort",
+      "name": "Heap Sort",
+      "reference_size": "60094",
+      "interpreter_engine": "vm+jit",
+      "sizes": [
+        "50000",
+        "100000",
+        "2500000"
+      ],
+      "logos_source": "## To native args () -> Seq of Text\n## To native parseInt (s: Text) -> Int\n\n## To siftDown (arr: Seq of Int, start: Int, end: Int) -> Seq of Int:\n    Let mutable result be arr.\n    Let mutable root be start.\n    While 2 * root + 1 is at most end:\n        Let child be 2 * root + 1.\n        Let mutable swapIdx be root.\n        If item (swapIdx + 1) of result is less than item (child + 1) of result:\n            Set swapIdx to child.\n        If child + 1 is at most end:\n            If item (swapIdx + 1) of result is less than item (child + 2) of result:\n                Set swapIdx to child + 1.\n        If swapIdx equals root:\n            Return result.\n        Let tmp be item (root + 1) of result.\n        Set item (root + 1) of result to item (swapIdx + 1) of result.\n        Set item (swapIdx + 1) of result to tmp.\n        Set root to swapIdx.\n    Return result.\n\n## Main\nLet arguments be args().\nLet n be parseInt(item 2 of arguments).\nLet mutable arr be a new Seq of Int.\nLet mutable seed be 42.\nLet mutable i be 0.\nWhile i is less than n:\n    Set seed to (seed * 1103515245 + 12345) % 2147483648.\n    Push (seed / 65536) % 32768 to arr.\n    Set i to i + 1.\nLet mutable start be (n - 2) / 2.\nWhile start is at least 0:\n    Set arr to siftDown(arr, start, n - 1).\n    Set start to start - 1.\nLet mutable end be n - 1.\nWhile end is greater than 0:\n    Let tmp be item 1 of arr.\n    Set item 1 of arr to item (end + 1) of arr.\n    Set item (end + 1) of arr to tmp.\n    Set end to end - 1.\n    Set arr to siftDown(arr, 0, end).\nLet mutable checksum be 0.\nSet i to 1.\nWhile i is at most n:\n    Set checksum to (checksum + item i of arr) % 1000000007.\n    Set i to i + 1.\nShow \"\" + item 1 of arr + \" \" + item n of arr + \" \" + checksum.",
+      "js_source": "function siftDown(arr, start, end) {\n    let root = start;\n    while (2 * root + 1 <= end) {\n        let child = 2 * root + 1;\n        let swap = root;\n        if (arr[swap] < arr[child]) swap = child;\n        if (child + 1 <= end && arr[swap] < arr[child + 1]) swap = child + 1;\n        if (swap === root) return;\n        [arr[root], arr[swap]] = [arr[swap], arr[root]];\n        root = swap;\n    }\n}\nconst n = parseInt(process.argv[2]);\nconst arr = new Array(n);\nlet seed = 42;\nfor (let i = 0; i < n; i++) { seed = ((Math.imul(seed, 1103515245) + 12345) >>> 0) % 2147483648; arr[i] = (seed>>16)&0x7fff; }\nfor (let s = Math.floor((n-2)/2); s >= 0; s--) siftDown(arr, s, n-1);\nfor (let end = n-1; end > 0; end--) { [arr[0], arr[end]] = [arr[end], arr[0]]; siftDown(arr, 0, end-1); }\nlet checksum = 0;\nfor (const v of arr) checksum = (checksum + v) % 1000000007;\nconsole.log(`${arr[0]} ${arr[n-1]} ${checksum}`);",
+      "scaling": {
+        "60094": {
+          "logos_interp": {
+            "mean_ms": 90.43506862000002000,
+            "median_ms": 89.36319742000001000,
+            "stddev_ms": 4.435889687596018000,
+            "min_ms": 86.31085242000001000,
+            "max_ms": 95.89832142000002000,
+            "cv": 0.04905054814781227529,
+            "runs": 5,
+            "user_ms": 88.71225999999999000,
+            "system_ms": 1.4980999999999998000
+          },
+          "js": {
+            "mean_ms": 32.618963800000005000,
+            "median_ms": 30.905190000000003000,
+            "stddev_ms": 2.6857917705464815000,
+            "min_ms": 30.670758000000003000,
+            "max_ms": 36.685932000000004000,
+            "cv": 0.08233835345028590663,
+            "runs": 5,
+            "user_ms": 36.263000000000004000,
+            "system_ms": 6.613799999999999000
+          }
+        }
+      },
+      "compilation": {},
+      "timeouts": {}
+    }
+  ],
+  "summary": {
+    "geometric_mean_logos_interp_over_node": 1.554
+  }
+}

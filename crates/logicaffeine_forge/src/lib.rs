@@ -1,29 +1,5 @@
-//! The Forge: the copy-and-patch JIT's executable-memory layer.
-//!
-//! [`JitPage`] allocates page-aligned memory, copies machine code into it,
-//! makes it executable, and hands back a callable function pointer. This is
-//! the foundation the copy-and-patch JIT builds on: at runtime, compiling a
-//! function is `memcpy(stencil bytes)` + patch relocations, then flip the page
-//! to executable.
-//!
-//! # W^X model per platform
-//!
-//! - **macOS/aarch64 (Apple Silicon)**: `mmap(PROT_RWX, MAP_JIT)` plus
-//!   per-thread `pthread_jit_write_protect_np` toggling, and a mandatory
-//!   `sys_icache_invalidate` after writing (ARM's I-cache is not coherent with
-//!   stores). The write-protect toggle is PER-THREAD: all writes happen inside
-//!   [`JitPage::new`] on the constructing thread, before any function pointer
-//!   can escape, so no cross-thread W^X hazard exists.
-//! - **Other Unix (Linux, Intel macOS)**: `mmap(RW)` → copy → `mprotect(RX)`
-//!   (checked). On aarch64 Linux the I-cache is flushed with inline asm —
-//!   `mprotect` does NOT do that for you.
-//! - **Windows**: `VirtualAlloc(RW)` → copy → `VirtualProtect(EXECUTE_READ)`
-//!   (checked) → `FlushInstructionCache`.
-//!
-//! NATIVE ONLY. A copy-and-patch JIT emits raw machine code and cannot run in
-//! the WASM sandbox; the browser uses the bytecode VM instead.
-
 #![cfg(not(target_arch = "wasm32"))]
+#![doc = include_str!("../README.md")]
 
 use std::fmt;
 use std::mem;
@@ -557,9 +533,10 @@ mod tests {
         let chain = compile_straightline(&prog).expect("compile");
         let mut frame = [40i64, 5, 0];
         assert_eq!(chain.run_with_frame(&mut frame), ChainOutcome::Return(8));
-        // The kernel's locked wrapping edge: i64::MIN / -1 = i64::MIN.
+        // Exact arithmetic: the overflowing quotient i64::MIN / -1 side-exits
+        // (deopt → the promoting tiers), never wraps.
         let mut frame = [i64::MIN, -1, 0];
-        assert_eq!(chain.run_with_frame(&mut frame), ChainOutcome::Return(i64::MIN));
+        assert_eq!(chain.run_with_frame(&mut frame), ChainOutcome::Deopt(1));
         // Zero divisor: side exit, then the NEXT run is clean (cell resets).
         let mut frame = [40i64, 0, 0];
         assert_eq!(chain.run_with_frame(&mut frame), ChainOutcome::Deopt(1));

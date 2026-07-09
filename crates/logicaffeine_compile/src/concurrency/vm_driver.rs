@@ -75,6 +75,16 @@ impl<'p> VmTask<'p> {
             VmBlock::Abort(t) => TaskStep::Abort(t),
             VmBlock::Select(arms) => TaskStep::Select(arms),
             VmBlock::Sleep(d) => TaskStep::Sleep(d),
+            // Peer networking never reaches this cooperative-scheduler driver: a program that
+            // networks routes to the dedicated async VM runner (`run_vm_net_async`), which owns a
+            // `NetInbox` and services these directly. Defensive `IoPending` if it ever does.
+            VmBlock::NetConnect(_)
+            | VmBlock::NetListen(_)
+            | VmBlock::NetSend(_, _)
+            | VmBlock::NetStream(_, _)
+            | VmBlock::NetAwait(_, _)
+            | VmBlock::NetMakePeer(_)
+            | VmBlock::NetSync(_, _) => TaskStep::IoPending,
         }
     }
 }

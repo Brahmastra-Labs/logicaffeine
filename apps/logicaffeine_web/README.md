@@ -5,7 +5,7 @@ single-page Dioxus/WASM app that runs the full LOGOS engine client-side — pars
 streaming interpretation, proof checking, Rust code generation, and SystemVerilog
 assertion synthesis all happen in-wasm with no server round-trip.
 
-Part of the [Logicaffeine](../../NEW_README.md) workspace. Tier 4, WASM (Dioxus).
+Part of the [Logicaffeine](https://github.com/Brahmastra-Labs/logicaffeine/blob/main/README.md) workspace. Tier 4, WASM (Dioxus).
 Embeds the engine crates and runs them client-side.
 
 ## Role in the workspace
@@ -15,7 +15,7 @@ dependencies and compiles them to `wasm32` so the entire transpiler executes in 
 browser. The crate is `publish = false` — it ships as the deployed site, not a library.
 
 For the user-facing feature tour (the Studio modes, the Learn curriculum, XP/streaks,
-spaced repetition), see **[../../new_docs/studio-and-learn.md](../../new_docs/studio-and-learn.md)**.
+spaced repetition), see **[studio-and-learn.md](https://github.com/Brahmastra-Labs/logicaffeine/blob/main/docs/studio-and-learn.md)**.
 This README is the developer-facing view: tech stack, module layout, embedded crates,
 and how to build and serve.
 
@@ -24,12 +24,17 @@ and how to build and serve.
 - **Dioxus 0.7** (`web` + `router`), compiled to `wasm32`.
 - `wasm-bindgen`, `web-sys`, `js-sys`, `wasm-bindgen-futures`, plus `gloo`
   (`gloo-timers`, `gloo-net`, `gloo-storage`).
-- **CodeMirror 6** (editor) and **KaTeX 0.16** (LaTeX rendering), loaded from CDN in
-  `index.html` and bridged to WASM via `window.CodeMirror` / `window.renderKaTeX`.
+- **KaTeX 0.16** (LaTeX rendering), lazy-loaded from CDN on the first math render and
+  bridged to WASM via `window.renderKaTeX`; editors are styled native textareas.
 - LocalStorage (`gloo-storage`) backs progress, license, and theme state.
-- `include_dir` embeds the curriculum assets into the binary at compile time;
-  `serde`/`serde_json` parse the exercise JSON; `getrandom`/`rand` (js feature) seed
-  generation; `bumpalo` arena and `async-recursion` support the engine and async flows.
+- `include_dir` embeds the curriculum JSON (`assets/curriculum/` only — images stay out
+  of the binary) at compile time; `serde`/`serde_json` parse the exercise JSON;
+  `getrandom`/`rand` (js feature) seed generation; `bumpalo` arena and
+  `async-recursion` support the engine and async flows.
+- Heavy page data (benchmark results + program sources, legal HTML, the dynamic
+  lexicon) is **fetched at runtime** from `/data/*`, staged from the repo's sources of
+  truth by `scripts/stage-web-data.sh`; native builds compile the same bytes in, so
+  tests and prerendering see identical data.
 - Release bundles are post-processed by binaryen's `wasm-opt` (see Develop & build).
 
 ## Module layout
@@ -41,7 +46,7 @@ and `AstNode` and declares the modules below.
 
 | Module | Purpose |
 |--------|---------|
-| `content` | Loads the curriculum from embedded JSON (`include_dir!` of `assets/`); era → module → exercise hierarchy |
+| `content` | Loads the curriculum from embedded JSON (`include_dir!` of `assets/curriculum/`); era → module → exercise hierarchy |
 | `generator` | Fills exercise templates with lexicon words to build graded `Challenge`s |
 | `game` | XP, streaks, combos, level progression, exercise flow |
 | `grader` | Answer validation with whitespace/Unicode normalization |
@@ -55,13 +60,13 @@ and `AstNode` and declares the modules below.
 | `audio` | Sound-effect playback via JS interop |
 | `sitemap` | SEO route enumeration |
 
-**UI** (`src/ui/`): the Dioxus `App`, the `Route` enum (`router.rs`), `pages/`,
+The `ui` module (`src/ui/`): the Dioxus `App`, the `Route` enum (`router.rs`), `pages/`,
 `components/`, `hooks/`, the theme system (`theme.rs`, `theme_state.rs`), responsive
 helpers, and JSON-LD SEO schemas (`seo.rs`).
 
 **Routes** (`src/ui/router.rs`): `/` Landing, `/studio`, `/learn`, `/benchmarks`,
 `/guide`, `/crates`, `/registry` (+ `/registry/package/:name`), `/news` (+ `/news/:slug`),
-`/roadmap`, `/roadmap-new`, `/pricing`, `/profile`, `/workspace/:subject`, `/success`,
+`/roadmap`, `/pricing`, `/profile`, `/workspace/:subject`, `/success`,
 `/privacy`, `/terms`, and a `/:..route` 404 catch-all.
 
 **Studio** (`/studio`) is a four-mode playground (`StudioMode`):
@@ -78,7 +83,7 @@ shows LOGOS vs other languages with a live optimization-toggle tree backed by
 `logicaffeine_compile::optimization::{REGISTRY, OptimizationConfig}` that re-compiles
 Rust in the browser.
 
-The curriculum assets live under `assets/`, organized into four eras —
+The curriculum assets live under `assets/curriculum/`, organized into four eras —
 `01_first-steps`, `02_building-blocks`, `03_expanding-horizons`, `04_mastery` — each
 holding numbered modules of exercise JSON, embedded via `include_dir!`.
 
@@ -94,17 +99,41 @@ All run client-side in WASM (`Cargo.toml` path deps):
 (`SolvedGrid`), the `optimization` registry, and the re-exported `AstNode`.
 `proof` supplies the `BackwardChainer`, `DerivationTree`, and tactic hints.
 
+## Feature flags
+
+The renderer is a per-target feature so `dx` can build both sides of the SSG
+pipeline from one crate (a renderer in the base dependencies would drag
+`dioxus-web` into the native prerender server and vice versa):
+
+| Feature | Description |
+|---------|-------------|
+| `web` | The wasm client (`dioxus/web`) — dx auto-selects it for the browser build. Deliberately **not** fullstack: the client takes over the prerendered HTML with a fresh client-side render instead of hydrating (a hydrating client hard-fails on SPA-fallback URLs). |
+| `server` | The native SSG prerender server (`dioxus/server` + `dioxus/fullstack`) — dx builds and spawns it for `--ssg --fullstack`; it answers `/api/static_routes` from `sitemap::prerender_routes()` and writes each route's HTML into `web/prerendered/`. |
+| `split` | Code-splitting (`dioxus/wasm-split`): `#[component(lazy)]` route bodies move into a lazily-fetched wasm chunk. Deploy builds pass `--features split` together with dx's `--wasm-split`; without **both**, lazy components compile to direct calls. |
+
 ## Develop & build
 
 Run **from the repository root** — `dx` resolves workspace `default-members` against the
 current directory and panics otherwise:
 
 ```bash
+# stage the /data runtime bundle (benchmark results, legal HTML, lexicon) —
+# required before serving or building; validates every file or fails loudly
+./scripts/stage-web-data.sh
+
 # dev server with hot reload
 dx serve -p logicaffeine-web
 
 # optimized WASM bundle (workspace `wasm-release` profile)
 dx build -p logicaffeine-web --release
+
+# the full deploy artifact: split client (lazy route/engine chunks) + SSG
+# prerender of every sitemap route, then lay the prerendered pages over
+# public/ (dx writes the shell last)
+dx build -p logicaffeine-web --release --ssg --fullstack --wasm-split --features split
+./scripts/merge-ssg.sh
+./scripts/verify-ssg.sh
+./scripts/wasm-size-gate.sh
 ```
 
 The `wasm-release` profile inherits `release` with `debug = false`, `strip = true`,
@@ -114,7 +143,7 @@ in-wasm LOGOS engine fast.
 
 ## License
 
-Business Source License 1.1 — see [LICENSE.md](../../LICENSE.md).
+Business Source License 1.1 — see [LICENSE.md](https://github.com/Brahmastra-Labs/logicaffeine/blob/main/LICENSE.md).
 
 ---
-[Docs index](../../new_docs/README.md) · [Root README](../../NEW_README.md) · [Changelog](../../CHANGELOG.md)
+[Docs index](https://github.com/Brahmastra-Labs/logicaffeine/blob/main/docs/README.md) · [Root README](https://github.com/Brahmastra-Labs/logicaffeine/blob/main/README.md) · [Changelog](https://github.com/Brahmastra-Labs/logicaffeine/blob/main/CHANGELOG.md)

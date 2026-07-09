@@ -1,4 +1,4 @@
-// WS5 (FINISH_INTERPRETER.md Phase 12) — drive the true-multicore WASM threads primitive.
+// WS5 (work/FINISH_INTERPRETER.md Phase 12) — drive the true-multicore WASM threads primitive.
 //
 // One file, two roles (node `worker_threads`, real OS threads — the headless analog of browser
 // Web Workers). The MAIN role creates ONE shared `WebAssembly.Memory`, spawns N workers sharing

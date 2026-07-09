@@ -20,6 +20,8 @@
 //! Accessed via [`Route::Learn`](crate::ui::router::Route::Learn).
 
 use dioxus::prelude::*;
+#[cfg(all(feature = "split", target_arch = "wasm32"))]
+use dioxus::wasm_split;
 use crate::ui::components::main_nav::{MainNav, ActivePage};
 use crate::ui::components::learn_sidebar::{LearnSidebar, ModuleInfo};
 use crate::ui::components::symbol_dictionary::SymbolDictionary;
@@ -1193,7 +1195,7 @@ fn get_curriculum_data() -> Vec<EraData> {
 /// Expanded module key: (era_id, module_id)
 type ExpandedModuleKey = Option<(String, String)>;
 
-#[component]
+#[component(lazy)]
 pub fn Learn() -> Element {
     let mut active_module = use_signal(|| None::<String>);
     // Expanded module state: which module is currently expanded inline
@@ -1609,6 +1611,15 @@ enum ContentView {
 /// Interactive exercise panel with reveal buttons instead of tabs
 #[component]
 fn InteractiveExercisePanel(era_id: String, module_id: String) -> Element {
+    rsx! {
+        crate::ui::components::lexicon_gate::LexiconGate {
+            InteractiveExercisePanelInner { era_id, module_id }
+        }
+    }
+}
+
+#[component]
+fn InteractiveExercisePanelInner(era_id: String, module_id: String) -> Element {
     use crate::content::{ContentBlock, Section};
 
     let engine = ContentEngine::new();

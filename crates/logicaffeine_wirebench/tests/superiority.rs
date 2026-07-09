@@ -225,6 +225,71 @@ fn we_beat_bincode_at_fixed_encode_speed() {
 }
 
 // =====================================================================================
+// RULE 2b — BEAT bincode at STRUCT and STRING encode too, not just int arrays. Our columnar
+//           layout used to pay a build cost on these (a record list and a string list both
+//           encoded slower than bincode's row dump); the flat-string column repr + the fixed
+//           numeric dial now win. Same-run min-of-rounds; measured ~1.6×, assert a safe 1.2×.
+// =====================================================================================
+#[test]
+fn we_beat_bincode_at_struct_and_string_encode() {
+    use logicaffeine_compile::interpreter::StructValue;
+    use std::collections::HashMap;
+
+    let mut rng = Rng::new(0x5EC0);
+    let names = ["alice", "bob", "carol", "dave", "erin"];
+    #[derive(serde::Serialize)]
+    struct Rec {
+        id: i64,
+        name: String,
+        active: bool,
+    }
+    let recs: Vec<Rec> = (0..200)
+        .map(|i| Rec { id: rng.uint(), name: names[(rng.next() % 5) as usize].to_string(), active: i % 2 == 0 })
+        .collect();
+    let rv = rv_from(
+        recs.iter()
+            .map(|r| {
+                let mut f = HashMap::new();
+                f.insert("id".to_string(), RuntimeValue::Int(r.id));
+                f.insert("name".to_string(), RuntimeValue::Text(Rc::new(r.name.clone())));
+                f.insert("active".to_string(), RuntimeValue::Bool(r.active));
+                RuntimeValue::Struct(Box::new(StructValue { type_name: "Record".to_string(), fields: f }))
+            })
+            .collect(),
+    );
+    // Record list: the fixed dial is the apples-to-apples (both fixed-width) speed competitor.
+    let ours_rec = batch_ns(50, 4000, || {
+        black_box(with_numerics(WireNumerics::Fixed, || enc(&rv)));
+    });
+    let bin_rec = batch_ns(50, 4000, || {
+        black_box(bincode::serialize(&recs).unwrap());
+    });
+    assert!(
+        ours_rec * 1.2 < bin_rec,
+        "record encode must beat bincode: ours {ours_rec:.0}ns vs bincode {bin_rec:.0}ns"
+    );
+
+    // String list: the flat contiguous column encodes as one memcpy, not N scattered copies.
+    let strs: Vec<String> = (0..200)
+        .map(|_| {
+            let n = 8 + (rng.next() % 17) as usize;
+            (0..n).map(|_| (b'a' + (rng.next() % 26) as u8) as char).collect()
+        })
+        .collect();
+    let sv = rv_from(strs.iter().map(|s| RuntimeValue::Text(Rc::new(s.clone()))).collect());
+    let ours_str = batch_ns(50, 4000, || {
+        black_box(enc(&sv));
+    });
+    let bin_str = batch_ns(50, 4000, || {
+        black_box(bincode::serialize(&strs).unwrap());
+    });
+    assert!(
+        ours_str * 1.2 < bin_str,
+        "string encode must beat bincode: ours {ours_str:.0}ns vs bincode {bin_str:.0}ns"
+    );
+}
+
+// =====================================================================================
 // RULE 3 — BEAT protobuf at varint on signed data (its int64 weakness), no toolchain.
 //          protobuf `int64` spends 10 bytes per negative; we auto-pick zig-zag (~3).
 // =====================================================================================
@@ -270,6 +335,86 @@ fn xor_delta_beats_memcpy_and_postcard_on_time_series_floats() {
     println!(
         "\n── AXIS: TIME-SERIES floats (Gorilla XOR) ──\n  xor {xor}B  vs  memcpy {memcpy}B / postcard {postcard}B   ({:.2}× smaller)",
         memcpy as f64 / xor as f64
+    );
+}
+
+// =====================================================================================
+// RULE 4b — DICTIONARY-ENCODE categorical strings: a low-cardinality label column (a few
+//           distinct strings repeated) ships the distinct labels ONCE + a bit-packed index
+//           per row, far smaller than storing every repeat — and round-trips exactly.
+// =====================================================================================
+#[test]
+fn we_dict_encode_low_cardinality_strings() {
+    use logicaffeine_compile::concurrency::marshal::{message_from_wire, message_to_wire};
+    let cats = ["GET", "POST", "PUT", "DELETE", "PATCH"];
+    let mut rng = Rng::new(0xCA7);
+    let labels: Vec<&str> = (0..1000).map(|_| cats[(rng.next() % 5) as usize]).collect();
+    let rv = rv_strings(&labels);
+    let auto = with_structure(WireStructure::Auto, || enc(&rv)); // per-column menu → dictionary
+    let plain = enc(&rv); // default (Off) → flat T_STRINGS, every repeat stored
+    assert!(
+        auto.len() * 3 < plain.len(),
+        "dictionary must be ≥3× smaller than the flat array on categorical labels: {} vs {}",
+        auto.len(),
+        plain.len()
+    );
+    let (_, back) = message_from_wire(&auto).expect("dictionary string column decodes");
+    assert_eq!(enc(&back), enc(&rv), "the dictionary carries the exact same labels");
+    println!(
+        "\n── AXIS: CATEGORICAL strings (dictionary) ──\n  dict {}B  vs  flat {}B   ({:.0}× smaller)",
+        auto.len(),
+        plain.len(),
+        plain.len() as f64 / auto.len() as f64
+    );
+}
+
+// =====================================================================================
+// RULE 4c — STRUCTURAL crush on SET and MAP data structures, not just lists. A Set sorts to
+//           its canonical monotone column (consecutive {0..n} → affine, ~no data); an int→int
+//           MAP ships keys + values as two int columns (affine {i↦2i} → both closed-form).
+//           serde stores every member/pair. Both round-trip byte-stably.
+// =====================================================================================
+#[test]
+fn we_crush_int_sets_and_maps_structurally() {
+    use logicaffeine_compile::concurrency::marshal::message_from_wire;
+    use logicaffeine_compile::interpreter::MapStorage;
+    use std::collections::{BTreeMap, BTreeSet};
+
+    // Consecutive int SET {0..1000} → affine base+stride+count.
+    let set_rv = RuntimeValue::Set(Rc::new(RefCell::new((0..1000i64).map(RuntimeValue::Int).collect())));
+    let set = enc(&set_rv);
+    let set_postcard = postcard::to_allocvec(&(0..1000i64).collect::<BTreeSet<_>>()).unwrap().len();
+    assert!(
+        set.len() * 20 < set_postcard,
+        "consecutive int set must crush postcard ≥20×: {} vs {}",
+        set.len(),
+        set_postcard
+    );
+    let (_, set_back) = message_from_wire(&set).expect("int set decodes");
+    assert_eq!(enc(&set_back), set, "int set round-trips byte-stably");
+
+    // Affine int→int MAP {i ↦ 2i} → both columns base+stride+count.
+    let mut m = MapStorage::default();
+    for i in 0..1000i64 {
+        m.insert(RuntimeValue::Int(i), RuntimeValue::Int(2 * i));
+    }
+    let map_rv = RuntimeValue::Map(Rc::new(RefCell::new(m)));
+    let map = enc(&map_rv);
+    let map_postcard = postcard::to_allocvec(&(0..1000i64).map(|i| (i, 2 * i)).collect::<BTreeMap<_, _>>()).unwrap().len();
+    assert!(
+        map.len() * 20 < map_postcard,
+        "affine int→int map must crush postcard ≥20×: {} vs {}",
+        map.len(),
+        map_postcard
+    );
+    let (_, map_back) = message_from_wire(&map).expect("int map decodes");
+    assert_eq!(enc(&map_back), map, "int map round-trips byte-stably");
+    println!(
+        "\n── AXIS: SET/MAP structure ──\n  set {}B vs postcard {}B   map {}B vs postcard {}B",
+        set.len(),
+        set_postcard,
+        map.len(),
+        map_postcard
     );
 }
 
@@ -658,5 +803,62 @@ fn we_beat_capnp_on_lan_round_trip() {
     assert!(
         ours_ns < capnp_ns,
         "LAN round-trip: ours {ours_ns:.0}ns must beat capnp {capnp_ns:.0}ns (fewer bytes on the wire + cheaper open)"
+    );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Streaming: we win the streaming wars on the dimension that defines them — CONSTANT memory
+// (never buffer the whole stream) + zero-copy per-message reads — on framing byte-identical to
+// protobuf/gRPC length-delimited streams.
+// ─────────────────────────────────────────────────────────────────────────────
+
+#[test]
+fn we_stream_with_protobuf_framing_constant_memory_and_zero_copy() {
+    use logicaffeine_compile::concurrency::marshal::{message_to_wire, view_message};
+    use logicaffeine_compile::concurrency::stream::{frame_for_stream, StreamDeframer};
+
+    const N: usize = 10_000;
+    // A stream of N small messages, framed exactly like a protobuf/gRPC length-delimited stream
+    // (LEB128 length prefix, then the body).
+    let mut stream = Vec::new();
+    let mut largest = 0usize;
+    for i in 0..N {
+        let body = message_to_wire("p", &RuntimeValue::Int(i as i64)).unwrap();
+        largest = largest.max(body.len());
+        frame_for_stream(&body, &mut stream);
+    }
+
+    // FRAMING-SIZE PARITY: a < 128-byte body costs a 1-byte length prefix — byte-identical to
+    // protobuf's length-delimited framing. We never frame larger than the standard.
+    assert!(largest < 128, "small bodies → 1-byte varint length, matching protobuf length-delimited");
+
+    // Deliver the stream in small chunks (forcing cross-frame splits), reading each message
+    // ZERO-COPY in place. Track the peak buffered bytes to prove CONSTANT memory.
+    let mut d = StreamDeframer::new();
+    let mut max_pending = 0usize;
+    let mut sum: i64 = 0;
+    let mut count = 0usize;
+    for chunk in stream.chunks(48) {
+        d.push(chunk);
+        max_pending = max_pending.max(d.pending());
+        d.drain_frames(|frame| {
+            sum += view_message(frame).expect("frame opens in place").as_int().expect("reads zero-copy");
+            count += 1;
+        });
+        max_pending = max_pending.max(d.pending());
+    }
+
+    assert_eq!(count, N, "every framed message delivered exactly once");
+    assert_eq!(sum, (0..N as i64).sum::<i64>(), "every message read correctly, zero-copy");
+    // THE STREAMING WIN: peak buffered memory is ~one frame + one chunk — CONSTANT, not O(stream).
+    // A whole-message-buffering codec would hold all `stream.len()` bytes; we hold a tiny fraction.
+    assert!(
+        max_pending <= largest + 48 + 16,
+        "deframer holds ≤ one partial frame + a chunk ({max_pending} B), never the whole stream"
+    );
+    assert!(
+        (max_pending as f64) < (stream.len() as f64) * 0.01,
+        "streaming memory is constant ({max_pending} B), not O(stream length = {} B)",
+        stream.len()
     );
 }

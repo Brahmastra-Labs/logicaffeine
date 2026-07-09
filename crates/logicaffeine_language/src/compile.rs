@@ -1130,8 +1130,27 @@ pub fn compile_theorem(input: &str) -> Result<String, ParseError> {
     // so every theorem entry point shares a single engine. This door reports a
     // proof when a derivation is found, annotating whether the kernel certified
     // it; the strong (kernel-checked) guarantee is exposed by `verify_theorem`
-    // and the `verified` flag on `TheoremCompileResult`.
-    let outcome = logicaffeine_proof::verify::prove_certify_check(&premises, &goal);
+    // and the `verified` flag on `TheoremCompileResult`. An explicit `Proof:` tactic
+    // SCRIPT (English-esque vernacular) is run through the tactic framework instead,
+    // then certified through the SAME kernel door (`qed` → `check_derivation`).
+    let outcome = if let crate::ast::theorem::ProofStrategy::Script(src) = &theorem.strategy {
+        use logicaffeine_proof::tactic::ProofState;
+        let mut st =
+            ProofState::start_with_names(premises.clone(), &theorem.premise_names, goal.clone());
+        let fail = |err: String| logicaffeine_proof::verify::VerifiedProof {
+            derivation: None,
+            proof_term: None,
+            kernel_ctx: Default::default(),
+            verified: false,
+            verification_error: Some(err),
+        };
+        match st.run_script(src) {
+            Ok(_) => st.qed().unwrap_or_else(|e| fail(format!("{e:?}"))),
+            Err(e) => fail(e.to_string()),
+        }
+    } else {
+        logicaffeine_proof::verify::prove_certify_check(&premises, &goal)
+    };
     match outcome.derivation {
         Some(derivation) if outcome.verified => Ok(format!(
             "Theorem '{}' Proved! [kernel-verified]\n{}",

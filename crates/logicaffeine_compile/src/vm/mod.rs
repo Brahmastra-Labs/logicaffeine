@@ -1,4 +1,4 @@
-//! Register bytecode VM (VM_PLAN.md).
+//! Register bytecode VM (work/VM_PLAN.md).
 //!
 //! A fast, portable interpreter that runs the same `RuntimeValue` semantics as
 //! the tree-walker. It is the browser/WASM execution engine and the substrate
@@ -41,14 +41,27 @@ mod nanbox;
 mod native_tier;
 mod value;
 
-/// WS6 (Phase 13): the browser WASM-JIT backend (emits a WebAssembly module per hot
-/// region). Default-off; builds for and runs on wasm32, unlike the native x86 forge JIT.
+/// WebAssembly code generation from VM bytecode: the shared byte emitter (`wasm::encode` +
+/// `wasm::func`, always built) plus the WS6 browser WASM-JIT tier (`wasm::region_jit`, behind
+/// the `wasm-jit` feature). The direct AOT backend (`largo build --emit wasm`) consumes the
+/// same emitter.
+pub mod wasm;
+
+/// Back-compat facade: the WS6 browser WASM-JIT tier moved into the shared `wasm` codegen
+/// submodule — `wasm::func` for the byte emitter, `wasm::region_jit` for the tier + host.
+/// `machine.rs` (`super::wasm_jit::WasmTier`) and the `wasm_jit_*` differential/browser test
+/// suites still reach it here, unchanged.
 #[cfg(feature = "wasm-jit")]
-pub mod wasm_jit;
+pub mod wasm_jit {
+    pub use super::wasm::func::{compile_function_to_wasm, compile_region_to_wasm};
+    pub use super::wasm::region_jit::WasmTier;
+    #[cfg(target_arch = "wasm32")]
+    pub use super::wasm::region_jit::run_on_host;
+}
 
 pub use compiler::Compiler;
 pub use disasm::{disassemble, format_constant, op_io, DisasmLine, OpIo};
-pub use instruction::{CompiledProgram, Constant, Op};
+pub use instruction::{ChanElem, CompiledProgram, Constant, Op};
 pub use machine::Vm;
 pub(crate) use machine::{DebugFrameView, DebugView, DebugVmState, HeapObjView};
 pub(crate) use machine::{VmBlock, VmStep};
@@ -1860,14 +1873,13 @@ mod tests {
     }
 
     #[test]
-    fn vm_inspect_inductive_positional_bindings_and_no_match_falls_through() {
+    fn vm_inspect_inductive_positional_bindings() {
         use crate::ast::stmt::MatchArm;
         let ea: Arena<Expr> = Arena::new();
         let sa: Arena<Stmt> = Arena::new();
         let mut it = Interner::new();
         let shape = it.intern("Shape");
         let circle = it.intern("Circle");
-        let square = it.intern("Square");
         let r_field = it.intern("radius");
         let r_bind = it.intern("r");
         let c = it.intern("c");
@@ -1879,7 +1891,6 @@ mod tests {
             fields: vec![(r_field, num(&ea, 10))],
         });
         let circle_body: &[Stmt] = sa.alloc_slice(vec![show(&ea, show_s, idref(&ea, r_bind))]);
-        let square_body: &[Stmt] = sa.alloc_slice(vec![show(&ea, show_s, num(&ea, 333))]);
 
         let stmts = vec![
             letb(c, circle_expr),
@@ -1894,17 +1905,44 @@ mod tests {
                 }],
                 has_otherwise: false,
             },
-            // No arm matches and no Otherwise: execution continues silently.
-            Stmt::Inspect {
-                target: idref(&ea, c),
-                arms: vec![MatchArm { enum_name: None, variant: Some(square), bindings: vec![], body: square_body }],
-                has_otherwise: false,
-            },
             show(&ea, show_s, num(&ea, 1)),
         ];
         let out = compile_and_run(&stmts, &it).unwrap();
         assert_eq!(out.lines().collect::<Vec<_>>(), vec!["10", "1"]);
         assert_vm_eq_treewalk(&stmts, &it);
+    }
+
+    #[test]
+    fn vm_inspect_unhandled_variant_without_otherwise_is_loud() {
+        use crate::ast::stmt::MatchArm;
+        let ea: Arena<Expr> = Arena::new();
+        let sa: Arena<Stmt> = Arena::new();
+        let mut it = Interner::new();
+        let shape = it.intern("Shape");
+        let circle = it.intern("Circle");
+        let square = it.intern("Square");
+        let r_field = it.intern("radius");
+        let c = it.intern("c");
+        let show_s = it.intern("show");
+
+        let circle_expr = ea.alloc(Expr::NewVariant {
+            enum_name: shape,
+            variant: circle,
+            fields: vec![(r_field, num(&ea, 10))],
+        });
+        let square_body: &[Stmt] = sa.alloc_slice(vec![show(&ea, show_s, num(&ea, 333))]);
+
+        // A `Circle` scrutinee against a `Square`-only Inspect with no Otherwise
+        // is a non-exhaustive match — LOUD, never a silent no-op. tw==VM.
+        let stmts = vec![
+            letb(c, circle_expr),
+            Stmt::Inspect {
+                target: idref(&ea, c),
+                arms: vec![MatchArm { enum_name: None, variant: Some(square), bindings: vec![], body: square_body }],
+                has_otherwise: false,
+            },
+        ];
+        assert_err_parity(&stmts, &it);
     }
 
     #[test]
@@ -2052,8 +2090,9 @@ mod tests {
     }
 
     #[test]
-    fn vm_alias_vs_copy_semantics() {
-        // `Let a be xs` aliases (mutation visible through both names).
+    fn vm_let_binding_isolates_value_semantics() {
+        // Value semantics: `Let a be xs` is an independent value — pushing through
+        // `a` grows only `a`, leaving `xs` at length 1. VM and tree-walker agree.
         let ea: Arena<Expr> = Arena::new();
         let mut it = Interner::new();
         let xs = it.intern("xs");
@@ -2065,7 +2104,7 @@ mod tests {
             push_to(num(&ea, 2), idref(&ea, a)),
             show(&ea, show_s, length_of(&ea, idref(&ea, xs))),
         ];
-        assert_eq!(compile_and_run(&stmts, &it).unwrap().trim(), "2");
+        assert_eq!(compile_and_run(&stmts, &it).unwrap().trim(), "1");
         assert_vm_eq_treewalk(&stmts, &it);
     }
 
@@ -2702,9 +2741,10 @@ mod tests {
     }
 
     #[test]
-    fn vm_and_int_is_eager_bitwise() {
-        // 6 and 3 → 2 (bitwise). 6 and noisy() → noisy RUNS (prints 9),
-        // returns 1, and 6 & 1 == 0.
+    fn vm_and_is_logical_truthiness_to_bool() {
+        // `and` is LOGICAL: `6 and 3` → true. A truthy left still evaluates
+        // the right (noisy RUNS, prints 9; returns 1 → truthy → true). The
+        // bitwise spelling is `&` (Op::BitAnd), locked below.
         let ea: Arena<Expr> = Arena::new();
         let sa: Arena<Stmt> = Arena::new();
         let mut it = Interner::new();
@@ -2720,13 +2760,32 @@ mod tests {
             show(&ea, show_s, idref(&ea, b)),
         ];
         let out = compile_and_run(&stmts, &it).unwrap();
-        assert_eq!(out.lines().collect::<Vec<_>>(), vec!["2", "9", "0"]);
+        assert_eq!(out.lines().collect::<Vec<_>>(), vec!["true", "9", "true"]);
+        assert_vm_eq_treewalk(&stmts, &it);
+    }
+
+    #[test]
+    fn vm_bitand_bitor_int_are_bitwise() {
+        // `6 & 3` → 2 and `6 | 3` → 7: the symbols are the bitwise ops.
+        let ea: Arena<Expr> = Arena::new();
+        let mut it = Interner::new();
+        let a = it.intern("a");
+        let b = it.intern("b");
+        let show_s = it.intern("show");
+        let stmts = vec![
+            letb(a, bin(&ea, BinaryOpKind::BitAnd, num(&ea, 6), num(&ea, 3))),
+            show(&ea, show_s, idref(&ea, a)),
+            letb(b, bin(&ea, BinaryOpKind::BitOr, num(&ea, 6), num(&ea, 3))),
+            show(&ea, show_s, idref(&ea, b)),
+        ];
+        let out = compile_and_run(&stmts, &it).unwrap();
+        assert_eq!(out.lines().collect::<Vec<_>>(), vec!["2", "7"]);
         assert_vm_eq_treewalk(&stmts, &it);
     }
 
     #[test]
     fn vm_and_or_mixed_int_bool_uses_truthiness() {
-        // Int left forces the eager path; a non-Int right falls to truthiness.
+        // Truthiness applies uniformly — Int operands coerce like any other.
         let ea: Arena<Expr> = Arena::new();
         let mut it = Interner::new();
         let a = it.intern("a");
@@ -2744,7 +2803,9 @@ mod tests {
     }
 
     #[test]
-    fn vm_not_is_logical_for_bool_bitwise_for_int() {
+    fn vm_not_is_logical_truthiness() {
+        // `not` negates truthiness — Bool out for every operand (`~` is the
+        // bitwise complement and lowers to `x ^ -1`, never through Op::Not).
         let ea: Arena<Expr> = Arena::new();
         let mut it = Interner::new();
         let a = it.intern("a");
@@ -2757,18 +2818,25 @@ mod tests {
             show(&ea, show_s, idref(&ea, b)),
         ];
         let out = compile_and_run(&stmts, &it).unwrap();
-        assert_eq!(out.lines().collect::<Vec<_>>(), vec!["-7", "false"]);
+        assert_eq!(out.lines().collect::<Vec<_>>(), vec!["false", "false"]);
         assert_vm_eq_treewalk(&stmts, &it);
     }
 
     #[test]
-    fn vm_not_text_error_matches_treewalk() {
+    fn vm_not_text_is_emptiness_matches_treewalk() {
+        // `not "hi"` → false (non-empty Text is truthy); total, never an error.
         let ea: Arena<Expr> = Arena::new();
         let mut it = Interner::new();
         let x = it.intern("x");
         let hi = it.intern("hi");
-        let stmts = vec![letb(x, not_e(&ea, text(&ea, hi)))];
-        assert_err_parity(&stmts, &it);
+        let show_s = it.intern("show");
+        let stmts = vec![
+            letb(x, not_e(&ea, text(&ea, hi))),
+            show(&ea, show_s, idref(&ea, x)),
+        ];
+        let out = compile_and_run(&stmts, &it).unwrap();
+        assert_eq!(out.lines().collect::<Vec<_>>(), vec!["false"]);
+        assert_vm_eq_treewalk(&stmts, &it);
     }
 
     #[test]

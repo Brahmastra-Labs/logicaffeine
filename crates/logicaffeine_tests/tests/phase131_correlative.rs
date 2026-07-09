@@ -1,4 +1,4 @@
-//! Phase 131 — §2.3 Correlative coordination (MISSING_ENGLISH.md).
+//! Phase 131 — §2.3 Correlative coordination (work/MISSING_ENGLISH.md).
 //!
 //! Paired coordinators scope a shared predicate over two subjects:
 //!   "Neither John nor Mary came." → ¬Came(john) ∧ ¬Came(mary)

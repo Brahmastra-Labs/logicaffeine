@@ -80,6 +80,8 @@ fn expr_to_smtlib(expr: &VerifyExpr) -> String {
                 VerifyOp::Sub => "-",
                 VerifyOp::Mul => "*",
                 VerifyOp::Div => "div",
+                // Floor division: real division then floor (`to_int` is floor) — exact toward -inf.
+                VerifyOp::FloorDiv => return format!("(to_int (/ (to_real {}) (to_real {})))", l, r),
                 VerifyOp::Eq => "=",
                 VerifyOp::Neq => return format!("(not (= {} {}))", l, r),
                 VerifyOp::Gt => ">",

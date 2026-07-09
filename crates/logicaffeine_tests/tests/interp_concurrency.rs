@@ -1,4 +1,4 @@
-//! Phase 3 (FINISH_INTERPRETER.md) — interpreted concurrency.
+//! Phase 3 (work/FINISH_INTERPRETER.md) — interpreted concurrency.
 //!
 //! These run Go-like concurrency programs on the *tree-walker* (via the
 //! deterministic scheduler), which previously rejected them as "compiled mode

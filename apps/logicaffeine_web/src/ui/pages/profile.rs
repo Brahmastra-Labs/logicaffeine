@@ -11,6 +11,8 @@
 //! Accessed via [`Route::Profile`](crate::ui::router::Route::Profile).
 
 use dioxus::prelude::*;
+#[cfg(all(feature = "split", target_arch = "wasm32"))]
+use dioxus::wasm_split;
 use crate::ui::components::main_nav::{MainNav, ActivePage};
 use crate::ui::components::footer::Footer;
 use crate::ui::components::icon::{Icon, IconVariant, IconSize};
@@ -215,7 +217,7 @@ const PROFILE_STYLE: &str = r#"
 }
 "#;
 
-#[component]
+#[component(lazy)]
 pub fn Profile() -> Element {
     let progress = UserProgress::new(); // TODO: Load from storage
     let engine = ContentEngine::new();

@@ -373,7 +373,8 @@ impl<'r> CheckEnv<'r> {
             | BinaryOpKind::Lt
             | BinaryOpKind::Gt
             | BinaryOpKind::LtEq
-            | BinaryOpKind::GtEq => Ok(InferType::Bool),
+            | BinaryOpKind::GtEq
+            | BinaryOpKind::ApproxEq => Ok(InferType::Bool),
 
             // And/Or: type-aware — integer operands → Int (bitwise), else → Bool (logical)
             BinaryOpKind::And | BinaryOpKind::Or => {
@@ -387,7 +388,11 @@ impl<'r> CheckEnv<'r> {
 
             BinaryOpKind::Concat => Ok(InferType::String),
 
-            BinaryOpKind::BitXor | BinaryOpKind::Shl | BinaryOpKind::Shr => Ok(InferType::Int),
+            // `a followed by b` — result is a sequence of the same type as the operands.
+            BinaryOpKind::SeqConcat => self.infer_expr(left),
+
+            BinaryOpKind::BitXor | BinaryOpKind::BitAnd | BinaryOpKind::BitOr
+            | BinaryOpKind::Shl | BinaryOpKind::Shr => Ok(InferType::Int),
 
             BinaryOpKind::Add => {
                 let lt = self.infer_expr(left)?;
@@ -412,7 +417,9 @@ impl<'r> CheckEnv<'r> {
             BinaryOpKind::Subtract
             | BinaryOpKind::Multiply
             | BinaryOpKind::Divide
-            | BinaryOpKind::Modulo => {
+            | BinaryOpKind::FloorDivide
+            | BinaryOpKind::Modulo
+            | BinaryOpKind::Pow => {
                 let lt = self.infer_expr(left)?;
                 let rt = self.infer_expr(right)?;
                 if lt == InferType::Unknown || rt == InferType::Unknown {
@@ -945,6 +952,54 @@ impl<'r> CheckEnv<'r> {
 /// Check a LOGOS program and return a typed `TypeEnv` for codegen.
 ///
 /// Replaces `TypeEnv::infer_program`. Returns `Err(TypeError)` only on
+/// One typechecker finding with the top-level statement it belongs to.
+///
+/// `stmt_index` maps 1:1 onto `Parser::stmt_spans()`, giving IDE diagnostics
+/// a real source span. `None` marks whole-program findings (dimension
+/// coherence) that no single statement owns.
+#[derive(Debug)]
+pub struct IndexedTypeError {
+    pub stmt_index: Option<usize>,
+    pub error: TypeError,
+}
+
+/// Collect EVERY failing top-level statement instead of bailing at the first.
+///
+/// The environment after a failed statement is best-effort: inference simply
+/// continues with whatever bindings succeeded, so one bad `Let` does not
+/// cascade into errors on unrelated later statements. The strict fail-fast
+/// contract lives in [`check_program`]; compile paths keep using that.
+pub fn check_program_collect(
+    stmts: &[Stmt],
+    interner: &Interner,
+    registry: &TypeRegistry,
+) -> (TypeEnv, Vec<IndexedTypeError>) {
+    let mut errors = Vec::new();
+
+    if let Err(e) =
+        crate::analysis::dimension_check::DimensionChecker::new(interner).check_program(stmts)
+    {
+        errors.push(IndexedTypeError {
+            stmt_index: None,
+            error: TypeError::DimensionMismatch { message: e.message },
+        });
+    }
+
+    let mut env = CheckEnv::new(registry, interner);
+    env.preregister_functions(stmts);
+
+    for (index, stmt) in stmts.iter().enumerate() {
+        if let Err(error) = env.infer_stmt(stmt) {
+            errors.push(IndexedTypeError {
+                stmt_index: Some(index),
+                error,
+            });
+        }
+    }
+
+    (env.into_type_env(), errors)
+}
+
 /// genuine type contradictions (e.g., `Let x: Int be "hello"`).
 /// Ambiguous types fall back to `LogosType::Unknown` silently.
 pub fn check_program(
@@ -952,6 +1007,12 @@ pub fn check_program(
     interner: &Interner,
     registry: &TypeRegistry,
 ) -> Result<TypeEnv, TypeError> {
+    // Dimension coherence is a type property: reject `2 meters + 1 gram` here, statically, before
+    // any code is generated (a length and a mass have no common dimension).
+    crate::analysis::dimension_check::DimensionChecker::new(interner)
+        .check_program(stmts)
+        .map_err(|e| TypeError::DimensionMismatch { message: e.message })?;
+
     let mut env = CheckEnv::new(registry, interner);
 
     // Pre-pass: register top-level function signatures for forward references

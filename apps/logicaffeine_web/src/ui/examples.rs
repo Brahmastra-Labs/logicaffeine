@@ -7,143 +7,35 @@ use logicaffeine_system::fs::{Vfs, VfsResult};
 
 /// Seed example files into the VFS if they don't exist.
 pub async fn seed_examples<V: Vfs>(vfs: &V) -> VfsResult<()> {
-    let is_fresh_install = !vfs.exists("/examples").await?;
-
-    // Create directory structure (always - create_dir_all is idempotent)
+    // Create directory structure (idempotent).
     vfs.create_dir_all("/examples/logic").await?;
     vfs.create_dir_all("/examples/code").await?;
     vfs.create_dir_all("/examples/math").await?;
-    vfs.create_dir_all("/workspace").await?;
-
-    // New code example subdirectories
-    vfs.create_dir_all("/examples/code/basics").await?;
-    vfs.create_dir_all("/examples/code/types").await?;
-    vfs.create_dir_all("/examples/code/collections").await?;
-    vfs.create_dir_all("/examples/code/functions").await?;
-    vfs.create_dir_all("/examples/code/distributed").await?;
-    vfs.create_dir_all("/examples/code/security").await?;
-    vfs.create_dir_all("/examples/code/memory").await?;
-    vfs.create_dir_all("/examples/code/concurrency").await?;
-    vfs.create_dir_all("/examples/code/networking").await?;
-    vfs.create_dir_all("/examples/code/advanced").await?;
-    vfs.create_dir_all("/examples/code/native").await?;
-    vfs.create_dir_all("/examples/code/temporal").await?;
     vfs.create_dir_all("/examples/hardware").await?;
-
-    // Hardware (SVA) examples — seeded for all installs (fresh and existing).
-    seed_hardware_examples(vfs).await?;
-
-    // For existing installs, only seed new advanced examples (skip base examples)
-    if !is_fresh_install {
-        seed_advanced_code_examples(vfs).await?;
-        return Ok(());
+    vfs.create_dir_all("/workspace").await?;
+    for sub in [
+        "basics", "types", "collections", "functions", "distributed", "security", "memory",
+        "concurrency", "networking", "advanced", "native", "temporal",
+    ] {
+        vfs.create_dir_all(&format!("/examples/code/{sub}")).await?;
     }
 
-    // Seed Logic mode examples
-    vfs.write("/examples/logic/simple-sentences.logic", LOGIC_SIMPLE.as_bytes()).await?;
-    vfs.write("/examples/logic/quantifiers.logic", LOGIC_QUANTIFIERS.as_bytes()).await?;
-    vfs.write("/examples/logic/tense-aspect.logic", LOGIC_TENSE.as_bytes()).await?;
+    // Retire earlier toy RTL examples replaced by the real-hardware set.
+    for obsolete in ["toggle.v", "mutex.v", "counter.v"] {
+        let _ = vfs.remove(&format!("/examples/hardware/{obsolete}")).await;
+    }
 
-    // Seed prover examples (theorem proving with derivation trees)
-    vfs.write("/examples/logic/prover-demo.logic", LOGIC_PROVER.as_bytes()).await?;
-    vfs.write("/examples/logic/simon.logic", LOGIC_SIMON.as_bytes()).await?;
-    vfs.write("/examples/logic/syllogism.logic", LOGIC_SYLLOGISM.as_bytes()).await?;
-    vfs.write("/examples/logic/trivial-proof.logic", LOGIC_TRIVIAL.as_bytes()).await?;
-    vfs.write("/examples/logic/disjunctive-syllogism.logic", LOGIC_DISJUNCTIVE.as_bytes()).await?;
-    vfs.write("/examples/logic/modus-tollens.logic", LOGIC_MODUS_TOLLENS.as_bytes()).await?;
-    vfs.write("/examples/logic/leibniz-identity.logic", LOGIC_LEIBNIZ.as_bytes()).await?;
-    vfs.write("/examples/logic/barber-paradox.logic", LOGIC_BARBER.as_bytes()).await?;
-
-    // Seed Code mode examples (imperative)
-    vfs.write("/examples/code/hello-world.logos", CODE_HELLO.as_bytes()).await?;
-    vfs.write("/examples/code/hello-world2.logos", CODE_HELLO2.as_bytes()).await?;
-    vfs.write("/examples/code/fibonacci.logos", CODE_FIBONACCI.as_bytes()).await?;
-    vfs.write("/examples/code/fizzbuzz.logos", CODE_FIZZBUZZ.as_bytes()).await?;
-    vfs.write("/examples/code/fizzbuzz2.logos", CODE_FIZZBUZZ2.as_bytes()).await?;
-    vfs.write("/examples/code/fizzbuzz3.logos", CODE_FIZZBUZZ3.as_bytes()).await?;
-    vfs.write("/examples/code/collections.logos", CODE_COLLECTIONS.as_bytes()).await?;
-    vfs.write("/examples/code/factorial.logos", CODE_FACTORIAL.as_bytes()).await?;
-    vfs.write("/examples/code/prime-check.logos", CODE_PRIME.as_bytes()).await?;
-    vfs.write("/examples/code/sum-list.logos", CODE_SUM_LIST.as_bytes()).await?;
-    vfs.write("/examples/code/bubble-sort.logos", CODE_BUBBLE_SORT.as_bytes()).await?;
-    vfs.write("/examples/code/struct-demo.logos", CODE_STRUCT.as_bytes()).await?;
-
-    // Seed advanced Code mode examples (organized by category)
-    // Type system
-    vfs.write("/examples/code/types/enums.logos", CODE_ENUMS.as_bytes()).await?;
-    vfs.write("/examples/code/types/generics.logos", CODE_GENERICS.as_bytes()).await?;
-    // Collections
-    vfs.write("/examples/code/collections/sets.logos", CODE_SETS.as_bytes()).await?;
-    vfs.write("/examples/code/collections/maps.logos", CODE_MAPS.as_bytes()).await?;
-    // Functions
-    vfs.write("/examples/code/functions/higher-order.logos", CODE_HIGHER_ORDER.as_bytes()).await?;
-    // Distributed
-    vfs.write("/examples/code/distributed/counters.logos", CODE_CRDT_COUNTERS.as_bytes()).await?;
-    // Security
-    vfs.write("/examples/code/security/policies.logos", CODE_POLICIES.as_bytes()).await?;
-    // Memory
-    vfs.write("/examples/code/memory/zones.logos", CODE_ZONES.as_bytes()).await?;
-    // Native-only (concurrency)
-    vfs.write("/examples/code/native/tasks.logos", CODE_TASKS.as_bytes()).await?;
-    vfs.write("/examples/code/native/channels.logos", CODE_CHANNELS.as_bytes()).await?;
-
-    // NEW: Basics examples (guide sections 3-5)
-    vfs.write("/examples/code/basics/variables.logos", CODE_BASICS_VARIABLES.as_bytes()).await?;
-    vfs.write("/examples/code/basics/operators.logos", CODE_BASICS_OPERATORS.as_bytes()).await?;
-    vfs.write("/examples/code/basics/control-flow.logos", CODE_BASICS_CONTROL_FLOW.as_bytes()).await?;
-
-    // NEW: Enum patterns example (guide section 8)
-    vfs.write("/examples/code/types/enums-patterns.logos", CODE_ENUMS_PATTERNS.as_bytes()).await?;
-
-    // NEW: Ownership example (guide section 10)
-    vfs.write("/examples/code/memory/ownership.logos", CODE_OWNERSHIP.as_bytes()).await?;
-
-    // NEW: Concurrency example (guide section 12) - browser compatible
-    vfs.write("/examples/code/concurrency/parallel.logos", CODE_CONCURRENCY_PARALLEL.as_bytes()).await?;
-
-    // NEW: Additional distributed examples (guide section 13)
-    vfs.write("/examples/code/distributed/tally.logos", CODE_CRDT_TALLY.as_bytes()).await?;
-    vfs.write("/examples/code/distributed/merge.logos", CODE_CRDT_MERGE.as_bytes()).await?;
-
-    // NEW: Networking examples (guide section 15) - native only
-    vfs.write("/examples/code/networking/server.logos", CODE_NETWORK_SERVER.as_bytes()).await?;
-    vfs.write("/examples/code/networking/client.logos", CODE_NETWORK_CLIENT.as_bytes()).await?;
-
-    // NEW: Error handling example (guide section 16)
-    vfs.write("/examples/code/error-handling.logos", CODE_ERROR_HANDLING.as_bytes()).await?;
-
-    // NEW: Advanced examples (guide sections 17, 22-23)
-    vfs.write("/examples/code/advanced/refinement.logos", CODE_ADVANCED_REFINEMENT.as_bytes()).await?;
-    vfs.write("/examples/code/advanced/assertions.logos", CODE_ADVANCED_ASSERTIONS.as_bytes()).await?;
-
-    // NEW: Temporal types example
-    vfs.write("/examples/code/temporal/durations.logos", CODE_TEMPORAL.as_bytes()).await?;
-
-    // Seed Math mode examples (vernacular/theorem proving)
-    vfs.write("/examples/math/natural-numbers.logos", MATH_NAT.as_bytes()).await?;
-    vfs.write("/examples/math/boolean-logic.logos", MATH_BOOL.as_bytes()).await?;
-    vfs.write("/examples/math/godel-sentence.logos", MATH_GODEL.as_bytes()).await?;
-    vfs.write("/examples/math/incompleteness.logos", MATH_INCOMPLETENESS.as_bytes()).await?;
-    vfs.write("/examples/math/prop-logic.logos", MATH_PROP_LOGIC.as_bytes()).await?;
-    vfs.write("/examples/math/functions.logos", MATH_FUNCTIONS.as_bytes()).await?;
-    vfs.write("/examples/math/list-ops.logos", MATH_LIST_OPS.as_bytes()).await?;
-    vfs.write("/examples/math/pairs.logos", MATH_PAIRS.as_bytes()).await?;
-    vfs.write("/examples/math/logic-gates.logos", MATH_CIRCUIT.as_bytes()).await?;
-    vfs.write("/examples/math/proven-property.logos", MATH_PROPERTY.as_bytes()).await?;
-    vfs.write("/examples/math/collatz.logos", MATH_COLLATZ.as_bytes()).await?;
-    vfs.write("/examples/math/godel-literate.logos", MATH_GODEL_LITERATE.as_bytes()).await?;
-    vfs.write("/examples/math/incompleteness-literate.logos", MATH_INCOMPLETENESS_LITERATE.as_bytes()).await?;
-    vfs.write("/examples/math/ring-tactic.logos", MATH_RING.as_bytes()).await?;
-    vfs.write("/examples/math/lia-tactic.logos", MATH_LIA.as_bytes()).await?;
-    vfs.write("/examples/math/cc-tactic.logos", MATH_CC.as_bytes()).await?;
-    vfs.write("/examples/math/simp-tactic.logos", MATH_SIMP.as_bytes()).await?;
-    vfs.write("/examples/math/omega-tactic.logos", MATH_OMEGA.as_bytes()).await?;
-    vfs.write("/examples/math/auto-tactic.logos", MATH_AUTO.as_bytes()).await?;
-    vfs.write("/examples/math/induction-tactic.logos", MATH_INDUCTION.as_bytes()).await?;
-    vfs.write("/examples/math/hints.logos", MATH_HINTS.as_bytes()).await?;
-    vfs.write("/examples/math/inversion-tactic.logos", MATH_INVERSION.as_bytes()).await?;
-    vfs.write("/examples/math/operator-tactics.logos", MATH_OPERATOR.as_bytes()).await?;
-    vfs.write("/examples/math/tacticals.logos", MATH_TACTICALS.as_bytes()).await?;
+    // The four registries are the single source of truth for every shipped Studio
+    // example: seed exactly them — the same specs the `example_health` tests drive,
+    // so seeding and testing can never drift.
+    for spec in ALL_LOGIC_EXAMPLES
+        .iter()
+        .chain(ALL_CODE_EXAMPLES)
+        .chain(ALL_MATH_EXAMPLES)
+        .chain(ALL_HARDWARE_SPECS)
+    {
+        vfs.write(spec.vfs_path, spec.source.as_bytes()).await?;
+    }
 
     Ok(())
 }
@@ -216,124 +108,52 @@ pub const RTL_EXAMPLES: &[(&str, &str)] = &[
     ),
 ];
 
-/// Seed the Hardware-mode example specs (English → SVA) and RTL examples (Verilog → BMC) into
-/// `/examples/hardware`.
-async fn seed_hardware_examples<V: Vfs>(vfs: &V) -> VfsResult<()> {
-    // Retire earlier toy RTL examples that have been replaced by the real-hardware set.
-    for obsolete in ["toggle.v", "mutex.v", "counter.v"] {
-        let _ = vfs.remove(&format!("/examples/hardware/{obsolete}")).await;
-    }
-    for (name, spec) in HARDWARE_EXAMPLES {
-        vfs.write(&format!("/examples/hardware/{name}"), spec.as_bytes()).await?;
-    }
-    for (name, src) in RTL_EXAMPLES {
-        vfs.write(&format!("/examples/hardware/{name}"), src.as_bytes()).await?;
-    }
-    Ok(())
-}
+/// Register-allocation examples: a basic block's variable live ranges + a register budget. Opened
+/// in Hardware mode; `load_hardware_spec` routes a `registers:` spec to the certified linear-scan
+/// allocator and renders the live-range timeline (coloured by register, spill clique flagged red).
+pub const REGALLOC_EXAMPLES: &[(&str, &str)] = &[
+    (
+        "register-alloc-fits.hw",
+        "# Register allocation — a basic block whose live ranges fit in 3 registers.\n\
+         # Each line is `variable: firstInstr-lastInstr`; `registers:` is the physical budget.\n\
+         registers: 3\n\
+         a: 0-4\n\
+         b: 1-3\n\
+         c: 2-6\n\
+         d: 5-9\n\
+         e: 7-10\n",
+    ),
+    (
+        "register-alloc-spill.hw",
+        "# Register allocation — OVER PRESSURE: four variables are live at once but only 3\n\
+         # registers exist, so the allocator certifies (via the mutually-interfering clique)\n\
+         # that at least one must spill.\n\
+         registers: 3\n\
+         a: 0-6\n\
+         b: 1-7\n\
+         c: 2-8\n\
+         d: 3-9\n",
+    ),
+];
 
-async fn seed_advanced_code_examples<V: Vfs>(vfs: &V) -> VfsResult<()> {
-    // Create new directories for existing installs
-    vfs.create_dir_all("/examples/code/basics").await?;
-    vfs.create_dir_all("/examples/code/concurrency").await?;
-    vfs.create_dir_all("/examples/code/networking").await?;
-    vfs.create_dir_all("/examples/code/advanced").await?;
-    vfs.create_dir_all("/examples/code/temporal").await?;
-
-    // Type system
-    vfs.write("/examples/code/types/enums.logos", CODE_ENUMS.as_bytes()).await?;
-    vfs.write("/examples/code/types/generics.logos", CODE_GENERICS.as_bytes()).await?;
-    vfs.write("/examples/code/types/enums-patterns.logos", CODE_ENUMS_PATTERNS.as_bytes()).await?;
-    // Collections
-    vfs.write("/examples/code/collections/sets.logos", CODE_SETS.as_bytes()).await?;
-    vfs.write("/examples/code/collections/maps.logos", CODE_MAPS.as_bytes()).await?;
-    // Functions
-    vfs.write("/examples/code/functions/higher-order.logos", CODE_HIGHER_ORDER.as_bytes()).await?;
-    // Distributed
-    vfs.write("/examples/code/distributed/counters.logos", CODE_CRDT_COUNTERS.as_bytes()).await?;
-    vfs.write("/examples/code/distributed/tally.logos", CODE_CRDT_TALLY.as_bytes()).await?;
-    vfs.write("/examples/code/distributed/merge.logos", CODE_CRDT_MERGE.as_bytes()).await?;
-    // Security
-    vfs.write("/examples/code/security/policies.logos", CODE_POLICIES.as_bytes()).await?;
-    // Memory
-    vfs.write("/examples/code/memory/zones.logos", CODE_ZONES.as_bytes()).await?;
-    vfs.write("/examples/code/memory/ownership.logos", CODE_OWNERSHIP.as_bytes()).await?;
-    // Concurrency (browser compatible)
-    vfs.write("/examples/code/concurrency/parallel.logos", CODE_CONCURRENCY_PARALLEL.as_bytes()).await?;
-    // Networking (native only)
-    vfs.write("/examples/code/networking/server.logos", CODE_NETWORK_SERVER.as_bytes()).await?;
-    vfs.write("/examples/code/networking/client.logos", CODE_NETWORK_CLIENT.as_bytes()).await?;
-    // Advanced
-    vfs.write("/examples/code/advanced/refinement.logos", CODE_ADVANCED_REFINEMENT.as_bytes()).await?;
-    vfs.write("/examples/code/advanced/assertions.logos", CODE_ADVANCED_ASSERTIONS.as_bytes()).await?;
-    // Basics
-    vfs.write("/examples/code/basics/variables.logos", CODE_BASICS_VARIABLES.as_bytes()).await?;
-    vfs.write("/examples/code/basics/operators.logos", CODE_BASICS_OPERATORS.as_bytes()).await?;
-    vfs.write("/examples/code/basics/control-flow.logos", CODE_BASICS_CONTROL_FLOW.as_bytes()).await?;
-    // Error handling
-    vfs.write("/examples/code/error-handling.logos", CODE_ERROR_HANDLING.as_bytes()).await?;
-    // Native-only (concurrency)
-    vfs.write("/examples/code/native/tasks.logos", CODE_TASKS.as_bytes()).await?;
-    vfs.write("/examples/code/native/channels.logos", CODE_CHANNELS.as_bytes()).await?;
-    // Temporal types
-    vfs.write("/examples/code/temporal/durations.logos", CODE_TEMPORAL.as_bytes()).await?;
-
-    // Logic examples (force update for existing installs)
-    vfs.write("/examples/logic/barber-paradox.logic", LOGIC_BARBER.as_bytes()).await?;
-    vfs.write("/examples/logic/modus-tollens.logic", LOGIC_MODUS_TOLLENS.as_bytes()).await?;
-    vfs.write("/examples/logic/simple-sentences.logic", LOGIC_SIMPLE.as_bytes()).await?;
-    vfs.write("/examples/logic/quantifiers.logic", LOGIC_QUANTIFIERS.as_bytes()).await?;
-    vfs.write("/examples/logic/tense-aspect.logic", LOGIC_TENSE.as_bytes()).await?;
-    vfs.write("/examples/logic/prover-demo.logic", LOGIC_PROVER.as_bytes()).await?;
-    vfs.write("/examples/logic/simon.logic", LOGIC_SIMON.as_bytes()).await?;
-    vfs.write("/examples/logic/syllogism.logic", LOGIC_SYLLOGISM.as_bytes()).await?;
-    vfs.write("/examples/logic/trivial-proof.logic", LOGIC_TRIVIAL.as_bytes()).await?;
-    vfs.write("/examples/logic/disjunctive-syllogism.logic", LOGIC_DISJUNCTIVE.as_bytes()).await?;
-    vfs.write("/examples/logic/leibniz-identity.logic", LOGIC_LEIBNIZ.as_bytes()).await?;
-
-    // Math examples (ensure they exist for all installs)
-    vfs.create_dir_all("/examples/math").await?;
-    vfs.write("/examples/math/natural-numbers.logos", MATH_NAT.as_bytes()).await?;
-    vfs.write("/examples/math/boolean-logic.logos", MATH_BOOL.as_bytes()).await?;
-    vfs.write("/examples/math/godel-sentence.logos", MATH_GODEL.as_bytes()).await?;
-    vfs.write("/examples/math/incompleteness.logos", MATH_INCOMPLETENESS.as_bytes()).await?;
-    vfs.write("/examples/math/prop-logic.logos", MATH_PROP_LOGIC.as_bytes()).await?;
-    vfs.write("/examples/math/functions.logos", MATH_FUNCTIONS.as_bytes()).await?;
-    vfs.write("/examples/math/list-ops.logos", MATH_LIST_OPS.as_bytes()).await?;
-    vfs.write("/examples/math/pairs.logos", MATH_PAIRS.as_bytes()).await?;
-    vfs.write("/examples/math/logic-gates.logos", MATH_CIRCUIT.as_bytes()).await?;
-    vfs.write("/examples/math/proven-property.logos", MATH_PROPERTY.as_bytes()).await?;
-    vfs.write("/examples/math/collatz.logos", MATH_COLLATZ.as_bytes()).await?;
-    vfs.write("/examples/math/godel-literate.logos", MATH_GODEL_LITERATE.as_bytes()).await?;
-    vfs.write("/examples/math/incompleteness-literate.logos", MATH_INCOMPLETENESS_LITERATE.as_bytes()).await?;
-    vfs.write("/examples/math/ring-tactic.logos", MATH_RING.as_bytes()).await?;
-    vfs.write("/examples/math/lia-tactic.logos", MATH_LIA.as_bytes()).await?;
-    vfs.write("/examples/math/cc-tactic.logos", MATH_CC.as_bytes()).await?;
-    vfs.write("/examples/math/simp-tactic.logos", MATH_SIMP.as_bytes()).await?;
-    vfs.write("/examples/math/omega-tactic.logos", MATH_OMEGA.as_bytes()).await?;
-    vfs.write("/examples/math/auto-tactic.logos", MATH_AUTO.as_bytes()).await?;
-    vfs.write("/examples/math/induction-tactic.logos", MATH_INDUCTION.as_bytes()).await?;
-    vfs.write("/examples/math/hints.logos", MATH_HINTS.as_bytes()).await?;
-    vfs.write("/examples/math/inversion-tactic.logos", MATH_INVERSION.as_bytes()).await?;
-    vfs.write("/examples/math/operator-tactics.logos", MATH_OPERATOR.as_bytes()).await?;
-    vfs.write("/examples/math/tacticals.logos", MATH_TACTICALS.as_bytes()).await?;
-
-    // Base code examples (ensure they exist for all installs)
-    vfs.write("/examples/code/hello-world.logos", CODE_HELLO.as_bytes()).await?;
-    vfs.write("/examples/code/hello-world2.logos", CODE_HELLO2.as_bytes()).await?;
-    vfs.write("/examples/code/fibonacci.logos", CODE_FIBONACCI.as_bytes()).await?;
-    vfs.write("/examples/code/fizzbuzz.logos", CODE_FIZZBUZZ.as_bytes()).await?;
-    vfs.write("/examples/code/fizzbuzz2.logos", CODE_FIZZBUZZ2.as_bytes()).await?;
-    vfs.write("/examples/code/fizzbuzz3.logos", CODE_FIZZBUZZ3.as_bytes()).await?;
-    vfs.write("/examples/code/collections.logos", CODE_COLLECTIONS.as_bytes()).await?;
-    vfs.write("/examples/code/factorial.logos", CODE_FACTORIAL.as_bytes()).await?;
-    vfs.write("/examples/code/prime-check.logos", CODE_PRIME.as_bytes()).await?;
-    vfs.write("/examples/code/sum-list.logos", CODE_SUM_LIST.as_bytes()).await?;
-    vfs.write("/examples/code/bubble-sort.logos", CODE_BUBBLE_SORT.as_bytes()).await?;
-    vfs.write("/examples/code/struct-demo.logos", CODE_STRUCT.as_bytes()).await?;
-
-    Ok(())
-}
+/// Pigeonhole examples: `pigeons: N` → PHP(N), `N` pigeons into `N-1` holes. Opened in Hardware
+/// mode; `load_hardware_spec` routes a `pigeons:` spec to the live solver, which animates the
+/// doomed pigeon and emits a certified symmetry-breaking refutation (Hall witness + Heule PR proof,
+/// no Z3) — the family every resolution-based solver (Kissat, CaDiCaL, Z3) needs `2^Ω(n)` steps on.
+pub const PIGEONHOLE_EXAMPLES: &[(&str, &str)] = &[
+    (
+        "pigeonhole.hw",
+        "# Pigeonhole — N pigeons into N-1 holes is impossible. Watch the last pigeon find no home.\n\
+         # Our prover certifies UNSAT in polynomial time (maximum matching + symmetry breaking);\n\
+         # every resolution solver (Kissat, CaDiCaL, Z3) needs exponentially many steps here.\n\
+         pigeons: 6\n",
+    ),
+    (
+        "pigeonhole-12.hw",
+        "# PHP(12): far past where Z3 times out, our certified PR proof stays polynomial.\n\
+         pigeons: 12\n",
+    ),
+];
 
 // ============================================================
 // Logic Mode Examples (English -> FOL)
@@ -1046,6 +866,9 @@ Eval nat_list.
 
 const MATH_PAIRS: &str = r#"-- Pairs and Products
 -- Cartesian product types
+
+-- A small boolean type to pair with numbers.
+Inductive MyBool := Yes : MyBool | No : MyBool.
 
 Inductive MyPair (A : Type) (B : Type) :=
     MkPair : A -> B -> MyPair A B.
@@ -3415,135 +3238,539 @@ Eval (concludes d_trivial).
 -- programming proofs. God Mode achieved.
 "###;
 
+// ============================================================================
+// Studio example registry — the single source of truth for every shipped
+// example. `seed_examples` writes exactly these into the VFS, and the
+// `example_health` test suite drives every one through the SAME pipeline the
+// Studio uses and asserts its documented intended outcome. A new example must
+// be added here with its `Expected`, so nothing can ship unlocked.
+// ============================================================================
+
+/// Which Studio surface an example belongs to.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Mode {
+    Logic,
+    Code,
+    Math,
+    Hardware,
+}
+
+/// The documented intended outcome an example is locked to. The test harness
+/// dispatches on this to the same pipeline the Studio uses for that mode.
+#[derive(Debug, Clone)]
+pub enum Expected {
+    /// Logic theorem: `compile_theorem_for_ui(src).verified` is true.
+    Proves,
+    /// Logic theorem that intentionally yields a derivation the kernel does NOT
+    /// certify — the string-door-honesty demonstration (the Barber paradox): the
+    /// backward chainer finds a derivation, but the system honestly reports it is
+    /// not a certified proof (`derivation.is_some() && !verified`).
+    DerivationNotCertified,
+    /// Logic sentences: `compile_for_ui(src)` yields FOL (no error) whose BOTH
+    /// the primary and the Simple views contain every content needle — so a
+    /// silently-dropped modifier (e.g. an adverb lost when the Simple view
+    /// flattens the event) fails the lock instead of passing unnoticed.
+    CompilesToFol(&'static [&'static str]),
+    /// Code: runs in the baseline interpreter with no error, printing each needle.
+    OutputContains(&'static [&'static str]),
+    /// Code that cannot run in the browser interpreter (real OS networking): it
+    /// must still generate Rust cleanly.
+    NativeOnlyCompiles,
+    /// Math: every statement executes without error in a fresh kernel `Repl`.
+    KernelAllStatementsOk,
+    /// Math intentionally open: statements execute until a documented admitted
+    /// goal (the marker string names the open point, e.g. a termination wall).
+    KernelAdmitsAt(&'static str),
+    /// Hardware English→SVA: synthesizes AND certifies equivalent to the spec.
+    SvaSynthesizes,
+    /// Hardware signal-design: yields a phase plan with at least one phase.
+    SignalPlanSynthesizes,
+    /// Verilog proven safe by k-induction (BMC fallback finds no counterexample).
+    RtlProven,
+    /// Verilog unsafe by design: the prover MUST find a counterexample.
+    RefutesWithCounterexample,
+    /// Register allocation that fits the register budget (certified valid).
+    RegisterAllocFits,
+    /// Register allocation that provably must spill (certified spill).
+    SpillsRequired,
+    /// Pigeonhole instance with a certified UNSAT (Hall) witness.
+    UnsatCertified,
+}
+
+/// One shipped Studio example: where it seeds in the VFS, its mode, its source
+/// text (the live const), and the outcome it is locked to.
+pub struct ExampleSpec {
+    pub vfs_path: &'static str,
+    pub mode: Mode,
+    pub source: &'static str,
+    pub expected: Expected,
+}
+
+/// The 11 Logic-mode examples.
+pub const ALL_LOGIC_EXAMPLES: &[ExampleSpec] = &[
+    ExampleSpec { vfs_path: "/examples/logic/simple-sentences.logic", mode: Mode::Logic, source: LOGIC_SIMPLE, expected: Expected::CompilesToFol(&["Sleep", "Bark", "Loudly", "Love", "Fail"]) },
+    ExampleSpec { vfs_path: "/examples/logic/quantifiers.logic", mode: Mode::Logic, source: LOGIC_QUANTIFIERS, expected: Expected::CompilesToFol(&["Student", "Book", "Professor", "Exam", "Cat"]) },
+    ExampleSpec { vfs_path: "/examples/logic/tense-aspect.logic", mode: Mode::Logic, source: LOGIC_TENSE, expected: Expected::CompilesToFol(&["Run", "Eat", "Arrive", "Sleep", "Work"]) },
+    ExampleSpec { vfs_path: "/examples/logic/prover-demo.logic", mode: Mode::Logic, source: LOGIC_PROVER, expected: Expected::Proves },
+    ExampleSpec { vfs_path: "/examples/logic/simon.logic", mode: Mode::Logic, source: LOGIC_SIMON, expected: Expected::Proves },
+    ExampleSpec { vfs_path: "/examples/logic/syllogism.logic", mode: Mode::Logic, source: LOGIC_SYLLOGISM, expected: Expected::Proves },
+    ExampleSpec { vfs_path: "/examples/logic/trivial-proof.logic", mode: Mode::Logic, source: LOGIC_TRIVIAL, expected: Expected::Proves },
+    ExampleSpec { vfs_path: "/examples/logic/disjunctive-syllogism.logic", mode: Mode::Logic, source: LOGIC_DISJUNCTIVE, expected: Expected::Proves },
+    ExampleSpec { vfs_path: "/examples/logic/modus-tollens.logic", mode: Mode::Logic, source: LOGIC_MODUS_TOLLENS, expected: Expected::Proves },
+    ExampleSpec { vfs_path: "/examples/logic/leibniz-identity.logic", mode: Mode::Logic, source: LOGIC_LEIBNIZ, expected: Expected::Proves },
+    ExampleSpec { vfs_path: "/examples/logic/barber-paradox.logic", mode: Mode::Logic, source: LOGIC_BARBER, expected: Expected::DerivationNotCertified },
+];
+
+/// The 36 Code-mode examples. Output needles are provisional until the audit
+/// run confirms the real interpreter output.
+pub const ALL_CODE_EXAMPLES: &[ExampleSpec] = &[
+    ExampleSpec { vfs_path: "/examples/code/hello-world.logos", mode: Mode::Code, source: CODE_HELLO, expected: Expected::OutputContains(&["Hello, LOGOS!", "30"]) },
+    ExampleSpec { vfs_path: "/examples/code/hello-world2.logos", mode: Mode::Code, source: CODE_HELLO2, expected: Expected::OutputContains(&["Hello, World!"]) },
+    ExampleSpec { vfs_path: "/examples/code/fibonacci.logos", mode: Mode::Code, source: CODE_FIBONACCI, expected: Expected::OutputContains(&["55"]) },
+    ExampleSpec { vfs_path: "/examples/code/fizzbuzz.logos", mode: Mode::Code, source: CODE_FIZZBUZZ, expected: Expected::OutputContains(&["FizzBuzz", "Buzz"]) },
+    ExampleSpec { vfs_path: "/examples/code/fizzbuzz2.logos", mode: Mode::Code, source: CODE_FIZZBUZZ2, expected: Expected::OutputContains(&["FizzBuzz", "Buzz"]) },
+    ExampleSpec { vfs_path: "/examples/code/fizzbuzz3.logos", mode: Mode::Code, source: CODE_FIZZBUZZ3, expected: Expected::OutputContains(&["FizzBuzz", "Buzz"]) },
+    ExampleSpec { vfs_path: "/examples/code/collections.logos", mode: Mode::Code, source: CODE_COLLECTIONS, expected: Expected::OutputContains(&["6"]) },
+    ExampleSpec { vfs_path: "/examples/code/factorial.logos", mode: Mode::Code, source: CODE_FACTORIAL, expected: Expected::OutputContains(&["120"]) },
+    ExampleSpec { vfs_path: "/examples/code/prime-check.logos", mode: Mode::Code, source: CODE_PRIME, expected: Expected::OutputContains(&["29"]) },
+    ExampleSpec { vfs_path: "/examples/code/sum-list.logos", mode: Mode::Code, source: CODE_SUM_LIST, expected: Expected::OutputContains(&["150"]) },
+    ExampleSpec { vfs_path: "/examples/code/bubble-sort.logos", mode: Mode::Code, source: CODE_BUBBLE_SORT, expected: Expected::OutputContains(&["90"]) },
+    ExampleSpec { vfs_path: "/examples/code/struct-demo.logos", mode: Mode::Code, source: CODE_STRUCT, expected: Expected::OutputContains(&["Alice"]) },
+    ExampleSpec { vfs_path: "/examples/code/types/enums.logos", mode: Mode::Code, source: CODE_ENUMS, expected: Expected::OutputContains(&["red"]) },
+    ExampleSpec { vfs_path: "/examples/code/types/generics.logos", mode: Mode::Code, source: CODE_GENERICS, expected: Expected::OutputContains(&["100"]) },
+    ExampleSpec { vfs_path: "/examples/code/collections/sets.logos", mode: Mode::Code, source: CODE_SETS, expected: Expected::OutputContains(&["3"]) },
+    ExampleSpec { vfs_path: "/examples/code/collections/maps.logos", mode: Mode::Code, source: CODE_MAPS, expected: Expected::OutputContains(&["50"]) },
+    ExampleSpec { vfs_path: "/examples/code/functions/higher-order.logos", mode: Mode::Code, source: CODE_HIGHER_ORDER, expected: Expected::OutputContains(&["42"]) },
+    ExampleSpec { vfs_path: "/examples/code/distributed/counters.logos", mode: Mode::Code, source: CODE_CRDT_COUNTERS, expected: Expected::OutputContains(&["18"]) },
+    ExampleSpec { vfs_path: "/examples/code/security/policies.logos", mode: Mode::Code, source: CODE_POLICIES, expected: Expected::OutputContains(&["Admin"]) },
+    ExampleSpec { vfs_path: "/examples/code/memory/zones.logos", mode: Mode::Code, source: CODE_ZONES, expected: Expected::OutputContains(&["100"]) },
+    ExampleSpec { vfs_path: "/examples/code/native/tasks.logos", mode: Mode::Code, source: CODE_TASKS, expected: Expected::OutputContains(&["worker"]) },
+    ExampleSpec { vfs_path: "/examples/code/native/channels.logos", mode: Mode::Code, source: CODE_CHANNELS, expected: Expected::OutputContains(&["42"]) },
+    ExampleSpec { vfs_path: "/examples/code/basics/variables.logos", mode: Mode::Code, source: CODE_BASICS_VARIABLES, expected: Expected::OutputContains(&["Alice"]) },
+    ExampleSpec { vfs_path: "/examples/code/basics/operators.logos", mode: Mode::Code, source: CODE_BASICS_OPERATORS, expected: Expected::OutputContains(&["13"]) },
+    ExampleSpec { vfs_path: "/examples/code/basics/control-flow.logos", mode: Mode::Code, source: CODE_BASICS_CONTROL_FLOW, expected: Expected::OutputContains(&["Grade"]) },
+    ExampleSpec { vfs_path: "/examples/code/types/enums-patterns.logos", mode: Mode::Code, source: CODE_ENUMS_PATTERNS, expected: Expected::OutputContains(&["status"]) },
+    ExampleSpec { vfs_path: "/examples/code/memory/ownership.logos", mode: Mode::Code, source: CODE_OWNERSHIP, expected: Expected::OutputContains(&["profile"]) },
+    ExampleSpec { vfs_path: "/examples/code/concurrency/parallel.logos", mode: Mode::Code, source: CODE_CONCURRENCY_PARALLEL, expected: Expected::OutputContains(&["30"]) },
+    ExampleSpec { vfs_path: "/examples/code/distributed/tally.logos", mode: Mode::Code, source: CODE_CRDT_TALLY, expected: Expected::OutputContains(&["80"]) },
+    ExampleSpec { vfs_path: "/examples/code/distributed/merge.logos", mode: Mode::Code, source: CODE_CRDT_MERGE, expected: Expected::OutputContains(&["150"]) },
+    ExampleSpec { vfs_path: "/examples/code/networking/server.logos", mode: Mode::Code, source: CODE_NETWORK_SERVER, expected: Expected::NativeOnlyCompiles },
+    ExampleSpec { vfs_path: "/examples/code/networking/client.logos", mode: Mode::Code, source: CODE_NETWORK_CLIENT, expected: Expected::NativeOnlyCompiles },
+    ExampleSpec { vfs_path: "/examples/code/error-handling.logos", mode: Mode::Code, source: CODE_ERROR_HANDLING, expected: Expected::OutputContains(&["5"]) },
+    ExampleSpec { vfs_path: "/examples/code/advanced/refinement.logos", mode: Mode::Code, source: CODE_ADVANCED_REFINEMENT, expected: Expected::OutputContains(&["5"]) },
+    ExampleSpec { vfs_path: "/examples/code/advanced/assertions.logos", mode: Mode::Code, source: CODE_ADVANCED_ASSERTIONS, expected: Expected::OutputContains(&["50"]) },
+    ExampleSpec { vfs_path: "/examples/code/temporal/durations.logos", mode: Mode::Code, source: CODE_TEMPORAL, expected: Expected::OutputContains(&["ns"]) },
+];
+
+/// The 24 Math-mode examples.
+pub const ALL_MATH_EXAMPLES: &[ExampleSpec] = &[
+    ExampleSpec { vfs_path: "/examples/math/natural-numbers.logos", mode: Mode::Math, source: MATH_NAT, expected: Expected::KernelAllStatementsOk },
+    ExampleSpec { vfs_path: "/examples/math/boolean-logic.logos", mode: Mode::Math, source: MATH_BOOL, expected: Expected::KernelAllStatementsOk },
+    ExampleSpec { vfs_path: "/examples/math/godel-sentence.logos", mode: Mode::Math, source: MATH_GODEL, expected: Expected::KernelAllStatementsOk },
+    ExampleSpec { vfs_path: "/examples/math/incompleteness.logos", mode: Mode::Math, source: MATH_INCOMPLETENESS, expected: Expected::KernelAllStatementsOk },
+    ExampleSpec { vfs_path: "/examples/math/prop-logic.logos", mode: Mode::Math, source: MATH_PROP_LOGIC, expected: Expected::KernelAllStatementsOk },
+    ExampleSpec { vfs_path: "/examples/math/functions.logos", mode: Mode::Math, source: MATH_FUNCTIONS, expected: Expected::KernelAllStatementsOk },
+    ExampleSpec { vfs_path: "/examples/math/list-ops.logos", mode: Mode::Math, source: MATH_LIST_OPS, expected: Expected::KernelAllStatementsOk },
+    ExampleSpec { vfs_path: "/examples/math/pairs.logos", mode: Mode::Math, source: MATH_PAIRS, expected: Expected::KernelAllStatementsOk },
+    ExampleSpec { vfs_path: "/examples/math/logic-gates.logos", mode: Mode::Math, source: MATH_CIRCUIT, expected: Expected::KernelAllStatementsOk },
+    ExampleSpec { vfs_path: "/examples/math/proven-property.logos", mode: Mode::Math, source: MATH_PROPERTY, expected: Expected::KernelAllStatementsOk },
+    ExampleSpec { vfs_path: "/examples/math/collatz.logos", mode: Mode::Math, source: MATH_COLLATZ, expected: Expected::KernelAllStatementsOk },
+    ExampleSpec { vfs_path: "/examples/math/godel-literate.logos", mode: Mode::Math, source: MATH_GODEL_LITERATE, expected: Expected::KernelAllStatementsOk },
+    ExampleSpec { vfs_path: "/examples/math/incompleteness-literate.logos", mode: Mode::Math, source: MATH_INCOMPLETENESS_LITERATE, expected: Expected::KernelAllStatementsOk },
+    ExampleSpec { vfs_path: "/examples/math/ring-tactic.logos", mode: Mode::Math, source: MATH_RING, expected: Expected::KernelAllStatementsOk },
+    ExampleSpec { vfs_path: "/examples/math/lia-tactic.logos", mode: Mode::Math, source: MATH_LIA, expected: Expected::KernelAllStatementsOk },
+    ExampleSpec { vfs_path: "/examples/math/cc-tactic.logos", mode: Mode::Math, source: MATH_CC, expected: Expected::KernelAllStatementsOk },
+    ExampleSpec { vfs_path: "/examples/math/simp-tactic.logos", mode: Mode::Math, source: MATH_SIMP, expected: Expected::KernelAllStatementsOk },
+    ExampleSpec { vfs_path: "/examples/math/omega-tactic.logos", mode: Mode::Math, source: MATH_OMEGA, expected: Expected::KernelAllStatementsOk },
+    ExampleSpec { vfs_path: "/examples/math/auto-tactic.logos", mode: Mode::Math, source: MATH_AUTO, expected: Expected::KernelAllStatementsOk },
+    ExampleSpec { vfs_path: "/examples/math/induction-tactic.logos", mode: Mode::Math, source: MATH_INDUCTION, expected: Expected::KernelAllStatementsOk },
+    ExampleSpec { vfs_path: "/examples/math/hints.logos", mode: Mode::Math, source: MATH_HINTS, expected: Expected::KernelAllStatementsOk },
+    ExampleSpec { vfs_path: "/examples/math/inversion-tactic.logos", mode: Mode::Math, source: MATH_INVERSION, expected: Expected::KernelAllStatementsOk },
+    ExampleSpec { vfs_path: "/examples/math/operator-tactics.logos", mode: Mode::Math, source: MATH_OPERATOR, expected: Expected::KernelAllStatementsOk },
+    ExampleSpec { vfs_path: "/examples/math/tacticals.logos", mode: Mode::Math, source: MATH_TACTICALS, expected: Expected::KernelAllStatementsOk },
+];
+
+/// The 18 Hardware-mode examples, sourced from the four hardware slices. The
+/// deliberately-unsafe demos (`bad-arbiter`, `traffic-crash`, `queue-jam`,
+/// `register-alloc-spill`) are locked to their intended failure/refutation.
+pub const ALL_HARDWARE_SPECS: &[ExampleSpec] = &[
+    ExampleSpec { vfs_path: "/examples/hardware/handshake.hw", mode: Mode::Hardware, source: HARDWARE_EXAMPLES[0].1, expected: Expected::SvaSynthesizes },
+    ExampleSpec { vfs_path: "/examples/hardware/enable-ready.hw", mode: Mode::Hardware, source: HARDWARE_EXAMPLES[1].1, expected: Expected::SvaSynthesizes },
+    ExampleSpec { vfs_path: "/examples/hardware/start-done.hw", mode: Mode::Hardware, source: HARDWARE_EXAMPLES[2].1, expected: Expected::SvaSynthesizes },
+    ExampleSpec { vfs_path: "/examples/hardware/write-full.hw", mode: Mode::Hardware, source: HARDWARE_EXAMPLES[3].1, expected: Expected::SvaSynthesizes },
+    ExampleSpec { vfs_path: "/examples/hardware/intersection-design.hw", mode: Mode::Hardware, source: HARDWARE_EXAMPLES[4].1, expected: Expected::SignalPlanSynthesizes },
+    ExampleSpec { vfs_path: "/examples/hardware/arbiter.v", mode: Mode::Hardware, source: RTL_EXAMPLES[0].1, expected: Expected::RtlProven },
+    ExampleSpec { vfs_path: "/examples/hardware/bad-arbiter.v", mode: Mode::Hardware, source: RTL_EXAMPLES[1].1, expected: Expected::RefutesWithCounterexample },
+    ExampleSpec { vfs_path: "/examples/hardware/fifo.v", mode: Mode::Hardware, source: RTL_EXAMPLES[2].1, expected: Expected::RtlProven },
+    ExampleSpec { vfs_path: "/examples/hardware/onehot.v", mode: Mode::Hardware, source: RTL_EXAMPLES[3].1, expected: Expected::RtlProven },
+    ExampleSpec { vfs_path: "/examples/hardware/reset-mirror.v", mode: Mode::Hardware, source: RTL_EXAMPLES[4].1, expected: Expected::RtlProven },
+    ExampleSpec { vfs_path: "/examples/hardware/traffic-safe.v", mode: Mode::Hardware, source: RTL_EXAMPLES[5].1, expected: Expected::RtlProven },
+    ExampleSpec { vfs_path: "/examples/hardware/traffic-crash.v", mode: Mode::Hardware, source: RTL_EXAMPLES[6].1, expected: Expected::RefutesWithCounterexample },
+    ExampleSpec { vfs_path: "/examples/hardware/queue-jam.v", mode: Mode::Hardware, source: RTL_EXAMPLES[7].1, expected: Expected::RefutesWithCounterexample },
+    ExampleSpec { vfs_path: "/examples/hardware/queue-stable.v", mode: Mode::Hardware, source: RTL_EXAMPLES[8].1, expected: Expected::RtlProven },
+    ExampleSpec { vfs_path: "/examples/hardware/register-alloc-fits.hw", mode: Mode::Hardware, source: REGALLOC_EXAMPLES[0].1, expected: Expected::RegisterAllocFits },
+    ExampleSpec { vfs_path: "/examples/hardware/register-alloc-spill.hw", mode: Mode::Hardware, source: REGALLOC_EXAMPLES[1].1, expected: Expected::SpillsRequired },
+    ExampleSpec { vfs_path: "/examples/hardware/pigeonhole.hw", mode: Mode::Hardware, source: PIGEONHOLE_EXAMPLES[0].1, expected: Expected::UnsatCertified },
+    ExampleSpec { vfs_path: "/examples/hardware/pigeonhole-12.hw", mode: Mode::Hardware, source: PIGEONHOLE_EXAMPLES[1].1, expected: Expected::UnsatCertified },
+];
+
 #[cfg(test)]
 mod example_health {
-    //! Every shipped Studio example must be well-formed in its mode:
-    //! - Code examples must generate Rust (no parse/codegen error).
-    //! - Math examples must extract without error (no extraction crash).
-    //!
-    //! Computational math examples are *additionally* rustc-compiled in
-    //! `logicaffeine_tests/tests/phase84_math_examples_e2e.rs`. This module is the
-    //! single-source guard (it references the same consts the VFS is seeded from),
-    //! so a broken example can never ship unnoticed.
+    //! Every shipped Studio example is locked to its documented intended outcome
+    //! by driving it through the SAME pipeline the Studio uses for its mode.
+    //! This is the single-source guard: the tests iterate the `ALL_*` registries
+    //! (the same specs `seed_examples` writes to the VFS), so a broken example
+    //! cannot ship unnoticed.
     use super::*;
+    use logicaffeine_compile::codegen_sva::fol_to_sva::synthesize_sva_from_spec;
+    use logicaffeine_compile::codegen_sva::hw_pipeline::prove_spec_sva_equivalence;
+    use logicaffeine_compile::codegen_sva::rtl::parse_transition_system;
+    use logicaffeine_compile::codegen_sva::signal_design::design_from_spec;
     use logicaffeine_compile::{
-        extract_logic_rust, extract_math_rust_from_source, generate_rust_code,
+        compile_for_ui, compile_theorem_for_ui, generate_rust_code,
+        interpret_for_ui_baseline_with_args,
+    };
+    use logicaffeine_kernel::interface::Repl;
+    use logicaffeine_proof::bmc::{BmcOutcome, InductionOutcome};
+    use logicaffeine_proof::register_alloc::{
+        allocate, is_spill_certificate, is_valid_allocation, Allocation,
     };
 
-    const CODE_EXAMPLES: &[(&str, &str)] = &[
-        ("hello-world", CODE_HELLO),
-        ("hello-world2", CODE_HELLO2),
-        ("fibonacci", CODE_FIBONACCI),
-        ("fizzbuzz", CODE_FIZZBUZZ),
-        ("fizzbuzz2", CODE_FIZZBUZZ2),
-        ("fizzbuzz3", CODE_FIZZBUZZ3),
-        ("collections", CODE_COLLECTIONS),
-        ("factorial", CODE_FACTORIAL),
-        ("prime-check", CODE_PRIME),
-        ("sum-list", CODE_SUM_LIST),
-        ("bubble-sort", CODE_BUBBLE_SORT),
-        ("struct-demo", CODE_STRUCT),
-        ("enums", CODE_ENUMS),
-        ("generics", CODE_GENERICS),
-        ("sets", CODE_SETS),
-        ("maps", CODE_MAPS),
-        ("higher-order", CODE_HIGHER_ORDER),
-        ("crdt-counters", CODE_CRDT_COUNTERS),
-        ("policies", CODE_POLICIES),
-        ("zones", CODE_ZONES),
-        ("tasks", CODE_TASKS),
-        ("channels", CODE_CHANNELS),
-        ("basics-variables", CODE_BASICS_VARIABLES),
-        ("basics-operators", CODE_BASICS_OPERATORS),
-        ("basics-control-flow", CODE_BASICS_CONTROL_FLOW),
-        ("enums-patterns", CODE_ENUMS_PATTERNS),
-        ("ownership", CODE_OWNERSHIP),
-        ("concurrency-parallel", CODE_CONCURRENCY_PARALLEL),
-        ("crdt-tally", CODE_CRDT_TALLY),
-        ("crdt-merge", CODE_CRDT_MERGE),
-        ("network-server", CODE_NETWORK_SERVER),
-        ("network-client", CODE_NETWORK_CLIENT),
-        ("error-handling", CODE_ERROR_HANDLING),
-        ("refinement", CODE_ADVANCED_REFINEMENT),
-        ("assertions", CODE_ADVANCED_ASSERTIONS),
-        ("temporal", CODE_TEMPORAL),
-    ];
+    /// Drive one example through its real Studio pipeline and check its
+    /// intended outcome. Returns `Ok(())` on a pass, `Err(reason)` otherwise.
+    fn check(spec: &ExampleSpec) -> Result<(), String> {
+        match &spec.expected {
+            Expected::CompilesToFol(needles) => {
+                let r = compile_for_ui(spec.source);
+                if let Some(e) = r.error {
+                    return Err(format!("compile error: {e}"));
+                }
+                let logic = r.logic.unwrap_or_default();
+                if logic.trim().is_empty() {
+                    return Err("no FOL produced".to_string());
+                }
+                let simple = r.simple_logic.unwrap_or_default();
+                for needle in *needles {
+                    if !logic.contains(needle) {
+                        return Err(format!("primary FOL missing {needle:?}:\n{logic}"));
+                    }
+                    if !simple.contains(needle) {
+                        return Err(format!("Simple FOL missing {needle:?}:\n{simple}"));
+                    }
+                }
+                Ok(())
+            }
+            Expected::Proves => {
+                let r = compile_theorem_for_ui(spec.source);
+                if r.verified {
+                    Ok(())
+                } else {
+                    Err(format!(
+                        "theorem '{}' not kernel-verified{}",
+                        r.name,
+                        r.verification_error
+                            .map(|e| format!(": {e}"))
+                            .unwrap_or_default()
+                    ))
+                }
+            }
+            Expected::DerivationNotCertified => {
+                let r = compile_theorem_for_ui(spec.source);
+                match (r.derivation.is_some(), r.verified) {
+                    (true, false) => Ok(()),
+                    (true, true) => Err(
+                        "expected an uncertified derivation (honesty demo) but it certified"
+                            .to_string(),
+                    ),
+                    (false, _) => Err("expected a derivation to be found, none was".to_string()),
+                }
+            }
+            Expected::OutputContains(needles) => {
+                // Both Studio Code surfaces must work: it generates Rust (the
+                // 🦀 Compile view) AND it runs (the interpreter view).
+                match generate_rust_code(spec.source) {
+                    Ok(rust) if !rust.trim().is_empty() => {}
+                    Ok(_) => return Err("generated empty Rust".to_string()),
+                    Err(e) => return Err(format!("codegen error: {e:?}")),
+                }
+                let result = run_code(spec.source);
+                if let Some(e) = result.error {
+                    return Err(format!("interpreter error: {e}"));
+                }
+                let out = result.lines.join("\n");
+                for needle in *needles {
+                    if !out.contains(needle) {
+                        return Err(format!(
+                            "output missing {needle:?}; actual output:\n{out}"
+                        ));
+                    }
+                }
+                Ok(())
+            }
+            Expected::NativeOnlyCompiles => match generate_rust_code(spec.source) {
+                Ok(rust) if !rust.trim().is_empty() => Ok(()),
+                Ok(_) => Err("generated empty Rust".to_string()),
+                Err(e) => Err(format!("codegen error: {e:?}")),
+            },
+            Expected::KernelAllStatementsOk => run_kernel(spec.source, None),
+            Expected::KernelAdmitsAt(marker) => run_kernel(spec.source, Some(marker)),
+            Expected::SvaSynthesizes => {
+                let synth = synthesize_sva_from_spec(spec.source, "clk")
+                    .map_err(|e| format!("SVA synthesis failed: {e}"))?;
+                let equiv = prove_spec_sva_equivalence(spec.source, &synth.body, 8)
+                    .map_err(|e| format!("equivalence check failed: {e:?}"))?;
+                if equiv.equivalent {
+                    Ok(())
+                } else {
+                    Err("synthesized SVA not certified equivalent to spec".to_string())
+                }
+            }
+            Expected::SignalPlanSynthesizes => {
+                let (_intersection, plan) = design_from_spec(spec.source)
+                    .map_err(|e| format!("signal-design failed: {e}"))?;
+                if plan.num_phases >= 1 {
+                    Ok(())
+                } else {
+                    Err("signal-design produced no phases".to_string())
+                }
+            }
+            Expected::RtlProven => {
+                let ts = parse_transition_system(spec.source)
+                    .map_err(|e| format!("RTL parse failed: {e:?}"))?;
+                match ts.prove_invariant(4) {
+                    InductionOutcome::Proven => Ok(()),
+                    InductionOutcome::NotInductive => match ts.bmc(28) {
+                        BmcOutcome::NoneWithin(_) => Ok(()),
+                        other => Err(format!("expected safe, BMC found {other:?}")),
+                    },
+                    other => Err(format!("expected Proven, got {other:?}")),
+                }
+            }
+            Expected::RefutesWithCounterexample => {
+                let ts = parse_transition_system(spec.source)
+                    .map_err(|e| format!("RTL parse failed: {e:?}"))?;
+                let inv = ts.prove_invariant(4);
+                if matches!(inv, InductionOutcome::CounterexampleAt { .. }) {
+                    return Ok(());
+                }
+                if matches!(inv, InductionOutcome::NotInductive) {
+                    if matches!(ts.bmc(28), BmcOutcome::CounterexampleAt { .. }) {
+                        return Ok(());
+                    }
+                }
+                Err(format!(
+                    "expected a counterexample, prove_invariant gave {inv:?}"
+                ))
+            }
+            Expected::RegisterAllocFits => {
+                let regspec = crate::ui::pages::register_alloc_viz::parse_register_spec(spec.source)
+                    .ok_or("could not parse register spec")?;
+                match allocate(&regspec.ranges, regspec.registers) {
+                    Allocation::Allocated(reg_of) => {
+                        if is_valid_allocation(&regspec.ranges, regspec.registers, &reg_of) {
+                            Ok(())
+                        } else {
+                            Err("allocation is not valid".to_string())
+                        }
+                    }
+                    Allocation::Spill { .. } => {
+                        Err("expected a fitting allocation, got a spill".to_string())
+                    }
+                }
+            }
+            Expected::SpillsRequired => {
+                let regspec = crate::ui::pages::register_alloc_viz::parse_register_spec(spec.source)
+                    .ok_or("could not parse register spec")?;
+                match allocate(&regspec.ranges, regspec.registers) {
+                    Allocation::Spill { must_spill, .. } => {
+                        if is_spill_certificate(&regspec.ranges, regspec.registers, &must_spill) {
+                            Ok(())
+                        } else {
+                            Err("spill certificate does not re-verify".to_string())
+                        }
+                    }
+                    Allocation::Allocated(_) => {
+                        Err("expected a required spill, got a fitting allocation".to_string())
+                    }
+                }
+            }
+            Expected::UnsatCertified => {
+                let pspec = crate::ui::pages::pigeonhole_viz::parse_pigeonhole_spec(spec.source)
+                    .ok_or("could not parse pigeonhole spec")?;
+                let verdict = crate::ui::pages::pigeonhole_viz::solve(&pspec);
+                if verdict.certified && !verdict.hall.slots.is_empty() {
+                    Ok(())
+                } else {
+                    Err("pigeonhole UNSAT was not certified".to_string())
+                }
+            }
+        }
+    }
 
-    const MATH_EXAMPLES: &[(&str, &str)] = &[
-        ("natural-numbers", MATH_NAT),
-        ("boolean-logic", MATH_BOOL),
-        ("godel-sentence", MATH_GODEL),
-        ("incompleteness", MATH_INCOMPLETENESS),
-        ("prop-logic", MATH_PROP_LOGIC),
-        ("functions", MATH_FUNCTIONS),
-        ("list-ops", MATH_LIST_OPS),
-        ("pairs", MATH_PAIRS),
-        ("logic-gates", MATH_CIRCUIT),
-        ("proven-property", MATH_PROPERTY),
-        ("collatz", MATH_COLLATZ),
-        ("godel-literate", MATH_GODEL_LITERATE),
-        ("incompleteness-literate", MATH_INCOMPLETENESS_LITERATE),
-        ("ring-tactic", MATH_RING),
-        ("lia-tactic", MATH_LIA),
-        ("cc-tactic", MATH_CC),
-        ("simp-tactic", MATH_SIMP),
-        ("omega-tactic", MATH_OMEGA),
-        ("auto-tactic", MATH_AUTO),
-        ("induction-tactic", MATH_INDUCTION),
-        ("hints", MATH_HINTS),
-        ("inversion-tactic", MATH_INVERSION),
-        ("operator-tactics", MATH_OPERATOR),
-        ("tacticals", MATH_TACTICALS),
-    ];
+    /// Run a code example through the async baseline interpreter — the exact
+    /// entry the Studio uses — inside a Tokio runtime so programs that sleep or
+    /// drive the scheduler run for real (the sync entry has no reactor and would
+    /// panic on `Sleep`).
+    fn run_code(src: &str) -> logicaffeine_compile::interpreter::InterpreterResult {
+        let rt = logicaffeine_system::tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .expect("failed to build Tokio runtime for code example");
+        rt.block_on(interpret_for_ui_baseline_with_args(src, &[]))
+    }
 
-    #[test]
-    fn all_code_examples_generate_rust() {
+    /// Run every statement of a math example through a fresh persistent kernel
+    /// `Repl` (exactly as the Studio does). With `admit_marker`, statements are
+    /// allowed to fail from the first statement containing the marker onward
+    /// (the documented open/admitted point).
+    fn run_kernel(source: &str, admit_marker: Option<&str>) -> Result<(), String> {
+        let mut repl = Repl::new();
+        let mut admitted = false;
+        for stmt in crate::ui::pages::studio::parse_math_statements(source) {
+            if let Some(marker) = admit_marker {
+                if stmt.contains(marker) {
+                    admitted = true;
+                }
+            }
+            if let Err(e) = repl.execute(&stmt) {
+                if admitted {
+                    return Ok(());
+                }
+                return Err(format!("statement failed: {stmt}\n  -> {e}"));
+            }
+        }
+        if admit_marker.is_some() && !admitted {
+            return Err("admit marker never matched any statement".to_string());
+        }
+        Ok(())
+    }
+
+    /// Assert every spec in a registry passes `check`, collecting ALL failures so
+    /// one run surfaces every broken example at once.
+    fn lock(registry: &[ExampleSpec], mode: &str) {
         let mut failures = Vec::new();
-        for (name, src) in CODE_EXAMPLES {
-            match generate_rust_code(src) {
-                Ok(rust) if !rust.trim().is_empty() => {}
-                Ok(_) => failures.push(format!("  {name}: generated empty Rust")),
-                Err(e) => failures.push(format!("  {name}: {e:?}")),
+        for spec in registry {
+            if let Err(reason) = check(spec) {
+                failures.push(format!("  {}: {reason}", spec.vfs_path));
             }
         }
         assert!(
             failures.is_empty(),
-            "{} code example(s) did not generate Rust:\n{}",
+            "{} {mode} example(s) failed their lock:\n{}",
             failures.len(),
             failures.join("\n")
         );
     }
 
     #[test]
-    fn all_math_examples_extract_without_error() {
-        let mut failures = Vec::new();
-        for (name, src) in MATH_EXAMPLES {
-            let rust = extract_math_rust_from_source(src);
-            if rust.contains("extraction error") {
-                failures.push(format!("  {name}: {rust}"));
-            }
-        }
-        assert!(
-            failures.is_empty(),
-            "{} math example(s) errored during extraction:\n{}",
-            failures.len(),
-            failures.join("\n")
-        );
+    fn lock_logic_examples() {
+        lock(ALL_LOGIC_EXAMPLES, "logic");
     }
 
-    const LOGIC_EXAMPLES: &[(&str, &str)] = &[
-        ("simple-sentences", LOGIC_SIMPLE),
-        ("quantifiers", LOGIC_QUANTIFIERS),
-        ("tense-aspect", LOGIC_TENSE),
-        ("prover-demo", LOGIC_PROVER),
-        ("simon", LOGIC_SIMON),
-        ("syllogism", LOGIC_SYLLOGISM),
-        ("trivial-proof", LOGIC_TRIVIAL),
-        ("disjunctive-syllogism", LOGIC_DISJUNCTIVE),
-        ("modus-tollens", LOGIC_MODUS_TOLLENS),
-        ("leibniz-identity", LOGIC_LEIBNIZ),
-        ("barber-paradox", LOGIC_BARBER),
-    ];
+    #[test]
+    fn lock_code_examples() {
+        lock(ALL_CODE_EXAMPLES, "code");
+    }
+
+    #[test]
+    fn lock_math_examples() {
+        lock(ALL_MATH_EXAMPLES, "math");
+    }
+
+    #[test]
+    fn lock_hardware_examples() {
+        lock(ALL_HARDWARE_SPECS, "hardware");
+    }
+
+    /// Every registry entry, in one iterator — the single source of truth that
+    /// both `seed_examples` and the locks above consume.
+    fn all_specs() -> impl Iterator<Item = &'static ExampleSpec> {
+        ALL_LOGIC_EXAMPLES
+            .iter()
+            .chain(ALL_CODE_EXAMPLES)
+            .chain(ALL_MATH_EXAMPLES)
+            .chain(ALL_HARDWARE_SPECS)
+    }
+
+    /// Ratchet: the per-mode counts are locked, so an example cannot be added or
+    /// removed without deliberately updating this test.
+    #[test]
+    fn registry_counts_are_locked() {
+        assert_eq!(ALL_LOGIC_EXAMPLES.len(), 11, "logic example count changed");
+        assert_eq!(ALL_CODE_EXAMPLES.len(), 36, "code example count changed");
+        assert_eq!(ALL_MATH_EXAMPLES.len(), 24, "math example count changed");
+        assert_eq!(ALL_HARDWARE_SPECS.len(), 18, "hardware example count changed");
+    }
+
+    /// Ratchet: every `vfs_path` is unique, lives under `/examples/<mode>/`, has the
+    /// extension its mode requires, and carries non-empty source — so a copy-paste,
+    /// a misfiled example, or a wrong-extension path fails the build.
+    #[test]
+    fn every_vfs_path_is_well_formed_and_unique() {
+        use std::collections::HashSet;
+        let mut seen = HashSet::new();
+        for spec in all_specs() {
+            assert!(seen.insert(spec.vfs_path), "duplicate vfs_path: {}", spec.vfs_path);
+            let (dir, exts): (&str, &[&str]) = match spec.mode {
+                Mode::Logic => ("/examples/logic/", &[".logic"]),
+                Mode::Code => ("/examples/code/", &[".logos"]),
+                Mode::Math => ("/examples/math/", &[".logos"]),
+                Mode::Hardware => ("/examples/hardware/", &[".hw", ".v"]),
+            };
+            assert!(spec.vfs_path.starts_with(dir), "{} is not under {dir}", spec.vfs_path);
+            assert!(
+                exts.iter().any(|e| spec.vfs_path.ends_with(e)),
+                "{} has the wrong extension for {:?}",
+                spec.vfs_path,
+                spec.mode
+            );
+            assert!(!spec.source.trim().is_empty(), "{} has empty source", spec.vfs_path);
+        }
+    }
+
+    /// The pit of success: `seed_examples` writes EXACTLY the registry — no more, no
+    /// less. Drive it through a real filesystem VFS and compare the seeded
+    /// `/examples/**` files to the registry `vfs_path`s. A stray `vfs.write`, a
+    /// forgotten example, or a path typo fails here.
+    #[cfg(not(target_arch = "wasm32"))]
+    #[test]
+    fn seeding_writes_exactly_the_registry() {
+        use std::collections::HashSet;
+        use std::path::Path;
+
+        let root = std::env::temp_dir().join(format!("logos_seed_ratchet_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        let vfs = logicaffeine_system::fs::NativeVfs::new(root.clone());
+        let rt = logicaffeine_system::tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .expect("failed to build Tokio runtime");
+        rt.block_on(super::seed_examples(&vfs)).expect("seed_examples failed");
+
+        fn collect(dir: &Path, base: &Path, out: &mut HashSet<String>) {
+            if let Ok(entries) = std::fs::read_dir(dir) {
+                for e in entries.flatten() {
+                    let p = e.path();
+                    if p.is_dir() {
+                        collect(&p, base, out);
+                    } else if let Ok(rel) = p.strip_prefix(base) {
+                        out.insert(format!("/{}", rel.to_string_lossy().replace('\\', "/")));
+                    }
+                }
+            }
+        }
+        let mut seeded = HashSet::new();
+        collect(&root.join("examples"), &root, &mut seeded);
+        let _ = std::fs::remove_dir_all(&root);
+
+        let registry: HashSet<String> = all_specs().map(|s| s.vfs_path.to_string()).collect();
+        let missing: Vec<&String> = registry.difference(&seeded).collect();
+        let extra: Vec<&String> = seeded.difference(&registry).collect();
+        assert!(
+            missing.is_empty() && extra.is_empty(),
+            "seed_examples drifted from the registry.\n  MISSING (in registry, not seeded): {missing:?}\n  EXTRA (seeded, not in registry): {extra:?}"
+        );
+    }
 
     /// AUDIT (host-only, print report): generate the Rust for every Logic + Math
     /// example and actually `rustc`-compile it, categorizing program vs note vs
@@ -3551,28 +3778,74 @@ mod example_health {
     #[cfg(not(target_arch = "wasm32"))]
     #[test]
     fn audit_logic_math_rust_compiles() {
+        use logicaffeine_compile::{extract_logic_rust, extract_math_rust_from_source};
         use std::process::Command;
 
+        fn first_error(stderr: &[u8]) -> String {
+            String::from_utf8_lossy(stderr)
+                .lines()
+                .find(|l| l.contains("error"))
+                .unwrap_or("(unknown)")
+                .to_string()
+        }
+
         fn rustc_check(name: &str, code: &str) -> Result<(), String> {
-            let safe = name.replace('/', "_");
+            // The name is a vfs_path; strip characters rustc rejects in a crate name.
+            let safe = name.replace(['/', '.', '-'], "_");
             let src = std::env::temp_dir().join(format!("logos_audit_{safe}.rs"));
-            let out = std::env::temp_dir().join(format!("logos_audit_{safe}.rmeta"));
             std::fs::write(&src, code).map_err(|e| e.to_string())?;
-            let o = Command::new("rustc")
-                .args(["--edition", "2021", "--crate-type", "lib", "--emit=metadata", "-A", "warnings"])
-                .arg("-o")
-                .arg(&out)
-                .arg(&src)
-                .output()
-                .map_err(|e| e.to_string())?;
-            if o.status.success() {
-                Ok(())
+
+            // A self-contained program with a `main` (the math "🦀 Compile" output
+            // carries a self-verifying main) is compiled to a binary AND RUN, so its
+            // kernel-checked asserts actually execute — the extraction's runtime
+            // fidelity, not just that it type-checks. A bounded wait keeps a runaway
+            // program from hanging the suite. Everything else is compile-checked as a
+            // library.
+            if code.contains("fn main") {
+                let bin = std::env::temp_dir().join(format!("logos_audit_{safe}_bin"));
+                let o = Command::new("rustc")
+                    .args(["--edition", "2021", "-A", "warnings", "-o"])
+                    .arg(&bin)
+                    .arg(&src)
+                    .output()
+                    .map_err(|e| e.to_string())?;
+                if !o.status.success() {
+                    return Err(first_error(&o.stderr));
+                }
+                let mut child = Command::new(&bin).spawn().map_err(|e| e.to_string())?;
+                let mut waited = 0u32;
+                let status = loop {
+                    match child.try_wait().map_err(|e| e.to_string())? {
+                        Some(s) => break Some(s),
+                        None if waited >= 100 => {
+                            let _ = child.kill();
+                            break None;
+                        }
+                        None => {
+                            std::thread::sleep(std::time::Duration::from_millis(100));
+                            waited += 1;
+                        }
+                    }
+                };
+                let _ = std::fs::remove_file(&bin);
+                match status {
+                    Some(s) if s.success() => Ok(()),
+                    Some(_) => Err("compiled but its self-checking main FAILED at runtime".to_string()),
+                    None => Err("compiled but did not finish within 10s".to_string()),
+                }
             } else {
-                Err(String::from_utf8_lossy(&o.stderr)
-                    .lines()
-                    .find(|l| l.contains("error"))
-                    .unwrap_or("(unknown)")
-                    .to_string())
+                let out = std::env::temp_dir().join(format!("logos_audit_{safe}.rmeta"));
+                let o = Command::new("rustc")
+                    .args(["--edition", "2021", "--crate-type", "lib", "--emit=metadata", "-A", "warnings", "-o"])
+                    .arg(&out)
+                    .arg(&src)
+                    .output()
+                    .map_err(|e| e.to_string())?;
+                if o.status.success() {
+                    Ok(())
+                } else {
+                    Err(first_error(&o.stderr))
+                }
             }
         }
 
@@ -3595,13 +3868,13 @@ mod example_health {
             }
         }
 
-        let logic: Vec<(&str, String)> = LOGIC_EXAMPLES
+        let logic: Vec<(&str, String)> = ALL_LOGIC_EXAMPLES
             .iter()
-            .map(|(n, s)| (*n, extract_logic_rust(s).unwrap_or_else(|e| format!("// err: {e}"))))
+            .map(|s| (s.vfs_path, extract_logic_rust(s.source).unwrap_or_else(|e| format!("// err: {e}"))))
             .collect();
-        let math: Vec<(&str, String)> = MATH_EXAMPLES
+        let math: Vec<(&str, String)> = ALL_MATH_EXAMPLES
             .iter()
-            .map(|(n, s)| (*n, extract_math_rust_from_source(s)))
+            .map(|s| (s.vfs_path, extract_math_rust_from_source(s.source)))
             .collect();
         let mut failures = Vec::new();
         report("LOGIC", &logic, &mut failures);
@@ -3611,33 +3884,6 @@ mod example_health {
         assert!(
             failures.is_empty(),
             "{} example(s) emit Rust that does not compile:\n{}",
-            failures.len(),
-            failures.join("\n")
-        );
-    }
-
-    /// Every Logic example must "compile to something" via the 🦀 Compile path
-    /// (`extract_logic_rust`): real Rust for constructive content, otherwise an
-    /// honest note — and never a crash, an `extraction error`, or a hang (the
-    /// grid guard keeps the Simon puzzle from running the solver).
-    #[test]
-    fn all_logic_examples_compile_to_something() {
-        let mut failures = Vec::new();
-        for (name, src) in LOGIC_EXAMPLES {
-            match extract_logic_rust(src) {
-                Ok(out) if out.trim().is_empty() => {
-                    failures.push(format!("  {name}: produced empty output"))
-                }
-                Ok(out) if out.contains("extraction error") => {
-                    failures.push(format!("  {name}: {out}"))
-                }
-                Ok(_) => {}
-                Err(e) => failures.push(format!("  {name}: Err({e})")),
-            }
-        }
-        assert!(
-            failures.is_empty(),
-            "{} logic example(s) did not compile to something:\n{}",
             failures.len(),
             failures.join("\n")
         );

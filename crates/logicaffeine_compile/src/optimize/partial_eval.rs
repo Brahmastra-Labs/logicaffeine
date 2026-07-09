@@ -118,6 +118,7 @@ fn stmt_has_io(stmt: &Stmt) -> bool {
         Stmt::Show { .. }
         | Stmt::WriteFile { .. }
         | Stmt::SendMessage { .. }
+        | Stmt::StreamMessage { .. }
         | Stmt::Sleep { .. }
         | Stmt::SendPipe { .. }
         | Stmt::TrySendPipe { .. }

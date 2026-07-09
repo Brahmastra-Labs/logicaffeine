@@ -1,5 +1,5 @@
 //! Send / escape analysis — the static soundness gate for the concurrency
-//! memory model (Phase 4 of `FINISH_INTERPRETER.md`).
+//! memory model (Phase 4 of `work/FINISH_INTERPRETER.md`).
 //!
 //! The memory model is message-passing + CRDT: tasks have isolated heaps, and the
 //! only cross-task sharing is channels (move semantics) and CRDT cells. This pass

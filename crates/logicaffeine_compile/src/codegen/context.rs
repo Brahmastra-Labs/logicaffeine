@@ -90,6 +90,8 @@ pub struct RefinementContext<'a> {
     /// `LogosSeq<T>`), so a `Return` of a borrowed-slice param emits `.to_vec()`
     /// without the `LogosSeq::from_vec(...)` wrapper.
     returns_vec: bool,
+    /// The current function is typed `-> LogosInt` (its `Int` return can exceed i64).
+    returns_bigint: bool,
 
     /// Wave-2 A1 buffer-fill conversion: reused buffers (the inner partner of a
     /// `Set outer to inner` ping-pong swap) that are refilled by a COUNTED push
@@ -127,6 +129,20 @@ pub struct RefinementContext<'a> {
     /// every `item k of A` becomes `coeff*(k-1)+offset` and `length of A` the
     /// trip count. Keyed by the array symbol; see `codegen/affine_array.rs`.
     affine_arrays: HashMap<Symbol, super::affine_array::AffineArrayInfo>,
+    /// Constant-table locals kept but emitted as stack arrays `[T; N]` (zero heap,
+    /// direct index) instead of a per-call `Vec`. See `codegen/affine_array.rs`.
+    const_tables: HashMap<Symbol, super::affine_array::ConstTableInfo>,
+    /// Fixed-size, non-escaping scratch buffers built by a constant-trip fill loop,
+    /// emitted in place as `[T; N]` via `from_fn` instead of a per-entry `Vec`. See
+    /// `codegen/affine_array.rs::detect_scratch_buffers`.
+    scratch_buffers: HashMap<Symbol, super::affine_array::ScratchInfo>,
+    /// Zero-init fixed-size buffers mutated by indexed writes (`Set item i of buf`),
+    /// emitted as a `[T; N]` stack array (`[0; N]` + indexed stores). See
+    /// `codegen/affine_array.rs::detect_indexed_buffers`.
+    indexed_buffers: HashMap<Symbol, super::affine_array::IndexedBufInfo>,
+    /// LOOP-built `[T; N]` return buffers (the digest): symbol → RUNTIME fill-cursor variable name. The
+    /// `Let` declares `[0; N]` + the cursor; each `Push` becomes `out[cursor]=v; cursor+=1`.
+    loop_fill_arrays: HashMap<Symbol, String>,
     /// `Seq of Int` sequences proven to hold only `i32`-range values → stored as
     /// `Vec<i32>` (half the footprint). Keyed by the sequence symbol; carries any
     /// runtime guard (`% m` divisor bound). See `codegen/narrow.rs`. Gated by
@@ -163,6 +179,18 @@ pub struct RefinementContext<'a> {
     /// `/ n` sites read this to emit `helper.rem(..)` / `helper.div(..)` instead
     /// of a hardware division (O9 libdivide).
     fast_div: HashMap<Symbol, String>,
+    /// `mutable` collection parameters (value semantics): passed by shared
+    /// `&LogosSeq`/`&LogosMap` so an in-place mutation reaches the caller's
+    /// allocation. These are the ONE case where a `LogosSeq`/`LogosMap` mutation
+    /// must NOT copy-on-write — the by-reference propagation is the whole point —
+    /// so the `cow()` emitter skips them (and a `&LogosSeq` cannot call the
+    /// `&mut self` `cow()` anyway).
+    mutable_collection_params: HashSet<Symbol>,
+    /// Integer variables whose assignments can overflow `i64` (a bignum constant,
+    /// a promotable-derived value, or a multiplicative/doubling accumulator) — the
+    /// `Let`/`Set` emitter stores these as the overflow-promoting `LogosInt` rather
+    /// than a bare `i64`. Computed once per body by `bigint_promote`.
+    promotable_int_candidates: HashSet<Symbol>,
 }
 
 impl<'a> RefinementContext<'a> {
@@ -179,12 +207,17 @@ impl<'a> RefinementContext<'a> {
             array_fill_pos: HashMap::new(),
             de_rc_vars: HashSet::new(),
             returns_vec: false,
+            returns_bigint: false,
             buffer_reuse_fill: HashSet::new(),
             scratch_hoist: HashSet::new(),
             fill_loop: None,
             indexed_string_builds: HashMap::new(),
             worklists: HashMap::new(),
             affine_arrays: HashMap::new(),
+            const_tables: HashMap::new(),
+            scratch_buffers: HashMap::new(),
+            indexed_buffers: HashMap::new(),
+            loop_fill_arrays: HashMap::new(),
             narrowed: HashMap::new(),
             i64_maps: HashSet::new(),
             i64_sets: HashSet::new(),
@@ -193,6 +226,8 @@ impl<'a> RefinementContext<'a> {
             i32_sets: HashSet::new(),
             vec_presize: HashMap::new(),
             fast_div: HashMap::new(),
+            mutable_collection_params: HashSet::new(),
+            promotable_int_candidates: HashSet::new(),
         }
     }
 
@@ -210,12 +245,17 @@ impl<'a> RefinementContext<'a> {
             array_fill_pos: HashMap::new(),
             de_rc_vars: HashSet::new(),
             returns_vec: false,
+            returns_bigint: false,
             buffer_reuse_fill: HashSet::new(),
             scratch_hoist: HashSet::new(),
             fill_loop: None,
             indexed_string_builds: HashMap::new(),
             worklists: HashMap::new(),
             affine_arrays: HashMap::new(),
+            const_tables: HashMap::new(),
+            scratch_buffers: HashMap::new(),
+            indexed_buffers: HashMap::new(),
+            loop_fill_arrays: HashMap::new(),
             narrowed: HashMap::new(),
             i64_maps: HashSet::new(),
             i64_sets: HashSet::new(),
@@ -224,6 +264,8 @@ impl<'a> RefinementContext<'a> {
             i32_sets: HashSet::new(),
             vec_presize: HashMap::new(),
             fast_div: HashMap::new(),
+            mutable_collection_params: HashSet::new(),
+            promotable_int_candidates: HashSet::new(),
         }
     }
 
@@ -340,6 +382,52 @@ impl<'a> RefinementContext<'a> {
         self.affine_arrays.get(&sym)
     }
 
+    /// Record the constant-table locals emitted as stack arrays `[T; N]`.
+    pub(super) fn set_const_tables(
+        &mut self,
+        c: HashMap<Symbol, super::affine_array::ConstTableInfo>,
+    ) {
+        self.const_tables = c;
+    }
+
+    /// The constant-table stack-array info for `sym`, if it was recognized.
+    pub(super) fn const_table(&self, sym: Symbol) -> Option<&super::affine_array::ConstTableInfo> {
+        self.const_tables.get(&sym)
+    }
+
+    /// Record the fixed-size scratch buffers emitted in place as `[T; N]` via `from_fn`.
+    pub(super) fn set_scratch_buffers(
+        &mut self,
+        s: HashMap<Symbol, super::affine_array::ScratchInfo>,
+    ) {
+        self.scratch_buffers = s;
+    }
+
+    /// The scratch-buffer scalarization info for `sym`, if it was recognized.
+    pub(super) fn scratch_buffer(&self, sym: Symbol) -> Option<&super::affine_array::ScratchInfo> {
+        self.scratch_buffers.get(&sym)
+    }
+
+    /// Record the zero-init indexed-write fixed-size buffers emitted as `[T; N]` stack arrays.
+    pub(super) fn set_indexed_buffers(&mut self, m: HashMap<Symbol, super::affine_array::IndexedBufInfo>) {
+        self.indexed_buffers = m;
+    }
+
+    /// Is `sym` a zero-init indexed-write fixed-size buffer (`[T; N]` stack array)?
+    pub(super) fn is_indexed_buffer(&self, sym: Symbol) -> bool {
+        self.indexed_buffers.contains_key(&sym)
+    }
+
+    /// Register a loop-built `[T; N]` return buffer with its runtime fill-cursor variable name.
+    pub(super) fn set_loop_fill_array(&mut self, sym: Symbol, counter: String) {
+        self.loop_fill_arrays.insert(sym, counter);
+    }
+
+    /// The runtime fill-cursor variable name for `sym`, if it is a loop-built `[T; N]` return buffer.
+    pub(super) fn loop_fill_cursor(&self, sym: Symbol) -> Option<&str> {
+        self.loop_fill_arrays.get(&sym).map(|s| s.as_str())
+    }
+
     /// Record the `Seq of Int` sequences narrowed to `Vec<i32>`.
     pub(super) fn set_narrowed(&mut self, n: HashMap<Symbol, super::narrow::NarrowInfo>) {
         self.narrowed = n;
@@ -432,6 +520,18 @@ impl<'a> RefinementContext<'a> {
         &self.fast_div
     }
 
+    /// Mark `sym` as a `mutable` collection parameter (passed by `&LogosSeq`/
+    /// `&LogosMap`): its in-place mutations propagate to the caller by design, so
+    /// the `cow()` emitter skips it.
+    pub(super) fn register_mutable_collection_param(&mut self, sym: Symbol) {
+        self.mutable_collection_params.insert(sym);
+    }
+
+    /// Is `sym` a `mutable` collection parameter (mutate-in-place, no copy-on-write)?
+    pub(super) fn is_mutable_collection_param(&self, sym: Symbol) -> bool {
+        self.mutable_collection_params.contains(&sym)
+    }
+
     /// Set the de-Rc'd Seq variables (emitted as plain `Vec<T>`).
     pub fn set_de_rc_vars(&mut self, vars: HashSet<Symbol>) {
         self.de_rc_vars = vars;
@@ -447,9 +547,38 @@ impl<'a> RefinementContext<'a> {
         self.returns_vec
     }
 
+    /// Mark that the current function returns an overflow-promoting `LogosInt`
+    /// (its `Int` return can exceed i64), so `Return` emits an un-narrowed value.
+    pub(super) fn set_returns_bigint(&mut self, v: bool) {
+        self.returns_bigint = v;
+    }
+
+    /// Does the current function return a `LogosInt`?
+    pub(super) fn returns_bigint(&self) -> bool {
+        self.returns_bigint
+    }
+
     /// Is this Seq variable de-Rc'd to a plain `Vec<T>` (no Rc/RefCell)?
     pub(super) fn is_de_rc(&self, sym: Symbol) -> bool {
         self.de_rc_vars.contains(&sym)
+    }
+
+    /// Seed the set of integer variables whose assignments can overflow `i64`
+    /// (computed by `bigint_promote::promotable_int_vars`). The `Let` emitter
+    /// promotes such a variable to `LogosInt` when its initializer is integer.
+    pub(super) fn set_promotable_candidates(&mut self, vars: HashSet<Symbol>) {
+        self.promotable_int_candidates = vars;
+    }
+
+    /// Is this variable a promotion candidate (overflow-capable integer)?
+    pub(super) fn is_promotable_candidate(&self, sym: Symbol) -> bool {
+        self.promotable_int_candidates.contains(&sym)
+    }
+
+    /// Is this variable currently stored as the overflow-promoting `LogosInt`
+    /// (registered with the `|__bigint` sentinel)?
+    pub(super) fn is_bigint_var(&self, sym: Symbol) -> bool {
+        self.variable_types.get(&sym).map_or(false, |t| t.contains("__bigint"))
     }
 
     /// Set the escaping vars for local Vec optimization.

@@ -20,43 +20,11 @@ pub fn hover(doc: &DocumentState, position: Position) -> Option<Hover> {
     let text = doc.source.get(token.span.start..token.span.end)?;
 
     let content = match &token.kind {
-        // Keywords → show documentation
-        TokenType::Let => keyword_hover("Let", "Declares a new variable.\n\n```\nLet x be 5.\nLet name: Text be \"Alice\".\n```"),
-        TokenType::Set => keyword_hover("Set", "Updates an existing variable.\n\n```\nSet x to 10.\n```"),
-        TokenType::Return => keyword_hover("Return", "Returns a value from the current function.\n\n```\nReturn x.\n```"),
-        TokenType::If => keyword_hover("If", "Conditional branch.\n\n```\nIf x > 0:\n    Show x.\nOtherwise:\n    Show 0.\n```"),
-        TokenType::While => keyword_hover("While", "Loop while condition holds.\n\n```\nWhile x > 0:\n    Set x to x - 1.\n```"),
-        TokenType::Repeat => keyword_hover("Repeat", "Iterate over a collection.\n\n```\nRepeat for item in items:\n    Show item.\n```"),
-        TokenType::Show => keyword_hover("Show", "Display a value (immutable borrow).\n\n```\nShow x.\n```"),
-        TokenType::Give => keyword_hover("Give", "Transfer ownership of a value.\n\n```\nGive x to processor.\n```"),
-        TokenType::Push => keyword_hover("Push", "Append a value to a list.\n\n```\nPush 5 to items.\n```"),
-        TokenType::Inspect => keyword_hover("Inspect", "Pattern match on an enum value.\n\n```\nInspect shape:\n    Circle with radius:\n        Show radius.\n    Otherwise:\n        Show \"other\".\n```"),
-        TokenType::Call => keyword_hover("Call", "Invoke a function.\n\n```\nLet result be Call process with x.\n```"),
-        TokenType::New => keyword_hover("New", "Create a new struct instance.\n\n```\nLet p be a new Point with x 10 and y 20.\n```"),
-        TokenType::Escape => keyword_hover("Escape", "Raw foreign code escape hatch.\n\n```\nEscape to Rust:\n    println!(\"hello\");\n```"),
-        TokenType::Check => keyword_hover("Check", "Runtime security capability check.\n\n```\nCheck that user can access resource.\n```"),
-
-        // Block headers → show block type info
+        // Block headers → the shared lesson table (total over BlockType),
+        // plus the socratic proof-strategy hint on theorems.
         TokenType::BlockHeader { block_type } => {
-            let desc = match block_type {
-                BlockType::Main => "Program entry point",
-                BlockType::Function => "Function definition",
-                BlockType::Theorem => "Theorem declaration",
-                BlockType::Proof => "Proof block",
-                BlockType::Definition => "Type or term definition",
-                BlockType::Define => "Predicate definition",
-                BlockType::TypeDef => "Type definition",
-                BlockType::Policy => "Security policy",
-                BlockType::Logic => "Direct logical notation",
-                BlockType::Example => "Illustrative example",
-                BlockType::Note => "Documentation note",
-                BlockType::Requires => "External dependencies",
-                BlockType::Hardware => "Hardware signal declarations",
-                BlockType::Property => "Temporal property assertions",
-                BlockType::No => "Optimization annotation",
-                BlockType::Tier => "Tiered-optimizer pin",
-            };
-            let mut result = format!("**Block Header** — {}", desc);
+            let lesson = logicaffeine_language::teach::doc_for_block(block_type);
+            let mut result = crate::teach_md::block_hover_md(lesson);
 
             if *block_type == BlockType::Theorem {
                 let hint = proof_strategy_hint_from_source(&doc.source, token.span.start);
@@ -66,12 +34,21 @@ pub fn hover(doc: &DocumentState, position: Position) -> Option<Hover> {
             Some(result)
         }
 
-        // Identifiers, proper names, adjectives, nouns → look up definition info first
+        // Taught keywords → the shared lesson table (one brain for hover,
+        // completion docs, and the REPL's :explain).
+        kind if logicaffeine_language::teach::doc_for(kind).is_some() => {
+            logicaffeine_language::teach::doc_for(kind).map(crate::teach_md::keyword_hover_md)
+        }
+
+        // Identifiers, proper names, adjectives, nouns → look up definition
+        // info first (detail + literate doc), then the stdlib registry.
         TokenType::Identifier | TokenType::ProperName(_)
         | TokenType::Adjective(_) | TokenType::Noun(_) => {
             let defs = doc.symbol_index.definitions_of(text);
             if let Some(def) = defs.first() {
-                def.detail.clone()
+                definition_hover(def)
+            } else if let Some(entry) = crate::stdlib_docs::stdlib_doc(text) {
+                Some(crate::stdlib_docs::hover_md(text, entry))
             } else {
                 // Fall back to token-specific info
                 match &token.kind {
@@ -86,16 +63,24 @@ pub fn hover(doc: &DocumentState, position: Position) -> Option<Hover> {
             }
         }
 
-        // Verbs → show verb class
+        // Verbs → a defined function first (English-word function names lex
+        // as verbs), then the stdlib registry, then the verb-class display.
         TokenType::Verb { lemma, time, aspect, class } => {
-            let lemma_str = doc.interner.resolve(*lemma);
-            Some(format!(
-                "**Verb**: {} ({}, {}, {})",
-                lemma_str,
-                verb_class_display(class),
-                time_display(time),
-                aspect_display(aspect),
-            ))
+            let defs = doc.symbol_index.definitions_of(text);
+            if let Some(def) = defs.first() {
+                definition_hover(def)
+            } else if let Some(entry) = crate::stdlib_docs::stdlib_doc(text) {
+                Some(crate::stdlib_docs::hover_md(text, entry))
+            } else {
+                let lemma_str = doc.interner.resolve(*lemma);
+                Some(format!(
+                    "**Verb**: {} ({}, {}, {})",
+                    lemma_str,
+                    verb_class_display(class),
+                    time_display(time),
+                    aspect_display(aspect),
+                ))
+            }
         }
 
         // Type names → look up in registry
@@ -196,8 +181,15 @@ fn aspect_display(aspect: &logicaffeine_language::lexicon::Aspect) -> &'static s
     }
 }
 
-fn keyword_hover(name: &str, description: &str) -> Option<String> {
-    Some(format!("**{}**\n\n{}", name, description))
+/// A definition's hover: its signature detail plus its literate `## Note`
+/// documentation, when either exists.
+fn definition_hover(def: &crate::index::Definition) -> Option<String> {
+    match (&def.detail, &def.doc) {
+        (Some(detail), Some(doc)) => Some(format!("{detail}\n\n{doc}")),
+        (Some(detail), None) => Some(detail.clone()),
+        (None, Some(doc)) => Some(doc.clone()),
+        (None, None) => None,
+    }
 }
 
 fn ranges_overlap(a: &Range, b: &Range) -> bool {
@@ -371,6 +363,99 @@ mod tests {
             }
             _ => panic!("Expected markup content"),
         }
+    }
+
+    #[test]
+    fn hover_shows_the_notes_prose_for_a_documented_function() {
+        let doc = make_doc(
+            "## Note\nDoubles a number.\n\n## To double (n: Int) -> Int:\n    Return n * 2.\n\n## Main\nLet x be double(3).\n",
+        );
+        // Hover over "double" at the call site (line 7).
+        let pos = Position { line: 7, character: 10 };
+        let result = hover(&doc, pos).expect("hover on documented call");
+        let HoverContents::Markup(m) = &result.contents else { panic!("expected markup") };
+        assert!(
+            m.value.contains("double"),
+            "the signature detail renders: {}",
+            m.value
+        );
+        assert!(
+            m.value.contains("Doubles a number."),
+            "the ## Note prose renders: {}",
+            m.value
+        );
+    }
+
+    #[test]
+    fn hover_teaches_stdlib_names_from_their_literate_docs() {
+        let doc = make_doc("## Main\nLet d be md5([1]).\n");
+        // Hover over "md5" (line 1, character 9).
+        let pos = Position { line: 1, character: 9 };
+        let result = hover(&doc, pos).expect("hover on a stdlib name");
+        let HoverContents::Markup(m) = &result.contents else { panic!("expected markup") };
+        assert!(m.value.contains("standard library"), "{}", m.value);
+        assert!(m.value.contains("MD5"), "the literate Note teaches: {}", m.value);
+    }
+
+    #[test]
+    fn hover_keyword_carries_the_full_lesson() {
+        let doc = make_doc("## Main\n    Let x be 5.\n    Let y be 0.\n    Give x to y.\n");
+        // Position on "Give" (line 3, character 4).
+        let pos = Position { line: 3, character: 4 };
+        let result = hover(&doc, pos).expect("hover on 'Give'");
+        let HoverContents::Markup(m) = &result.contents else { panic!("expected markup") };
+        let lesson = logicaffeine_language::teach::doc_for(&TokenType::Give)
+            .expect("Give is a taught keyword");
+        assert!(
+            m.value.contains(lesson.what),
+            "Give hover must carry the lesson's `what`: {}",
+            m.value
+        );
+        assert!(
+            m.value.contains(lesson.question_or_tip),
+            "Give hover must carry the socratic question: {}",
+            m.value
+        );
+        assert!(
+            m.value.contains("LOGOS_QUICKGUIDE.md#"),
+            "Give hover must link the quickguide anchor: {}",
+            m.value
+        );
+    }
+
+    #[test]
+    fn hover_covers_newly_taught_keywords() {
+        let doc = make_doc("## Main\n    While true:\n        Break.\n");
+        // Position on "Break" (line 2, character 8).
+        let pos = Position { line: 2, character: 8 };
+        let result = hover(&doc, pos).expect("hover on 'Break' — newly taught");
+        let HoverContents::Markup(m) = &result.contents else { panic!("expected markup") };
+        assert!(
+            m.value.contains("innermost"),
+            "Break hover must teach the innermost-loop rule: {}",
+            m.value
+        );
+    }
+
+    #[test]
+    fn hover_block_header_carries_the_lesson_question() {
+        let doc = make_doc("## Main\n    Let x be 5.\n");
+        let pos = Position { line: 0, character: 0 };
+        let result = hover(&doc, pos).expect("hover on ## Main");
+        let HoverContents::Markup(m) = &result.contents else { panic!("expected markup") };
+        let lesson = logicaffeine_language::teach::doc_for_block(
+            &logicaffeine_language::token::BlockType::Main,
+        );
+        assert!(
+            m.value.contains("Block Header"),
+            "block hover keeps the Block Header banner: {}",
+            m.value
+        );
+        assert!(
+            m.value.contains(lesson.question_or_tip),
+            "block hover must carry the lesson's question or tip: {}",
+            m.value
+        );
     }
 
     #[test]

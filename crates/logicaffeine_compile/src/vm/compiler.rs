@@ -14,7 +14,9 @@ use std::collections::HashMap;
 use crate::ast::stmt::{BinaryOpKind, Expr, Literal, Stmt};
 use crate::intern::{Interner, Symbol};
 
-use super::instruction::{CompiledFunction, CompiledProgram, ConstIdx, Constant, FuncIdx, Op, Reg};
+use super::instruction::{
+    BoundaryType, CompiledFunction, CompiledProgram, ConstIdx, Constant, FuncIdx, Op, Reg, StructTypeDef,
+};
 use super::{MAX_EXPR_DEPTH, MAX_REGISTERS_PER_FRAME};
 
 /// Whether the W24 constant-divisor magic-reciprocal lowering is enabled.
@@ -144,6 +146,9 @@ fn param_kind_of_type(
 ) -> Option<super::native_tier::ParamKind> {
     use super::native_tier::{ParamKind, PinElem, SlotKind};
     use crate::ast::stmt::TypeExpr;
+    if let TypeExpr::Mutable { inner } = ty {
+        return param_kind_of_type(inner, interner);
+    }
     if let Some(k) = slot_kind_of_type(ty, interner) {
         return Some(ParamKind::Scalar(k));
     }
@@ -163,6 +168,164 @@ fn param_kind_of_type(
     None
 }
 
+/// Resolve a type NAME to its full [`BoundaryType`] — a scalar/temporal primitive, or (if the name
+/// is a user type) a `Struct`/`Enum` reference (`user_types[name]` = true for struct, false for
+/// enum). `None` for an unmodeled type (Map, generic param…).
+fn boundary_of_name(
+    s: Symbol,
+    user_types: &std::collections::HashMap<Symbol, bool>,
+    interner: &Interner,
+) -> Option<BoundaryType> {
+    Some(match interner.resolve(s) {
+        "Int" | "Nat" => BoundaryType::Int,
+        "Float" => BoundaryType::Float,
+        "Bool" => BoundaryType::Bool,
+        "Text" => BoundaryType::Text,
+        "Date" => BoundaryType::Date,
+        "Moment" => BoundaryType::Moment,
+        "Word32" => BoundaryType::Word32,
+        "Word64" => BoundaryType::Word64,
+        name @ ("Duration" | "Time" | "Span" | "Rational" | "Complex" | "Decimal" | "Modular"
+        | "Money" | "Quantity" | "Uuid") => BoundaryType::Builtin(name.to_string()),
+        other => match user_types.get(&s) {
+            Some(true) => BoundaryType::Struct(other.to_string()),
+            Some(false) => BoundaryType::Enum(other.to_string()),
+            None => return None,
+        },
+    })
+}
+
+/// Resolve a parameter's AST [`TypeExpr`] to its [`BoundaryType`]. `None` for an unmodeled type.
+fn boundary_of_type_expr(
+    ty: &crate::ast::stmt::TypeExpr,
+    user_types: &std::collections::HashMap<Symbol, bool>,
+    interner: &Interner,
+) -> Option<BoundaryType> {
+    use crate::ast::stmt::TypeExpr;
+    match ty {
+        TypeExpr::Primitive(s) | TypeExpr::Named(s) => boundary_of_name(*s, user_types, interner),
+        TypeExpr::Generic { base, params }
+            if matches!(interner.resolve(*base), "Seq" | "List") && params.len() == 1 =>
+        {
+            boundary_of_type_expr(&params[0], user_types, interner).map(|e| BoundaryType::Seq(Box::new(e)))
+        }
+        // `Map of K to V` — resolve both the key and value element types (carried so a parameter
+        // map's `item k of m` resolves its result kind); rejected if either is unresolvable.
+        TypeExpr::Generic { base, params }
+            if matches!(interner.resolve(*base), "Map" | "HashMap") && params.len() == 2 =>
+        {
+            let k = boundary_of_type_expr(&params[0], user_types, interner)?;
+            let v = boundary_of_type_expr(&params[1], user_types, interner)?;
+            Some(BoundaryType::Map(Box::new(k), Box::new(v)))
+        }
+        // A HOMOGENEOUS tuple (`Pair of Int and Int`, `Triple of Int and Int and Int`) lays out
+        // identically to a `Seq` of the shared element kind, so it resolves through the same seq path
+        // (`item N of t` = seq index). A heterogeneous tuple has no single AOT element kind and stays
+        // rejected — exactly as a heterogeneous tuple LITERAL is rejected at lowering.
+        TypeExpr::Generic { base, params } if matches!(interner.resolve(*base), "Pair" | "Triple") => {
+            let elems: Vec<BoundaryType> =
+                params.iter().filter_map(|p| boundary_of_type_expr(p, user_types, interner)).collect();
+            if elems.len() != params.len() {
+                None
+            } else if elems.windows(2).all(|w| w[0] == w[1]) {
+                Some(BoundaryType::Seq(Box::new(elems[0].clone())))
+            } else {
+                Some(BoundaryType::Tuple(elems))
+            }
+        }
+        TypeExpr::Refinement { base, .. } => boundary_of_type_expr(base, user_types, interner),
+        TypeExpr::Mutable { inner } => boundary_of_type_expr(inner, user_types, interner),
+        _ => None,
+    }
+}
+
+/// Resolve a struct FIELD's registry [`FieldType`] to its [`BoundaryType`] (the registry, unlike the
+/// lossy `struct_defs` map, preserves a `Seq of <elem>` element).
+fn boundary_of_field_type(
+    ft: &crate::analysis::registry::FieldType,
+    user_types: &std::collections::HashMap<Symbol, bool>,
+    interner: &Interner,
+) -> Option<BoundaryType> {
+    use crate::analysis::registry::FieldType;
+    match ft {
+        FieldType::Primitive(s) | FieldType::Named(s) => boundary_of_name(*s, user_types, interner),
+        FieldType::Generic { base, params }
+            if matches!(interner.resolve(*base), "Seq" | "List") && params.len() == 1 =>
+        {
+            boundary_of_field_type(&params[0], user_types, interner).map(|e| BoundaryType::Seq(Box::new(e)))
+        }
+        // A `Map of K to V` field — resolve both element types, so a struct carrying a map can be a
+        // parameter and `item k of s's m` resolves the value kind cross-region. A `SharedMap from K to V`
+        // (single-replica ORMap CRDT) lays out as its underlying Map, so it resolves the same way.
+        FieldType::Generic { base, params }
+            if matches!(interner.resolve(*base), "Map" | "HashMap" | "SharedMap") && params.len() == 2 =>
+        {
+            let k = boundary_of_field_type(&params[0], user_types, interner)?;
+            let v = boundary_of_field_type(&params[1], user_types, interner)?;
+            Some(BoundaryType::Map(Box::new(k), Box::new(v)))
+        }
+        // A HOMOGENEOUS tuple field (`Pair of Int and Int`, `Triple of …`) lays out identically to a
+        // `Seq` of the shared element kind, so it resolves through the seq path (`item N of s's t` =
+        // seq index). A heterogeneous tuple field has no single AOT element kind and stays rejected.
+        FieldType::Generic { base, params } if matches!(interner.resolve(*base), "Pair" | "Triple") => {
+            let elems: Vec<BoundaryType> =
+                params.iter().filter_map(|p| boundary_of_field_type(p, user_types, interner)).collect();
+            if elems.len() != params.len() {
+                None
+            } else if elems.windows(2).all(|w| w[0] == w[1]) {
+                Some(BoundaryType::Seq(Box::new(elems[0].clone())))
+            } else {
+                Some(BoundaryType::Tuple(elems))
+            }
+        }
+        FieldType::TypeParam(_) | FieldType::Generic { .. } => None,
+    }
+}
+
+/// Resolve the static [`BoundaryType`] of a `Let`-binding's VALUE expression — for a Main top-level
+/// binding promoted to a global, so a closure capturing it can be typed with the composite's shape
+/// (the capture analog of a parameter's declared type). Handles the constructor forms whose type is
+/// statically evident (`new Struct`, `new Map of K to V`, `a new EnumVariant`); `None` otherwise (the
+/// global stays Kind-only — fine for self-describing values like a `Seq` and for scalars).
+fn boundary_of_value_expr(
+    e: &crate::ast::stmt::Expr,
+    user_types: &std::collections::HashMap<Symbol, bool>,
+    interner: &Interner,
+) -> Option<BoundaryType> {
+    use crate::ast::stmt::{Expr, Literal};
+    match e {
+        Expr::New { type_name, type_args, .. } => {
+            if matches!(interner.resolve(*type_name), "Map" | "HashMap") && type_args.len() == 2 {
+                let k = boundary_of_type_expr(&type_args[0], user_types, interner)?;
+                let v = boundary_of_type_expr(&type_args[1], user_types, interner)?;
+                Some(BoundaryType::Map(Box::new(k), Box::new(v)))
+            } else {
+                boundary_of_name(*type_name, user_types, interner)
+            }
+        }
+        Expr::NewVariant { enum_name, .. } => boundary_of_name(*enum_name, user_types, interner),
+        // A scalar literal — also resolves a tuple-literal's elements (below).
+        Expr::Literal(Literal::Number(_)) => Some(BoundaryType::Int),
+        Expr::Literal(Literal::Float(_)) => Some(BoundaryType::Float),
+        Expr::Literal(Literal::Boolean(_)) => Some(BoundaryType::Bool),
+        Expr::Literal(Literal::Text(_)) => Some(BoundaryType::Text),
+        // A tuple literal — every element's type must resolve. A homogeneous tuple lays out like a
+        // `Seq` (self-describing, no shape needed); a heterogeneous one carries its per-position kinds.
+        Expr::Tuple(elems) if !elems.is_empty() => {
+            let bts: Vec<BoundaryType> =
+                elems.iter().filter_map(|el| boundary_of_value_expr(el, user_types, interner)).collect();
+            if bts.len() != elems.len() {
+                None
+            } else if bts.windows(2).all(|w| w[0] == w[1]) {
+                Some(BoundaryType::Seq(Box::new(bts[0].clone())))
+            } else {
+                Some(BoundaryType::Tuple(bts))
+            }
+        }
+        _ => None,
+    }
+}
+
 pub struct Compiler<'i> {
     interner: &'i Interner,
     code: Vec<Op>,
@@ -174,6 +337,10 @@ pub struct Compiler<'i> {
     // from `Stmt::StructDef` and the discovery-pass type registry. Drives
     // default-fill on construction, like the tree-walker's struct_defs.
     struct_defs: HashMap<Symbol, Vec<(Symbol, Symbol, bool)>>,
+    // Every user type's name → is-it-a-struct (true) / enum (false), built once before statement
+    // compilation. Lets a CLOSURE resolve a struct/enum PARAMETER's declared type (the closure path
+    // has no other access to the type registry the top-level function path uses).
+    user_types: HashMap<Symbol, bool>,
     // Lexical block scopes for the frame currently being compiled (Main or one
     // function body). scopes[0] is the frame root; If/While/Repeat bodies push
     // a child scope whose registers are recycled on exit — mirroring the
@@ -250,6 +417,24 @@ pub struct Compiler<'i> {
     /// observably identical to the i64 form. Populated per-body only when
     /// `LOGOS_NARROW_VM=1`; empty otherwise (default OFF).
     narrowable_seqs: std::collections::HashSet<Symbol>,
+    /// Inferred MUTABLE-BORROW params per function: `fn → set of param indices` that
+    /// are mutated in place and returned (the AOT's `&mut [T]` set, computed by the
+    /// SAME eligibility). Their frame registers are copy-on-write-exempt so the
+    /// callee's element writes stay in place; each call site gets an `EnsureOwned`
+    /// barrier so an aliasing caller still observes value semantics. Only populated
+    /// when the type registry is available (`compile_with_types`).
+    mut_borrow_params: HashMap<Symbol, std::collections::HashSet<usize>>,
+    /// Per function, the consume-alias LOCAL of each mutable-borrow param (`Let
+    /// result be arr`): its register must ALSO be COW-exempt (the in-place writes
+    /// land on the alias, not the param). Recorded during body compile.
+    mut_borrow_alias_syms: HashMap<Symbol, std::collections::HashSet<Symbol>>,
+    /// The alias symbols of the function CURRENTLY being compiled (from
+    /// `mut_borrow_alias_syms`); a `let_reg` for one of these appends its register to
+    /// `current_exempt_regs`.
+    current_exempt_syms: std::collections::HashSet<Symbol>,
+    /// Registers bound to `current_exempt_syms` in the current function body — merged
+    /// into `CompiledFunction::mutable_param_regs` after the body compiles.
+    current_exempt_regs: Vec<Reg>,
 }
 
 /// How a name resolves at a point in compilation.
@@ -290,7 +475,7 @@ impl<'i> Compiler<'i> {
         Self::compile_with_oracle(stmts, interner, types, None)
     }
 
-    /// Like [`compile_with_types`], plus the Oracle's range-analysis facts
+    /// Like `compile_with_types`, plus the Oracle's range-analysis facts
     /// (M9) for bounds-check elimination. The live run path computes these
     /// on the exact (optimized) snapshot it then compiles, so an `Index`
     /// proven in-bounds becomes `IndexUnchecked`. `None` ⇒ every index
@@ -304,7 +489,7 @@ impl<'i> Compiler<'i> {
         Self::compile_inner(stmts, interner, types, oracle, false)
     }
 
-    /// Like [`compile_with_types`] but also captures source variable names into
+    /// Like `compile_with_types` but also captures source variable names into
     /// `CompiledProgram::reg_names` for the Studio debugger. Used only by the
     /// debugger's compile path; production callers pay nothing for it.
     pub fn compile_for_debug(
@@ -332,6 +517,7 @@ impl<'i> Compiler<'i> {
             functions: Vec::new(),
             fn_index: HashMap::new(),
             struct_defs: HashMap::new(),
+            user_types: HashMap::new(),
             scopes: vec![HashMap::new()],
             next_reg: 0,
             named: Vec::new(),
@@ -347,12 +533,44 @@ impl<'i> Compiler<'i> {
             closure_ctx: None,
             oracle,
             narrowable_seqs: std::collections::HashSet::new(),
+            mut_borrow_params: HashMap::new(),
+            mut_borrow_alias_syms: HashMap::new(),
+            current_exempt_syms: std::collections::HashSet::new(),
+            current_exempt_regs: Vec::new(),
         };
+
+        // Every user type's name → is-it-a-struct (true) or an enum (false) — so a field or
+        // parameter referencing a user type resolves to `BoundaryType::Struct`/`Enum`. Collected
+        // from both the registry and the pass-1 statements (a type can be defined either way).
+        let mut user_types: std::collections::HashMap<Symbol, bool> = std::collections::HashMap::new();
+        for s in stmts {
+            if let Stmt::StructDef { name, .. } = s {
+                user_types.insert(*name, true);
+            }
+        }
+        // Enum types are not a top-level `Stmt` — they come from the type registry (below).
+        // The bytecode's static struct registry (name → resolved field layout). Built from the type
+        // registry, which (unlike the lossy `struct_defs` map below) preserves `Seq` field elements.
+        let mut struct_types: Vec<StructTypeDef> = Vec::new();
+        // The sum-type companion: name → per-variant payload layout, for typing a `When V (binds)`
+        // extraction on an enum PARAMETER (whose construction isn't in scope).
+        let mut enum_types: Vec<crate::vm::instruction::EnumTypeDef> = Vec::new();
 
         // Struct definitions from the type registry (mirrors the tree-walker's
         // with_type_registry) and from StructDef statements (pass 1 below).
         if let Some(registry) = types {
             use crate::analysis::registry::{FieldType, TypeDef};
+            for (name_sym, type_def) in registry.iter_types() {
+                match type_def {
+                    TypeDef::Struct { .. } => {
+                        user_types.insert(*name_sym, true);
+                    }
+                    TypeDef::Enum { .. } => {
+                        user_types.insert(*name_sym, false);
+                    }
+                    _ => {}
+                }
+            }
             for (name_sym, type_def) in registry.iter_types() {
                 if let TypeDef::Struct { fields, .. } = type_def {
                     let field_defs: Vec<(Symbol, Symbol, bool)> = fields
@@ -368,6 +586,106 @@ impl<'i> Compiler<'i> {
                         })
                         .collect();
                     c.struct_defs.insert(*name_sym, field_defs);
+                    // Resolve the FULL field layout; carry the struct only if EVERY field resolves
+                    // (a partial layout would mis-place slots), so an unmodeled field type (Map, …)
+                    // simply leaves a parameter of that struct type rejected — never miscompiled.
+                    let resolved: Option<Vec<(String, BoundaryType)>> = fields
+                        .iter()
+                        .map(|f| {
+                            boundary_of_field_type(&f.ty, &user_types, interner)
+                                .map(|t| (interner.resolve(f.name).to_string(), t))
+                        })
+                        .collect();
+                    if let Some(field_layout) = resolved {
+                        struct_types.push(StructTypeDef {
+                            name: interner.resolve(*name_sym).to_string(),
+                            fields: field_layout,
+                        });
+                    }
+                }
+            }
+            // Enum variant payload layouts. Carry the enum only if EVERY variant's EVERY field
+            // resolves (a partial layout could mis-type a `BindArm`), so an unmodeled payload type
+            // simply leaves a parameter of that enum's payload extraction rejected — never miscompiled.
+            for (name_sym, type_def) in registry.iter_types() {
+                if let TypeDef::Enum { variants, .. } = type_def {
+                    let resolved: Option<Vec<crate::vm::instruction::EnumVariantDef>> = variants
+                        .iter()
+                        .map(|v| {
+                            let field_types: Option<Vec<BoundaryType>> = v
+                                .fields
+                                .iter()
+                                .map(|f| boundary_of_field_type(&f.ty, &user_types, interner))
+                                .collect();
+                            field_types.map(|ft| crate::vm::instruction::EnumVariantDef {
+                                name: interner.resolve(v.name).to_string(),
+                                field_types: ft,
+                            })
+                        })
+                        .collect();
+                    if let Some(variant_layouts) = resolved {
+                        enum_types.push(crate::vm::instruction::EnumTypeDef {
+                            name: interner.resolve(*name_sym).to_string(),
+                            variants: variant_layouts,
+                        });
+                    }
+                }
+            }
+        }
+        // Expose the fully-built user-type map so `compile_closure` can resolve a struct/enum
+        // closure PARAMETER's declared type (it runs deep in statement compilation, below).
+        c.user_types = user_types.clone();
+
+        // Inferred mutable-borrow params (value-semantics COW exemption): compute the
+        // SAME set the AOT uses (`codegen/program.rs`) so the eager VM mutates a
+        // consumed-and-returned Seq param in place instead of deep-cloning on every
+        // `SetIndex` (the heap_sort/quicksort O(n²) collapse). Gated on the type
+        // registry being available AND value semantics being on (else the exemption
+        // is irrelevant). See [`Op::EnsureOwned`] for the call-site soundness barrier.
+        if let Some(registry) = types {
+            if crate::semantics::collections::value_semantics_enabled() {
+                use crate::analysis::readonly::{detect_consume_alias, MutableBorrowParams};
+                use crate::codegen::detection::is_vec_type_expr;
+                use crate::codegen::program::body_contains_escape;
+                use crate::codegen::tce::is_tail_recursive;
+                use crate::optimization::Opt;
+                use crate::optimize::active_config;
+                use crate::tail_call::detect_accumulator_pattern;
+                let cg = crate::analysis::callgraph::CallGraph::build(stmts, interner);
+                let type_env = crate::analysis::TypeEnv::infer_program(stmts, interner, registry);
+                let mb = MutableBorrowParams::analyze(stmts, &cg, &type_env);
+                for s in stmts {
+                    if let Stmt::FunctionDef {
+                        name, params, body, is_native, is_exported, opt_flags, ..
+                    } = s
+                    {
+                        if *is_native || *is_exported {
+                            continue;
+                        }
+                        if !active_config().merged(opt_flags).is_on(Opt::Borrow) {
+                            continue;
+                        }
+                        if is_tail_recursive(*name, body)
+                            || detect_accumulator_pattern(*name, body).is_some()
+                            || body_contains_escape(body)
+                        {
+                            continue;
+                        }
+                        let mut idxs = std::collections::HashSet::new();
+                        let mut aliases = std::collections::HashSet::new();
+                        for (i, (psym, pty)) in params.iter().enumerate() {
+                            if mb.is_mutable_borrow(*name, *psym) && is_vec_type_expr(pty, interner) {
+                                idxs.insert(i);
+                                if let Some(alias) = detect_consume_alias(body, *psym) {
+                                    aliases.insert(alias);
+                                }
+                            }
+                        }
+                        if !idxs.is_empty() {
+                            c.mut_borrow_params.insert(*name, idxs);
+                            c.mut_borrow_alias_syms.insert(*name, aliases);
+                        }
+                    }
                 }
             }
         }
@@ -397,6 +715,25 @@ impl<'i> Compiler<'i> {
                         .map(|(_, ty)| param_kind_of_type(ty, interner))
                         .collect(),
                     ret_kind: return_type.and_then(|ty| slot_kind_of_type(ty, interner)),
+                    param_types: params
+                        .iter()
+                        .map(|(_, ty)| boundary_of_type_expr(ty, &user_types, interner))
+                        .collect(),
+                    return_type: return_type.and_then(|ty| boundary_of_type_expr(ty, &user_types, interner)),
+                    mutable_param_regs: {
+                        // `mutable` param at position `i` → frame register `i`; plus
+                        // every INFERRED mutable-borrow param (same reg == index).
+                        let inferred = c.mut_borrow_params.get(name);
+                        let mut mp: Vec<Reg> = Vec::new();
+                        for (i, (_psym, ty)) in params.iter().enumerate() {
+                            if matches!(ty, crate::ast::stmt::TypeExpr::Mutable { .. })
+                                || inferred.is_some_and(|s| s.contains(&i))
+                            {
+                                mp.push(i as Reg);
+                            }
+                        }
+                        mp
+                    },
                 });
             }
         }
@@ -408,13 +745,17 @@ impl<'i> Compiler<'i> {
             collect_nonlocal_idents_stmt(s, true, &mut nonlocal_idents);
         }
         let mut global_names: Vec<String> = Vec::new();
+        // Parallel to `global_names`: each promoted global's resolved composite type (for typing a
+        // closure capture of it); `None` for a scalar / self-describing / unmodeled value.
+        let mut global_types: Vec<Option<BoundaryType>> = Vec::new();
         for s in stmts {
-            if let Stmt::Let { var, .. } = s {
+            if let Stmt::Let { var, value, .. } = s {
                 if nonlocal_idents.contains(var) && !c.promoted.contains_key(var) {
                     let idx = u16::try_from(c.promoted.len())
                         .map_err(|_| "vm: too many globals".to_string())?;
                     c.promoted.insert(*var, idx);
                     global_names.push(interner.resolve(*var).to_string());
+                    global_types.push(boundary_of_value_expr(value, &user_types, interner));
                 }
             }
         }
@@ -470,6 +811,10 @@ impl<'i> Compiler<'i> {
                 c.max_reg = c.max_reg.max(c.next_reg);
                 debug_assert!(params.len() <= MAX_REGISTERS_PER_FRAME);
                 c.tail_fn = Some((*name, entry_pc, params.len() as u16));
+                // COW-exempt the consume-alias locals of this function's mutable-borrow
+                // params: `let_reg` appends each one's register as the body compiles.
+                c.current_exempt_syms = c.mut_borrow_alias_syms.get(name).cloned().unwrap_or_default();
+                c.current_exempt_regs.clear();
                 let body_slice: &[Stmt] = body;
                 let mut bk = 0;
                 while bk < body_slice.len() {
@@ -496,7 +841,16 @@ impl<'i> Compiler<'i> {
                 c.tail_fn = None;
                 // Fall off the end → return nothing.
                 c.emit(Op::ReturnNothing);
+                // Merge the consume-alias exempt registers discovered while compiling
+                // the body into this function's COW-exempt set.
+                let exempt = std::mem::take(&mut c.current_exempt_regs);
+                c.current_exempt_syms.clear();
                 let f = &mut c.functions[idx as usize];
+                for r in exempt {
+                    if !f.mutable_param_regs.contains(&r) {
+                        f.mutable_param_regs.push(r);
+                    }
+                }
                 f.entry_pc = entry_pc;
                 f.register_count = c.max_reg as usize;
                 let mut fnamed = c.named.clone();
@@ -515,6 +869,9 @@ impl<'i> Compiler<'i> {
             named_regs,
             loop_locals: c.loop_locals,
             reg_names,
+            struct_types,
+            enum_types,
+            global_types,
         })
     }
 
@@ -598,7 +955,7 @@ impl<'i> Compiler<'i> {
     /// e-graph's `mod-pow2-and` rule applies. The literal divisor is visible
     /// here pre-hoist, so this fires for loop-invariant moduli the JIT's
     /// in-region detector misses (histogram's `% 2^31` LCG feedback). The win:
-    /// a register-form `AndEager` (1-cycle AND, which the JIT lowers to a
+    /// a register-form `BitAnd` (1-cycle AND, which the JIT lowers to a
     /// `BitAnd` stencil) instead of `Op::Mod`'s idiv on BOTH the VM and JIT.
     fn modpow2_mask(&self, left: &Expr, right: &Expr) -> Option<i64> {
         let Expr::Literal(Literal::Number(d)) = right else { return None };
@@ -875,6 +1232,11 @@ impl<'i> Compiler<'i> {
             r
         };
         self.record_dbg_name(sym, r);
+        // A consume-alias of a mutable-borrow param (`Let result be arr`): its
+        // register is COW-exempt, since the in-place writes land on it, not the param.
+        if self.current_exempt_syms.contains(&sym) && !self.current_exempt_regs.contains(&r) {
+            self.current_exempt_regs.push(r);
+        }
         Ok(r)
     }
 
@@ -938,6 +1300,14 @@ impl<'i> Compiler<'i> {
 
     fn compile_stmt(&mut self, s: &Stmt) -> Result<(), String> {
         match s {
+            Stmt::Splice { body } => {
+                // Scope-transparent desugar output: compile the statements in
+                // order, no scope of their own (temporaries are gensym'd).
+                for inner in body.iter() {
+                    self.compile_stmt(inner)?;
+                }
+                Ok(())
+            }
             Stmt::Let { var, value, .. } => {
                 // A promoted Main TOP-LEVEL Let defines the global; everywhere
                 // else (function bodies, Main blocks — which shadow) a
@@ -1000,6 +1370,20 @@ impl<'i> Compiler<'i> {
                                 self.compile_expr_into(term, scratch)?;
                                 self.emit(Op::AddAssign { dst, src: scratch });
                             }
+                            return Ok(());
+                        }
+                        // `Set x to f(…)`: compile the call straight into `x`. A call
+                        // writes its destination LAST (after its arguments are read into
+                        // the arg window), so `x` is never clobbered before use — even
+                        // in the self-consuming `Set x to f(x, …)` shape. This avoids a
+                        // scratch whose lingering `Rc` clone would leave `x` spuriously
+                        // shared (`strong == 2`) and force the next mutable-borrow call's
+                        // `EnsureOwned` barrier to deep-clone every iteration (the
+                        // heap_sort O(n²) collapse under value semantics). Skipped when
+                        // `x` is a COW-exempt local (its writes never clone anyway) so a
+                        // self-recursive function's tier-able body is left untouched.
+                        if matches!(value, Expr::Call { .. }) && !self.current_exempt_syms.contains(target) {
+                            self.compile_expr_into(value, dst)?;
                             return Ok(());
                         }
                         // Never compile directly into the live target: a
@@ -1133,6 +1517,13 @@ impl<'i> Compiler<'i> {
                         Some(list) => {
                             let val = self.compile_expr(value)?;
                             self.emit(Op::ListPush { list, value: val });
+                            // A non-local name reads into a scratch register, so
+                            // the (copy-on-write) mutation must be written back
+                            // to the capture/global slot — a no-op for Rc-shared
+                            // collections (same allocation).
+                            if !matches!(nr, NameRef::Local(_)) {
+                                self.emit_write(sym, list)?;
+                            }
                             Ok(())
                         }
                         None => {
@@ -1158,9 +1549,15 @@ impl<'i> Compiler<'i> {
                     self.emit_fail("Push to nested field access not supported")
                 }
                 _ => {
-                    let scratch = self.alloc_reg()?;
-                    self.compile_expr_into(value, scratch)?;
-                    self.emit_fail("Push collection must be an identifier or field access")
+                    // Any place expression is an l-value: `Push 5 to item i of
+                    // grid`. The value is evaluated BEFORE the collection,
+                    // matching the tree-walker; the evaluated handle is
+                    // Rc-shared, so `ListPush` mutates the collection in place
+                    // (same model as the generalized `Add` below).
+                    let val = self.compile_expr(value)?;
+                    let list = self.compile_expr(collection)?;
+                    self.emit(Op::ListPush { list, value: val });
+                    Ok(())
                 }
             },
             Stmt::Add { value, collection } => {
@@ -1179,6 +1576,9 @@ impl<'i> Compiler<'i> {
                     Some(set) => {
                         let val = self.compile_expr(value)?;
                         self.emit(Op::SetAdd { set, value: val });
+                        if !matches!(nr, NameRef::Local(_)) {
+                            self.emit_write(sym, set)?;
+                        }
                         Ok(())
                     }
                     None => {
@@ -1201,6 +1601,9 @@ impl<'i> Compiler<'i> {
                     Some(coll) => {
                         let val = self.compile_expr(value)?;
                         self.emit(Op::RemoveFrom { collection: coll, value: val });
+                        if !matches!(nr, NameRef::Local(_)) {
+                            self.emit_write(sym, coll)?;
+                        }
                         Ok(())
                     }
                     None => {
@@ -1212,13 +1615,15 @@ impl<'i> Compiler<'i> {
             }
             Stmt::SetIndex { collection, index, value } => {
                 if !matches!(collection, Expr::Identifier(_)) {
-                    // Index and value evaluate (in that order) before the
-                    // collection-shape failure.
-                    let s1 = self.alloc_reg()?;
-                    self.compile_expr_into(index, s1)?;
-                    let s2 = self.alloc_reg()?;
-                    self.compile_expr_into(value, s2)?;
-                    return self.emit_fail("SetIndex collection must be an identifier");
+                    // Any place expression is an l-value: `Set item j of
+                    // (item i of grid) to v`. Tree-walker order — index,
+                    // value, then the collection handle; the handle is
+                    // Rc-shared, so `SetIndex` writes the collection in place.
+                    let idx = self.compile_expr(index)?;
+                    let val = self.compile_expr(value)?;
+                    let coll = self.compile_expr(collection)?;
+                    self.emit(Op::SetIndex { collection: coll, index: idx, value: val });
+                    return Ok(());
                 }
                 let proven = self.index_in_bounds(collection, index);
                 let (sym, nr) = self.resolve_collection(collection)?;
@@ -1343,6 +1748,9 @@ impl<'i> Compiler<'i> {
                             None => self.alloc_reg()?,
                         };
                         self.emit(Op::ListPop { list, dst });
+                        if !matches!(nr, NameRef::Local(_)) {
+                            self.emit_write(sym, list)?;
+                        }
                         Ok(())
                     }
                     None => self.emit_unbound(sym),
@@ -1381,7 +1789,7 @@ impl<'i> Compiler<'i> {
             }
             // Verification-only / declaration statements: no runtime effect.
             Stmt::Assert { .. } | Stmt::Trust { .. } | Stmt::Require { .. }
-            | Stmt::Theorem(_) | Stmt::Definition(_) => {
+            | Stmt::Theorem(_) | Stmt::Definition(_) | Stmt::Axiom(_) | Stmt::Theory(_) => {
                 Ok(())
             }
             // Definitions were registered in pass 1.
@@ -1526,11 +1934,27 @@ impl<'i> Compiler<'i> {
                 self.emit(Op::LoadConst { dst, idx });
                 Ok(())
             }
-            Stmt::SendMessage { .. } => Ok(()),
-            Stmt::AwaitMessage { into, .. } => {
+            // Peer messaging: emit the networking opcodes the async VM net driver
+            // (`run_vm_net_async`) services through the shared `NetInbox` — the same inbox the
+            // tree-walker uses, so a `Send`/`Await` is byte-identical on both tiers. (The dial
+            // knobs — compression/cached/redundant/view — are not yet threaded here; the default
+            // self-describing encode still decodes identically, so output parity holds.)
+            Stmt::SendMessage { message, destination, .. } => {
+                let to = self.compile_expr(destination)?;
+                let msg = self.compile_expr(message)?;
+                self.emit(Op::NetSend { to, msg });
+                Ok(())
+            }
+            Stmt::StreamMessage { values, destination } => {
+                let to = self.compile_expr(destination)?;
+                let vals = self.compile_expr(values)?;
+                self.emit(Op::NetStream { to, values: vals });
+                Ok(())
+            }
+            Stmt::AwaitMessage { source, into, stream, .. } => {
+                let from = self.compile_expr(source)?;
                 let dst = self.let_reg(*into)?;
-                let idx = self.add_const(Constant::Nothing)?;
-                self.emit(Op::LoadConst { dst, idx });
+                self.emit(Op::NetAwait { dst, from, stream: *stream });
                 Ok(())
             }
             Stmt::Check { subject, predicate, is_capability, object, source_text, .. } => {
@@ -1597,31 +2021,50 @@ impl<'i> Compiler<'i> {
                     Ok(())
                 }
             }
-            // Relay networking is async-tier: it runs on the tree-walker's async executor
-            // (the `needs_async` routing diverts these before the VM ever sees them). The VM
-            // tier owns compute + channel concurrency and defers networking — these arms are
-            // the defensive diagnostic if a networking statement ever reaches VM compilation.
-            Stmt::Listen { .. } => {
-                self.emit_fail("Listen requires the async execution path")
+            // Relay networking opcodes — serviced by the async VM net driver (`run_vm_net_async`)
+            // through the shared `NetInbox`, byte-identically to the tree-walker. `LetPeerAgent`
+            // and `Sync` are not yet driven on the VM net runner (they stay async-tier below).
+            Stmt::Listen { address, secure } => {
+                if secure.is_some() {
+                    return Err("the PNP one-time pad (`with pad`) is only supported by the interpreter tier, not the bytecode VM".to_string());
+                }
+                let topic = self.compile_expr(address)?;
+                self.emit(Op::NetListen { topic });
+                Ok(())
             }
-            Stmt::ConnectTo { .. } => {
-                self.emit_fail("Connect requires the async execution path")
+            Stmt::ConnectTo { address, secure } => {
+                if secure.is_some() {
+                    return Err("the PNP one-time pad (`with pad`) is only supported by the interpreter tier, not the bytecode VM".to_string());
+                }
+                let url = self.compile_expr(address)?;
+                self.emit(Op::NetConnect { url });
+                Ok(())
             }
-            Stmt::LetPeerAgent { .. } => {
-                self.emit_fail("PeerAgent messaging requires the async execution path")
+            Stmt::LetPeerAgent { var, address } => {
+                let addr = self.compile_expr(address)?;
+                let dst = self.let_reg(*var)?;
+                self.emit(Op::NetMakePeer { dst, addr });
+                Ok(())
             }
-            Stmt::Sync { .. } => {
-                self.emit_fail("Sync requires the async execution path")
+            Stmt::Sync { var, topic } => {
+                // Read the local counter, sync+merge over the relay, write the merged value back —
+                // a read-modify-write on `var` through `Op::NetSync`.
+                let topic_reg = self.compile_expr(topic)?;
+                let tmp = self.alloc_reg()?;
+                self.emit_read(*var, tmp)?;
+                self.emit(Op::NetSync { dst: tmp, topic: topic_reg });
+                self.emit_write(*var, tmp)
             }
             // Go-like concurrency (T11d). The VM emits the scheduler opcodes; a
             // concurrent program is then driven through `run_until_block` by a
             // `VmTask`. (Concurrent programs currently route to the tree-walker
             // before the VM, so these are exercised via the dedicated VM-scheduler
             // entry; the default routing is unchanged.)
-            Stmt::CreatePipe { var, capacity, .. } => {
+            Stmt::CreatePipe { var, element_type, capacity } => {
                 let dst = self.let_reg(*var)?;
                 let cap = capacity.map(|c| c as i32).unwrap_or(-1);
-                self.emit(Op::ChanNew { dst, cap });
+                let elem = crate::vm::instruction::ChanElem::from_type_name(self.interner.resolve(*element_type));
+                self.emit(Op::ChanNew { dst, cap, elem });
                 Ok(())
             }
             Stmt::SendPipe { value, pipe } => {
@@ -1837,17 +2280,16 @@ impl<'i> Compiler<'i> {
                     }
                 }
                 // Proven-non-negative Int `x % 2^k` → `x & (2^k - 1)`, emitted
-                // as the existing register-form `AndEager` (Int×Int is bitwise
-                // AND): replaces idiv with a 1-cycle AND, which the JIT lowers to
-                // a `BitAnd` stencil. Gated on Oracle-proven non-negativity —
-                // unsound for negative dividends.
+                // as the register-form `BitAnd`: replaces idiv with a 1-cycle
+                // AND, which the JIT lowers to a `BitAnd` stencil. Gated on
+                // Oracle-proven non-negativity — unsound for negative dividends.
                 if matches!(op, BinaryOpKind::Modulo) {
                     if let Some(mask) = self.modpow2_mask(left, right) {
                         let lhs = self.compile_expr(left)?;
                         let rhs = self.alloc_reg()?;
                         let idx = self.add_const(Constant::Int(mask))?;
                         self.emit(Op::LoadConst { dst: rhs, idx });
-                        self.emit(Op::AndEager { dst, lhs, rhs });
+                        self.emit(Op::BitAnd { dst, lhs, rhs });
                         return Ok(());
                     }
                     // Proven-non-negative Int `x % c` (c a constant non-pow2) →
@@ -2113,10 +2555,12 @@ impl<'i> Compiler<'i> {
     ) -> Result<(), String> {
         let t = self.compile_expr(target)?;
         let mut end_jumps: Vec<usize> = Vec::new();
+        let mut has_otherwise = false;
         for arm in arms.iter() {
             match arm.variant {
                 None => {
                     // Otherwise: unconditional, and no arm after it runs.
+                    has_otherwise = true;
                     let mark = self.enter_block();
                     for st in arm.body {
                         self.compile_stmt(st)?;
@@ -2156,6 +2600,14 @@ impl<'i> Compiler<'i> {
                     self.patch_jump_target(jnext, self.current_pc())?;
                 }
             }
+        }
+        // An unmatched scrutinee (no arm's TestArm fired) falls to HERE. Without
+        // an Otherwise it is a non-exhaustive match — LOUD, never a silent
+        // no-op. Matched arms jump PAST this via `end_jumps`.
+        if !has_otherwise {
+            self.emit_fail(
+                "Inspect has no arm for the value and no Otherwise (matches must be exhaustive)",
+            )?;
         }
         let end_pc = self.current_pc();
         for j in end_jumps {
@@ -2245,19 +2697,23 @@ impl<'i> Compiler<'i> {
         Ok(())
     }
 
-    /// Compile `and`/`or` with the tree-walker's exact evaluation order: an Int
-    /// left operand always evaluates the right (bitwise/eager); a non-Int left
-    /// short-circuits on truthiness. The right operand is compiled ONCE.
+    /// Compile `and`/`or` — logical truthiness with short-circuit, Bool result,
+    /// pure control flow (JumpIfTrue/False are `is_truthy`-based, so containers,
+    /// floats and Text all follow the one truthiness definition). The right
+    /// operand is compiled ONCE and only evaluated when the left doesn't decide.
     ///
     /// ```text
     ///   rL = eval(left)
-    ///   JumpIfInt   rL → eval         ; Int ⇒ eager path
     ///   JumpIfTrue  rL → eval  (and)  ; or: JumpIfFalse rL → eval
     ///   dst = false            (and)  ; or: dst = true   — short-circuit
     ///   Jump → end
     /// eval:
     ///   rR = eval(right)
-    ///   dst = AndEager(rL, rR)        ; or: OrEager
+    ///   JumpIfTrue  rR → t
+    ///   dst = false
+    ///   Jump → end
+    /// t:
+    ///   dst = true
     /// end:
     /// ```
     fn compile_short_circuit(
@@ -2269,8 +2725,6 @@ impl<'i> Compiler<'i> {
     ) -> Result<(), String> {
         let l = self.compile_expr(left)?;
 
-        let j_int = self.current_pc();
-        self.emit(Op::JumpIfInt { cond: l, target: usize::MAX });
         let j_eval = self.current_pc();
         if is_and {
             self.emit(Op::JumpIfTrue { cond: l, target: usize::MAX });
@@ -2279,20 +2733,23 @@ impl<'i> Compiler<'i> {
         }
 
         // Short-circuit result: `and` → false, `or` → true.
-        let idx = self.add_const(Constant::Bool(!is_and))?;
-        self.emit(Op::LoadConst { dst, idx });
+        let idx_false = self.add_const(Constant::Bool(false))?;
+        let idx_true = self.add_const(Constant::Bool(true))?;
+        self.emit(Op::LoadConst { dst, idx: if is_and { idx_false } else { idx_true } });
         let j_end = self.emit_placeholder_jump();
 
         let eval_pc = self.current_pc();
-        self.patch_jump_target(j_int, eval_pc)?;
         self.patch_jump_target(j_eval, eval_pc)?;
         let r = self.compile_expr(right)?;
-        if is_and {
-            self.emit(Op::AndEager { dst, lhs: l, rhs: r });
-        } else {
-            self.emit(Op::OrEager { dst, lhs: l, rhs: r });
-        }
+        let j_true = self.current_pc();
+        self.emit(Op::JumpIfTrue { cond: r, target: usize::MAX });
+        self.emit(Op::LoadConst { dst, idx: idx_false });
+        let j_end2 = self.emit_placeholder_jump();
+        let t_pc = self.current_pc();
+        self.patch_jump_target(j_true, t_pc)?;
+        self.emit(Op::LoadConst { dst, idx: idx_true });
         self.patch_jump_target(j_end, self.current_pc())?;
+        self.patch_jump_target(j_end2, self.current_pc())?;
         Ok(())
     }
 
@@ -2358,6 +2815,34 @@ impl<'i> Compiler<'i> {
             return Ok(());
         }
 
+        // `{k: v, …}` / `{a, b, …}` literals lower to `mapOf`/`setOf`; the VM
+        // expands them into ops it already has (NewEmptyMap + SetIndex /
+        // NewEmptySet + SetAdd) so every downstream tier — JIT, direct-WASM,
+        // the PE dialects — sees only cataloged ops, no new CallBuiltin arm.
+        if matches!(name, "mapOf" | "setOf") {
+            let id = builtin_from_name(name).expect("mapOf/setOf are registered builtins");
+            if let Err(msg) = check_arity(id, args.len()) {
+                let idx = self.add_const(Constant::Text(msg))?;
+                self.emit(Op::FailWith { msg: idx });
+                return Ok(());
+            }
+            if id == BuiltinId::MapOf {
+                self.emit(Op::NewEmptyMap { dst });
+                for pair in args.chunks(2) {
+                    let k = self.compile_expr(pair[0])?;
+                    let v = self.compile_expr(pair[1])?;
+                    self.emit(Op::SetIndex { collection: dst, index: k, value: v });
+                }
+            } else {
+                self.emit(Op::NewEmptySet { dst });
+                for arg in args {
+                    let v = self.compile_expr(arg)?;
+                    self.emit(Op::SetAdd { set: dst, value: v });
+                }
+            }
+            return Ok(());
+        }
+
         if let Some(id) = builtin_from_name(name) {
             if let Err(msg) = check_arity(id, args.len()) {
                 let idx = self.add_const(Constant::Text(msg))?;
@@ -2396,6 +2881,32 @@ impl<'i> Compiler<'i> {
             let arg_count =
                 u16::try_from(args.len()).map_err(|_| "vm: too many arguments".to_string())?;
             let args_start = self.reserve_regs(arg_count)?;
+            // Call-site COW barrier: before an identifier argument is passed to a
+            // mutable-borrow parameter, isolate its buffer if shared (see
+            // [`Op::EnsureOwned`]) so the callee's in-place writes stay value-semantic
+            // for any aliasing caller. Emitted BEFORE materialization, while the
+            // source register still holds the caller's handle. A no-op for the common
+            // uniquely-owned `Set x to f(x, …)` consume-reassign.
+            if let Some(mb_idxs) = self.mut_borrow_params.get(&function).cloned() {
+                for (i, arg) in args.iter().enumerate() {
+                    if mb_idxs.contains(&i) {
+                        if let Expr::Identifier(x) = arg {
+                            // Skip an argument that is itself a COW-exempt local of the
+                            // CURRENT function (a self-recursive `f(result, …)` where
+                            // `result` aliases our own mutable-borrow param). It has no
+                            // external alias — the mutable-borrow analysis proved that —
+                            // so the barrier is a runtime no-op; omitting it keeps the
+                            // op out of a hot, tier-able function body.
+                            if self.current_exempt_syms.contains(x) {
+                                continue;
+                            }
+                            if let NameRef::Local(x_reg) = self.resolve_name(*x) {
+                                self.emit(Op::EnsureOwned { reg: x_reg });
+                            }
+                        }
+                    }
+                }
+            }
             for (i, arg) in args.iter().enumerate() {
                 self.compile_expr_into(arg, args_start + i as Reg)?;
             }
@@ -2588,7 +3099,7 @@ impl<'i> Compiler<'i> {
             captures: captures.clone(),
             named_regs: Vec::new(),
             // Closures carry no declarations — all-Int is the historical
-            // entry-guard contract.
+            // entry-guard contract (kept for the VM/JIT tiering path).
             param_kinds: vec![
                 Some(super::native_tier::ParamKind::Scalar(
                     super::native_tier::SlotKind::Int
@@ -2596,6 +3107,18 @@ impl<'i> Compiler<'i> {
                 param_count as usize
             ],
             ret_kind: None,
+            // The closure's DECLARED parameter types — a `(n: Float)` closure must type its param as
+            // Float, not the all-Int entry-guard default, or a static backend (the WASM AOT) mis-sizes
+            // its signature (f64 arg vs i64 param). Additive: only the AOT reads `param_types` (the VM/
+            // JIT use `param_kinds`, left untouched). Scalars resolve with an empty user-type map; a
+            // struct/enum closure parameter resolves via the compiler's `user_types` map.
+            param_types: params
+                .iter()
+                .map(|(_, ty)| boundary_of_type_expr(ty, &self.user_types, self.interner))
+                .collect(),
+            return_type: None,
+            // Closures carry no `mutable` declarations.
+            mutable_param_regs: Vec::new(),
         });
 
         // Shelve the enclosing frame's compilation state.
@@ -2826,7 +3349,6 @@ pub(super) fn patch_jump(code: &mut [Op], idx: usize, target: usize) -> Result<(
         Some(Op::Jump { target: t })
         | Some(Op::JumpIfFalse { target: t, .. })
         | Some(Op::JumpIfTrue { target: t, .. })
-        | Some(Op::JumpIfInt { target: t, .. })
         | Some(Op::IterNext { exit: t, .. }) => {
             *t = target;
             Ok(())
@@ -2966,15 +3488,21 @@ fn binop_op(op: BinaryOpKind, dst: Reg, lhs: Reg, rhs: Reg) -> Result<Op, String
         Multiply => Op::Mul { dst, lhs, rhs },
         Divide => Op::Div { dst, lhs, rhs },
         ExactDivide => Op::ExactDiv { dst, lhs, rhs },
+        FloorDivide => Op::FloorDiv { dst, lhs, rhs },
         Modulo => Op::Mod { dst, lhs, rhs },
         Lt => Op::Lt { dst, lhs, rhs },
         Gt => Op::Gt { dst, lhs, rhs },
         LtEq => Op::LtEq { dst, lhs, rhs },
         GtEq => Op::GtEq { dst, lhs, rhs },
         Eq => Op::Eq { dst, lhs, rhs },
+        ApproxEq => Op::ApproxEq { dst, lhs, rhs },
         NotEq => Op::NotEq { dst, lhs, rhs },
         Concat => Op::Concat { dst, lhs, rhs },
+        SeqConcat => Op::SeqConcat { dst, lhs, rhs },
+        Pow => Op::Pow { dst, lhs, rhs },
         BitXor => Op::BitXor { dst, lhs, rhs },
+        BitAnd => Op::BitAnd { dst, lhs, rhs },
+        BitOr => Op::BitOr { dst, lhs, rhs },
         Shl => Op::Shl { dst, lhs, rhs },
         Shr => Op::Shr { dst, lhs, rhs },
         // And/Or are compiled by `compile_short_circuit`, never through here.

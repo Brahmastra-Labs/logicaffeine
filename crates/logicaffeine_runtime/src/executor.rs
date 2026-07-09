@@ -1,4 +1,4 @@
-//! The work-stealing M:N native driver (Phase 7 of FINISH_INTERPRETER.md).
+//! The work-stealing M:N native driver (Phase 7 of work/FINISH_INTERPRETER.md).
 //!
 //! Genuine multicore for the VM/tree-walker tiers, native-only (`std::thread` +
 //! `std::sync`; never tokio, never `crossbeam` — this crate is dependency-free by
@@ -26,7 +26,7 @@
 //!
 //! Workers never touch channels, timers, or the `Chooser` directly: they poll a
 //! task body (the expensive part — arithmetic, loops, JIT regions) and report the
-//! resulting [`StepReport`] back. The coordinator applies every report through the
+//! resulting `StepReport` back. The coordinator applies every report through the
 //! *same* [`crate::scheduler::Scheduler`] state machine and the *same* `Chooser`,
 //! in a deterministic order, so for a fixed seed the trace is **identical to the
 //! cooperative run** — parallelism only reorders the wall-clock arrival of reports,

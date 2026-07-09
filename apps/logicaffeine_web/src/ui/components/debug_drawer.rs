@@ -12,13 +12,15 @@
 //! debugger's snapshot history.
 
 use dioxus::prelude::*;
-use logicaffeine_compile::debug::{DebugSnapshot, Debugger};
+use logicaffeine_compile::debug::{CausalNode, DebugSnapshot, Debugger, ProofVerdict, VarTimeline};
 
 #[derive(Clone, Copy, PartialEq)]
 enum DebugTab {
     Variables,
     Stack,
     Heap,
+    Timeline,
+    Prove,
     CallStack,
     Breakpoints,
     Bytecode,
@@ -28,9 +30,18 @@ enum DebugTab {
 /// session (the Studio hides the drawer).
 #[component]
 pub fn DebugDrawer(source: String, on_close: EventHandler<()>) -> Element {
-    // The debugger is built once from the source the session opened with.
+    // The debugger is built once from the source the session opened with; `armed_source`
+    // remembers that source so we can tell when the editor/file has since changed.
     let mut dbg = use_signal(|| Debugger::from_source(&source));
+    let mut armed_source = use_signal(|| source.clone());
     let mut tab = use_signal(|| DebugTab::Variables);
+    // The variable whose causal provenance is being traced (click a value to set it).
+    let mut traced = use_signal(|| None::<u16>);
+    // The live-proof query typed into the Prove tab.
+    let mut prove_query = use_signal(String::new);
+    // Socratic mode (default on): the teaching line asks you to predict the step's
+    // outcome rather than just telling you what it does.
+    let mut socratic_mode = use_signal(|| true);
     // The "virtual hardware" easter egg — off by default, bundle-light.
     let mut hw_open = use_signal(|| false);
     // Auto-play: a timer steps the program so you can watch it run.
@@ -110,6 +121,10 @@ pub fn DebugDrawer(source: String, on_close: EventHandler<()>) -> Element {
         }
     };
 
+    // The editor/file changed since we armed this session (a different program).
+    let stale = armed_source() != source;
+    let reload_source = source.clone();
+
     rsx! {
         style { "{DEBUG_DRAWER_STYLE}" }
         div { class: "dbg-drawer",
@@ -144,8 +159,6 @@ pub fn DebugDrawer(source: String, on_close: EventHandler<()>) -> Element {
                     button { class: if hw_open() { "dbg-btn dbg-toggle on" } else { "dbg-btn dbg-toggle" },
                         title: "Virtual hardware view",
                         onclick: move |_| { let v = hw_open(); hw_open.set(!v); }, dangerous_inner_html: IC_GEAR }
-                    button { class: "dbg-btn dbg-stop", title: "Stop debugging",
-                        onclick: move |_| on_close.call(()), dangerous_inner_html: IC_STOP }
                 }
                 div { class: "dbg-status",
                     span { class: "dbg-state dbg-state-{snap.state}", "{snap.state}" }
@@ -155,6 +168,23 @@ pub fn DebugDrawer(source: String, on_close: EventHandler<()>) -> Element {
                         span { class: "dbg-sep", "\u{00B7}" }
                         span { class: "dbg-op", "{snap.op_text}" }
                     }
+                }
+                button { class: "dbg-close", title: "Close the debugger",
+                    onclick: move |_| on_close.call(()), dangerous_inner_html: IC_CLOSE }
+            }
+
+            // The editor changed since this session armed (a file switch or an edit) —
+            // non-destructive: keep debugging the old program, or reload the new one.
+            if stale {
+                div { class: "dbg-reload",
+                    span { class: "dbg-reload-msg", "\u{26A0} The code changed \u{2014} this session is the previous version." }
+                    button { class: "dbg-reload-btn",
+                        onclick: move |_| {
+                            dbg.set(Debugger::from_source(&reload_source));
+                            armed_source.set(reload_source.clone());
+                            playing.set(false);
+                        },
+                        "Reload" }
                 }
             }
 
@@ -176,11 +206,36 @@ pub fn DebugDrawer(source: String, on_close: EventHandler<()>) -> Element {
                 span { class: "dbg-scrub-label", "{snap.step} / {snap.total_steps}" }
             }
 
-            // Plain-English narration of what this step does — the teaching line.
-            if !snap.narration.is_empty() {
-                div { class: "dbg-narr dbg-narr-{snap.state}",
-                    span { class: "dbg-narr-ico", dangerous_inner_html: IC_BULB }
-                    span { class: "dbg-narr-text", "{snap.narration}" }
+            // Teaching line — Socratic (ask you to predict) or plain narration (tell you),
+            // toggleable. Socratic mode asks before the step; stepping reveals the answer.
+            {
+                let socratic_on = socratic_mode();
+                let ask = socratic_on && !snap.socratic.is_empty();
+                let text = if ask { snap.socratic.clone() } else { snap.narration.clone() };
+                if text.is_empty() {
+                    rsx! {}
+                } else {
+                    rsx! {
+                        div { class: if ask { "dbg-narr dbg-narr-socratic".to_string() } else { format!("dbg-narr dbg-narr-{}", snap.state) },
+                            span { class: "dbg-narr-ico", dangerous_inner_html: if ask { IC_SOCRATIC } else { IC_BULB } }
+                            span { class: "dbg-narr-text", "{text}" }
+                            button {
+                                class: if socratic_on { "dbg-narr-toggle on" } else { "dbg-narr-toggle" },
+                                title: if socratic_on { "Socratic mode — asking you to predict (click for plain explanations)" } else { "Plain mode (click for Socratic questions)" },
+                                onclick: move |_| { let v = socratic_mode(); socratic_mode.set(!v); },
+                                "?"
+                            }
+                        }
+                    }
+                }
+            }
+
+            // The first-order-logic meaning of this step — the formal companion to the
+            // English narration (sum = x + y, t ⟺ (i < n), ¬cond → goto L).
+            if !snap.fol.is_empty() {
+                div { class: "dbg-fol", title: "first-order-logic semantics of this step",
+                    span { class: "dbg-fol-tag", "\u{22A8}" }
+                    span { class: "dbg-fol-text", "{snap.fol}" }
                 }
             }
 
@@ -194,6 +249,8 @@ pub fn DebugDrawer(source: String, on_close: EventHandler<()>) -> Element {
                 DebugTabBtn { label: "Variables", this: DebugTab::Variables, cur: cur_tab, tab }
                 DebugTabBtn { label: "Stack", this: DebugTab::Stack, cur: cur_tab, tab }
                 DebugTabBtn { label: "Heap", this: DebugTab::Heap, cur: cur_tab, tab }
+                DebugTabBtn { label: "Timeline", this: DebugTab::Timeline, cur: cur_tab, tab }
+                DebugTabBtn { label: "Prove", this: DebugTab::Prove, cur: cur_tab, tab }
                 DebugTabBtn { label: "Call Stack", this: DebugTab::CallStack, cur: cur_tab, tab }
                 DebugTabBtn { label: "Breakpoints", this: DebugTab::Breakpoints, cur: cur_tab, tab }
                 DebugTabBtn { label: "Bytecode", this: DebugTab::Bytecode, cur: cur_tab, tab }
@@ -208,13 +265,43 @@ pub fn DebugDrawer(source: String, on_close: EventHandler<()>) -> Element {
                                     div { class: "dbg-empty", "no locals in this frame" }
                                 }
                                 for reg in frame.registers.iter() {
-                                    div { class: if reg.changed { "dbg-var changed" } else { "dbg-var" },
-                                        span { class: "dbg-var-name",
-                                            { reg.name.clone().unwrap_or_else(|| format!("R{}", reg.index)) }
+                                    {
+                                        let idx = reg.index;
+                                        let on = traced() == Some(idx);
+                                        rsx! {
+                                            div {
+                                                class: if on { "dbg-var traced" } else if reg.changed { "dbg-var changed" } else { "dbg-var" },
+                                                title: "Trace where this value came from",
+                                                onclick: move |_| {
+                                                    if traced() == Some(idx) { traced.set(None); } else { traced.set(Some(idx)); }
+                                                },
+                                                span { class: "dbg-var-name",
+                                                    { reg.name.clone().unwrap_or_else(|| format!("R{}", reg.index)) }
+                                                }
+                                                if !reg.kind.is_empty() {
+                                                    span { class: "dbg-var-type", "{reg.kind}" }
+                                                }
+                                                span { class: "dbg-var-eq", "=" }
+                                                span { class: "dbg-var-val", "{reg.value}" }
+                                                span { class: "dbg-why", dangerous_inner_html: IC_TRACE }
+                                            }
                                         }
-                                        span { class: "dbg-var-eq", "=" }
-                                        span { class: "dbg-var-val", "{reg.value}" }
                                     }
+                                }
+                            }
+                            // Causal provenance — "why is this value here?" — the exact data-flow
+                            // lineage, possible only because execution is deterministically recorded.
+                            if let Some(node) = traced().and_then(|r| dbg.read().as_ref().ok().and_then(|d| d.provenance(r))) {
+                                div { class: "dbg-prov",
+                                    div { class: "dbg-prov-h",
+                                        span { class: "dbg-prov-title",
+                                            span { class: "dbg-prov-ico", dangerous_inner_html: IC_TRACE }
+                                            "why \u{2192} causal lineage"
+                                        }
+                                        button { class: "dbg-prov-x", onclick: move |_| traced.set(None),
+                                            dangerous_inner_html: IC_CLOSE }
+                                    }
+                                    div { class: "dbg-prov-tree", dangerous_inner_html: "{causal_html(&node)}" }
                                 }
                             }
                             if !snap.globals.is_empty() {
@@ -246,6 +333,9 @@ pub fn DebugDrawer(source: String, on_close: EventHandler<()>) -> Element {
                                                 div { class: if reg.changed { "dbg-slot changed" } else { "dbg-slot" },
                                                     span { class: "dbg-slot-addr", "{addr:04}" }
                                                     span { class: "dbg-slot-name", "{nm}" }
+                                                    if !reg.kind.is_empty() {
+                                                        span { class: "dbg-slot-type", "{reg.kind}" }
+                                                    }
                                                     span { class: "dbg-slot-val", "{reg.value}" }
                                                 }
                                             }
@@ -266,6 +356,7 @@ pub fn DebugDrawer(source: String, on_close: EventHandler<()>) -> Element {
                                     div { class: "dbg-hobj-h",
                                         span { class: "dbg-hobj-id", "{obj.id}" }
                                         span { class: "dbg-hobj-kind", "{obj.kind}" }
+                                        span { class: "dbg-hobj-store", title: "memory layout", "{obj.storage}" }
                                         if obj.rc > 1 {
                                             span { class: "dbg-hobj-rc", title: "reference count", "rc {obj.rc}" }
                                         }
@@ -279,6 +370,109 @@ pub fn DebugDrawer(source: String, on_close: EventHandler<()>) -> Element {
                                         for r in obj.referenced_by.iter() {
                                             span { class: "dbg-ref", "{r}" }
                                         }
+                                    }
+                                }
+                            }
+                        }
+                    },
+                    DebugTab::Timeline => {
+                        let tl = dbg.read().as_ref().ok().map(|d| d.variable_timeline());
+                        let insights = dbg.read().as_ref().ok().map(|d| d.observed_invariants()).unwrap_or_default();
+                        let proven = dbg.read().as_ref().ok().map(|d| d.proven_invariants()).unwrap_or_default();
+                        match tl {
+                            Some(tl) if !tl.vars.is_empty() => rsx! {
+                                div { class: "dbg-osc-wrap",
+                                    div { class: "dbg-mem-hint", "Every variable's value across the whole run \u{2014} a logic-analyzer for your program. The pink playhead is your time-travel cursor; drag the scrubber to move through time." }
+                                    if tl.truncated {
+                                        div { class: "dbg-mem-hint dim", "showing the most recent {tl.steps} steps" }
+                                    }
+                                    div { class: "dbg-osc", dangerous_inner_html: "{timeline_svg(&tl)}" }
+                                    // PROVEN invariants — the Oracle's static guarantees (every run).
+                                    if !proven.is_empty() {
+                                        div { class: "dbg-insights",
+                                            div { class: "dbg-insights-h proven",
+                                                span { class: "dbg-proven-ico", dangerous_inner_html: IC_SHIELD }
+                                                "proven \u{2014} holds on every run"
+                                            }
+                                            for p in proven.iter() {
+                                                div { class: "dbg-insight",
+                                                    span { class: "dbg-insight-name", "{p.name}" }
+                                                    for f in p.facts.iter() {
+                                                        span { class: "dbg-insight-fact proven", "{f}" }
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                    // Daikon-style observed invariants — what held over THIS run.
+                                    if !insights.is_empty() {
+                                        div { class: "dbg-insights",
+                                            div { class: "dbg-insights-h", "observed this run" }
+                                            for ins in insights.iter() {
+                                                div { class: "dbg-insight",
+                                                    span { class: "dbg-insight-name", "{ins.name}" }
+                                                    for f in ins.facts.iter() {
+                                                        span { class: "dbg-insight-fact", "{f}" }
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            },
+                            _ => rsx! {
+                                div { class: "dbg-empty", "no variables to plot yet \u{2014} step the program to record a timeline" }
+                            },
+                        }
+                    },
+                    DebugTab::Prove => {
+                        let q = prove_query();
+                        let result = if q.trim().is_empty() {
+                            None
+                        } else {
+                            dbg.read().as_ref().ok().map(|d| d.assert_at_cursor(&q))
+                        };
+                        rsx! {
+                            div { class: "dbg-prove",
+                                div { class: "dbg-mem-hint", "Assert a property of the variables. You get both lenses: whether it holds NOW (live values) and whether it's PROVEN for every run (the Oracle's static facts \u{2014} no Z3)." }
+                                input {
+                                    class: "dbg-prove-input",
+                                    r#type: "text",
+                                    placeholder: "e.g.  x < y    or    sum >= 0",
+                                    value: "{q}",
+                                    oninput: move |e| prove_query.set(e.value()),
+                                }
+                                if let Some(r) = result {
+                                    if r.parsed {
+                                        div { class: "dbg-prove-result",
+                                            div { class: "dbg-prove-row",
+                                                span { class: "dbg-prove-label", "now" }
+                                                match r.now {
+                                                    Some(true) => rsx! { span { class: "dbg-verdict yes", "true" } },
+                                                    Some(false) => rsx! { span { class: "dbg-verdict no", "false" } },
+                                                    None => rsx! { span { class: "dbg-verdict idk", "not a live value" } },
+                                                }
+                                                if !r.now_detail.is_empty() {
+                                                    span { class: "dbg-prove-detail", "{r.now_detail}" }
+                                                }
+                                            }
+                                            div { class: "dbg-prove-row",
+                                                span { class: "dbg-prove-label", "every run" }
+                                                {
+                                                    let (cls, txt) = match r.verdict {
+                                                        ProofVerdict::ProvenTrue => ("yes", "proven"),
+                                                        ProofVerdict::ProvenFalse => ("no", "refuted"),
+                                                        ProofVerdict::Unknown => ("idk", "unproven"),
+                                                    };
+                                                    rsx! { span { class: "dbg-verdict {cls}", "{txt}" } }
+                                                }
+                                                if !r.verdict_detail.is_empty() {
+                                                    span { class: "dbg-prove-detail", "{r.verdict_detail}" }
+                                                }
+                                            }
+                                        }
+                                    } else {
+                                        div { class: "dbg-prove-err", "{r.now_detail}" }
                                     }
                                 }
                             }
@@ -456,6 +650,136 @@ fn datapath_svg(snap: &DebugSnapshot) -> String {
     s
 }
 
+/// The **variable oscilloscope** — a logic-analyzer waveform of every variable's
+/// value across the whole recorded run, runs of equal value merged into held "bus"
+/// boxes, with a pink playhead pinned at the time-travel cursor. Reuses the studio's
+/// `waveform_svg` idiom; the program's entire observable past on one scope.
+fn timeline_svg(tl: &VarTimeline) -> String {
+    let gutter = 96.0_f64;
+    let col_w = 34.0_f64;
+    let row_h = 30.0_f64;
+    let top = 22.0_f64;
+    let n = tl.steps.max(1);
+    let lanes = tl.vars.len().max(1);
+    let width = gutter + n as f64 * col_w + 14.0;
+    let height = top + lanes as f64 * row_h + 16.0;
+    let bottom = top + lanes as f64 * row_h;
+
+    let mut s = format!(
+        "<svg viewBox='0 0 {width:.0} {height:.0}' width='{width:.0}' height='{height:.0}' xmlns='http://www.w3.org/2000/svg'>"
+    );
+    s.push_str(TIMELINE_CSS);
+
+    // Time grid + step labels (thinned so they stay readable on long runs).
+    let label_every = (n / 14).max(1);
+    for step in 0..=n {
+        let x = gutter + step as f64 * col_w;
+        s.push_str(&format!("<line class='tlg' x1='{x:.0}' y1='{top:.0}' x2='{x:.0}' y2='{bottom:.0}'/>"));
+        if step < n && step % label_every == 0 {
+            s.push_str(&format!(
+                "<text class='tltl' x='{:.0}' y='14'>{}</text>",
+                x + col_w / 2.0,
+                tl.start + step
+            ));
+        }
+    }
+
+    // Playhead at the cursor column.
+    let pcol = tl.cursor.saturating_sub(tl.start);
+    let px = gutter + pcol as f64 * col_w;
+    s.push_str(&format!("<rect class='tlph-bg' x='{px:.0}' y='{top:.0}' width='{col_w:.0}' height='{:.0}'/>", bottom - top));
+    s.push_str(&format!("<line class='tlph' x1='{px:.0}' y1='{:.0}' x2='{px:.0}' y2='{:.0}'/>", top - 6.0, bottom + 4.0));
+
+    for (ri, v) in tl.vars.iter().enumerate() {
+        let y = top + ri as f64 * row_h;
+        let label = if v.kind.is_empty() { v.name.clone() } else { format!("{} : {}", v.name, v.kind) };
+        s.push_str(&format!("<text class='tln' x='{:.0}' y='{:.0}'>{}</text>", gutter - 9.0, y + row_h * 0.62, esc(&label)));
+        // Merge consecutive equal samples into one held box (the waveform "bus value").
+        let mut i = 0usize;
+        while i < v.points.len() {
+            let p = &v.points[i];
+            let mut j = i + 1;
+            while j < v.points.len() && v.points[j].present == p.present && v.points[j].value == p.value {
+                j += 1;
+            }
+            if p.present {
+                let x = gutter + i as f64 * col_w;
+                let span = (j - i) as f64 * col_w;
+                let cls = if p.changed { "tlbox edge" } else { "tlbox" };
+                s.push_str(&format!(
+                    "<rect class='{cls}' x='{:.0}' y='{:.0}' width='{:.0}' height='{:.0}' rx='5'/>",
+                    x + 1.5,
+                    y + 4.0,
+                    (span - 3.0).max(2.0),
+                    row_h - 9.0
+                ));
+                let shown: String = p.value.chars().take((span / 7.0) as usize + 1).collect();
+                s.push_str(&format!(
+                    "<text class='tlv' x='{:.0}' y='{:.0}'>{}</text>",
+                    x + span / 2.0,
+                    y + row_h * 0.62,
+                    esc(&shown)
+                ));
+            }
+            i = j;
+        }
+    }
+    s.push_str("</svg>");
+    s
+}
+
+/// Render a [`CausalNode`] provenance tree to indented HTML — each value shown with
+/// the op that produced it and the step it happened, its inputs nested below.
+fn causal_html(node: &CausalNode) -> String {
+    let mut s = String::new();
+    causal_html_rec(node, 0, &mut s);
+    s
+}
+
+fn causal_html_rec(node: &CausalNode, depth: usize, out: &mut String) {
+    let name = node.name.clone().unwrap_or_else(|| format!("R{}", node.reg));
+    let how = if !node.narration.is_empty() {
+        node.narration.clone()
+    } else if !node.op_text.is_empty() {
+        node.op_text.clone()
+    } else {
+        "initial value".to_string()
+    };
+    out.push_str(&format!("<div class='cz-row' style='padding-left:{}px'>", depth * 18));
+    if depth > 0 {
+        out.push_str("<span class='cz-arm'>\u{2514}\u{2500}</span>");
+    }
+    out.push_str(&format!("<span class='cz-val'>{} = {}</span>", esc(&name), esc(&node.value)));
+    if !node.kind.is_empty() {
+        out.push_str(&format!("<span class='cz-kind'>{}</span>", esc(&node.kind)));
+    }
+    out.push_str(&format!("<span class='cz-how'>{}</span>", esc(&how)));
+    if node.step > 0 {
+        out.push_str(&format!("<span class='cz-step'>step {}</span>", node.step));
+    }
+    out.push_str("</div>");
+    for inp in &node.inputs {
+        causal_html_rec(inp, depth + 1, out);
+    }
+}
+
+const TIMELINE_CSS: &str = "<style>\
+.tlg{stroke:rgba(255,255,255,0.05);stroke-width:1}\
+.tltl{fill:rgba(255,255,255,0.4);font:9px ui-monospace,monospace;text-anchor:middle}\
+.tln{fill:#a5b4fc;font:11px ui-monospace,monospace;text-anchor:end}\
+.tlbox{fill:rgba(34,211,238,0.10);stroke:#22d3ee;stroke-width:1}\
+.tlbox.edge{fill:rgba(129,140,248,0.20);stroke:#818cf8;stroke-width:1.5}\
+.tlv{fill:#dbeafe;font:10px ui-monospace,monospace;text-anchor:middle}\
+.tlph{stroke:#f472b6;stroke-width:1.5;opacity:0.9}\
+.tlph-bg{fill:rgba(244,114,182,0.08)}\
+</style>";
+
+const IC_TRACE: &str = "<svg viewBox='0 0 16 16' width='12' height='12' fill='none' stroke='currentColor' stroke-width='1.3' stroke-linecap='round' stroke-linejoin='round'><circle cx='3.4' cy='3.4' r='1.6'/><circle cx='12.6' cy='3.4' r='1.6'/><circle cx='8' cy='12.6' r='1.6'/><path d='M3.4 5v2.2a2 2 0 0 0 2 2h5.2a2 2 0 0 0 2-2V5'/><path d='M8 9.4v1.6'/></svg>";
+
+const IC_SHIELD: &str = "<svg viewBox='0 0 16 16' width='12' height='12' fill='none' stroke='currentColor' stroke-width='1.3' stroke-linecap='round' stroke-linejoin='round'><path d='M8 1.6l5 1.8v4c0 3.2-2.2 5.4-5 6.4-2.8-1-5-3.2-5-6.4v-4z'/><path d='M5.8 8l1.5 1.5L10.4 6'/></svg>";
+
+const IC_SOCRATIC: &str = "<svg viewBox='0 0 16 16' width='14' height='14' fill='none' stroke='currentColor' stroke-width='1.3' stroke-linecap='round' stroke-linejoin='round'><path d='M3 2.8h10a1 1 0 0 1 1 1v6a1 1 0 0 1-1 1H7l-3 2.4V10.8H3a1 1 0 0 1-1-1v-6a1 1 0 0 1 1-1z'/><path d='M6.5 5.6a1.6 1.6 0 0 1 3 .5c0 1-1.5 1.3-1.5 2.2'/><path d='M8 9.9h.01'/></svg>";
+
 const DATAPATH_CSS: &str = "<style>\
 .rcell rect{fill:#161b22;stroke:rgba(255,255,255,0.12);stroke-width:1}\
 .rcell text{fill:#cbd5e1;font:11px ui-monospace,monospace}\
@@ -487,6 +811,7 @@ const IC_STEP_OVER: &str = "<svg viewBox='0 0 16 16' width='15' height='15' fill
 const IC_RESTART: &str = "<svg viewBox='0 0 16 16' width='15' height='15' fill='none' stroke='currentColor' stroke-width='1.4' stroke-linecap='round' stroke-linejoin='round'><path d='M12.6 8a4.6 4.6 0 1 1-1.5-3.4'/><path d='M12.9 2.3l-.2 2.6-2.6-.4'/></svg>";
 const IC_STOP: &str = "<svg viewBox='0 0 16 16' width='15' height='15' fill='currentColor'><rect x='3.5' y='3.5' width='9' height='9' rx='1.6'/></svg>";
 const IC_CLOCK: &str = "<svg viewBox='0 0 16 16' width='13' height='13' fill='none' stroke='currentColor' stroke-width='1.3' stroke-linecap='round' stroke-linejoin='round'><circle cx='8' cy='8.6' r='4.8'/><path d='M8 5.6v3l2 1.4'/><path d='M6 1.6h4M8 1.6v2'/></svg>";
+const IC_CLOSE: &str = "<svg viewBox='0 0 16 16' width='15' height='15' fill='none' stroke='currentColor' stroke-width='1.7' stroke-linecap='round'><path d='M4 4l8 8M12 4l-8 8'/></svg>";
 const IC_BULB: &str = "<svg viewBox='0 0 16 16' width='14' height='14' fill='none' stroke='currentColor' stroke-width='1.3' stroke-linecap='round' stroke-linejoin='round'><path d='M6 12h4M6.4 13.6h3.2'/><path d='M5 7.4a3 3 0 1 1 6 0c0 1.3-.8 2-1.3 2.7-.2.3-.2.6-.2 1.4H6.5c0-.8 0-1.1-.2-1.4C5.8 9.4 5 8.7 5 7.4z'/></svg>";
 const IC_PLAY: &str = "<svg viewBox='0 0 16 16' width='15' height='15' fill='currentColor'><path d='M4.5 3v10l8-5z'/></svg>";
 const IC_PAUSE: &str = "<svg viewBox='0 0 16 16' width='15' height='15' fill='currentColor'><rect x='4' y='3.5' width='2.7' height='9' rx='.8'/><rect x='9.3' y='3.5' width='2.7' height='9' rx='.8'/></svg>";
@@ -530,8 +855,54 @@ const DEBUG_DRAWER_STYLE: &str = r#"
 .dbg-var { display:flex; gap:6px; padding:2px 4px; border-radius:4px; }
 .dbg-var.changed { background:rgba(102,126,234,0.18); }
 .dbg-var-name { color:#a5b4fc; min-width:48px; }
+.dbg-var-type { color:#f0abfc; font-size:11px; opacity:0.85; background:rgba(240,171,252,0.1); border-radius:4px; padding:0 5px; align-self:center; }
 .dbg-var-eq { opacity:0.4; }
 .dbg-var-val { color:#4ade80; }
+.dbg-var { cursor:pointer; border-radius:5px; }
+.dbg-var:hover { background:rgba(255,255,255,0.04); }
+.dbg-var:hover .dbg-why { opacity:0.7; }
+.dbg-var.traced { background:rgba(34,211,238,0.12); box-shadow:inset 2px 0 0 #22d3ee; }
+.dbg-var.traced .dbg-why { opacity:1; color:#22d3ee; }
+.dbg-why { margin-left:auto; display:inline-flex; align-items:center; color:#6b7280; opacity:0; transition:opacity 0.12s; }
+.dbg-prov { margin:8px 6px 4px; border:1px solid rgba(34,211,238,0.25); border-radius:8px; background:rgba(34,211,238,0.04); overflow:hidden; }
+.dbg-prov-h { display:flex; align-items:center; justify-content:space-between; padding:5px 10px; background:rgba(34,211,238,0.08); border-bottom:1px solid rgba(34,211,238,0.15); }
+.dbg-prov-title { display:flex; align-items:center; gap:6px; color:#67e8f9; font-size:11px; text-transform:uppercase; letter-spacing:0.5px; }
+.dbg-prov-ico { display:inline-flex; align-items:center; color:#22d3ee; }
+.dbg-prov-x { background:transparent; border:none; color:#6b7280; cursor:pointer; display:inline-flex; padding:2px; border-radius:4px; }
+.dbg-prov-x:hover { background:rgba(248,113,113,0.15); color:#f87171; }
+.dbg-prov-tree { padding:8px 10px; font-family:ui-monospace,monospace; font-size:12px; }
+.cz-row { display:flex; align-items:center; gap:8px; padding:2px 0; white-space:nowrap; }
+.cz-arm { color:#475569; }
+.cz-val { color:#4ade80; font-weight:600; }
+.cz-kind { color:#f0abfc; font-size:10px; opacity:0.8; }
+.cz-how { color:#cbd5e1; opacity:0.85; }
+.cz-step { color:#6b7280; font-size:10px; margin-left:auto; }
+.dbg-osc-wrap { display:flex; flex-direction:column; gap:4px; }
+.dbg-osc { overflow-x:auto; padding:4px 2px 8px; }
+.dbg-mem-hint.dim { opacity:0.6; font-size:11px; }
+.dbg-fol { display:flex; align-items:center; gap:8px; padding:5px 12px; background:rgba(167,139,250,0.07); border-bottom:1px solid var(--studio-border,rgba(255,255,255,0.06)); font-family:ui-monospace,monospace; }
+.dbg-fol-tag { color:#a78bfa; font-size:13px; }
+.dbg-fol-text { color:#ddd6fe; font-size:12.5px; }
+.dbg-prove { display:flex; flex-direction:column; gap:8px; padding:2px 4px; }
+.dbg-prove-input { background:var(--studio-panel-bg,#12161c); border:1px solid var(--studio-border,rgba(255,255,255,0.12)); border-radius:6px; color:#e8eaed; font-family:ui-monospace,monospace; font-size:13px; padding:7px 10px; outline:none; }
+.dbg-prove-input:focus { border-color:#a78bfa; }
+.dbg-prove-result { display:flex; flex-direction:column; gap:6px; padding:4px 2px; }
+.dbg-prove-row { display:flex; align-items:center; gap:9px; flex-wrap:wrap; }
+.dbg-prove-label { color:#6b7280; font-size:10px; text-transform:uppercase; letter-spacing:0.6px; min-width:62px; }
+.dbg-verdict { font-weight:600; font-size:12px; border-radius:10px; padding:1px 9px; }
+.dbg-verdict.yes { color:#86efac; background:rgba(74,222,128,0.14); border:1px solid rgba(74,222,128,0.3); }
+.dbg-verdict.no { color:#fca5a5; background:rgba(248,113,113,0.14); border:1px solid rgba(248,113,113,0.3); }
+.dbg-verdict.idk { color:#9ca3af; background:rgba(156,163,175,0.12); border:1px solid rgba(156,163,175,0.25); }
+.dbg-prove-detail { color:#94a3b8; font-family:ui-monospace,monospace; font-size:11px; }
+.dbg-prove-err { color:#fbbf24; font-size:12px; padding:4px 2px; }
+.dbg-insights { margin:2px 6px 6px; }
+.dbg-insights-h { color:#67e8f9; font-size:10px; text-transform:uppercase; letter-spacing:0.6px; margin-bottom:5px; }
+.dbg-insights-h.proven { color:#c4b5fd; display:flex; align-items:center; gap:5px; }
+.dbg-proven-ico { display:inline-flex; align-items:center; color:#a78bfa; }
+.dbg-insight { display:flex; align-items:center; gap:7px; flex-wrap:wrap; padding:2px 0; }
+.dbg-insight-name { color:#a5b4fc; font-family:ui-monospace,monospace; font-size:12px; min-width:48px; }
+.dbg-insight-fact { color:#86efac; background:rgba(74,222,128,0.1); border:1px solid rgba(74,222,128,0.2); border-radius:10px; padding:0 8px; font-size:11px; }
+.dbg-insight-fact.proven { color:#ddd6fe; background:rgba(167,139,250,0.12); border-color:rgba(167,139,250,0.3); font-family:ui-monospace,monospace; }
 .dbg-globals-h, .dbg-out { color:var(--studio-text-muted,#6b7280); margin-top:8px; text-transform:uppercase; font-size:10px; letter-spacing:0.5px; }
 .dbg-frame { padding:3px 6px; border-radius:4px; }
 .dbg-frame.current { background:rgba(102,126,234,0.18); }
@@ -562,6 +933,12 @@ const DEBUG_DRAWER_STYLE: &str = r#"
 .dbg-narr-text { color:var(--studio-text,#e8eaed); font-size:13.5px; }
 .dbg-narr-done .dbg-narr-text, .dbg-narr-error .dbg-narr-text { font-style:italic; color:var(--studio-text-secondary,#9ca3af); }
 .dbg-narr-error .dbg-narr-ico { color:#f87171; }
+.dbg-narr-socratic { background:linear-gradient(90deg,rgba(34,211,238,0.13),rgba(34,211,238,0.03)); }
+.dbg-narr-socratic .dbg-narr-ico { color:#22d3ee; }
+.dbg-narr-socratic .dbg-narr-text { color:#cffafe; }
+.dbg-narr-toggle { margin-left:auto; flex-shrink:0; background:transparent; border:1px solid var(--studio-border,rgba(255,255,255,0.14)); color:var(--studio-text-muted,#6b7280); cursor:pointer; border-radius:50%; width:20px; height:20px; font-weight:700; font-size:12px; line-height:1; display:inline-flex; align-items:center; justify-content:center; }
+.dbg-narr-toggle:hover { border-color:#22d3ee; color:#22d3ee; }
+.dbg-narr-toggle.on { background:rgba(34,211,238,0.18); border-color:#22d3ee; color:#22d3ee; }
 .dbg-play { color:#4ade80; }
 .dbg-mem-hint { color:var(--studio-text-muted,#6b7280); font-size:11px; margin-bottom:8px; }
 .dbg-sframe { margin-bottom:8px; border:1px solid var(--studio-border,rgba(255,255,255,0.08)); border-radius:6px; overflow:hidden; }
@@ -572,6 +949,7 @@ const DEBUG_DRAWER_STYLE: &str = r#"
 .dbg-slot.changed { background:rgba(102,126,234,0.18); }
 .dbg-slot-addr { color:#6b7280; font-family:ui-monospace,monospace; min-width:36px; }
 .dbg-slot-name { color:#cbd5e1; min-width:50px; }
+.dbg-slot-type { color:#f0abfc; font-size:10px; opacity:0.75; min-width:42px; }
 .dbg-slot-val { color:#4ade80; }
 .dbg-heap { display:flex; flex-direction:column; gap:8px; }
 .dbg-hobj { border:1px solid var(--studio-border,rgba(255,255,255,0.12)); border-radius:7px; padding:6px 9px; background:rgba(255,255,255,0.02); }
@@ -579,10 +957,141 @@ const DEBUG_DRAWER_STYLE: &str = r#"
 .dbg-hobj-h { display:flex; align-items:center; gap:8px; }
 .dbg-hobj-id { color:#22d3ee; font-family:ui-monospace,monospace; font-weight:600; }
 .dbg-hobj-kind { color:var(--studio-text-secondary,#9ca3af); text-transform:uppercase; font-size:10px; letter-spacing:0.5px; }
+.dbg-hobj-store { color:#22d3ee; font-family:ui-monospace,monospace; font-size:10px; background:rgba(34,211,238,0.1); padding:0 5px; border-radius:3px; }
 .dbg-hobj-rc { color:#9ca3af; font-size:10px; }
 .dbg-hobj-alias { color:#fbbf24; font-size:10px; text-transform:uppercase; letter-spacing:0.5px; }
 .dbg-hobj-val { color:#86efac; margin:3px 0; word-break:break-all; }
 .dbg-hobj-refs { display:flex; align-items:center; gap:5px; flex-wrap:wrap; }
 .dbg-refs-label { color:#6b7280; }
 .dbg-ref { background:rgba(102,126,234,0.2); color:#a5b4fc; padding:0 6px; border-radius:4px; font-size:11px; }
+.dbg-close { display:inline-flex; align-items:center; justify-content:center; background:transparent; border:none; color:var(--studio-text-muted,#6b7280); cursor:pointer; padding:4px 5px; border-radius:5px; margin-left:8px; }
+.dbg-close:hover { background:rgba(248,113,113,0.15); color:#f87171; }
+.dbg-reload { display:flex; align-items:center; gap:12px; padding:7px 14px; background:rgba(251,191,36,0.1); border-bottom:1px solid var(--studio-border,rgba(255,255,255,0.08)); }
+.dbg-reload-msg { color:#fbbf24; font-size:12.5px; flex:1; }
+.dbg-reload-btn { background:#fbbf24; color:#1a1f27; border:none; border-radius:5px; padding:3px 12px; font-weight:600; cursor:pointer; font-size:12px; }
+.dbg-reload-btn:hover { filter:brightness(1.1); }
 "#;
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const PROG: &str = "## Main\n\nLet x be 6.\nLet y be 7.\nShow x + y.";
+
+    /// The datapath easter-egg renders the live register file from a real snapshot —
+    /// an SVG document with cells, and (when stepping) glow/wire classes for the op.
+    #[test]
+    fn datapath_svg_renders_from_a_real_snapshot() {
+        let mut dbg = Debugger::from_source(PROG).expect("compiles");
+        dbg.step();
+        dbg.step();
+        dbg.step();
+        let snap = dbg.snapshot();
+        let svg = datapath_svg(&snap);
+        assert!(svg.starts_with("<svg"), "produces an SVG document: {svg:.40}");
+        assert!(svg.ends_with("</svg>"), "well-formed SVG");
+        assert!(svg.contains("rcell"), "renders register cells");
+        assert!(svg.contains("ALU"), "renders the engine box");
+    }
+
+    /// Type labels flow all the way through to the UI snapshot — the Variables/Stack
+    /// tabs read `reg.kind`, so a register holding `6` must report `Int`.
+    #[test]
+    fn snapshot_registers_carry_their_type() {
+        let mut dbg = Debugger::from_source(PROG).expect("compiles");
+        dbg.resume();
+        let snap = dbg.snapshot();
+        let kinds: Vec<&str> = snap
+            .frames
+            .last()
+            .map(|f| f.registers.iter().map(|r| r.kind.as_str()).collect())
+            .unwrap_or_default();
+        assert!(kinds.contains(&"Int"), "an Int register is surfaced for the UI: {kinds:?}");
+        assert!(kinds.iter().all(|k| !k.is_empty()), "no register is left untyped: {kinds:?}");
+    }
+
+    /// `esc` keeps SVG/HTML text injection-safe — register values are interpolated
+    /// into the datapath markup, so `<`/`&` must be entity-escaped.
+    #[test]
+    fn esc_escapes_markup_metacharacters() {
+        assert_eq!(esc("a<b & c>d"), "a&lt;b &amp; c&gt;d");
+    }
+
+    /// The variable oscilloscope plots a labelled, typed lane per variable with a
+    /// playhead and held value boxes.
+    #[test]
+    fn timeline_svg_plots_each_variable() {
+        let mut dbg = Debugger::from_source(PROG).expect("compiles");
+        dbg.resume();
+        let tl = dbg.variable_timeline();
+        let svg = timeline_svg(&tl);
+        assert!(svg.starts_with("<svg") && svg.ends_with("</svg>"), "well-formed SVG");
+        assert!(svg.contains("tlph"), "renders a playhead");
+        assert!(svg.contains("tlbox"), "renders held value boxes");
+        assert!(svg.contains("x : Int"), "labels x's lane with its type");
+        assert!(svg.contains("y : Int"), "labels y's lane with its type");
+    }
+
+    /// The snapshot exposes a first-order-logic reading of the executing op for the
+    /// overlay line, and the live-proof bridge answers a breakpoint assertion.
+    #[test]
+    fn fol_overlay_and_live_proof_reach_the_ui() {
+        let mut dbg = Debugger::from_source(PROG).expect("compiles");
+        dbg.resume();
+        // Live proof: x < y is both true now and proven for every run.
+        let r = dbg.assert_at_cursor("x < y");
+        assert!(r.parsed && r.now == Some(true));
+        assert_eq!(r.verdict, ProofVerdict::ProvenTrue);
+        // FOL overlay: stepping surfaces a formula on the addition op.
+        let mut dbg2 = Debugger::from_source(PROG).expect("compiles");
+        let mut saw_fol = false;
+        while dbg2.is_running() {
+            if dbg2.snapshot().fol.contains("x + y") {
+                saw_fol = true;
+            }
+            dbg2.step();
+        }
+        assert!(saw_fol, "the addition's FOL reaches the snapshot");
+    }
+
+    /// The Socratic teaching line reaches the UI — a guiding question that asks the
+    /// learner to predict the step's outcome.
+    #[test]
+    fn socratic_prompt_reaches_the_ui() {
+        let mut dbg = Debugger::from_source(PROG).expect("compiles");
+        let mut saw = false;
+        while dbg.is_running() {
+            let q = dbg.snapshot().socratic;
+            if q.contains("sum") && q.ends_with('?') {
+                saw = true;
+            }
+            dbg.step();
+        }
+        assert!(saw, "a Socratic question reaches the snapshot for the UI");
+    }
+
+    /// Proven invariants surface from the Oracle without stepping — x is statically
+    /// proven constant, with a finite range fact the UI can render.
+    #[test]
+    fn proven_invariants_are_available_to_the_ui() {
+        let dbg = Debugger::from_source(PROG).expect("compiles");
+        let proven = dbg.proven_invariants();
+        let x = proven.iter().find(|p| p.name == "x").expect("x is proven");
+        assert!(x.facts.iter().any(|f| f.contains("[6, 6]")), "x proven constant: {:?}", x.facts);
+    }
+
+    /// The provenance render shows the traced value and its full input lineage as a
+    /// structured tree.
+    #[test]
+    fn causal_html_renders_the_lineage() {
+        let mut dbg = Debugger::from_source(PROG).expect("compiles");
+        dbg.resume();
+        let snap = dbg.snapshot();
+        let sum = snap.frames.last().unwrap().registers.iter().find(|r| r.value == "13").unwrap().index;
+        let node = dbg.provenance(sum).expect("13 has provenance");
+        let html = causal_html(&node);
+        assert!(html.contains("= 13"), "shows the traced value: {html}");
+        assert!(html.contains("= 6") && html.contains("= 7"), "shows the input lineage: {html}");
+        assert!(html.contains("cz-row"), "structured rows");
+    }
+}

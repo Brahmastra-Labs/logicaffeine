@@ -141,8 +141,8 @@ impl Sort {
     }
 
     /// Whether this sort denotes an OCCASION — an occurrence or happening whose
-    /// head noun behaves as a soft type. For occasion sorts, "the [modifier]
-    /// [head]" lets the modifier do the referring (the same event can be a
+    /// head noun behaves as a soft type. For occasion sorts, "the \[modifier\]
+    /// \[head\]" lets the modifier do the referring (the same event can be a
     /// "trip", a "vacation", or a "holiday"), so two such definite descriptions
     /// corefer when their modifier matches and their head sorts agree.
     ///

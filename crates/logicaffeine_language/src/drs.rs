@@ -496,7 +496,7 @@ pub struct Referent {
     pub ownership: OwnershipState,
     /// The distinguishing modifier(s) of the description that introduced this
     /// referent — the adjective/gerund that does the REFERRING in "the
-    /// [modifier] [head]". For "the hunting vacation" this holds `Hunt`. Empty
+    /// \[modifier\] \[head\]". For "the hunting vacation" this holds `Hunt`. Empty
     /// for bare descriptions ("the vacation"). Used by context-driven
     /// coreference: two definite descriptions that share their distinguishing
     /// modifier AND have sort-compatible head nouns denote the same entity.
@@ -619,7 +619,7 @@ impl Drs {
     }
 
     /// Introduce a referent carrying its distinguishing modifier(s) (the
-    /// adjective/gerund that does the referring in "the [modifier] [head]").
+    /// adjective/gerund that does the referring in "the \[modifier\] \[head\]").
     /// These modifiers feed context-driven coreference for definite
     /// descriptions — see [`Drs::resolve_definite_by_modifier`].
     pub fn introduce_referent_with_modifiers(
@@ -869,7 +869,7 @@ impl Drs {
     /// - The modifier sets must match EXACTLY (differing modifiers — "the
     ///   hunting trip" vs "the skydiving trip" — never corefer), and a bare
     ///   (modifier-less) description never coreferes through this path.
-    /// - BOTH head nouns must be of an OCCASION sort ([`Sort::is_occasion`])
+    /// - BOTH head nouns must be of an OCCASION sort (`Sort::is_occasion`)
     ///   and mutually sort-compatible. Concrete objects ("the red box" / "the
     ///   red ball", both `Physical`) are excluded, so a shared modifier on
     ///   non-occasion nouns never triggers coreference.

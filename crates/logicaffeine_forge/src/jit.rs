@@ -354,7 +354,7 @@ pub enum MicroOp {
     /// Emitted in place of `Div`/`Mod` when the divisor is a compile-time
     /// constant non-power-of-two and the dividend is proven Int and NON-NEGATIVE
     /// (the unsigned magic equals the signed truncating result only there). The
-    /// `more` byte is the [`logicaffeine_data::LogosDivU64`] encoding (low 6 bits
+    /// `more` byte is the `logicaffeine_data::LogosDivU64` encoding (low 6 bits
     /// = shift, `0x40` = the 65-bit add-marker path, `0x80` = pure-shift pow2).
     MagicDivU {
         /// Destination slot.
@@ -363,7 +363,7 @@ pub enum MicroOp {
         lhs: Slot,
         /// Precomputed magic multiplier `M`.
         magic: u64,
-        /// Shift / path encoding (see [`logicaffeine_data::LogosDivU64`]).
+        /// Shift / path encoding (see `logicaffeine_data::LogosDivU64`).
         more: u8,
         /// `0` selects the quotient; otherwise the divisor `c` selects the
         /// remainder `x - (x/c)*c`.
@@ -1028,14 +1028,14 @@ pub enum MicroOp {
         /// Micro-op index to transfer to.
         target: usize,
     },
-    /// Transfer to `target` when frame[cond] is ZERO; fall through otherwise.
+    /// Transfer to `target` when frame\[cond\] is ZERO; fall through otherwise.
     JumpIfFalse {
         /// Condition slot (zero = jump).
         cond: Slot,
         /// Micro-op index to transfer to.
         target: usize,
     },
-    /// Transfer to `target` when frame[cond] is NONZERO; fall through
+    /// Transfer to `target` when frame\[cond\] is NONZERO; fall through
     /// otherwise (the same brz stencil with swapped continuations).
     JumpIfTrue {
         /// Condition slot (nonzero = jump).
@@ -1043,7 +1043,7 @@ pub enum MicroOp {
         /// Micro-op index to transfer to.
         target: usize,
     },
-    /// Terminate the chain, returning frame[src].
+    /// Terminate the chain, returning frame\[src\].
     Return {
         /// Slot whose value is returned.
         src: Slot,
@@ -3421,7 +3421,7 @@ pub fn compile_straightline_coded(
 /// non-negative `x` (the i64 bit pattern equals the value, and unsigned and
 /// signed-truncating `/`/`%` agree there). The remainder is `x - q*c` in
 /// wrapping i64 (its low 64 bits equal the u64 difference). The `more` encoding
-/// is the [`logicaffeine_data::LogosDivU64`] one: low 6 bits = shift, `0x40`
+/// is the `logicaffeine_data::LogosDivU64` one: low 6 bits = shift, `0x40`
 /// = the 65-bit add-marker path, `0x80` = the pure-shift power-of-two path.
 #[inline]
 pub fn magic_eval(x: i64, magic: u64, more: u8, mul_back: i64) -> i64 {
@@ -3477,7 +3477,9 @@ pub fn reference_eval(ops: &[MicroOp], frame: &mut [i64], mut fuel: u64) -> Opti
             }
             MicroOp::Div { dst, lhs, rhs } => {
                 let b = frame[rhs as usize];
-                if b == 0 {
+                // Zero divisor AND the `i64::MIN / -1` overflow both deopt —
+                // the exact tier recomputes (and promotes to BigInt).
+                if b == 0 || (b == -1 && frame[lhs as usize] == i64::MIN) {
                     return None;
                 }
                 frame[dst as usize] = frame[lhs as usize].wrapping_div(b)
@@ -3575,15 +3577,17 @@ pub fn reference_eval(ops: &[MicroOp], frame: &mut [i64], mut fuel: u64) -> Opti
                 let b = f64::from_bits(frame[rhs as usize] as u64);
                 frame[dst as usize] = (a >= b) as i64
             }
+            // IEEE float equality (`NaN != NaN`) — identical to the
+            // tree-walker/VM `values_equal` and the compiled backend.
             MicroOp::EqF { dst, lhs, rhs } => {
                 let a = f64::from_bits(frame[lhs as usize] as u64);
                 let b = f64::from_bits(frame[rhs as usize] as u64);
-                frame[dst as usize] = ((a - b).abs() < f64::EPSILON) as i64
+                frame[dst as usize] = (a == b) as i64
             }
             MicroOp::NeqF { dst, lhs, rhs } => {
                 let a = f64::from_bits(frame[lhs as usize] as u64);
                 let b = f64::from_bits(frame[rhs as usize] as u64);
-                frame[dst as usize] = !((a - b).abs() < f64::EPSILON) as i64
+                frame[dst as usize] = (a != b) as i64
             }
             MicroOp::BranchF { cmp, lhs, rhs, target } => {
                 let a = f64::from_bits(frame[lhs as usize] as u64);
@@ -3593,8 +3597,8 @@ pub fn reference_eval(ops: &[MicroOp], frame: &mut [i64], mut fuel: u64) -> Opti
                     Cmp::Gt => a > b,
                     Cmp::LtEq => a <= b,
                     Cmp::GtEq => a >= b,
-                    Cmp::Eq => (a - b).abs() < f64::EPSILON,
-                    Cmp::NotEq => !((a - b).abs() < f64::EPSILON),
+                    Cmp::Eq => a == b,
+                    Cmp::NotEq => a != b,
                 };
                 if !truth {
                     pc = target;

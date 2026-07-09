@@ -313,7 +313,7 @@ pub fn check_z3_hw_equivalence(
 }
 
 /// Check FOL ↔ SVA **semantic** equivalence at a bound with our pure-Rust, certified prover
-/// (no Z3) — the in-browser counterpart of [`check_z3_equivalence`]. Lowers both bounded
+/// (no Z3) — the in-browser counterpart of `check_z3_equivalence`. Lowers both bounded
 /// obligations to `ProofExpr` and discharges `F ↔ S` through the CDCL → RUP tiers: an
 /// `equivalent` verdict is RUP-certified, a non-equivalent one carries a counterexample
 /// trace (`name@t` → `"1"`/`"0"`). Errors (fail-closed, never a false "equivalent") if
@@ -361,7 +361,7 @@ pub fn prove_bounded_equivalence(
 }
 
 /// End-to-end: an English spec and a candidate SVA string → certified semantic equivalence
-/// with our prover. The Z3-free counterpart of [`check_z3_equivalence`]: the same
+/// with our prover. The Z3-free counterpart of `check_z3_equivalence`: the same
 /// translators, our CDCL → RUP tiers instead of Z3.
 pub fn prove_spec_sva_equivalence(
     spec_source: &str,

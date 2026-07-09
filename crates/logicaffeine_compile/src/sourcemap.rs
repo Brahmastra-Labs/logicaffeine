@@ -90,6 +90,14 @@ impl SourceMap {
         &self.logos_source
     }
 
+    /// Every recorded (rust line, LOGOS span) pair — the wiring's test surface.
+    pub fn line_span_entries(&self) -> Vec<(u32, Span)> {
+        let mut entries: Vec<(u32, Span)> =
+            self.line_to_span.iter().map(|(l, s)| (*l, *s)).collect();
+        entries.sort_by_key(|(l, _)| *l);
+        entries
+    }
+
     /// Find the closest LOGOS span by searching nearby lines.
     pub fn find_nearest_span(&self, rust_line: u32) -> Option<Span> {
         // Try exact match first
@@ -132,6 +140,13 @@ impl SourceMapBuilder {
     /// Record a mapping from current Rust line to LOGOS span.
     pub fn record_line(&mut self, logos_span: Span) {
         self.map.line_to_span.insert(self.current_line, logos_span);
+    }
+
+    /// Record a mapping for an explicit Rust line — the post-hoc recording
+    /// style used by mapped codegen, which counts emitted newlines instead of
+    /// threading a cursor through every emission point.
+    pub fn record_line_at(&mut self, line: u32, logos_span: Span) {
+        self.map.line_to_span.insert(line, logos_span);
     }
 
     /// Record a variable origin.

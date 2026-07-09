@@ -1,4 +1,4 @@
-//! Phase 10 (FINISH_INTERPRETER.md) — stdlib prelude bundling.
+//! Phase 10 (work/FINISH_INTERPRETER.md) — stdlib prelude bundling.
 //!
 //! The concurrency/net/io/crdt vocabulary is embedded at compile time and made
 //! available WITHOUT an explicit import — but only to programs that actually

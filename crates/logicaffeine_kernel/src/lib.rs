@@ -1,93 +1,65 @@
 #![cfg_attr(docsrs, feature(doc_cfg))]
-
-//! The Kernel: Calculus of Constructions
-//!
-//! A unified type system where terms and types are the same syntactic category,
-//! based on the Calculus of Inductive Constructions (CIC).
-//!
-//! # Core Insight
-//!
-//! Everything is a [`Term`]:
-//! - Types are Terms: `Nat : Type 0`
-//! - Values are Terms: `zero : Nat`
-//! - Functions are Terms: `λx:Nat. x`
-//! - Proofs are Terms: `refl : a = a`
-//!
-//! # Architecture
-//!
-//! ```text
-//! ┌─────────────────────────────────────────────────────────────┐
-//! │                        Interface                            │
-//! │  (term_parser, literate_parser, command)                    │
-//! └─────────────────────────────────────────────────────────────┘
-//!                              │
-//!                              ▼
-//! ┌─────────────────────────────────────────────────────────────┐
-//! │                      Type Checker                           │
-//! │  infer_type, is_subtype, substitute                         │
-//! └─────────────────────────────────────────────────────────────┘
-//!                              │
-//!               ┌──────────────┴──────────────┐
-//!               ▼                             ▼
-//! ┌─────────────────────────┐   ┌─────────────────────────────┐
-//! │      Reduction          │   │         Prelude             │
-//! │  normalize, reduce      │   │  standard library types     │
-//! └─────────────────────────┘   └─────────────────────────────┘
-//!                                             │
-//!               ┌─────────────┬───────────────┼───────────────┐
-//!               ▼             ▼               ▼               ▼
-//! ┌───────────────┐ ┌───────────────┐ ┌───────────────┐ ┌───────────┐
-//! │     ring      │ │     lia       │ │      cc       │ │   omega   │
-//! │  polynomial   │ │    linear     │ │  congruence   │ │  integer  │
-//! │   equality    │ │  arithmetic   │ │   closure     │ │ arithmetic│
-//! └───────────────┘ └───────────────┘ └───────────────┘ └───────────┘
-//! ```
-//!
-//! # Public API
-//!
-//! ## Core Types
-//! - [`Term`] - The unified representation of terms, types, and proofs
-//! - [`Context`] - Typing context with local and global bindings
-//! - [`KernelError`] - Error types for type checking failures
-//!
-//! ## Type Checking
-//! - [`infer_type`] - Infer the type of a term
-//! - [`is_subtype`] - Check subtyping with cumulativity
-//! - [`normalize`] - Reduce a term to normal form
-//!
-//! ## Decision Procedures
-//! - [`ring`] - Polynomial equality by normalization
-//! - [`lia`] - Linear arithmetic by Fourier-Motzkin
-//! - [`cc`] - Congruence closure for uninterpreted functions
-//! - [`omega`] - Integer arithmetic with exact semantics
-//! - [`simp`] - General simplification with rewriting
-//!
-//! # Milner Invariant
-//!
-//! This crate has NO path to the lexicon. Adding words to the English
-//! vocabulary never triggers a recompile of the type checker. The kernel
-//! is purely logical and language-agnostic.
+#![doc = include_str!("../README.md")]
 
 mod context;
 #[cfg(feature = "serde")]
 pub mod certificate;
 mod error;
+pub mod inductive_compile;
 pub mod interface;
 pub mod positivity;
 pub mod prelude;
 mod reduction;
+pub mod reify;
 pub mod ring;
 pub mod lia;
+pub mod field_algebra;
+pub mod word_ring;
 pub mod bitvector;
 pub mod cc;
+pub mod eval;
 pub mod simp;
+pub mod elaborate;
 pub mod omega;
+pub mod recheck;
+pub mod recursor;
 pub mod termination;
 mod term;
 mod type_checker;
 
-pub use context::Context;
+pub use context::{Context, MutualInductive, StructInfo};
+pub use inductive_compile::{NestedDecl, NestedInfo};
 pub use error::{KernelError, KernelResult};
+pub use eval::{
+    eval_bool, eval_bool_tree, native_compile_bool, native_compile_decide, native_decide,
+};
 pub use reduction::normalize;
-pub use term::{Literal, Term, Universe};
+pub use elaborate::{
+    auto_bind_implicits, bind_self_recursion, elaborate, elaborate_app, elaborate_app_against,
+    elaborate_anon_ctor, elaborate_dot, elaborate_in, fill_match_motives, instantiate, resolve_coercion,
+    resolve_instance, surface_elaborate, surface_elaborate_against, unify, unify_in, MetaCtx,
+    ParamKind, ANON_CTOR_MARKER, DOT_MARKER,
+};
+pub use recheck::{double_check, recheck, DoubleCheck, ReCheckError};
+pub use recursor::derive_recursor;
+pub use reify::VarInterner;
+pub use logicaffeine_base::BigInt;
+pub use term::{instantiate_universes, int_lit, lit_bigint, Literal, Term, Universe};
 pub use type_checker::{infer_type, is_subtype};
+
+/// Definitional equality of two terms — exposed for tests that pin conversion
+/// behaviour (structure eta, proof irrelevance) directly.
+pub fn defeq_for_test(ctx: &Context, a: &Term, b: &Term) -> bool {
+    type_checker::def_eq(ctx, a, b)
+}
+
+/// Strict-positivity check of a constructor type — exposed so tests can pin the
+/// paradox fence (negative occurrences rejected, positive functional fields
+/// accepted) directly.
+pub fn check_positivity_for_test(
+    inductive: &str,
+    constructor: &str,
+    ty: &Term,
+) -> KernelResult<()> {
+    positivity::check_positivity(inductive, constructor, ty)
+}

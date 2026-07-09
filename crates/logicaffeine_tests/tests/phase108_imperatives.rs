@@ -1,4 +1,4 @@
-//! Phase 108 — §1.4 Imperatives (MISSING_ENGLISH.md).
+//! Phase 108 — §1.4 Imperatives (work/MISSING_ENGLISH.md).
 //!
 //! Commands with a covert 2nd-person subject:
 //!   "Close the door."  → Directive(hearer, ⟨∃e(Close(e)∧Agent(e,hearer)∧Theme(e,door))⟩)

@@ -29,14 +29,17 @@ cargo test -- --skip e2e
 # Run all tests (excluding e2e)
 cargo test -- --skip e2e
 
-# Run a specific phase
-cargo test --test phase5_wh_movement
+# Run a specific phase file
+cargo test -p logicaffeine-tests --test phase1_garden_path
 
-# Run a specific test
-cargo test wh_embedded_clause
+# Filter tests by name
+cargo test -p logicaffeine-tests garden_path
 
 # Run with output
 cargo test -- --nocapture
+
+# Full suite via the nextest fast runner
+./scripts/run-all-tests-fast.sh
 ```
 
 ## Development Workflow
@@ -79,21 +82,34 @@ We follow **Test-Driven Development (TDD)**:
 
 ```
 logicaffeine/
-├── assets/lexicon.json    # Vocabulary database
-├── src/
-│   ├── lexer.rs          # Tokenization
-│   ├── parser/           # Parser modules
-│   ├── ast/              # AST types
-│   ├── transpile.rs      # FOL output generation
-│   └── codegen.rs        # Rust code generation
-├── logos_core/           # Runtime library
-├── logos_verification/   # Z3 verification (optional)
-└── tests/                # Phase-organized tests
+├── crates/
+│   ├── logicaffeine_base/       # Arenas, tokens, spans, value types
+│   ├── logicaffeine_lexicon/    # English vocabulary tables
+│   ├── logicaffeine_kernel/     # Calculus of Constructions kernel (no lexicon)
+│   ├── logicaffeine_data/       # Runtime values + CRDTs (IO-free)
+│   ├── logicaffeine_system/     # Platform IO, networking, persistence
+│   ├── logicaffeine_language/   # English → FOL: lexer, parser, AST, transpiler
+│   ├── logicaffeine_proof/      # Proof engine: solvers, tactics, certificates
+│   ├── logicaffeine_compile/    # Compilation: parse → analyze → codegen / interpret / VM
+│   ├── logicaffeine_forge/      # Copy-and-patch JIT (native)
+│   ├── logicaffeine_jit/        # Wires the forge JIT into the VM (native)
+│   ├── logicaffeine_runtime/    # Deterministic concurrency runtime
+│   ├── logicaffeine_lsp/        # Language Server Protocol
+│   ├── logicaffeine_verify/     # Z3 static verification (verification feature)
+│   ├── logicaffeine_tv/         # SMT translation validation
+│   ├── logicaffeine_synth/      # Offline Z3 stencil proofs
+│   └── logicaffeine_tests/      # The integration suite (phase-organized)
+├── apps/
+│   ├── logicaffeine_cli/        # largo — the LOGOS build tool
+│   └── logicaffeine_web/        # Dioxus web IDE
+├── assets/std/                  # LOGOS stdlib prelude
+├── docs/                        # Code-grounded documentation guides
+└── scripts/                     # Test runners, doc generators, release tooling
 ```
 
 ## Test Phases
 
-Tests are organized by linguistic phenomenon (Phases 1-43). See the README for a complete list.
+The suite lives in `crates/logicaffeine_tests/tests/` (600+ files), phase-organized by linguistic and logical complexity — garden paths, polarity, tense/aspect, wh-movement, and on through the higher phases — alongside the execution-tier, concurrency, wire-codec, and proof suites.
 
 ## Questions?
 

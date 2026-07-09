@@ -1,4 +1,4 @@
-//! Phase 2b (FINISH_INTERPRETER.md) — scheduler core tests, against toy tasks.
+//! Phase 2b (work/FINISH_INTERPRETER.md) — scheduler core tests, against toy tasks.
 //!
 //! These prove determinism, replay, channel/select/timer semantics, and that
 //! each scheduling policy has the right ready-order — all without any interpreter

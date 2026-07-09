@@ -263,11 +263,16 @@ impl<'a> VerificationPass<'a> {
                     | BinaryOpKind::Multiply
                     | BinaryOpKind::Divide
                     | BinaryOpKind::ExactDivide
+                    | BinaryOpKind::FloorDivide
+                    | BinaryOpKind::Pow
                     | BinaryOpKind::Modulo => VerifyType::Int,
                     // Concat produces a string (Object type)
                     BinaryOpKind::Concat => VerifyType::Object,
+                    // `followed by` produces a sequence (Object type)
+                    BinaryOpKind::SeqConcat => VerifyType::Object,
+                    BinaryOpKind::ApproxEq => VerifyType::Bool,
                     // Bitwise operations produce Int
-                    BinaryOpKind::BitXor
+                    BinaryOpKind::BitXor | BinaryOpKind::BitAnd | BinaryOpKind::BitOr
                     | BinaryOpKind::Shl
                     | BinaryOpKind::Shr => VerifyType::Int,
                 }
@@ -426,6 +431,9 @@ impl<'a> VerificationPass<'a> {
                     BinaryOpKind::Subtract => VerifyOp::Sub,
                     BinaryOpKind::Multiply => VerifyOp::Mul,
                     BinaryOpKind::Divide | BinaryOpKind::ExactDivide => VerifyOp::Div,
+                    // `//` floors toward -inf, modeled EXACTLY in the IR (`to_int(a/b)` over reals),
+                    // so a program using floor division verifies precisely rather than being declined.
+                    BinaryOpKind::FloorDivide => VerifyOp::FloorDiv,
                     BinaryOpKind::Eq => VerifyOp::Eq,
                     BinaryOpKind::NotEq => VerifyOp::Neq,
                     BinaryOpKind::Gt => VerifyOp::Gt,
@@ -434,9 +442,13 @@ impl<'a> VerificationPass<'a> {
                     BinaryOpKind::LtEq => VerifyOp::Lte,
                     BinaryOpKind::And => VerifyOp::And,
                     BinaryOpKind::Or => VerifyOp::Or,
-                    // Modulo, Concat, and bitwise ops not directly supported in verification IR
-                    BinaryOpKind::Modulo | BinaryOpKind::Concat
-                    | BinaryOpKind::BitXor | BinaryOpKind::Shl | BinaryOpKind::Shr => return None,
+                    // Modulo, Pow, Concat, and bitwise ops are not directly supported in the
+                    // verification IR.
+                    BinaryOpKind::Modulo | BinaryOpKind::Pow
+                    | BinaryOpKind::Concat | BinaryOpKind::SeqConcat
+                    | BinaryOpKind::ApproxEq
+                    | BinaryOpKind::BitXor | BinaryOpKind::BitAnd | BinaryOpKind::BitOr
+                    | BinaryOpKind::Shl | BinaryOpKind::Shr => return None,
                 };
                 Some(VerifyExpr::binary(verify_op, l, r))
             }
@@ -482,6 +494,9 @@ impl<'a> VerificationPass<'a> {
                     BinaryOpKind::Subtract => VerifyOp::Sub,
                     BinaryOpKind::Multiply => VerifyOp::Mul,
                     BinaryOpKind::Divide | BinaryOpKind::ExactDivide => VerifyOp::Div,
+                    // `//` floors toward -inf, modeled EXACTLY in the IR (`to_int(a/b)` over reals),
+                    // so a program using floor division verifies precisely rather than being declined.
+                    BinaryOpKind::FloorDivide => VerifyOp::FloorDiv,
                     BinaryOpKind::Eq => VerifyOp::Eq,
                     BinaryOpKind::NotEq => VerifyOp::Neq,
                     BinaryOpKind::Gt => VerifyOp::Gt,
@@ -490,9 +505,13 @@ impl<'a> VerificationPass<'a> {
                     BinaryOpKind::LtEq => VerifyOp::Lte,
                     BinaryOpKind::And => VerifyOp::And,
                     BinaryOpKind::Or => VerifyOp::Or,
-                    // Modulo, Concat, and bitwise ops not directly supported in verification IR
-                    BinaryOpKind::Modulo | BinaryOpKind::Concat
-                    | BinaryOpKind::BitXor | BinaryOpKind::Shl | BinaryOpKind::Shr => return None,
+                    // Modulo, Pow, Concat, and bitwise ops are not directly supported in the
+                    // verification IR.
+                    BinaryOpKind::Modulo | BinaryOpKind::Pow
+                    | BinaryOpKind::Concat | BinaryOpKind::SeqConcat
+                    | BinaryOpKind::ApproxEq
+                    | BinaryOpKind::BitXor | BinaryOpKind::BitAnd | BinaryOpKind::BitOr
+                    | BinaryOpKind::Shl | BinaryOpKind::Shr => return None,
                 };
                 Some(VerifyExpr::binary(verify_op, l, r))
             }

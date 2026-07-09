@@ -1880,6 +1880,164 @@ fn build_lambda(vars: Vec<String>, body: ProofExpr) -> ProofExpr {
     })
 }
 
+// =============================================================================
+// One-sided pattern matching (pattern → target)
+// =============================================================================
+
+/// One-sided match of a term `pattern` against a `target`: pattern
+/// `Variable`s bind target subterms; the target is inspected, never bound.
+/// Repeated pattern variables must bind the same subterm. This is the
+/// arbiter behind discrimination-tree retrieval (`crate::discrimination`) —
+/// the tree over-approximates, this decides.
+pub fn match_term_pattern(pattern: &ProofTerm, target: &ProofTerm) -> Option<Substitution> {
+    let mut subst = Substitution::new();
+    let mut bound = Vec::new();
+    if match_term_into(pattern, target, &mut subst, &mut bound) {
+        Some(subst)
+    } else {
+        None
+    }
+}
+
+/// One-sided match of an expression `pattern` against a `target` (see
+/// [`match_term_pattern`]). Quantified subexpressions match name-strictly
+/// (no alpha-renaming — conservative: an alpha-variant simply fails), and a
+/// pattern variable never binds a term that mentions a bound variable
+/// (capture is rejected, not silently permitted).
+pub fn match_expr_pattern(pattern: &ProofExpr, target: &ProofExpr) -> Option<Substitution> {
+    let mut subst = Substitution::new();
+    let mut bound = Vec::new();
+    if match_expr_into(pattern, target, &mut subst, &mut bound) {
+        Some(subst)
+    } else {
+        None
+    }
+}
+
+/// Bind `name ↦ value`, enforcing consistency with any existing binding and
+/// rejecting values that mention an enclosing bound variable (escape check).
+fn match_bind(
+    subst: &mut Substitution,
+    bound: &[String],
+    name: &str,
+    value: &ProofTerm,
+) -> bool {
+    if let Some(existing) = subst.get(name) {
+        return existing == value;
+    }
+    if term_mentions_any(value, bound) {
+        return false;
+    }
+    subst.insert(name.to_string(), value.clone());
+    true
+}
+
+fn term_mentions_any(t: &ProofTerm, names: &[String]) -> bool {
+    match t {
+        ProofTerm::Variable(n) | ProofTerm::BoundVarRef(n) => names.iter().any(|b| b == n),
+        ProofTerm::Constant(_) => false,
+        ProofTerm::Function(_, args) | ProofTerm::Group(args) => {
+            args.iter().any(|a| term_mentions_any(a, names))
+        }
+    }
+}
+
+fn match_term_into(
+    pattern: &ProofTerm,
+    target: &ProofTerm,
+    subst: &mut Substitution,
+    bound: &mut Vec<String>,
+) -> bool {
+    match pattern {
+        ProofTerm::Variable(name) => {
+            // A pattern variable bound by an enclosing quantifier is rigid: it
+            // matches exactly itself, never an arbitrary subterm.
+            if bound.contains(name) {
+                return matches!(target, ProofTerm::Variable(n) if n == name);
+            }
+            match_bind(subst, bound, name, target)
+        }
+        ProofTerm::Constant(a) => matches!(target, ProofTerm::Constant(b) if a == b),
+        ProofTerm::BoundVarRef(a) => matches!(target, ProofTerm::BoundVarRef(b) if a == b),
+        ProofTerm::Function(name, args) => match target {
+            ProofTerm::Function(tname, targs) if name == tname && args.len() == targs.len() => {
+                for (a, b) in args.iter().zip(targs) {
+                    if !match_term_into(a, b, subst, bound) {
+                        return false;
+                    }
+                }
+                true
+            }
+            _ => false,
+        },
+        ProofTerm::Group(args) => match target {
+            ProofTerm::Group(targs) if args.len() == targs.len() => {
+                for (a, b) in args.iter().zip(targs) {
+                    if !match_term_into(a, b, subst, bound) {
+                        return false;
+                    }
+                }
+                true
+            }
+            _ => false,
+        },
+    }
+}
+
+fn match_expr_into(
+    pattern: &ProofExpr,
+    target: &ProofExpr,
+    subst: &mut Substitution,
+    bound: &mut Vec<String>,
+) -> bool {
+    match (pattern, target) {
+        (
+            ProofExpr::Predicate { name: pn, args: pa, world: pw },
+            ProofExpr::Predicate { name: tn, args: ta, world: tw },
+        ) => {
+            if pn != tn || pa.len() != ta.len() || pw != tw {
+                return false;
+            }
+            for (a, b) in pa.iter().zip(ta) {
+                if !match_term_into(a, b, subst, bound) {
+                    return false;
+                }
+            }
+            true
+        }
+        (ProofExpr::Identity(pl, pr), ProofExpr::Identity(tl, tr)) => {
+            match_term_into(pl, tl, subst, bound) && match_term_into(pr, tr, subst, bound)
+        }
+        (ProofExpr::Atom(a), ProofExpr::Atom(b)) => a == b,
+        (ProofExpr::And(pl, pr), ProofExpr::And(tl, tr))
+        | (ProofExpr::Or(pl, pr), ProofExpr::Or(tl, tr))
+        | (ProofExpr::Implies(pl, pr), ProofExpr::Implies(tl, tr))
+        | (ProofExpr::Iff(pl, pr), ProofExpr::Iff(tl, tr)) => {
+            match_expr_into(pl, tl, subst, bound) && match_expr_into(pr, tr, subst, bound)
+        }
+        (ProofExpr::Not(p), ProofExpr::Not(t)) => match_expr_into(p, t, subst, bound),
+        (
+            ProofExpr::ForAll { variable: pv, body: pb },
+            ProofExpr::ForAll { variable: tv, body: tb },
+        )
+        | (
+            ProofExpr::Exists { variable: pv, body: pb },
+            ProofExpr::Exists { variable: tv, body: tb },
+        ) => {
+            if pv != tv {
+                return false;
+            }
+            bound.push(pv.clone());
+            let ok = match_expr_into(pb, tb, subst, bound);
+            bound.pop();
+            ok
+        }
+        // Any other variant pair: match only on structural equality — no
+        // bindings inside shapes this matcher does not walk (conservative).
+        _ => pattern == target,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

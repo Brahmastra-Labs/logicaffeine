@@ -6,7 +6,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
-## [0.9.17] - 2026-06-11
+## [0.10.0] - 2026-07-08
 
 ### Added
 - Initial release. EXODIA Phase 2 — the Forge's offline proof tooling for the copy-and-patch JIT. Runs at development and CI time; never on the production runtime path.

@@ -312,6 +312,9 @@ impl<'a> CodeGen<'a> {
     /// Convert a kernel term to Rust code with context for dereferencing.
     fn term_to_rust_ctx(&self, term: &Term, tctx: &TermGenCtx) -> String {
         match term {
+            // A universe-polymorphic reference extracts by its name; universe arguments
+            // carry no runtime content.
+            Term::Const { name, .. } => name.clone(),
             Term::Var(name) => {
                 // Check if this is a reference to the recursive function
                 if name == tctx.rec_name && !tctx.rec_name.is_empty() {
@@ -436,6 +439,21 @@ impl<'a> CodeGen<'a> {
                 let body_str = self.term_to_rust_ctx(body, tctx);
                 format!("|{}: {}| {}", param, param_ty, body_str)
             }
+            Term::Let {
+                name, value, body, ..
+            } => {
+                let value_str = self.term_to_rust_ctx(value, tctx);
+                let body_str = self.term_to_rust_ctx(body, tctx);
+                format!("{{ let {} = {}; {} }}", name, value_str, body_str)
+            }
+            Term::MutualFix { defs, index } => {
+                // Extract the definition this occurrence denotes (best-effort: mutual recursion
+                // is emitted as the selected body; a full extraction would hoist all defs).
+                match defs.get(*index) {
+                    Some((_, body)) => self.term_to_rust_ctx(body, tctx),
+                    None => "()".to_string(),
+                }
+            }
             Term::Match {
                 discriminant,
                 motive,
@@ -514,6 +532,8 @@ impl<'a> CodeGen<'a> {
             }
             Term::Lit(lit) => match lit {
                 Literal::Int(n) => format!("{}i64", n),
+                Literal::BigInt(n) => format!("{}i128 /* bigint */", n),
+                Literal::Nat(n) => format!("{}u64 /* nat */", n),
                 Literal::Float(f) => format!("{}f64", f),
                 Literal::Text(s) => format!("{:?}", s),
                 Literal::Duration(nanos) => format!("{}i64 /* nanos */", nanos),
@@ -569,6 +589,7 @@ impl<'a> CodeGen<'a> {
 /// used more than once cannot be moved each time under Rust's ownership rules.
 fn count_vars(term: &Term, counts: &mut HashMap<String, usize>) {
     match term {
+        Term::Const { .. } => {}
         Term::Var(name) => {
             *counts.entry(name.clone()).or_insert(0) += 1;
         }
@@ -581,6 +602,18 @@ fn count_vars(term: &Term, counts: &mut HashMap<String, usize>) {
         } => {
             count_vars(param_type, counts);
             count_vars(body, counts);
+        }
+        Term::Let {
+            ty, value, body, ..
+        } => {
+            count_vars(ty, counts);
+            count_vars(value, counts);
+            count_vars(body, counts);
+        }
+        Term::MutualFix { defs, .. } => {
+            for (_, body) in defs {
+                count_vars(body, counts);
+            }
         }
         Term::Pi {
             param_type,

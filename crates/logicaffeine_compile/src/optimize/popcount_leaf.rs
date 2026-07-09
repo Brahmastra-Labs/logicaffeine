@@ -62,7 +62,7 @@ fn is_neg_of(e: &Expr, x: Symbol) -> bool {
 
 /// `x & (0 - x)` (either operand order)
 fn is_lowest_bit(e: &Expr, x: Symbol) -> bool {
-    if let Expr::BinaryOp { op: BinaryOpKind::And, left, right } = e {
+    if let Expr::BinaryOp { op: BinaryOpKind::BitAnd, left, right } = e {
         (as_ident(left) == Some(x) && is_neg_of(right, x))
             || (as_ident(right) == Some(x) && is_neg_of(left, x))
     } else {
@@ -429,9 +429,14 @@ mod tests {
             var: available,
             ty: None,
             value: ea.alloc(Expr::BinaryOp {
-                op: BinaryOpKind::And,
+                op: BinaryOpKind::BitAnd,
                 left: ea.alloc(Expr::Identifier(all)),
-                right: ea.alloc(Expr::Not { operand: ea.alloc(Expr::Identifier(cols)) }),
+                // `~cols` — the parser's own lowering of the complement.
+                right: ea.alloc(Expr::BinaryOp {
+                    op: BinaryOpKind::BitXor,
+                    left: ea.alloc(Expr::Identifier(cols)),
+                    right: ea.alloc(Expr::Literal(Literal::Number(-1))),
+                }),
             }),
             mutable: true,
         };
@@ -446,7 +451,7 @@ mod tests {
                 var: bit,
                 ty: None,
                 value: ea.alloc(Expr::BinaryOp {
-                    op: BinaryOpKind::And,
+                    op: BinaryOpKind::BitAnd,
                     left: ea.alloc(Expr::Identifier(available)),
                     right: ea.alloc(Expr::BinaryOp {
                         op: BinaryOpKind::Subtract,
@@ -478,7 +483,7 @@ mod tests {
                                 right: ea.alloc(Expr::Literal(Literal::Number(1))),
                             }),
                             ea.alloc(Expr::BinaryOp {
-                                op: BinaryOpKind::Or,
+                                op: BinaryOpKind::BitOr,
                                 left: ea.alloc(Expr::Identifier(cols)),
                                 right: ea.alloc(Expr::Identifier(bit)),
                             }),

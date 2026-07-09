@@ -1,4 +1,4 @@
-//! Phase 128 — §8.4 Deixis / indexicals (MISSING_ENGLISH.md).
+//! Phase 128 — §8.4 Deixis / indexicals (work/MISSING_ENGLISH.md).
 //!
 //! Context-dependent reference resolves against the utterance context to a stable
 //! anchor: I → Speaker, you → Addressee (in ANY position), here → the place,

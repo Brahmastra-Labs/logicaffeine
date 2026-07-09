@@ -568,6 +568,12 @@ fn analyze_stmt_effects_core(
             effects.io = true;
             effects
         }
+        Stmt::StreamMessage { values, destination } => {
+            let mut effects = analyze_expr_effects_core(values, known_fns);
+            effects.join(&analyze_expr_effects_core(destination, known_fns));
+            effects.io = true;
+            effects
+        }
         Stmt::IncreaseCrdt { object, amount, .. } | Stmt::DecreaseCrdt { object, amount, .. } => {
             let mut effects = analyze_expr_effects_core(object, known_fns);
             effects.join(&analyze_expr_effects_core(amount, known_fns));
@@ -688,15 +694,22 @@ fn analyze_stmt_effects_core(
             effects
         }
         // ----- Networking over the relay: I/O boundaries -----
-        Stmt::AwaitMessage { source, into, view: _ } => {
+        Stmt::AwaitMessage { source, into, view: _, stream: _ } => {
             let mut effects = analyze_expr_effects_core(source, known_fns);
             effects.writes.insert(*into);
             effects.io = true;
             effects.concurrent = true;
             effects
         }
-        Stmt::Listen { address } | Stmt::ConnectTo { address } => {
+        Stmt::Listen { address, secure } | Stmt::ConnectTo { address, secure } => {
             let mut effects = analyze_expr_effects_core(address, known_fns);
+            if let Some(bind) = secure {
+                // The pad path is evaluated too; fold in its (read-only) effects for completeness.
+                let pad_fx = analyze_expr_effects_core(bind.pad, known_fns);
+                effects.io |= pad_fx.io;
+                effects.concurrent |= pad_fx.concurrent;
+                effects.writes.extend(pad_fx.writes);
+            }
             effects.io = true;
             effects.concurrent = true;
             effects
@@ -862,7 +875,14 @@ fn classify_native_function(sym: Symbol, interner: &Interner) -> EffectSet {
     let name = interner.resolve(sym);
     match name {
         // Pure functions
-        "parseInt" | "parseFloat" | "abs" | "min" | "max" | "sqrt" | "floor"
+        "parseInt" | "parseFloat" | "decimal" | "complex" | "modular" | "quantity" | "convert" | "money"
+        | "uuid" | "uuid_nil" | "uuid_max" | "uuid_v3" | "uuid_v5" | "uuid_version"
+        | "uuid_dns" | "uuid_url" | "uuid_oid" | "uuid_x500"
+        | "md5" | "sha1" | "text_bytes" | "uuid_bytes" | "uuid_from_bytes"
+        | "parse_timestamp" | "format_timestamp" | "year_of" | "month_of" | "day_of" | "weekday_of"
+        | "hour_of" | "minute_of" | "second_of" | "week_of" | "quarter_of" | "date_of" | "time_of"
+        | "seconds_between" | "months_between" | "years_between" | "add_seconds" | "in_zone"
+        | "local_instant" | "abs" | "min" | "max" | "sqrt" | "floor"
         | "ceil" | "round" | "pow" | "log" | "sin" | "cos" | "tan"
         | "toString" | "toInt" | "toFloat" | "trim" | "uppercase" | "lowercase"
         | "split" | "join" | "replace" | "startsWith" | "endsWith"
@@ -875,7 +895,7 @@ fn classify_native_function(sym: Symbol, interner: &Interner) -> EffectSet {
             EffectSet::io()
         }
         // Alloc functions
-        "newSeq" | "newMap" | "newSet" | "copy" | "clone" => {
+        "newSeq" | "newMap" | "newSet" | "copy" | "clone" | "mapOf" | "setOf" | "repeatSeq" => {
             EffectSet::alloc()
         }
         // Default: IO (conservative for unknown natives)

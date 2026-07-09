@@ -46,13 +46,13 @@ pub enum BoundedExpr {
     BitVecVar(String, u32),
     /// Bitvector binary operation
     BitVecBinary { op: BitVecBoundedOp, left: Box<BoundedExpr>, right: Box<BoundedExpr> },
-    /// Bitvector extraction: operand[high:low]
+    /// Bitvector extraction: operand\[high:low\]
     BitVecExtract { high: u32, low: u32, operand: Box<BoundedExpr> },
     /// Bitvector concatenation
     BitVecConcat(Box<BoundedExpr>, Box<BoundedExpr>),
-    /// Array select: array[index]
+    /// Array select: array\[index\]
     ArraySelect { array: Box<BoundedExpr>, index: Box<BoundedExpr> },
-    /// Array store: array[index] := value
+    /// Array store: array\[index\] := value
     ArrayStore { array: Box<BoundedExpr>, index: Box<BoundedExpr>, value: Box<BoundedExpr> },
     /// Integer arithmetic binary operation
     IntBinary { op: ArithBoundedOp, left: Box<BoundedExpr>, right: Box<BoundedExpr> },

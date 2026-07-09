@@ -316,7 +316,7 @@ fn mod_pow2_to_and_requires_nonneg_proof() {
     let eight = eg.add(CompilerENode::Int(8));
     let md = eg.add(CompilerENode::Mod(x, eight));
     let seven = eg.add(CompilerENode::Int(7));
-    let masked = eg.add(CompilerENode::And(x, seven));
+    let masked = eg.add(CompilerENode::BitAnd(x, seven));
     eg.saturate(&rules::all());
     assert_eq!(eg.find(md), eg.find(masked), "x % 8 with x ≥ 0 must become x & 7");
 
@@ -326,7 +326,7 @@ fn mod_pow2_to_and_requires_nonneg_proof() {
     let eight = eg.add(CompilerENode::Int(8));
     let md = eg.add(CompilerENode::Mod(x, eight));
     let seven = eg.add(CompilerENode::Int(7));
-    let masked = eg.add(CompilerENode::And(x, seven));
+    let masked = eg.add(CompilerENode::BitAnd(x, seven));
     eg.saturate(&rules::all());
     assert_ne!(eg.find(md), eg.find(masked), "x % 8 must NOT mask without the proof");
 }

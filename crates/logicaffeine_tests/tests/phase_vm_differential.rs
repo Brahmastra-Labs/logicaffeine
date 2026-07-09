@@ -1,7 +1,7 @@
 //! Differential tests for the register bytecode VM against the production
 //! tree-walker, over REAL parsed LOGOS source. Every program is executed by both
 //! engines and their observable output must be identical. The tree-walker is the
-//! independent oracle (VM_PLAN.md / EXODIA two-runtime split).
+//! independent oracle (work/VM_PLAN.md / EXODIA two-runtime split).
 
 use logicaffeine_compile::compile::{interpret_program, vm_run_source};
 

@@ -6,6 +6,13 @@ This document describes the versioning strategy and release process for logicaff
 
 Logicaffeine uses **lockstep versioning**: all crates in the workspace share the same version number. This simplifies dependency management and gives users a single version to track.
 
+Lockstep is structural, not a convention: every member inherits its version from
+`[workspace.package]` in the root `Cargo.toml` via `version.workspace = true`, and
+internal dependencies resolve through `[workspace.dependencies]` entries in the same
+file. The lockstep version therefore lives in exactly one file, and a member cannot
+drift. The only exceptions are the out-of-band tools pinned at `0.0.0`
+(`logicaffeine-wirebench`, `wiki-trace`).
+
 Similar projects using lockstep: Dioxus, Bevy, Tokio, Axum.
 
 ## Semantic Versioning
@@ -33,14 +40,17 @@ This means `0.6.0` → `0.7.0` may break APIs, but `0.6.0` → `0.6.1` will not.
 
 ## Crate Hierarchy
 
-Crates must be published in dependency order (leaves first). This mirrors
-`.github/workflows/publish.yml`, which is the authoritative publish order:
+Crates must be published in dependency order (leaves first). The publish workflow
+(`.github/workflows/publish.yml`) derives both the publish set and its order from
+`cargo metadata`, so there is no hand-maintained list to fall out of sync. The
+current hierarchy, for orientation:
 
 ```
 Tier 0 (no internal deps):
   logicaffeine-base
   logicaffeine-verify
   logicaffeine-forge
+  logicaffeine-runtime
 
 Tier 1 (depends on Tier 0):
   logicaffeine-data
@@ -117,85 +127,111 @@ Use these section headers (in order):
 ### 1. Prepare Release
 
 ```bash
-# Ensure all tests pass
-cargo test -- --skip e2e
+# Ensure all tests pass (full parity suite)
+./scripts/run-all-tests-fast.sh
 
 # Ensure no uncommitted changes
 git status
-
-# Update version in all Cargo.toml files
-# (manual or script - see below)
 ```
 
 ### 2. Update Changelogs
 
-For each crate with changes:
+For each crate with changes, and for the root `CHANGELOG.md`:
 
 1. Move items from `[Unreleased]` to new version section
-2. Add release date: `## [0.7.0] - 2026-01-17`
+2. Add release date: `## [0.10.0] - 2026-07-15`
 3. Create new empty `[Unreleased]` section
 
-### 3. Update Root CHANGELOG
+The root `CHANGELOG.md` provides a high-level summary across all crates.
 
-The root `CHANGELOG.md` provides a high-level summary across all crates. Update it with the most significant changes.
+### 3. Bump the Version
 
-Then regenerate the website roadmap history from the changelog with `./scripts/generate-roadmap.sh` (writes `apps/logicaffeine_web/src/ui/pages/roadmap_history.json`; commit the result). It also prints a staging report of releases and commits not yet reflected on the roadmap.
+```bash
+# Example: bump from 0.9.16 to 0.10.0
+./scripts/bump-version.sh 0.9.16 0.10.0
+```
 
-### 4. Commit and Tag
+The lockstep version lives in one file: the script edits the root `Cargo.toml`
+(`[workspace.package] version` plus the `[workspace.dependencies]` internal
+entries) and the VSCode extension's `package.json`, then runs
+`cargo check --workspace` to validate the bump and refresh `Cargo.lock`.
+
+### 4. Regenerate Benchmarks (bench box)
+
+```bash
+# On the dedicated bench box, with the box silenced
+# (no other sessions, builds, or system timers competing for cores):
+bash benchmarks/run.sh                 # full 11-language suite + interpreter + codec (hours)
+bash benchmarks/run-solver-vs-z3.sh    # certified prover vs the field -> results/solvers.json
+```
+
+Benchmarks never run in CI — shared runners are too noisy for publishable
+numbers. `run.sh` writes `results/latest.json`, `results/latest-interp.json`
+and `results/latest-codec.json`, and archives `results/history/v<version>*.json`
+(the version comes from the root `Cargo.toml`, so bump first). Commit the
+refreshed `benchmarks/results/` — `deploy-frontend.yml` reads the checked-in
+JSON at build time.
+
+### 5. Update the Web Surfaces
+
+- `apps/logicaffeine_web/src/ui/pages/roadmap.rs` — the version span
+- `./scripts/generate-roadmap.sh` — regenerates
+  `apps/logicaffeine_web/src/ui/pages/roadmap_history.json` from the changelog
+  and prints a staging report; commit the result
+- `apps/logicaffeine_web/src/ui/pages/news/data.rs` — the release news article
+- Root `README.md` version badge
+
+### 6. Publish Preflight
+
+```bash
+# Validates packaging of the whole publish set without touching the registry
+cargo publish --workspace --dry-run
+
+# Confirm the CARGO_REGISTRY_TOKEN repository secret is still valid
+```
+
+### 7. Commit, Tag and Push
 
 ```bash
 git add -A
-git commit -m "Release v0.7.0"
-git tag v0.7.0
-```
-
-### 5. Publish to crates.io
-
-Publish in dependency order (Tier 0 first, then Tier 1, etc.):
-
-```bash
-# Tier 0
-cargo publish -p logicaffeine-base
-cargo publish -p logicaffeine-data
-
-# Tier 1
-cargo publish -p logicaffeine-kernel
-cargo publish -p logicaffeine-lexicon
-
-# Tier 2
-cargo publish -p logicaffeine-system
-
-# Tier 3
-cargo publish -p logicaffeine-language
-cargo publish -p logicaffeine-proof
-
-# Tier 4
-cargo publish -p logicaffeine-compile
-
-# Tier 5 (apps)
-cargo publish -p logicaffeine-cli
-# logicaffeine-web is typically not published (web app)
-```
-
-Note: Wait for each crate to appear on crates.io before publishing dependents.
-
-### 6. Push
-
-```bash
+git commit -m "release 0.10.0 — <brief description>"
+git tag v0.10.0
 git push origin main --tags
 ```
 
-## Version Bump Script
+The tag push triggers `publish.yml` (crates.io) and `release.yml` (GitHub release +
+LSP binaries + VSCode extension + **10 `largo` binaries**: 5 platforms × lean/full,
+the full flavor with Z3 statically linked). Benchmarks are regenerated on the
+bench box before tagging (step 4); the frontend deploys from the checked-in
+results when main goes green.
 
-To bump all crates simultaneously, use:
+**Ordering note:** the installer scripts (`apps/logicaffeine_web/public/install.sh`
+/ `install.ps1`, served at `logicaffeine.com/install.sh`) only update when
+`deploy-frontend.yml` runs on main — so merge to main and let the frontend deploy
+go green *before* announcing a release whose installers changed. The installers
+themselves are version-independent (they resolve the latest tag at run time), so
+routine releases need no installer edits.
 
-```bash
-# Example: bump from 0.9.16 to 0.9.17
-./scripts/bump-version.sh 0.9.16 0.9.17
-```
+Before the first tag with CLI binaries — and after any release.yml change — run
+`release.yml` via `workflow_dispatch` on the branch to burn in all 10 `build-cli`
+jobs (windows-full and darwin-x64-full are the slow/risky ones: Z3 builds from
+vendored source, 30–60 min uncached).
 
-This script updates all `Cargo.toml` files and inter-crate dependencies, then runs
-`cargo check --workspace` to validate the bump.
+### 8. Watch and Verify
+
+`publish.yml` derives the publish set and dependency order from `cargo metadata`
+and fails loudly on any error; re-runs are safe (crates already at the released
+version are skipped). Afterwards verify:
+
+- crates.io shows the new version for every published crate
+- the GitHub release carries the LSP binaries and `.vsix`
+- the GitHub release carries the 10 `largo-*` archives **and `SHA256SUMS`**
+- the `e2e-install` jobs (linux/macos/windows, pinned to the tag) are green
+- once the frontend deploy lands: `curl -fsSL https://logicaffeine.com/install.sh | sh`
+  and `irm https://logicaffeine.com/install.ps1 | iex` install the new version;
+  `largo --version` reports the tag (and `(full)` for `--full` installs); a lean
+  `largo verify` prints the install-full hint
+- `benchmarks/results/history/v<version>.json` was committed
 
 ## Unpublished Crates
 
@@ -205,36 +241,16 @@ The following crates are not published to crates.io:
 |-------|--------|
 | `logicaffeine-tests` | Internal test suite only (`publish = false`) |
 | `logicaffeine-web` | Web application, not a library (`publish = false`) |
+| `logicaffeine-synth` | Offline Z3 stencil tooling, dev-time only (`publish = false`) |
+| `logicaffeine-wirebench` | Wire codec benchmark harness (`publish = false`) |
 | `wiki-trace` | Internal tooling script (`publish = false`) |
 
-The `logicaffeine-tests` and `logicaffeine-web` crates still follow lockstep
-versioning for consistency. `wiki-trace` is an out-of-band utility kept at `0.0.0`.
+The `logicaffeine-tests`, `logicaffeine-web` and `logicaffeine-synth` crates still
+follow lockstep versioning for consistency. `logicaffeine-wirebench` and
+`wiki-trace` are out-of-band utilities kept at `0.0.0`.
 
 ## Version History
 
-| Version | Date | Notes |
-|---------|------|-------|
-| 0.9.2 | 2026-02-28 | Benchmark timeout isolation: per-language hyperfine, smart skipping |
-| 0.9.1 | 2026-02-28 | Fix benchmark CI: remove invalid hyperfine --timeout flag |
-| 0.9.0 | 2026-02-27 | Type checker, codegen refactor, 15 optimizations, language features |
-| 0.8.19 | 2026-02-15 | Benchmark reliability: Zig 0.15 upgrade, swap pattern regression test |
-| 0.8.18 | 2026-02-15 | Constant propagation safety fix (string + zone scoping) |
-| 0.8.17 | 2026-02-15 | C codegen backend, constant propagation, 334 new E2E tests |
-| 0.8.16 | 2026-02-15 | RangeInclusive loop overhead fix |
-| 0.8.15 | 2026-02-15 | TIER 1 codegen optimizations (for-range, iterators, vec fill, swap) |
-| 0.8.14 | 2026-02-15 | TIER 0 optimizer bedrock, Maybe syntax |
-| 0.8.13 | 2026-02-14 | Accumulator intro, auto-memoization, mutual TCO, purity analysis |
-| 0.8.12 | 2026-02-14 | Optimizer updates |
-| 0.8.11 | 2026-02-14 | Peephole optimizer: vec fill, swap, copy elision, release profile |
-| 0.8.10 | 2026-02-14 | Codegen optimizations: direct indexing, inlining, LTO |
-| 0.8.9 | 2026-02-14 | Auto-deploy frontend after benchmarks, CI fixes |
-| 0.8.8 | 2026-02-14 | (skipped — missing actions:write permission) |
-| 0.8.7 | 2026-02-14 | (skipped — CI fix landed after tag) |
-| 0.8.6 | 2026-02-13 | Benchmarks, interpreter improvements, CI fixes |
-| 0.8.3 | 2026-02-12 | FFI test CI compatibility, platform-aware C linkage |
-| 0.8.2 | 2026-02-12 | Optimizer, interpreter mode, FFI safety |
-| 0.8.1 | 2026-02-12 | VSCode extension fix |
-| 0.8.0 | 2026-02-10 | LSP, VSCode extension, FFI/C exports, CI/CD |
-| 0.7.0 | 2026-02-01 | Escape analysis, concurrency, web platform |
-| 0.6.0 | 2026-01-17 | Initial crates.io release |
-| 0.5.5 | 2026-01-01 | First public release (pre-crates.io) |
+The authoritative version history is the root [`CHANGELOG.md`](CHANGELOG.md) —
+every released version with its date and cross-crate summary. Per-crate detail
+lives in each crate's own `CHANGELOG.md`.

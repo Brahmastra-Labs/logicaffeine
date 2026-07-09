@@ -1,0 +1,571 @@
+# UUID
+
+RFC 9562 identifiers, with the name-based version constructors written in LOGOS. `uuidV3`
+hashes `namespace ‖ name` with the native MD5 primitive; `uuidV5` hashes it with SHA-1
+written entirely IN LOGOS — the 80-round Intel SHA-NI schedule over the `Lanes4Word32` lane
+type — then stamps the 4-bit version and the 2-bit RFC-4122 variant. The lane ops run the
+software spec on the interpreter and lower to the `sha1rnds4` hardware sequence when compiled,
+so v5 is transparent in-language AND runs at silicon speed. The `Uuid` value (parse, canonical
+display, byte view) is the fast native kernel underneath.
+
+`stampBytes` sets the version (byte 6, the 7th element 1-based) and the RFC-4122 variant (byte 8, the
+9th element) of a 16-byte buffer — the same clear-nibble/set-version and clear-2-bits/set-`10` the u128
+stamp does, applied DIRECTLY to the two bytes (two writes) rather than packing the whole id into a
+register first: for the heap `Seq` representation the register round-trip is pure overhead, so this is
+the leanest in-Logos form. `(b mod 16) + version·16` clears the high nibble and
+
+`mkLane4` packs four `Word32`s into one SHA-1 lane (lane 0 = first argument, lane 3 = last).
+`sha1Compress` folds one 512-bit block (16 big-endian words) into the running 5-word state; it
+is the exact `sha1rnds4`/`sha1msg1`/`sha1msg2`/`sha1nexte` sequence, with the round E carried in
+lane 3. `sha1Digest` pads the message (0x80, zero fill to 56 mod 64, 64-bit big-endian bit
+length) and drives the block loop, returning the 20-byte digest.
+
+(Editor note: literate Logos strips only the prose ABOVE the first `## To`; keep code-adjacent
+notes out from between the sections.)
+
+## Note
+Stamps the RFC 9562 version and variant bits onto 16 raw bytes.
+
+## To stampBytes (raw: Seq of Int) and (version: Int) -> Seq of Int:
+    Let mutable out be raw.
+    Set item 7 of out to ((item 7 of out) % 16) + (version * 16).
+    Set item 9 of out to ((item 9 of out) % 64) + 128.
+    Return out.
+
+## Note
+Builds a 4-lane Word32 vector from four words.
+
+## To mkLane4 (a: Word32) and (b: Word32) and (c: Word32) and (d: Word32) -> Lanes4Word32:
+    Return lanes4Of(a, b, c, d).
+
+## Note
+One SHA-1 compression of an 80-word schedule into the state.
+
+## To sha1Compress (h: Seq of Word32) and (w: Seq of Word32) -> Seq of Word32:
+    Let zero be word32(0).
+    Let mutable st be mkLane4(item 4 of h, item 3 of h, item 2 of h, item 1 of h).
+    Let mutable e0 be mkLane4(zero, zero, zero, item 5 of h).
+    Let abcdSave be st.
+    Let e0Save be e0.
+    Let mutable m0 be mkLane4(item 4 of w, item 3 of w, item 2 of w, item 1 of w).
+    Let mutable m1 be mkLane4(item 8 of w, item 7 of w, item 6 of w, item 5 of w).
+    Let mutable m2 be mkLane4(item 12 of w, item 11 of w, item 10 of w, item 9 of w).
+    Let mutable m3 be mkLane4(item 16 of w, item 15 of w, item 14 of w, item 13 of w).
+    Let mutable e1 be st.
+    Set e0 to e0 + m0.
+    Set e1 to st.
+    Set st to sha1rnds4(st, e0, 0).
+    Set e1 to sha1nexte(e1, m1).
+    Set e0 to st.
+    Set st to sha1rnds4(st, e1, 0).
+    Set m0 to sha1msg1(m0, m1).
+    Set e0 to sha1nexte(e0, m2).
+    Set e1 to st.
+    Set st to sha1rnds4(st, e0, 0).
+    Set m1 to sha1msg1(m1, m2).
+    Set m0 to m0 xor m2.
+    Set e1 to sha1nexte(e1, m3).
+    Set e0 to st.
+    Set m0 to sha1msg2(m0, m3).
+    Set st to sha1rnds4(st, e1, 0).
+    Set m2 to sha1msg1(m2, m3).
+    Set m1 to m1 xor m3.
+    Set e0 to sha1nexte(e0, m0).
+    Set e1 to st.
+    Set m1 to sha1msg2(m1, m0).
+    Set st to sha1rnds4(st, e0, 0).
+    Set m3 to sha1msg1(m3, m0).
+    Set m2 to m2 xor m0.
+    Set e1 to sha1nexte(e1, m1).
+    Set e0 to st.
+    Set m2 to sha1msg2(m2, m1).
+    Set st to sha1rnds4(st, e1, 1).
+    Set m0 to sha1msg1(m0, m1).
+    Set m3 to m3 xor m1.
+    Set e0 to sha1nexte(e0, m2).
+    Set e1 to st.
+    Set m3 to sha1msg2(m3, m2).
+    Set st to sha1rnds4(st, e0, 1).
+    Set m1 to sha1msg1(m1, m2).
+    Set m0 to m0 xor m2.
+    Set e1 to sha1nexte(e1, m3).
+    Set e0 to st.
+    Set m0 to sha1msg2(m0, m3).
+    Set st to sha1rnds4(st, e1, 1).
+    Set m2 to sha1msg1(m2, m3).
+    Set m1 to m1 xor m3.
+    Set e0 to sha1nexte(e0, m0).
+    Set e1 to st.
+    Set m1 to sha1msg2(m1, m0).
+    Set st to sha1rnds4(st, e0, 1).
+    Set m3 to sha1msg1(m3, m0).
+    Set m2 to m2 xor m0.
+    Set e1 to sha1nexte(e1, m1).
+    Set e0 to st.
+    Set m2 to sha1msg2(m2, m1).
+    Set st to sha1rnds4(st, e1, 1).
+    Set m0 to sha1msg1(m0, m1).
+    Set m3 to m3 xor m1.
+    Set e0 to sha1nexte(e0, m2).
+    Set e1 to st.
+    Set m3 to sha1msg2(m3, m2).
+    Set st to sha1rnds4(st, e0, 2).
+    Set m1 to sha1msg1(m1, m2).
+    Set m0 to m0 xor m2.
+    Set e1 to sha1nexte(e1, m3).
+    Set e0 to st.
+    Set m0 to sha1msg2(m0, m3).
+    Set st to sha1rnds4(st, e1, 2).
+    Set m2 to sha1msg1(m2, m3).
+    Set m1 to m1 xor m3.
+    Set e0 to sha1nexte(e0, m0).
+    Set e1 to st.
+    Set m1 to sha1msg2(m1, m0).
+    Set st to sha1rnds4(st, e0, 2).
+    Set m3 to sha1msg1(m3, m0).
+    Set m2 to m2 xor m0.
+    Set e1 to sha1nexte(e1, m1).
+    Set e0 to st.
+    Set m2 to sha1msg2(m2, m1).
+    Set st to sha1rnds4(st, e1, 2).
+    Set m0 to sha1msg1(m0, m1).
+    Set m3 to m3 xor m1.
+    Set e0 to sha1nexte(e0, m2).
+    Set e1 to st.
+    Set m3 to sha1msg2(m3, m2).
+    Set st to sha1rnds4(st, e0, 2).
+    Set m1 to sha1msg1(m1, m2).
+    Set m0 to m0 xor m2.
+    Set e1 to sha1nexte(e1, m3).
+    Set e0 to st.
+    Set m0 to sha1msg2(m0, m3).
+    Set st to sha1rnds4(st, e1, 3).
+    Set m2 to sha1msg1(m2, m3).
+    Set m1 to m1 xor m3.
+    Set e0 to sha1nexte(e0, m0).
+    Set e1 to st.
+    Set m1 to sha1msg2(m1, m0).
+    Set st to sha1rnds4(st, e0, 3).
+    Set m3 to sha1msg1(m3, m0).
+    Set m2 to m2 xor m0.
+    Set e1 to sha1nexte(e1, m1).
+    Set e0 to st.
+    Set m2 to sha1msg2(m2, m1).
+    Set st to sha1rnds4(st, e1, 3).
+    Set m3 to m3 xor m1.
+    Set e0 to sha1nexte(e0, m2).
+    Set e1 to st.
+    Set m3 to sha1msg2(m3, m2).
+    Set st to sha1rnds4(st, e0, 3).
+    Set e1 to sha1nexte(e1, m3).
+    Set e0 to st.
+    Set st to sha1rnds4(st, e1, 3).
+    Set e0 to sha1nexte(e0, e0Save).
+    Set st to st + abcdSave.
+    Let sl be seqOfLanes4W32(st).
+    Let el be seqOfLanes4W32(e0).
+    Let out be a new Seq of Word32.
+    Push item 4 of sl to out.
+    Push item 3 of sl to out.
+    Push item 2 of sl to out.
+    Push item 1 of sl to out.
+    Push item 4 of el to out.
+    Return out.
+
+## Note
+The SHA-1 digest of a byte sequence, padded and compressed block by block.
+
+## To sha1Digest (msg: Seq of Int) -> Seq of Int:
+    Let ml be length of msg.
+    Let bitLen be ml * 8.
+    Let mutable padded be a new Seq of Int.
+    Repeat for b in msg:
+        Push b to padded.
+    Push 128 to padded.
+    Let rem be (ml + 1) % 64.
+    Let z be (120 - rem) % 64.
+    Repeat for i from 1 to z:
+        Push 0 to padded.
+    Let mutable bl be bitLen.
+    Let mutable lenBytes be a new Seq of Int.
+    Repeat for k from 1 to 8:
+        Push bl % 256 to lenBytes.
+        Set bl to bl / 256.
+    Repeat for k from 1 to 8:
+        Push item (9 - k) of lenBytes to padded.
+    Let mutable h be a new Seq of Word32.
+    Push word32(1732584193) to h.
+    Push word32(4023233417) to h.
+    Push word32(2562383102) to h.
+    Push word32(271733878) to h.
+    Push word32(3285377520) to h.
+    Let numBlocks be (length of padded) / 64.
+    Repeat for blk from 0 to numBlocks - 1:
+        Let base be blk * 64.
+        Let mutable w be a new Seq of Word32.
+        Repeat for j from 0 to 15:
+            Let off be base + j * 4.
+            Let b0 be item (off + 1) of padded.
+            Let b1 be item (off + 2) of padded.
+            Let b2 be item (off + 3) of padded.
+            Let b3 be item (off + 4) of padded.
+            Push word32(b0 * 16777216 + b1 * 65536 + b2 * 256 + b3) to w.
+        Set h to sha1Compress(h, w).
+    Let mutable out be a new Seq of Int.
+    Repeat for word in h:
+        Let v be intOfWord32(word).
+        Push (v / 16777216) % 256 to out.
+        Push (v / 65536) % 256 to out.
+        Push (v / 256) % 256 to out.
+        Push v % 256 to out.
+    Return out.
+
+## Note
+The 64 sine-derived MD5 round constants.
+
+## To md5Constants -> Seq of Word32:
+    Let mutable kk be a new Seq of Word32.
+    Push word32(3614090360) to kk.
+    Push word32(3905402710) to kk.
+    Push word32(606105819) to kk.
+    Push word32(3250441966) to kk.
+    Push word32(4118548399) to kk.
+    Push word32(1200080426) to kk.
+    Push word32(2821735955) to kk.
+    Push word32(4249261313) to kk.
+    Push word32(1770035416) to kk.
+    Push word32(2336552879) to kk.
+    Push word32(4294925233) to kk.
+    Push word32(2304563134) to kk.
+    Push word32(1804603682) to kk.
+    Push word32(4254626195) to kk.
+    Push word32(2792965006) to kk.
+    Push word32(1236535329) to kk.
+    Push word32(4129170786) to kk.
+    Push word32(3225465664) to kk.
+    Push word32(643717713) to kk.
+    Push word32(3921069994) to kk.
+    Push word32(3593408605) to kk.
+    Push word32(38016083) to kk.
+    Push word32(3634488961) to kk.
+    Push word32(3889429448) to kk.
+    Push word32(568446438) to kk.
+    Push word32(3275163606) to kk.
+    Push word32(4107603335) to kk.
+    Push word32(1163531501) to kk.
+    Push word32(2850285829) to kk.
+    Push word32(4243563512) to kk.
+    Push word32(1735328473) to kk.
+    Push word32(2368359562) to kk.
+    Push word32(4294588738) to kk.
+    Push word32(2272392833) to kk.
+    Push word32(1839030562) to kk.
+    Push word32(4259657740) to kk.
+    Push word32(2763975236) to kk.
+    Push word32(1272893353) to kk.
+    Push word32(4139469664) to kk.
+    Push word32(3200236656) to kk.
+    Push word32(681279174) to kk.
+    Push word32(3936430074) to kk.
+    Push word32(3572445317) to kk.
+    Push word32(76029189) to kk.
+    Push word32(3654602809) to kk.
+    Push word32(3873151461) to kk.
+    Push word32(530742520) to kk.
+    Push word32(3299628645) to kk.
+    Push word32(4096336452) to kk.
+    Push word32(1126891415) to kk.
+    Push word32(2878612391) to kk.
+    Push word32(4237533241) to kk.
+    Push word32(1700485571) to kk.
+    Push word32(2399980690) to kk.
+    Push word32(4293915773) to kk.
+    Push word32(2240044497) to kk.
+    Push word32(1873313359) to kk.
+    Push word32(4264355552) to kk.
+    Push word32(2734768916) to kk.
+    Push word32(1309151649) to kk.
+    Push word32(4149444226) to kk.
+    Push word32(3174756917) to kk.
+    Push word32(718787259) to kk.
+    Push word32(3951481745) to kk.
+    Return kk.
+
+## Note
+One MD5 compression of a 16-word block into the state.
+
+## To md5Compress (state: Seq of Word32) and (m: Seq of Word32) and (kk: Seq of Word32) -> Seq of Word32:
+    Let mutable a be item 1 of state.
+    Let mutable b be item 2 of state.
+    Let mutable c be item 3 of state.
+    Let mutable d be item 4 of state.
+    Let mutable r1 be a new Seq of Int.
+    Push 7 to r1.
+    Push 12 to r1.
+    Push 17 to r1.
+    Push 22 to r1.
+    Let mutable r2 be a new Seq of Int.
+    Push 5 to r2.
+    Push 9 to r2.
+    Push 14 to r2.
+    Push 20 to r2.
+    Let mutable r3 be a new Seq of Int.
+    Push 4 to r3.
+    Push 11 to r3.
+    Push 16 to r3.
+    Push 23 to r3.
+    Let mutable r4 be a new Seq of Int.
+    Push 6 to r4.
+    Push 10 to r4.
+    Push 15 to r4.
+    Push 21 to r4.
+    Repeat for i from 0 to 15:
+        Let f be word_or(word_and(b, c), word_and(word_not(b), d)).
+        Let g be i.
+        Let tmp be a + f + (item (i + 1) of kk) + (item (g + 1) of m).
+        Set a to d.
+        Set d to c.
+        Set c to b.
+        Set b to b + rotl(tmp, item ((i % 4) + 1) of r1).
+    Repeat for i from 16 to 31:
+        Let f be word_or(word_and(d, b), word_and(word_not(d), c)).
+        Let g be (5 * i + 1) % 16.
+        Let tmp be a + f + (item (i + 1) of kk) + (item (g + 1) of m).
+        Set a to d.
+        Set d to c.
+        Set c to b.
+        Set b to b + rotl(tmp, item ((i % 4) + 1) of r2).
+    Repeat for i from 32 to 47:
+        Let f be b xor c xor d.
+        Let g be (3 * i + 5) % 16.
+        Let tmp be a + f + (item (i + 1) of kk) + (item (g + 1) of m).
+        Set a to d.
+        Set d to c.
+        Set c to b.
+        Set b to b + rotl(tmp, item ((i % 4) + 1) of r3).
+    Repeat for i from 48 to 63:
+        Let f be c xor word_or(b, word_not(d)).
+        Let g be (7 * i) % 16.
+        Let tmp be a + f + (item (i + 1) of kk) + (item (g + 1) of m).
+        Set a to d.
+        Set d to c.
+        Set c to b.
+        Set b to b + rotl(tmp, item ((i % 4) + 1) of r4).
+    Let mutable out be a new Seq of Word32.
+    Push (item 1 of state) + a to out.
+    Push (item 2 of state) + b to out.
+    Push (item 3 of state) + c to out.
+    Push (item 4 of state) + d to out.
+    Return out.
+
+## Note
+The MD5 digest of a byte sequence, padded and compressed block by block.
+
+## To md5Digest (msg: Seq of Int) -> Seq of Int:
+    Let ml be length of msg.
+    Let bitLen be ml * 8.
+    Let mutable padded be a new Seq of Int.
+    Repeat for b in msg:
+        Push b to padded.
+    Push 128 to padded.
+    Let rem be (ml + 1) % 64.
+    Let z be (120 - rem) % 64.
+    Repeat for i from 1 to z:
+        Push 0 to padded.
+    Let mutable bl be bitLen.
+    Repeat for k from 1 to 8:
+        Push bl % 256 to padded.
+        Set bl to bl / 256.
+    Let mutable h be a new Seq of Word32.
+    Push word32(1732584193) to h.
+    Push word32(4023233417) to h.
+    Push word32(2562383102) to h.
+    Push word32(271733878) to h.
+    Let kk be md5Constants().
+    Let numBlocks be (length of padded) / 64.
+    Repeat for blk from 0 to numBlocks - 1:
+        Let base be blk * 64.
+        Let mutable w be a new Seq of Word32.
+        Repeat for j from 0 to 15:
+            Let off be base + j * 4.
+            Let b0 be item (off + 1) of padded.
+            Let b1 be item (off + 2) of padded.
+            Let b2 be item (off + 3) of padded.
+            Let b3 be item (off + 4) of padded.
+            Push word32(b3 * 16777216 + b2 * 65536 + b1 * 256 + b0) to w.
+        Set h to md5Compress(h, w, kk).
+    Let mutable out be a new Seq of Int.
+    Repeat for word in h:
+        Let v be intOfWord32(word).
+        Push v % 256 to out.
+        Push (v / 256) % 256 to out.
+        Push (v / 65536) % 256 to out.
+        Push (v / 16777216) % 256 to out.
+    Return out.
+
+## Note
+A version-3 UUID: the MD5 of namespace plus name (RFC 9562).
+
+## To uuidV3 (namespace: Uuid) and (name: Text) -> Uuid:
+    Let input be uuid_bytes(namespace) followed by text_bytes(name).
+    Let full be md5Digest(input).
+    Let mutable raw be a new Seq of Int.
+    Repeat for i from 1 to 16:
+        Push item i of full to raw.
+    Return uuid_from_bytes(stampBytes(raw, 3)).
+
+## Note
+A version-5 UUID: the SHA-1 of namespace plus name (RFC 9562).
+
+## To uuidV5 (namespace: Uuid) and (name: Text) -> Uuid:
+    Let input be uuid_bytes(namespace) followed by text_bytes(name).
+    Let full be sha1Digest(input).
+    Let mutable raw be a new Seq of Int.
+    Repeat for i from 1 to 16:
+        Push item i of full to raw.
+    Return uuid_from_bytes(stampBytes(raw, 5)).
+
+## Note
+A version-4 UUID from 16 random bytes.
+
+## To uuidV4 (random: Seq of Int) -> Uuid:
+    Return uuid_from_bytes(stampBytes(random, 4)).
+
+## Note
+A version-7 UUID: Unix-millisecond timestamp plus a random tail.
+
+## To uuidV7 (ms: Int) and (random: Seq of Int) -> Uuid:
+    Let mutable raw be a new Seq of Int.
+    Push (ms / 1099511627776) % 256 to raw.
+    Push (ms / 4294967296) % 256 to raw.
+    Push (ms / 16777216) % 256 to raw.
+    Push (ms / 65536) % 256 to raw.
+    Push (ms / 256) % 256 to raw.
+    Push ms % 256 to raw.
+    Repeat for r in random:
+        Push r to raw.
+    Return uuid_from_bytes(stampBytes(raw, 7)).
+
+## Note
+The value of one hex digit character.
+
+## To hexNibble (c: Int) -> Int:
+    Return (c % 16) + 9 * (c / 64).
+
+## Note
+The lowercase hex character for a 4-bit value.
+
+## To hexChar (n: Int) -> Int:
+    Return 48 + n + 39 * (n / 10).
+
+## Note
+Decodes 16 hex characters into nibble values, lane-wise.
+
+## To decodeNibbles (v: Lanes16Word8) -> Lanes16Word8:
+    Let lo be word_and(v, splat16Word8(15)).
+    Let hibit be shrBytes16(word_and(v, splat16Word8(64)), 6).
+    Let mutable nineSeq be a new Seq of Int.
+    Push 0 to nineSeq.
+    Push 9 to nineSeq.
+    Repeat for k from 1 to 14:
+        Push 0 to nineSeq.
+    Let adjust be shuffle16(lanes16Word8(nineSeq), hibit).
+    Return byteAdd16(lo, adjust).
+
+## Note
+Parses the canonical 8-4-4-4-12 UUID string into a Uuid.
+
+## To uuidParse (s: Text) -> Uuid:
+    Let c be text_bytes(s).
+    Let mutable hex be a new Seq of Int.
+    Repeat for j from 1 to 8:
+        Push item j of c to hex.
+    Repeat for j from 10 to 13:
+        Push item j of c to hex.
+    Repeat for j from 15 to 18:
+        Push item j of c to hex.
+    Repeat for j from 20 to 23:
+        Push item j of c to hex.
+    Repeat for j from 25 to 36:
+        Push item j of c to hex.
+    Let mutable loSeq be a new Seq of Int.
+    Repeat for j from 1 to 16:
+        Push item j of hex to loSeq.
+    Let mutable hiSeq be a new Seq of Int.
+    Repeat for j from 17 to 32:
+        Push item j of hex to hiSeq.
+    Let nibA be decodeNibbles(lanes16Word8(loSeq)).
+    Let nibB be decodeNibbles(lanes16Word8(hiSeq)).
+    Let mutable wSeq be a new Seq of Int.
+    Repeat for k from 1 to 8:
+        Push 16 to wSeq.
+        Push 1 to wSeq.
+    Let weights be lanes16Word8(wSeq).
+    Let bytesA be maddubs16(nibA, weights).
+    Let bytesB be maddubs16(nibB, weights).
+    Let result be packus16(bytesA, bytesB).
+    Return uuid_from_bytes(seqOfLanes16W8(result)).
+
+## Note
+Formats a Uuid as the canonical lowercase 8-4-4-4-12 string.
+
+## To uuidFormat (u: Uuid) -> Text:
+    Let bytes be uuid_bytes(u).
+    Let v be lanes16Word8(bytes).
+    Let hi be shrBytes16(v, 4).
+    Let lo be word_and(v, splat16Word8(15)).
+    Let mutable lutSeq be a new Seq of Int.
+    Push 48 to lutSeq.
+    Push 49 to lutSeq.
+    Push 50 to lutSeq.
+    Push 51 to lutSeq.
+    Push 52 to lutSeq.
+    Push 53 to lutSeq.
+    Push 54 to lutSeq.
+    Push 55 to lutSeq.
+    Push 56 to lutSeq.
+    Push 57 to lutSeq.
+    Push 97 to lutSeq.
+    Push 98 to lutSeq.
+    Push 99 to lutSeq.
+    Push 100 to lutSeq.
+    Push 101 to lutSeq.
+    Push 102 to lutSeq.
+    Let lut be lanes16Word8(lutSeq).
+    Let hiHex be shuffle16(lut, hi).
+    Let loHex be shuffle16(lut, lo).
+    Let loChars be interleaveLo16(hiHex, loHex).
+    Let hiChars be interleaveHi16(hiHex, loHex).
+    Let chars be seqOfLanes16W8(loChars) followed by seqOfLanes16W8(hiChars).
+    Let mutable out be "".
+    Let mutable i be 1.
+    Repeat for code in chars:
+        Set out to out + chr(code).
+        If i is equal to 8 or i is equal to 12 or i is equal to 16 or i is equal to 20:
+            Set out to out + "-".
+        Set i to i + 1.
+    Return out.
+
+## Note
+The MD5 digest of a byte sequence.
+
+## To md5 (data: Seq of Int) -> Seq of Int:
+    Return md5Digest(data).
+
+## Note
+The SHA-1 digest of a byte sequence.
+
+## To sha1 (data: Seq of Int) -> Seq of Int:
+    Return sha1Digest(data).
+
+## Note
+Alias of uuidV3 for snake_case call sites.
+
+## To uuid_v3 (namespace: Uuid) and (name: Text) -> Uuid:
+    Return uuidV3(namespace, name).
+
+## Note
+Alias of uuidV5 for snake_case call sites.
+
+## To uuid_v5 (namespace: Uuid) and (name: Text) -> Uuid:
+    Return uuidV5(namespace, name).

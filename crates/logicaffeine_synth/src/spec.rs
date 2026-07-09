@@ -40,6 +40,16 @@ fn pre_divisor_nonzero<'c>(ctx: &'c Context, _a: &BV<'c>, b: &BV<'c>) -> Bool<'c
     b._eq(&BV::from_i64(ctx, 0, 64)).not()
 }
 
+/// `div` side-exits on BOTH its edge cases: a zero divisor and the one
+/// overflowing quotient `i64::MIN / -1` (exact arithmetic — the deopt hands
+/// it to the promoting tiers rather than wrapping).
+fn pre_div_defined<'c>(ctx: &'c Context, a: &BV<'c>, b: &BV<'c>) -> Bool<'c> {
+    let min = BV::from_i64(ctx, i64::MIN, 64);
+    let neg1 = BV::from_i64(ctx, -1, 64);
+    let overflow = Bool::and(ctx, &[&a._eq(&min), &b._eq(&neg1)]);
+    Bool::and(ctx, &[&pre_divisor_nonzero(ctx, a, b), &overflow.not()])
+}
+
 /// Integer arithmetic is EXACT: an op whose true value escapes i64 side-exits
 /// (deopt → BigInt promotion) instead of wrapping. The precondition for the
 /// total binops is therefore "the exact result fits in signed 64-bit" — proved
@@ -99,9 +109,9 @@ pub fn all_specs() -> Vec<OpSpec> {
             name: "div",
             kind: SpecKind::Checked,
             build: || MicroOp::Div { dst: 2, lhs: 0, rhs: 1 },
-            pre: pre_divisor_nonzero,
-            // SMT bvsdiv wraps i64::MIN / -1 to i64::MIN and truncates
-            // toward zero — exactly `wrapping_div`.
+            pre: pre_div_defined,
+            // On the defined domain (no zero divisor, no MIN/-1 overflow)
+            // bvsdiv truncates toward zero — exactly the kernel's `/`.
             result: |_c, a, b| a.bvsdiv(b),
         },
         OpSpec {
@@ -237,18 +247,19 @@ pub fn deliberately_wrong_spec_for_canary() -> OpSpec {
     }
 }
 
-/// Prove `i64::MIN / -1 == i64::MIN` under the div spec (the locked
-/// wrapping rim).
-pub fn prove_min_div_wraps() -> Result<(), String> {
+/// Prove the div spec EXCLUDES `i64::MIN / -1`: its precondition is
+/// unsatisfiable at that input, so the spec never claims a value where the
+/// machine side-exits (exact arithmetic — the deopt hands the overflowing
+/// quotient to the promoting tiers instead of wrapping).
+pub fn prove_min_div_excluded() -> Result<(), String> {
     let cfg = z3::Config::new();
     let ctx = Context::new(&cfg);
     let solver = z3::Solver::new(&ctx);
     let min = BV::from_i64(&ctx, i64::MIN, 64);
     let neg1 = BV::from_i64(&ctx, -1, 64);
-    let r = min.bvsdiv(&neg1);
-    solver.assert(&r._eq(&min).not());
+    solver.assert(&pre_div_defined(&ctx, &min, &neg1));
     match solver.check() {
         z3::SatResult::Unsat => Ok(()),
-        _ => Err("bvsdiv(MIN, -1) != MIN — spec model broken".to_string()),
+        _ => Err("div precondition admits MIN / -1 — the side-exit case leaked into the spec".to_string()),
     }
 }

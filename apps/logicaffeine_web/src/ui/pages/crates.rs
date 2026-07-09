@@ -4,6 +4,8 @@
 //! Each card links directly to `/crates/{crate_name}/index.html`.
 
 use dioxus::prelude::*;
+#[cfg(all(feature = "split", target_arch = "wasm32"))]
+use dioxus::wasm_split;
 use crate::ui::components::main_nav::{MainNav, ActivePage};
 use crate::ui::components::footer::Footer;
 use crate::ui::seo::{JsonLdMultiple, PageHead, organization_schema, tech_article_schema, breadcrumb_schema, BreadcrumbItem, pages as seo_pages};
@@ -307,6 +309,39 @@ const CORE_CRATES: &[CrateInfo] = &[
         is_core: true,
         crates_io: Some("https://crates.io/crates/logicaffeine-system"),
     },
+    CrateInfo {
+        name: "logicaffeine_runtime",
+        description: "Deterministic concurrency runtime — task scheduler, FIFO channels, Select, and seed/trace replay for the interpreter and VM.",
+        is_core: true,
+        crates_io: Some("https://crates.io/crates/logicaffeine-runtime"),
+    },
+    CrateInfo {
+        name: "logicaffeine_forge",
+        description: "Copy-and-patch JIT for LOGOS — executable-memory layer, stencil runtime, and register-allocating x86-64 backend (EXODIA).",
+        is_core: true,
+        crates_io: Some("https://crates.io/crates/logicaffeine-forge"),
+    },
+    CrateInfo {
+        name: "logicaffeine_jit",
+        description: "Native execution tier — wires the copy-and-patch forge JIT to VM bytecode for hot functions and loop regions.",
+        is_core: true,
+        crates_io: Some("https://crates.io/crates/logicaffeine-jit"),
+    },
+];
+
+const VERIFY_CRATES: &[CrateInfo] = &[
+    CrateInfo {
+        name: "logicaffeine_verify",
+        description: "Z3-based static verification — BMC, k-induction, IC3, interpolation, equivalence, and SVA.",
+        is_core: true,
+        crates_io: Some("https://crates.io/crates/logicaffeine-verify"),
+    },
+    CrateInfo {
+        name: "logicaffeine_tv",
+        description: "SMT translation validation — proves the emitted Rust is observationally equivalent to the LOGOS source on every compile.",
+        is_core: true,
+        crates_io: Some("https://crates.io/crates/logicaffeine-tv"),
+    },
 ];
 
 const APP_CRATES: &[CrateInfo] = &[
@@ -324,7 +359,7 @@ const APP_CRATES: &[CrateInfo] = &[
     },
 ];
 
-#[component]
+#[component(lazy)]
 pub fn Crates() -> Element {
     let breadcrumbs = vec![
         BreadcrumbItem { name: "Home", path: "/" },
@@ -367,6 +402,15 @@ pub fn Crates() -> Element {
                     h2 { class: "crates-section-title", "Core Crates" }
                     div { class: "crates-grid",
                         for crate_info in CORE_CRATES.iter() {
+                            CrateCard { info: crate_info }
+                        }
+                    }
+                }
+
+                section { class: "crates-section",
+                    h2 { class: "crates-section-title", "Verification" }
+                    div { class: "crates-grid",
+                        for crate_info in VERIFY_CRATES.iter() {
                             CrateCard { info: crate_info }
                         }
                     }

@@ -1,17 +1,4 @@
-//! # logicaffeine_tv — SMT translation validation
-//!
-//! Proves that the Rust emitted by the logicaffeine compiler is *observationally
-//! equivalent* to the LOGOS source it was compiled from, per compile, by symbolically
-//! executing both into the shared [`logicaffeine_verify`] semantic domain and
-//! discharging the equivalence with Z3.
-//!
-//! The two encoders are *trusted but cross-validated*: the LOGOS encoder against the
-//! tree-walking interpreter (the de-facto semantics), the Rust encoder against
-//! compiling and running the emitted code. [`check_encoder_sound`] is the LOGOS-side
-//! meta-soundness check — the load-bearing trust anchor for every downstream claim.
-//!
-//! This is rung 3–4 (translation validation), not rung 5 (machine-checked proof): the
-//! trust boundary is the encoders + Z3 + rustc, not a mechanized meta-theorem.
+#![doc = include_str!("../README.md")]
 
 pub mod equiv;
 pub mod parse;

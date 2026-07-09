@@ -1,4 +1,4 @@
-//! Phase 121 — §3.3 Secondary predication (MISSING_ENGLISH.md).
+//! Phase 121 — §3.3 Secondary predication (work/MISSING_ENGLISH.md).
 //!
 //! A predicate over an argument alongside the verb:
 //!   resultative — "John painted the door red."  → … ∧ Result(e, Red(door))

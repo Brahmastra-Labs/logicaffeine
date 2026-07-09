@@ -213,7 +213,7 @@ fn subst_and_fold<'a>(
     interner: &mut Interner,
 ) -> &'a Expr<'a> {
     let substituted = substitute_identifiers(expr, env, expr_arena);
-    fold::fold_expr(substituted, expr_arena, stmt_arena, interner)
+    fold::fold_expr(substituted, expr_arena, stmt_arena, interner, &fold::BoolSyms::new())
 }
 
 /// Recursively substitute identifiers with their constant values from env.

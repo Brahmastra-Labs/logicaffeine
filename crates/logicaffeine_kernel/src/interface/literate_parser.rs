@@ -459,6 +459,7 @@ impl<'a> LiterateParser<'a> {
             ty,
             body: func_body,
             is_hint: false,
+            implicit_count: 0,
         })
     }
 
@@ -507,6 +508,7 @@ impl<'a> LiterateParser<'a> {
             ty: None,
             body,
             is_hint: false,
+            implicit_count: 0,
         })
     }
 
@@ -610,6 +612,7 @@ impl<'a> LiterateParser<'a> {
             ty,
             body,
             is_hint,
+            implicit_count: 0,
         })
     }
 
@@ -1773,6 +1776,14 @@ impl<'a> LiterateParser<'a> {
                     Box::new(Term::Lit(Literal::Text(name.clone()))),
                 )
             }
+            Term::Const { name, .. } => {
+                // A universe-polymorphic reference reifies by its name (reflection never
+                // sees level arguments).
+                Term::App(
+                    Box::new(Term::Global("SName".to_string())),
+                    Box::new(Term::Lit(Literal::Text(name.clone()))),
+                )
+            }
             Term::Lit(Literal::Int(n)) => {
                 // Integer literals become SLit
                 Term::App(
@@ -1785,6 +1796,20 @@ impl<'a> LiterateParser<'a> {
                 Term::App(
                     Box::new(Term::Global("SName".to_string())),
                     Box::new(Term::Lit(Literal::Text("Error_Float".to_string()))),
+                )
+            }
+            Term::Lit(Literal::BigInt(_)) => {
+                // BigInt literals do not fit the ring-syntax layer's machine-int SLit.
+                Term::App(
+                    Box::new(Term::Global("SName".to_string())),
+                    Box::new(Term::Lit(Literal::Text("Error_BigInt".to_string()))),
+                )
+            }
+            Term::Lit(Literal::Nat(_)) => {
+                // Nat literals do not fit the ring-syntax layer's machine-int SLit.
+                Term::App(
+                    Box::new(Term::Global("SName".to_string())),
+                    Box::new(Term::Lit(Literal::Text("Error_Nat".to_string()))),
                 )
             }
             Term::Lit(Literal::Duration(_d)) => {
@@ -1872,6 +1897,14 @@ impl<'a> LiterateParser<'a> {
                     )),
                 )
             }
+            Term::Sort(_) => {
+                // Universe-polymorphic levels (Var/Succ/Max) don't arise in ring proofs;
+                // reify conservatively as an opaque SSort so the conversion stays total.
+                Term::App(
+                    Box::new(Term::Global("SSort".to_string())),
+                    Box::new(Term::Global("UPoly".to_string())),
+                )
+            }
             Term::Hole => {
                 // Holes default to Int type for ring proofs
                 Term::App(
@@ -1879,8 +1912,8 @@ impl<'a> LiterateParser<'a> {
                     Box::new(Term::Lit(Literal::Text("Int".to_string()))),
                 )
             }
-            Term::Match { .. } | Term::Fix { .. } => {
-                // Match and Fix are complex - return error marker
+            Term::Match { .. } | Term::Fix { .. } | Term::MutualFix { .. } | Term::Let { .. } => {
+                // Match, Fix, MutualFix, and Let are complex - return error marker
                 Term::App(
                     Box::new(Term::Global("SName".to_string())),
                     Box::new(Term::Lit(Literal::Text("Error".to_string()))),
@@ -1898,6 +1931,7 @@ impl<'a> LiterateParser<'a> {
         match term {
             Term::Var(v) => v == name,
             Term::Global(_) => false,
+            Term::Const { .. } => false,
             Term::Sort(_) => false,
             Term::Lit(_) => false,
             Term::Pi { param_type, body_type, .. } => {
@@ -1917,6 +1951,14 @@ impl<'a> LiterateParser<'a> {
                     || cases.iter().any(|c| self.contains_self_reference(name, c))
             }
             Term::Fix { body, .. } => self.contains_self_reference(name, body),
+            Term::MutualFix { defs, .. } => {
+                defs.iter().any(|(_, b)| self.contains_self_reference(name, b))
+            }
+            Term::Let { ty, value, body, .. } => {
+                self.contains_self_reference(name, ty)
+                    || self.contains_self_reference(name, value)
+                    || self.contains_self_reference(name, body)
+            }
             Term::Hole => false, // Holes never contain self-references
         }
     }

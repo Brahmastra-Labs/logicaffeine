@@ -133,7 +133,7 @@
             Let cs be decompileExpr(coll).
             Let ss be decompileExpr(startIdx).
             Let es be decompileExpr(endIdx).
-            Return "slice of {cs} from {ss} to {es}".
+            Return "items {ss} through {es} of {cs}".
         When CCopy (target):
             Let ts be decompileExpr(target).
             Return "copy of {ts}".
@@ -144,11 +144,11 @@
         When CUnion (left, right):
             Let ls be decompileExpr(left).
             Let rs be decompileExpr(right).
-            Return "union of {ls} and {rs}".
+            Return "{ls} union {rs}".
         When CIntersection (left, right):
             Let ls be decompileExpr(left).
             Let rs be decompileExpr(right).
-            Return "intersection of {ls} and {rs}".
+            Return "{ls} intersection {rs}".
         When CNew (typeName, fieldNames, fields):
             If length of fieldNames equals 0:
                 If typeName equals "Map":
@@ -211,6 +211,13 @@
             Return "today".
         When CEscExpr (code):
             Return code.
+        When CManifestOf (zn):
+            Let zoneS be decompileExpr(zn).
+            Return "the manifest of {zoneS}".
+        When CChunkAt (idx, zn):
+            Let idxS be decompileExpr(idx).
+            Let zoneS be decompileExpr(zn).
+            Return "the chunk at {idxS} in {zoneS}".
         Otherwise:
             Return "<?expr?>".
 
@@ -444,6 +451,10 @@
             Let ts be decompileExpr(target).
             Let ms be decompileExpr(msg).
             Return "{pad}Send message {ms} to {ts}.{nl}".
+        When CStreamMessage (target, values):
+            Let ts be decompileExpr(target).
+            Let vs be decompileExpr(values).
+            Return "{pad}Stream {vs} to {ts}.{nl}".
         When CAwaitMessage (target):
             Return "{pad}Await message from {target}.{nl}".
         When CListen (addr, handler):
@@ -455,7 +466,7 @@
         When CZone (name, kind, body):
             Let bs be decompileBlock(body, indent + 1).
             Let q be chr(34).
-            Return "{pad}Zone {q}{name}{q} as {q}{kind}{q}:{nl}{bs}".
+            Return "{pad}Inside a new zone called {q}{name}{q}:{nl}{bs}".
         Otherwise:
             Return "{pad}<?stmt?>{nl}".
 

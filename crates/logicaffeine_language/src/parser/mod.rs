@@ -83,7 +83,7 @@ use crate::error::{ParseError, ParseErrorKind};
 use logicaffeine_base::{Interner, Symbol, SymbolEq};
 use crate::lexer::Lexer;
 use crate::lexicon::{self, Aspect, Definiteness, Time, VerbClass};
-use crate::token::{BlockType, FocusKind, Token, TokenType};
+use crate::token::{BlockType, FocusKind, Span, Token, TokenType};
 
 pub(super) type ParseResult<T> = Result<T, ParseError>;
 
@@ -276,6 +276,11 @@ pub struct Parser<'a, 'ctx, 'int> {
     pub(super) program_tier_pins: PinSet,
     /// Counter for generating fresh variables.
     pub(super) var_counter: usize,
+    /// Every name the program BINDS (`Let`, function params) — an
+    /// over-approximation that lets word literals (`infinity`, `nan`) yield
+    /// to user variables of the same name (ambiguity-preserving: a bound
+    /// name is never shadowed by a literal reading).
+    pub(super) user_bound: std::collections::HashSet<Symbol>,
     /// Pending tense from temporal adverbs.
     pub(super) pending_time: Option<Time>,
     /// Donkey bindings: (noun, var, is_donkey_used, wide_scope_negation).
@@ -355,6 +360,17 @@ pub struct Parser<'a, 'ctx, 'int> {
     /// <Name> into <var>` statement desugars to `Let <var> be run_accepted(<f>, <arg>, lo, hi)`,
     /// inlining the named contract's bounds — no new AST node, no runtime contract registry.
     pub(super) contracts: std::collections::HashMap<String, (i64, i64)>,
+    /// One source span per top-level statement `parse_program` returned, in
+    /// push order — the side-table that gives typechecker diagnostics,
+    /// ownership cause-links, and the rustc sourcemap real spans without a
+    /// span field on every `Stmt` variant. Read via [`Parser::stmt_spans`].
+    pub(super) stmt_spans: Vec<Span>,
+    /// Live recursion depth of the imperative descent (parenthesized
+    /// expressions, nested blocks). Checked against
+    /// [`crate::ast_depth::max_ast_depth`] so a parenthesis tower or block
+    /// pyramid errors gracefully instead of overflowing the parser's own
+    /// stack — the parse-time half of the AST depth gate.
+    pub(super) recursion_depth: usize,
 }
 
 impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
@@ -362,12 +378,21 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
     /// WorldState is REQUIRED - there is no "single sentence mode".
     /// A single sentence is just a discourse of length 1.
     pub fn new(
-        tokens: Vec<Token>,
+        mut tokens: Vec<Token>,
         world_state: &'ctx mut WorldState,
         interner: &'int mut Interner,
         ctx: AstContext<'a>,
         types: TypeRegistry,
     ) -> Self {
+        // The parser's walk is total only over an EOF-terminated stream;
+        // fragments and block slices can arrive without one, and a missing
+        // terminator used to surface as an index-out-of-bounds panic deep
+        // in `peek()`.
+        if !matches!(tokens.last().map(|t| &t.kind), Some(TokenType::EOF)) {
+            let end = tokens.last().map(|t| t.span.end).unwrap_or(0);
+            let empty = interner.intern("");
+            tokens.push(Token::new(TokenType::EOF, empty, Span::new(end, end)));
+        }
         Parser {
             tokens,
             current: 0,
@@ -375,6 +400,7 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
             program_opt_flags: OptimizationConfig::all_on(),
             program_tier_pins: PinSet::none(),
             var_counter: 0,
+            user_bound: std::collections::HashSet::new(),
             pending_time: None,
             donkey_bindings: Vec::new(),
             interner,
@@ -401,7 +427,32 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
             world_state,
             in_negative_quantifier: false,
             pending_partitive: None,
+            stmt_spans: Vec::new(),
+            recursion_depth: 0,
         }
+    }
+
+    /// The span of each top-level statement from the last `parse_program`
+    /// call, aligned 1:1 with the returned statement list.
+    pub fn stmt_spans(&self) -> &[Span] {
+        &self.stmt_spans
+    }
+
+    /// Record the span for the statement just pushed: from the first token of
+    /// `start_tok` through the last consumed token (terminating period or
+    /// dedent included). `parse_program` asserts 1:1 alignment on return.
+    fn record_stmt_span(&mut self, start_tok: usize) {
+        let start = self
+            .tokens
+            .get(start_tok)
+            .map(|t| t.span.start)
+            .unwrap_or(0);
+        let end = self
+            .tokens
+            .get(self.current.saturating_sub(1))
+            .map(|t| t.span.end)
+            .unwrap_or(start);
+        self.stmt_spans.push(Span::new(start, end));
     }
 
     pub fn set_discourse_event_var(&mut self, var: Symbol) {
@@ -622,6 +673,10 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
         } else {
             // Phase 38: Get param count from registry OR from built-in std types
             let base_name = self.interner.resolve(base);
+            // `Quantity of <Dimension>` reads its parameter leniently (a dimension word may collide
+            // with a keyword token); capture the predicate as a Copy bool so the `base_name` borrow
+            // does not span the `self.advance()` calls in the parameter loop below.
+            let base_is_quantity = base_name == "Quantity";
             let param_count = self.get_generic_param_count(base)
                 .or_else(|| match base_name {
                     // Built-in generic types for Phase 38 std library
@@ -661,7 +716,16 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                                 self.advance();
                             }
                         }
-                        let param = self.parse_type_expression()?;
+                        // `Quantity of <Dimension>` takes a DIMENSION NAME, which can collide with a
+                        // keyword token (`Length` is the `length of` keyword). Read it leniently by
+                        // lexeme so any dimension word is accepted in this position.
+                        let param = if base_is_quantity {
+                            let dim_sym = self.peek().lexeme;
+                            self.advance();
+                            TypeExpr::Named(dim_sym)
+                        } else {
+                            self.parse_type_expression()?
+                        };
                         params.push(param);
                     }
 
@@ -670,7 +734,12 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                 } else {
                     // Generic type without parameters - treat as primitive or named
                     let is_primitive = self.type_registry.as_ref().map(|r| r.is_type(base)).unwrap_or(false)
-                        || matches!(base_name, "Int" | "Nat" | "Text" | "Bool" | "Boolean" | "Real" | "Unit");
+                        || matches!(
+                        base_name,
+                        "Int" | "Nat" | "Text" | "Bool" | "Boolean" | "Real" | "Unit"
+                            | "Word8" | "Word16" | "Word32" | "Word64" | "Lanes8Word32"
+                            | "Lanes4Word32" | "Lanes16Word8" | "Lanes4Word64" | "Lanes16Word16"
+                    );
                     if is_primitive {
                         TypeExpr::Primitive(base)
                     } else {
@@ -680,7 +749,12 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
             } else {
                 // Check if it's a known primitive type (Int, Nat, Text, Bool, Real, Unit)
                 let is_primitive = self.type_registry.as_ref().map(|r| r.is_type(base)).unwrap_or(false)
-                    || matches!(base_name, "Int" | "Nat" | "Text" | "Bool" | "Boolean" | "Real" | "Unit");
+                    || matches!(
+                        base_name,
+                        "Int" | "Nat" | "Text" | "Bool" | "Boolean" | "Real" | "Unit"
+                            | "Word8" | "Word16" | "Word32" | "Word64" | "Lanes8Word32"
+                            | "Lanes4Word32" | "Lanes16Word8" | "Lanes4Word64" | "Lanes16Word16"
+                    );
                 if is_primitive {
                     TypeExpr::Primitive(base)
                 } else {
@@ -804,8 +878,9 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                     BlockType::Main | BlockType::Function => ParserMode::Imperative,
                     BlockType::Theorem | BlockType::Definition | BlockType::Define | BlockType::Proof |
                     BlockType::Example | BlockType::Logic | BlockType::Note | BlockType::TypeDef |
-                    BlockType::Policy | BlockType::Requires |
-                    BlockType::Hardware | BlockType::Property => ParserMode::Declarative,
+                    BlockType::Policy | BlockType::Requires | BlockType::Axiom | BlockType::Theory |
+                    BlockType::Hardware | BlockType::Property
+                    | BlockType::SuspectedTypo { .. } => ParserMode::Declarative,
                     BlockType::No | BlockType::Tier => self.mode, // Annotation — keep current mode
                 };
                 self.current += 1;
@@ -1359,6 +1434,183 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
         }
     }
 
+    /// Parse an INTEGER numeral lexeme EXACTLY: digit separators
+    /// (`1_000_000`), radix literals (`0xff` / `0b1010` / `0o755`), and a
+    /// HARD error when the value cannot fit an Int — never a silent 0.
+    /// (BigInt literals ride the numeric-tower work; until then an overlong
+    /// literal fails loudly.)
+    fn parse_i64_numeral(&self, num_str: &str) -> ParseResult<i64> {
+        self.parse_i64_numeral_signed(num_str, false)
+    }
+
+    /// The signed core: `negative` attaches the sign to the DIGITS before
+    /// parsing, so `-9223372036854775808` (i64::MIN, whose magnitude alone
+    /// overflows by one) parses exactly.
+    fn parse_i64_numeral_signed(&self, num_str: &str, negative: bool) -> ParseResult<i64> {
+        let clean = num_str.replace('_', "");
+        let sign = if negative { "-" } else { "" };
+        // A RADIX literal (`0x…`/`0b…`/`0o…`) denotes a BIT PATTERN, so it may use the FULL unsigned
+        // 64-bit range: `0xFFFFFFFFFFFFFFFF` is the all-ones `Word64`, and a SHA-512 round constant like
+        // `0xb5c0fbcfec4d3b2f` (≥ 2⁶³) is a legitimate 64-bit value. When the signed parse overflows,
+        // an unsigned value in (i64::MAX, u64::MAX] reinterprets as its two's-complement i64 bits —
+        // exactly what `word64(…)`/`word32(…)` read back. A DECIMAL literal is magnitude, so it stays
+        // i64-bound (BigInt magnitudes ride the numeric-tower work) and still fails loudly.
+        let radix = |digits: &str, base: u32| -> Result<i64, ()> {
+            if let Ok(v) = i64::from_str_radix(&format!("{}{}", sign, digits), base) {
+                return Ok(v);
+            }
+            if !negative {
+                if let Ok(u) = u64::from_str_radix(digits, base) {
+                    return Ok(u as i64);
+                }
+            }
+            Err(())
+        };
+        let parsed = if let Some(hex) = clean.strip_prefix("0x").or_else(|| clean.strip_prefix("0X")) {
+            radix(hex, 16)
+        } else if let Some(bin) = clean.strip_prefix("0b").or_else(|| clean.strip_prefix("0B")) {
+            radix(bin, 2)
+        } else if let Some(oct) = clean.strip_prefix("0o").or_else(|| clean.strip_prefix("0O")) {
+            radix(oct, 8)
+        } else {
+            format!("{}{}", sign, clean).parse::<i64>().map_err(|_| ())
+        };
+        parsed.map_err(|_| ParseError {
+            kind: ParseErrorKind::ExpectedKeyword {
+                keyword: format!(
+                    "a representable Int literal — `{}` does not fit the Int range (±9223372036854775807)",
+                    num_str
+                ),
+            },
+            span: self.current_span(),
+        })
+    }
+
+    /// True when a numeral lexeme is a RADIX literal (`0x…`/`0b…`/`0o…`) —
+    /// checked BEFORE the float sniff, because `0x1E` contains an `E` that
+    /// is a hex digit, not scientific notation.
+    fn is_radix_numeral(num_str: &str) -> bool {
+        let s = num_str.strip_prefix('_').unwrap_or(num_str);
+        s.len() > 2
+            && s.starts_with('0')
+            && matches!(s.as_bytes()[1], b'x' | b'X' | b'b' | b'B' | b'o' | b'O')
+    }
+
+    /// Parse the NUMERAL after `item`/`items` into an index literal. An
+    /// integer numeral is guarded against the 1-based footgun (`item 0` is a
+    /// clean compile error); a NON-integer numeral (a float map key like
+    /// `item 1.0 of prices`) is a Float literal — never the silent
+    /// `unwrap_or(0)` that used to turn it into a phantom `item 0`.
+    fn parse_index_numeral(&mut self, sym: Symbol) -> ParseResult<&'a Expr<'a>> {
+        let num_str = self.interner.resolve(sym).to_string();
+        if let Ok(n) = self.parse_i64_numeral(&num_str) {
+            if n == 0 {
+                return Err(ParseError {
+                    kind: ParseErrorKind::ZeroIndex,
+                    span: self.current_span(),
+                });
+            }
+            return Ok(self
+                .ctx
+                .alloc_imperative_expr(Expr::Literal(crate::ast::Literal::Number(n))));
+        }
+        if let Ok(f) = num_str.parse::<f64>() {
+            return Ok(self
+                .ctx
+                .alloc_imperative_expr(Expr::Literal(crate::ast::Literal::Float(f))));
+        }
+        Err(ParseError {
+            kind: ParseErrorKind::ExpectedKeyword {
+                keyword: format!("a numeric index (got '{}')", num_str),
+            },
+            span: self.current_span(),
+        })
+    }
+
+    /// A fresh, user-uncollidable temporary for parser desugars ([`Stmt::Splice`]
+    /// output). Shares `var_counter` so `ParserGuard` checkpoints roll it back.
+    fn fresh_desugar_temp(&mut self, tag: &str) -> Symbol {
+        let idx = self.var_counter;
+        self.var_counter += 1;
+        self.interner.intern(&format!("__{}_{}", tag, idx))
+    }
+
+    /// Lower a write into a NESTED index place — `Set item j of (item i of
+    /// grid) to v` — into read → element write → write-back:
+    ///
+    /// ```text
+    /// Let __place_i be j.  Let __place_v be v.  Let __place_k be i.
+    /// Let __place_t be item __place_k of grid.
+    /// Set item __place_i of __place_t to __place_v.
+    /// Set item __place_k of grid to __place_t.        (recursive for depth)
+    /// ```
+    ///
+    /// The element write targets a plain BINDING, so each engine's own
+    /// copy-on-write machinery preserves value semantics (an alias of the
+    /// inner row never observes the write — `diff_let_binding_isolates`); the
+    /// write-back stores the possibly-fresh inner collection into the outer
+    /// place. Temp order (index, value, collection) matches the engines'
+    /// evaluation order for a flat `SetIndex`.
+    fn desugar_place_set_index(
+        &mut self,
+        collection: &'a Expr<'a>,
+        index: &'a Expr<'a>,
+        value: &'a Expr<'a>,
+    ) -> Stmt<'a> {
+        let (base, key) = match collection {
+            Expr::Index { collection: base, index: key } => (*base, *key),
+            _ => return Stmt::SetIndex { collection, index, value },
+        };
+        let t_idx = self.fresh_desugar_temp("place_i");
+        let t_val = self.fresh_desugar_temp("place_v");
+        let t_key = self.fresh_desugar_temp("place_k");
+        let t_inner = self.fresh_desugar_temp("place_t");
+        let idx_ref = self.ctx.alloc_imperative_expr(Expr::Identifier(t_idx));
+        let val_ref = self.ctx.alloc_imperative_expr(Expr::Identifier(t_val));
+        let key_ref = self.ctx.alloc_imperative_expr(Expr::Identifier(t_key));
+        let inner_ref = self.ctx.alloc_imperative_expr(Expr::Identifier(t_inner));
+        let read = self.ctx.alloc_imperative_expr(Expr::Index { collection: base, index: key_ref });
+        let write_back = self.desugar_place_set_index(base, key_ref, inner_ref);
+        let body = [
+            Stmt::Let { var: t_idx, ty: None, value: index, mutable: false },
+            Stmt::Let { var: t_val, ty: None, value, mutable: false },
+            Stmt::Let { var: t_key, ty: None, value: key, mutable: false },
+            Stmt::Let { var: t_inner, ty: None, value: read, mutable: true },
+            Stmt::SetIndex { collection: inner_ref, index: idx_ref, value: val_ref },
+            write_back,
+        ];
+        let body = self.ctx.stmts.expect("imperative arenas not initialized")
+            .alloc_slice(body.into_iter());
+        Stmt::Splice { body }
+    }
+
+    /// Lower `Push v to <indexed place>` the same way (read → push into the
+    /// binding → write-back). See [`Self::desugar_place_set_index`].
+    fn desugar_place_push(&mut self, value: &'a Expr<'a>, collection: &'a Expr<'a>) -> Stmt<'a> {
+        let (base, key) = match collection {
+            Expr::Index { collection: base, index: key } => (*base, *key),
+            _ => return Stmt::Push { value, collection },
+        };
+        let t_val = self.fresh_desugar_temp("place_v");
+        let t_key = self.fresh_desugar_temp("place_k");
+        let t_inner = self.fresh_desugar_temp("place_t");
+        let val_ref = self.ctx.alloc_imperative_expr(Expr::Identifier(t_val));
+        let key_ref = self.ctx.alloc_imperative_expr(Expr::Identifier(t_key));
+        let inner_ref = self.ctx.alloc_imperative_expr(Expr::Identifier(t_inner));
+        let read = self.ctx.alloc_imperative_expr(Expr::Index { collection: base, index: key_ref });
+        let write_back = self.desugar_place_set_index(base, key_ref, inner_ref);
+        let body = [
+            Stmt::Let { var: t_val, ty: None, value, mutable: false },
+            Stmt::Let { var: t_key, ty: None, value: key, mutable: false },
+            Stmt::Let { var: t_inner, ty: None, value: read, mutable: true },
+            Stmt::Push { value: val_ref, collection: inner_ref },
+            write_back,
+        ];
+        let body = self.ctx.stmts.expect("imperative arenas not initialized")
+            .alloc_slice(body.into_iter());
+        Stmt::Splice { body }
+    }
+
     /// Parses the token stream into a logical expression.
     ///
     /// This is the main entry point for declarative/FOL parsing. It handles
@@ -1563,6 +1815,7 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
     /// - **Theorem**: Logical propositions with proof strategies
     pub fn parse_program(&mut self) -> ParseResult<Vec<Stmt<'a>>> {
         let mut statements = Vec::new();
+        self.stmt_spans.clear();
         let mut in_definition_block = false;
         let mut pending_opt_flags = OptimizationConfig::all_on();
 
@@ -1577,6 +1830,23 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
             // Handle block headers
             if let Some(Token { kind: TokenType::BlockHeader { block_type }, .. }) = self.tokens.get(self.current) {
                 match block_type {
+                    BlockType::SuspectedTypo { found, suggestion } => {
+                        let found = self.interner.resolve(*found).to_string();
+                        let suggestion_str = self.interner.resolve(*suggestion);
+                        let mut canonical: String = suggestion_str.to_string();
+                        if let Some(c) = canonical.get_mut(0..1) {
+                            c.make_ascii_uppercase();
+                        }
+                        return Err(ParseError {
+                            kind: ParseErrorKind::ExpectedKeyword {
+                                keyword: format!(
+                                    "a known header — `## {}` looks like a typo of `## {}` (if it is a prose heading, pick a name further from the code headers)",
+                                    found, canonical
+                                ),
+                            },
+                            span: self.current_span(),
+                        });
+                    }
                     BlockType::Definition => {
                         in_definition_block = true;
                         self.mode = ParserMode::Declarative;
@@ -1648,11 +1918,13 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                     BlockType::Function => {
                         in_definition_block = false;
                         self.mode = ParserMode::Imperative;
+                        let header_tok = self.current;
                         self.advance();
                         // Parse function definition, passing pending annotations
                         let flags = std::mem::take(&mut pending_opt_flags);
                         let func_def = self.parse_function_def_with_flags(flags)?;
                         statements.push(func_def);
+                        self.record_stmt_span(header_tok);
                         continue;
                     }
                     BlockType::TypeDef => {
@@ -1682,25 +1954,55 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                         // Phase 63: Parse theorem block
                         in_definition_block = false;
                         self.mode = ParserMode::Declarative;
+                        let header_tok = self.current;
                         self.advance();
                         let theorem = self.parse_theorem_block()?;
                         statements.push(theorem);
+                        self.record_stmt_span(header_tok);
                         continue;
                     }
                     BlockType::Define => {
                         // Rung 0a: vernacular-logic predicate definition.
                         in_definition_block = false;
                         self.mode = ParserMode::Declarative;
+                        let header_tok = self.current;
                         self.advance();
                         let definition = self.parse_define_block()?;
                         statements.push(definition);
+                        self.record_stmt_span(header_tok);
+                        continue;
+                    }
+                    BlockType::Axiom => {
+                        // A named formal first-order axiom (the seam for Tarski).
+                        in_definition_block = false;
+                        self.mode = ParserMode::Declarative;
+                        let header_tok = self.current;
+                        self.advance();
+                        let axiom = self.parse_axiom_block()?;
+                        statements.push(axiom);
+                        self.record_stmt_span(header_tok);
+                        continue;
+                    }
+                    BlockType::Theory => {
+                        // A named development grouping formal axioms and theorems.
+                        in_definition_block = false;
+                        self.mode = ParserMode::Declarative;
+                        let header_tok = self.current;
+                        self.advance();
+                        let theory = self.parse_theory_block()?;
+                        statements.push(theory);
+                        self.record_stmt_span(header_tok);
                         continue;
                     }
                     BlockType::Requires => {
                         in_definition_block = false;
                         self.mode = ParserMode::Declarative;
+                        let header_tok = self.current;
                         self.advance();
                         let deps = self.parse_requires_block()?;
+                        for _ in 0..deps.len() {
+                            self.record_stmt_span(header_tok);
+                        }
                         statements.extend(deps);
                         continue;
                     }
@@ -1735,12 +2037,14 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                     self.parse_accept_contract()?;
                     continue;
                 }
+                let start_tok = self.current;
                 let stmt = self.parse_statement()?;
                 statements.push(stmt);
 
                 if self.check(&TokenType::Period) {
                     self.advance();
                 }
+                self.record_stmt_span(start_tok);
             } else {
                 // In declarative mode (Theorem, etc.), skip for now
                 self.advance();
@@ -1750,7 +2054,43 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
         // Any decorators not consumed by a function (trailing, or a library with
         // no `## Main`) are file-level.
         self.program_opt_flags = self.program_opt_flags.merged(&pending_opt_flags);
+        debug_assert_eq!(
+            self.stmt_spans.len(),
+            statements.len(),
+            "stmt_spans must stay aligned 1:1 with the statement list"
+        );
+
+        // The AST depth gate: "parsed ⇒ bounded". Any tree this function
+        // returns is safe for every downstream recursive walker — deep
+        // chains built iteratively above are caught here; deep parse-time
+        // recursion (parenthesis towers) is caught by `recursion_depth`.
+        crate::ast_depth::validate_program_depth(
+            &statements,
+            self.stmt_spans.first().copied().unwrap_or_else(|| self.current_span()),
+        )?;
+
         Ok(statements)
+    }
+
+    /// Enter one level of imperative parse recursion, erroring gracefully at
+    /// the depth limit (the parse-time half of the AST depth gate). Pair
+    /// every call with [`Parser::leave_recursion`].
+    pub(super) fn enter_recursion(&mut self) -> ParseResult<()> {
+        self.recursion_depth += 1;
+        let limit = crate::ast_depth::max_parse_recursion();
+        if self.recursion_depth > limit {
+            self.recursion_depth -= 1;
+            return Err(ParseError {
+                kind: ParseErrorKind::AstTooDeep { depth: limit + 1, max_depth: limit },
+                span: self.current_span(),
+            });
+        }
+        Ok(())
+    }
+
+    /// Leave one level of imperative parse recursion.
+    pub(super) fn leave_recursion(&mut self) {
+        self.recursion_depth = self.recursion_depth.saturating_sub(1);
     }
 
     /// The program-wide optimization config from file-level `## No <X>` decorators
@@ -1767,7 +2107,18 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
         self.program_tier_pins
     }
 
+    /// Depth-guarded wrapper: every nested construct (If/While/Repeat/Zone
+    /// bodies, however each parses its block) recurses through here, so one
+    /// guard covers all statement nesting. Flat statement lists enter and
+    /// leave pairwise — sequential code never accumulates depth.
     fn parse_statement(&mut self) -> ParseResult<Stmt<'a>> {
+        self.enter_recursion()?;
+        let result = self.parse_statement_inner();
+        self.leave_recursion();
+        result
+    }
+
+    fn parse_statement_inner(&mut self) -> ParseResult<Stmt<'a>> {
         // Phase 32: Function definitions can appear inside Main block
         // Handle both TokenType::To and Preposition("to")
         if self.check(&TokenType::To) || self.check_preposition_is("to") {
@@ -1785,6 +2136,10 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
         // Syntax: `x = 5` or `x: Int = 5`
         if self.peek_equals_assignment() {
             return self.parse_equals_assignment(false);
+        }
+        // Compound assignment: `x += e`, `grid[i] *= 2`, `p.count += 1`.
+        if self.peek_compound_assignment() {
+            return self.parse_compound_assignment();
         }
         if self.check(&TokenType::Set) {
             return self.parse_set_statement();
@@ -1899,6 +2254,9 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
         if self.check(&TokenType::Spawn) {
             return self.parse_spawn_statement();
         }
+        if self.check_word("Stream") {
+            return self.parse_stream_statement();
+        }
         if self.check(&TokenType::Send) {
             // Phase 54: Disambiguate "Send x into pipe" vs "Send x to agent"
             if self.lookahead_contains_into() {
@@ -1969,6 +2327,34 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
             }
         }
 
+        // `x is 5.` at statement position: value comparison spelled with the
+        // predicate copula. Diagnose it specifically — a generic
+        // ExpectedStatement would bury the actual lesson (say `equals`).
+        // Only literal values qualify: `x is even.` is predication, not a
+        // botched comparison.
+        if self
+            .tokens
+            .get(self.current + 1)
+            .is_some_and(|t| matches!(t.kind, TokenType::Is))
+        {
+            if let Some(value_token) = self.tokens.get(self.current + 2) {
+                if matches!(
+                    value_token.kind,
+                    TokenType::Number(_)
+                        | TokenType::StringLiteral(_)
+                        | TokenType::InterpolatedString(_)
+                ) {
+                    let variable = self.interner.resolve(self.peek().lexeme).to_string();
+                    let value = self.interner.resolve(value_token.lexeme).to_string();
+                    let span = Span::new(self.peek().span.start, value_token.span.end);
+                    return Err(ParseError {
+                        kind: ParseErrorKind::IsValueEquality { variable, value },
+                        span,
+                    });
+                }
+            }
+        }
+
         Err(ParseError {
             kind: ParseErrorKind::ExpectedStatement,
             span: self.current_span(),
@@ -1995,28 +2381,27 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
         }
         self.advance(); // consume ":"
 
-        // Expect indent
-        if !self.check(&TokenType::Indent) {
-            return Err(ParseError {
-                kind: ParseErrorKind::ExpectedStatement,
-                span: self.current_span(),
-            });
-        }
-        self.advance(); // consume Indent
-
-        // Parse then block
+        // Parse the then body — an indented block, OR (inline guard) a single
+        // statement on the same line: `If c: Return 1.`
         let mut then_stmts = Vec::new();
-        while !self.check(&TokenType::Dedent) && !self.is_at_end() {
+        if self.check(&TokenType::Indent) {
+            self.advance(); // consume Indent
+            while !self.check(&TokenType::Dedent) && !self.is_at_end() {
+                let stmt = self.parse_statement()?;
+                then_stmts.push(stmt);
+                if self.check(&TokenType::Period) {
+                    self.advance();
+                }
+            }
+            if self.check(&TokenType::Dedent) {
+                self.advance();
+            }
+        } else {
             let stmt = self.parse_statement()?;
             then_stmts.push(stmt);
             if self.check(&TokenType::Period) {
                 self.advance();
             }
-        }
-
-        // Consume dedent
-        if self.check(&TokenType::Dedent) {
-            self.advance();
         }
 
         // Allocate then_block in arena
@@ -2044,25 +2429,26 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                 }
                 self.advance(); // consume ":"
 
-                if !self.check(&TokenType::Indent) {
-                    return Err(ParseError {
-                        kind: ParseErrorKind::ExpectedStatement,
-                        span: self.current_span(),
-                    });
-                }
-                self.advance(); // consume Indent
-
+                // Indented block OR inline: `Otherwise: Show "x".`
                 let mut else_stmts = Vec::new();
-                while !self.check(&TokenType::Dedent) && !self.is_at_end() {
+                if self.check(&TokenType::Indent) {
+                    self.advance(); // consume Indent
+                    while !self.check(&TokenType::Dedent) && !self.is_at_end() {
+                        let stmt = self.parse_statement()?;
+                        else_stmts.push(stmt);
+                        if self.check(&TokenType::Period) {
+                            self.advance();
+                        }
+                    }
+                    if self.check(&TokenType::Dedent) {
+                        self.advance();
+                    }
+                } else {
                     let stmt = self.parse_statement()?;
                     else_stmts.push(stmt);
                     if self.check(&TokenType::Period) {
                         self.advance();
                     }
-                }
-
-                if self.check(&TokenType::Dedent) {
-                    self.advance();
                 }
 
                 Some(self.ctx.stmts.expect("imperative arenas not initialized")
@@ -2102,28 +2488,27 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
         }
         self.advance(); // consume ":"
 
-        // Expect indent
-        if !self.check(&TokenType::Indent) {
-            return Err(ParseError {
-                kind: ParseErrorKind::ExpectedStatement,
-                span: self.current_span(),
-            });
-        }
-        self.advance(); // consume Indent
-
-        // Parse then block
+        // Parse the then body — an indented block, OR (inline guard) a single
+        // statement on the same line: `If c: Return 1.`
         let mut then_stmts = Vec::new();
-        while !self.check(&TokenType::Dedent) && !self.is_at_end() {
+        if self.check(&TokenType::Indent) {
+            self.advance(); // consume Indent
+            while !self.check(&TokenType::Dedent) && !self.is_at_end() {
+                let stmt = self.parse_statement()?;
+                then_stmts.push(stmt);
+                if self.check(&TokenType::Period) {
+                    self.advance();
+                }
+            }
+            if self.check(&TokenType::Dedent) {
+                self.advance();
+            }
+        } else {
             let stmt = self.parse_statement()?;
             then_stmts.push(stmt);
             if self.check(&TokenType::Period) {
                 self.advance();
             }
-        }
-
-        // Consume dedent
-        if self.check(&TokenType::Dedent) {
-            self.advance();
         }
 
         // Allocate then_block in arena
@@ -2150,25 +2535,26 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                 }
                 self.advance(); // consume ":"
 
-                if !self.check(&TokenType::Indent) {
-                    return Err(ParseError {
-                        kind: ParseErrorKind::ExpectedStatement,
-                        span: self.current_span(),
-                    });
-                }
-                self.advance(); // consume Indent
-
+                // Indented block OR inline: `Otherwise: Show "x".`
                 let mut else_stmts = Vec::new();
-                while !self.check(&TokenType::Dedent) && !self.is_at_end() {
+                if self.check(&TokenType::Indent) {
+                    self.advance(); // consume Indent
+                    while !self.check(&TokenType::Dedent) && !self.is_at_end() {
+                        let stmt = self.parse_statement()?;
+                        else_stmts.push(stmt);
+                        if self.check(&TokenType::Period) {
+                            self.advance();
+                        }
+                    }
+                    if self.check(&TokenType::Dedent) {
+                        self.advance();
+                    }
+                } else {
                     let stmt = self.parse_statement()?;
                     else_stmts.push(stmt);
                     if self.check(&TokenType::Period) {
                         self.advance();
                     }
-                }
-
-                if self.check(&TokenType::Dedent) {
-                    self.advance();
                 }
 
                 Some(self.ctx.stmts.expect("imperative arenas not initialized")
@@ -2300,6 +2686,29 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
 
     fn parse_repeat_statement(&mut self) -> ParseResult<Stmt<'a>> {
         self.advance(); // consume "Repeat"
+
+        // `Repeat forever:` — an infinite loop (exit via `Break`), lowered to `While true:`.
+        if self.check_word("forever") {
+            self.advance(); // consume "forever"
+            if !self.check(&TokenType::Colon) {
+                return Err(ParseError { kind: ParseErrorKind::ExpectedKeyword { keyword: ":".to_string() }, span: self.current_span() });
+            }
+            self.advance(); // consume ":"
+            if !self.check(&TokenType::Indent) {
+                return Err(ParseError { kind: ParseErrorKind::ExpectedStatement, span: self.current_span() });
+            }
+            self.advance(); // consume Indent
+            let mut body_stmts = Vec::new();
+            while !self.check(&TokenType::Dedent) && !self.is_at_end() {
+                let stmt = self.parse_statement()?;
+                body_stmts.push(stmt);
+                if self.check(&TokenType::Period) { self.advance(); }
+            }
+            if self.check(&TokenType::Dedent) { self.advance(); }
+            let body = self.ctx.stmts.expect("imperative arenas not initialized").alloc_slice(body_stmts.into_iter());
+            let cond = self.ctx.alloc_imperative_expr(Expr::Literal(crate::ast::Literal::Boolean(true)));
+            return Ok(Stmt::While { cond, body, decreasing: None });
+        }
 
         // Optional "for"
         if self.check(&TokenType::For) {
@@ -2492,6 +2901,10 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
         // Parse additional arguments separated by "and" or ","
         while self.check(&TokenType::And) || self.check(&TokenType::Comma) {
             self.advance(); // consume "and" or ","
+            // A trailing comma (`f(1, 2,)`) ends the argument list.
+            if self.check(&TokenType::RParen) {
+                break;
+            }
             let arg = self.parse_call_arg()?;
             args.push(arg);
         }
@@ -2515,7 +2928,76 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
     fn parse_condition(&mut self) -> ParseResult<&'a Expr<'a>> {
         // Grand Challenge: Parse compound conditions with "and" and "or"
         // "or" has lower precedence than "and"
-        self.parse_or_condition()
+        let expr = self.parse_or_condition()?;
+        // Postfix unit conversion: `<expr> in <unit>` → `convert(expr, "unit")`, e.g.
+        // `2 inches + 5 centimeters in feet`. The lowest-precedence postfix, so `in` applies to the
+        // whole expression. Gated on the token after `in` being a UNIT word, so `for each x in list`
+        // (loop var via expect_identifier; collection is not a unit) and `chunk at i in zone` are
+        // untouched — neither places a unit word right after `in`.
+        if self.check(&TokenType::In) || self.check_preposition_is("in") {
+            // Zoned time: `<moment> in "America/New_York"` → the local time in that zone. The token
+            // after `in` is a STRING (a zone name), which distinguishes it from `in <unit>` below.
+            let zone_sym = match self.tokens.get(self.current + 1).map(|t| &t.kind) {
+                Some(TokenType::StringLiteral(s)) => Some(*s),
+                _ => None,
+            };
+            if let Some(zone_sym) = zone_sym {
+                self.advance(); // "in"
+                self.advance(); // the zone string
+                let zone = self.ctx.alloc_imperative_expr(Expr::Literal(crate::ast::Literal::Text(zone_sym)));
+                let func = self.interner.intern("in_zone");
+                return Ok(self
+                    .ctx
+                    .alloc_imperative_expr(Expr::Call { function: func, args: vec![expr, zone] }));
+            }
+            let unit_lexeme = self.tokens.get(self.current + 1).and_then(|t| {
+                if matches!(t.kind, TokenType::Identifier | TokenType::Noun(_) | TokenType::Adjective(_)) {
+                    Some(t.lexeme)
+                } else {
+                    None
+                }
+            });
+            if let Some(unit_lexeme) = unit_lexeme {
+                if logicaffeine_base::quantity::units::by_name(self.interner.resolve(unit_lexeme)).is_some() {
+                    self.advance(); // consume "in"
+                    self.advance(); // consume the unit word
+                    let unit_expr = self
+                        .ctx
+                        .alloc_imperative_expr(crate::ast::Expr::Literal(crate::ast::Literal::Text(unit_lexeme)));
+                    let func = self.interner.intern("convert");
+                    return Ok(self
+                        .ctx
+                        .alloc_imperative_expr(crate::ast::Expr::Call { function: func, args: vec![expr, unit_expr] }));
+                }
+            }
+            // Currency conversion: `<money> in EUR` → `to_currency(money, "EUR")` via the ambient
+            // rate context. Checked AFTER units (a unit word never reads as a currency); gated on a
+            // real ISO-4217 code, so `for each x in list` and friends are untouched.
+            let code_lexeme = self.tokens.get(self.current + 1).and_then(|t| {
+                if matches!(
+                    t.kind,
+                    TokenType::Identifier | TokenType::Noun(_) | TokenType::ProperName(_) | TokenType::Adjective(_)
+                ) {
+                    Some(t.lexeme)
+                } else {
+                    None
+                }
+            });
+            if let Some(code_lexeme) = code_lexeme {
+                if logicaffeine_base::money::currency::by_code(self.interner.resolve(code_lexeme)).is_some() {
+                    self.advance(); // consume "in"
+                    self.advance(); // consume the currency code
+                    let code_expr = self
+                        .ctx
+                        .alloc_imperative_expr(crate::ast::Expr::Literal(crate::ast::Literal::Text(code_lexeme)));
+                    let func = self.interner.intern("to_currency");
+                    return Ok(self
+                        .ctx
+                        .alloc_imperative_expr(crate::ast::Expr::Call { function: func, args: vec![expr, code_expr] }));
+                }
+            }
+        }
+        Ok(expr)
     }
 
     /// Parse "or" conditions (lower precedence than "and")
@@ -2552,6 +3034,32 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
         Ok(left)
     }
 
+    /// Whether the `in` at the current position introduces a postfix unit / currency / zone
+    /// CONVERSION (handled by [`parse_condition`]) rather than Pythonic membership. Mirrors
+    /// `parse_condition`'s exact gating: a zone STRING, or a unit / ISO-4217 currency word, right
+    /// after `in`. Keeps `x in xs` membership working while restoring `<expr> in <unit|currency>`.
+    fn in_introduces_conversion(&self) -> bool {
+        match self.tokens.get(self.current + 1) {
+            Some(t) => match &t.kind {
+                TokenType::StringLiteral(_) => true,
+                TokenType::Identifier | TokenType::Noun(_) | TokenType::ProperName(_) | TokenType::Adjective(_) => {
+                    // A declared variable shadows a unit/currency abbreviation (declarer-wins):
+                    // `20 in s`, where `s` is a bound set, is membership — NOT "convert 20 to
+                    // seconds" (`s` = the seconds unit). A real conversion (`… in feet`, `… in USD`)
+                    // never names a bound variable, so those are unaffected.
+                    if self.user_bound.contains(&t.lexeme) {
+                        return false;
+                    }
+                    let name = self.interner.resolve(t.lexeme);
+                    logicaffeine_base::quantity::units::by_name(name).is_some()
+                        || logicaffeine_base::money::currency::by_code(name).is_some()
+                }
+                _ => false,
+            },
+            None => false,
+        }
+    }
+
     /// Grand Challenge: Parse a single comparison expression
     fn parse_comparison(&mut self) -> ParseResult<&'a Expr<'a>> {
         // Handle unary "not" operator: "not x" or "not (expr)"
@@ -2562,6 +3070,33 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
         }
 
         let left = self.parse_xor_expr()?;
+
+        // Key-first membership: `x in xs` → `xs contains x` (Pythonic); `x not in
+        // xs` → its negation. Reuses `Expr::Contains` (operands reversed). The
+        // `Repeat for x in xs` header consumes its own `in` before the iterable,
+        // so it never reaches here.
+        //
+        // BUT decline when `in` introduces a POSTFIX CONVERSION — `<expr> in <unit|currency>` or
+        // `<moment> in "<zone>"` — which `parse_condition` handles at a higher level and must see the
+        // `in` for. Without this, `10.00 EUR in USD` parses as membership (`USD contains …`) and
+        // fails with "Undefined variable: USD"; likewise `<moment> in "America/New_York"`.
+        if self.check(&TokenType::In) && !self.in_introduces_conversion() {
+            self.advance(); // consume "in"
+            let collection = self.parse_xor_expr()?;
+            return Ok(self.ctx.alloc_imperative_expr(Expr::Contains { collection, value: left }));
+        }
+        if (self.check(&TokenType::Not) || self.check_word("not"))
+            && matches!(
+                self.tokens.get(self.current + 1).map(|t| &t.kind),
+                Some(TokenType::In)
+            )
+        {
+            self.advance(); // consume "not"
+            self.advance(); // consume "in"
+            let collection = self.parse_xor_expr()?;
+            let contains = self.ctx.alloc_imperative_expr(Expr::Contains { collection, value: left });
+            return Ok(self.ctx.alloc_imperative_expr(Expr::Not { operand: contains }));
+        }
 
         // Check for comparison operators
         let op = if self.check(&TokenType::Equals) {
@@ -2575,6 +3110,61 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
             // Peek ahead to determine which comparison
             let saved_pos = self.current;
             self.advance(); // consume "is"
+
+            // Number predicates desugar to a complete modulo test (no right
+            // operand to combine) — return the whole Bool expression directly:
+            // `x is even` → `x % 2 == 0`, `x is odd` → `x % 2 == 1`,
+            // `x is divisible by n` → `x % n == 0`.
+            if self.check_word("even") || self.check_word("odd") {
+                let is_odd = self.check_word("odd");
+                self.advance(); // consume "even"/"odd"
+                let two = self.ctx.alloc_imperative_expr(Expr::Literal(crate::ast::Literal::Number(2)));
+                let rem = self.ctx.alloc_imperative_expr(Expr::BinaryOp {
+                    op: BinaryOpKind::Modulo, left, right: two,
+                });
+                let want = self.ctx.alloc_imperative_expr(Expr::Literal(
+                    crate::ast::Literal::Number(if is_odd { 1 } else { 0 }),
+                ));
+                return Ok(self.ctx.alloc_imperative_expr(Expr::BinaryOp {
+                    op: BinaryOpKind::Eq, left: rem, right: want,
+                }));
+            }
+            if self.check_word("divisible") {
+                self.advance(); // consume "divisible"
+                if self.check_word("by") || self.check_preposition_is("by") {
+                    self.advance(); // consume "by"
+                    let divisor = self.parse_xor_expr()?;
+                    let rem = self.ctx.alloc_imperative_expr(Expr::BinaryOp {
+                        op: BinaryOpKind::Modulo, left, right: divisor,
+                    });
+                    let zero = self.ctx.alloc_imperative_expr(Expr::Literal(crate::ast::Literal::Number(0)));
+                    return Ok(self.ctx.alloc_imperative_expr(Expr::BinaryOp {
+                        op: BinaryOpKind::Eq, left: rem, right: zero,
+                    }));
+                }
+                self.current = saved_pos;
+                return Ok(left);
+            }
+            // `x is between lo and hi` → `lo <= x and x <= hi` (inclusive).
+            if self.check_word("between") {
+                self.advance(); // consume "between"
+                let lo = self.parse_xor_expr()?;
+                if self.check_word("and") || self.check(&TokenType::And) {
+                    self.advance(); // consume "and"
+                    let hi = self.parse_xor_expr()?;
+                    let lower = self.ctx.alloc_imperative_expr(Expr::BinaryOp {
+                        op: BinaryOpKind::LtEq, left: lo, right: left,
+                    });
+                    let upper = self.ctx.alloc_imperative_expr(Expr::BinaryOp {
+                        op: BinaryOpKind::LtEq, left, right: hi,
+                    });
+                    return Ok(self.ctx.alloc_imperative_expr(Expr::BinaryOp {
+                        op: BinaryOpKind::And, left: lower, right: upper,
+                    }));
+                }
+                self.current = saved_pos;
+                return Ok(left);
+            }
 
             if self.check_word("greater") {
                 self.advance(); // consume "greater"
@@ -2606,6 +3196,14 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                     self.current = saved_pos;
                     None
                 }
+            } else if self.check_word("before") {
+                // "is before X" → temporal `<` (a Moment/Date precedes another); generic `<`.
+                self.advance(); // consume "before"
+                Some(BinaryOpKind::Lt)
+            } else if self.check_word("after") {
+                // "is after X" → temporal `>` (a Moment/Date follows another); generic `>`.
+                self.advance(); // consume "after"
+                Some(BinaryOpKind::Gt)
             } else if self.check_word("not") || self.check(&TokenType::Not) {
                 // "is not X" → NotEq
                 self.advance(); // consume "not"
@@ -2620,6 +3218,29 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                     self.current = saved_pos;
                     None
                 }
+            } else if self.check_word("approximately") {
+                // "is approximately X" → the tolerant float comparison
+                // (`==` stays IEEE bit-exact). An optional "equal to" tail
+                // also reads naturally: "is approximately equal to X".
+                self.advance(); // consume "approximately"
+                if self.check_word("equal") {
+                    self.advance(); // consume "equal"
+                    if self.check_preposition_is("to") {
+                        self.advance(); // consume "to"
+                    }
+                }
+                Some(BinaryOpKind::ApproxEq)
+            } else if matches!(self.peek().kind, TokenType::Number(_))
+                || (self.check(&TokenType::Minus)
+                    && self.tokens.get(self.current + 1)
+                        .is_some_and(|t| matches!(t.kind, TokenType::Number(_))))
+            {
+                // Bare `x is <number>` is equality (`x is equal to <number>` → `x == <number>`).
+                // Guarded to a NUMBER literal (including a negated one), so `is a`/`is an`/`is the`/
+                // `is nothing`/`is <predicate>` and every worded `is …` comparison above stay
+                // untouched — nothing but a numeral reaches here. The numeral is left for the
+                // right-operand parse below.
+                Some(BinaryOpKind::Eq)
             } else {
                 self.current = saved_pos;
                 None
@@ -2648,10 +3269,46 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
 
         if let Some(op) = op {
             let right = self.parse_xor_expr()?;
-            Ok(self.ctx.alloc_imperative_expr(Expr::BinaryOp { op, left, right }))
+            let first = self.ctx.alloc_imperative_expr(Expr::BinaryOp { op, left, right });
+            // Chained comparison: `lo <= x <= hi` → `(lo <= x) and (x <= hi)`
+            // (math / Python reading). Only the SYMBOLIC operators chain; the
+            // worded forms don't. `right` is the shared middle operand.
+            if let Some(op2) = self.try_symbolic_comparison_op() {
+                let hi = self.parse_xor_expr()?;
+                let second = self.ctx.alloc_imperative_expr(Expr::BinaryOp {
+                    op: op2, left: right, right: hi,
+                });
+                return Ok(self.ctx.alloc_imperative_expr(Expr::BinaryOp {
+                    op: BinaryOpKind::And, left: first, right: second,
+                }));
+            }
+            Ok(first)
         } else {
             Ok(left)
         }
+    }
+
+    /// Consume a SYMBOLIC comparison operator (`< <= > >= == !=`) if one is
+    /// next, for chained comparisons. Worded forms (`is greater than`) are not
+    /// chained. Returns `None` (consuming nothing) otherwise.
+    fn try_symbolic_comparison_op(&mut self) -> Option<BinaryOpKind> {
+        let op = if self.check(&TokenType::LtEq) {
+            BinaryOpKind::LtEq
+        } else if self.check(&TokenType::GtEq) {
+            BinaryOpKind::GtEq
+        } else if self.check(&TokenType::Lt) {
+            BinaryOpKind::Lt
+        } else if self.check(&TokenType::Gt) {
+            BinaryOpKind::Gt
+        } else if self.check(&TokenType::EqEq) {
+            BinaryOpKind::Eq
+        } else if self.check(&TokenType::NotEq) {
+            BinaryOpKind::NotEq
+        } else {
+            return None;
+        };
+        self.advance();
+        Some(op)
     }
 
     fn parse_let_statement(&mut self) -> ParseResult<Stmt<'a>> {
@@ -2847,6 +3504,7 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
         // Register variable in WorldState's DRS with Owned state for ownership tracking
         self.world_state.drs.introduce_referent(var, var, crate::drs::Gender::Unknown, crate::drs::Number::Singular);
 
+        self.user_bound.insert(var);
         Ok(Stmt::Let { var, ty, value, mutable })
     }
 
@@ -2906,6 +3564,75 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
 
     /// Check if current token starts an equals-style assignment.
     /// Patterns: `identifier = value` or `identifier: Type = value`
+    /// True when the statement is a compound assignment — it starts with an
+    /// l-value root (identifier-like) and has a `+= -= *= /= %=` token before
+    /// the statement terminator. The compound ops appear nowhere else, so their
+    /// presence is unambiguous.
+    fn peek_compound_assignment(&self) -> bool {
+        let is_identifier = matches!(
+            self.peek().kind,
+            TokenType::Noun(_) | TokenType::ProperName(_) | TokenType::Identifier
+                | TokenType::Adjective(_) | TokenType::Verb { .. }
+                | TokenType::Particle(_) | TokenType::Ambiguous { .. }
+                | TokenType::Pronoun { .. }
+        );
+        if !is_identifier {
+            return false;
+        }
+        let mut offset = 1;
+        while self.current + offset < self.tokens.len() {
+            match &self.tokens[self.current + offset].kind {
+                TokenType::PlusEq
+                | TokenType::MinusEq
+                | TokenType::StarEq
+                | TokenType::SlashEq
+                | TokenType::PercentEq => return true,
+                TokenType::Period | TokenType::Newline | TokenType::EOF => return false,
+                _ => offset += 1,
+            }
+        }
+        false
+    }
+
+    /// Parse `<lvalue> <op>= <expr>` → `Set <lvalue> to <lvalue> <op> <expr>`.
+    /// The l-value (identifier / `p.field` / `xs[i]`) is parsed as an
+    /// expression — it stops cleanly at the compound-op token.
+    fn parse_compound_assignment(&mut self) -> ParseResult<Stmt<'a>> {
+        use crate::ast::Expr;
+        let target = self.parse_imperative_expr()?;
+        let op = match self.peek().kind {
+            TokenType::PlusEq => BinaryOpKind::Add,
+            TokenType::MinusEq => BinaryOpKind::Subtract,
+            TokenType::StarEq => BinaryOpKind::Multiply,
+            TokenType::SlashEq => BinaryOpKind::Divide,
+            TokenType::PercentEq => BinaryOpKind::Modulo,
+            _ => {
+                return Err(ParseError {
+                    kind: ParseErrorKind::ExpectedKeyword { keyword: "+= -= *= /= %=".to_string() },
+                    span: self.current_span(),
+                });
+            }
+        };
+        self.advance(); // consume the compound op
+        let rhs = self.parse_imperative_expr()?;
+        let combined = self.ctx.alloc_imperative_expr(Expr::BinaryOp { op, left: target, right: rhs });
+        // Desugar by target shape (mirrors `Set`): identifier → Set (auto-mutable
+        // via collect_mutable_vars), field → SetField, index → the place desugar.
+        match target {
+            Expr::Identifier(sym) => Ok(Stmt::Set { target: *sym, value: combined }),
+            Expr::FieldAccess { object, field } => {
+                Ok(Stmt::SetField { object, field: *field, value: combined })
+            }
+            Expr::Index { collection, index } => {
+                Ok(self.desugar_place_set_index(collection, index, combined))
+            }
+            _ => Err(ParseError {
+                kind: ParseErrorKind::ExpectedIdentifier,
+                span: self.current_span(),
+            }),
+        }
+    }
+
     fn peek_equals_assignment(&self) -> bool {
         // Must start with an identifier-like token
         // Note: Unknown words default to Adjective in the lexer
@@ -2999,9 +3726,19 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
             value
         };
 
+        // `x = e` on an EXISTING binding MUTATES it (no silent shadow — the
+        // loop-body `total = total + i` footgun updated a fresh ghost while
+        // the outer variable never moved). A `mut`/type-annotated form or a
+        // fresh name is a new binding. The mutation auto-marks the target
+        // mutable downstream (codegen derives `let mut` from the `Set`).
+        if !explicit_mutable && ty.is_none() && self.user_bound.contains(&var) {
+            return Ok(Stmt::Set { target: var, value });
+        }
+
         // Register variable in WorldState's DRS
         self.world_state.drs.introduce_referent(var, var, crate::drs::Gender::Unknown, crate::drs::Number::Singular);
 
+        self.user_bound.insert(var);
         Ok(Stmt::Let { var, ty, value, mutable: explicit_mutable })
     }
 
@@ -3047,7 +3784,7 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                 Ok(Stmt::Set { target: *target, value })
             }
             Expr::Index { collection, index } => {
-                Ok(Stmt::SetIndex { collection: *collection, index: *index, value })
+                Ok(self.desugar_place_set_index(*collection, *index, value))
             }
             _ => Err(ParseError {
                 kind: ParseErrorKind::ExpectedIdentifier,
@@ -3064,8 +3801,19 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
             return Ok(Stmt::Return { value: None });
         }
 
-        // Use parse_comparison to support returning comparison results like "n equals 5"
-        let value = self.parse_comparison()?;
+        // Use parse_condition (the full value grammar: and/or, comparisons, AND the `in <unit>` /
+        // `in "<zone>"` postfix) so a Return is as expressive as a Show/Let — `Return q in feet`,
+        // `Return m in "America/New_York"`, `Return a is before b`.
+        let value = self.parse_condition()?;
+        // Trailing-condition guard: `Return X if c.` → `If c: Return X.`
+        if self.check(&TokenType::If) {
+            self.advance(); // consume "if"
+            let cond = self.parse_condition()?;
+            let ret = Stmt::Return { value: Some(value) };
+            let then_block = self.ctx.stmts.expect("imperative arenas not initialized")
+                .alloc_slice(std::iter::once(ret));
+            return Ok(Stmt::If { cond, then_block, else_block: None });
+        }
         Ok(Stmt::Return { value: Some(value) })
     }
 
@@ -3406,7 +4154,8 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
         // Parse address expression (string literal or variable)
         let address = self.parse_imperative_expr()?;
 
-        Ok(Stmt::Listen { address })
+        let secure = self.parse_secure_clause()?;
+        Ok(Stmt::Listen { address, secure })
     }
 
     /// Phase 51: Parse Connect statement - dial remote peer
@@ -3426,7 +4175,41 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
         // Parse address expression
         let address = self.parse_imperative_expr()?;
 
-        Ok(Stmt::ConnectTo { address })
+        let secure = self.parse_secure_clause()?;
+        Ok(Stmt::ConnectTo { address, secure })
+    }
+
+    /// Parse the optional PNP one-time-pad clause `with pad "<path>" as initiator|responder` that may
+    /// trail a `Connect`/`Listen`. Returns `None` when the clause is absent (a bare statement), so the
+    /// wire/behavior is byte-identical for programs that don't opt in.
+    fn parse_secure_clause(&mut self) -> ParseResult<Option<crate::ast::SecurePad<'a>>> {
+        // Only engage on the two-word lead `with pad`, so a stray `with` elsewhere is left alone.
+        if !(self.check_word("with") && self.peek_word_at(1, "pad")) {
+            return Ok(None);
+        }
+        self.advance(); // "with"
+        self.advance(); // "pad"
+        let pad = self.parse_imperative_expr()?;
+        if !self.check_word("as") {
+            return Err(ParseError {
+                kind: ParseErrorKind::ExpectedKeyword { keyword: "as".to_string() },
+                span: self.current_span(),
+            });
+        }
+        self.advance(); // "as"
+        let role = if self.check_word("initiator") {
+            self.advance();
+            crate::ast::SecureRole::Initiator
+        } else if self.check_word("responder") {
+            self.advance();
+            crate::ast::SecureRole::Responder
+        } else {
+            return Err(ParseError {
+                kind: ParseErrorKind::ExpectedKeyword { keyword: "initiator or responder".to_string() },
+                span: self.current_span(),
+            });
+        };
+        Ok(Some(crate::ast::SecurePad { pad, role }))
     }
 
     /// Phase 51: Parse Sleep statement - pause execution
@@ -4164,7 +4947,16 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
     }
 
     /// Phase 54: Parse an indented block of statements
+    /// Depth-guarded wrapper: nested blocks recurse here once per level, so
+    /// a block pyramid errors gracefully instead of overflowing the parser.
     fn parse_indented_block(&mut self) -> ParseResult<crate::ast::stmt::Block<'a>> {
+        self.enter_recursion()?;
+        let result = self.parse_indented_block_inner();
+        self.leave_recursion();
+        result
+    }
+
+    fn parse_indented_block_inner(&mut self) -> ParseResult<crate::ast::stmt::Block<'a>> {
         // Expect indent
         if !self.check(&TokenType::Indent) {
             return Err(ParseError {
@@ -4265,8 +5057,13 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
     fn parse_push_statement(&mut self) -> ParseResult<Stmt<'a>> {
         self.advance(); // consume "Push"
 
-        // Parse the value being pushed
-        let value = self.parse_imperative_expr()?;
+        // Parse the value(s) being pushed — `Push a, b, c to xs.` appends each
+        // in order (desugars to one Push per element).
+        let mut values = vec![self.parse_imperative_expr()?];
+        while self.check(&TokenType::Comma) {
+            self.advance(); // consume ","
+            values.push(self.parse_imperative_expr()?);
+        }
 
         // Expect "to" (can be keyword or preposition)
         if !self.check(&TokenType::To) && !self.check_preposition_is("to") {
@@ -4280,7 +5077,17 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
         // Parse the collection
         let collection = self.parse_imperative_expr()?;
 
-        Ok(Stmt::Push { value, collection })
+        if values.len() == 1 {
+            Ok(self.desugar_place_push(values[0], collection))
+        } else {
+            let mut pushes = Vec::with_capacity(values.len());
+            for value in values {
+                pushes.push(self.desugar_place_push(value, collection));
+            }
+            let body = self.ctx.stmts.expect("imperative arenas not initialized")
+                .alloc_slice(pushes.into_iter());
+            Ok(Stmt::Splice { body })
+        }
     }
 
     /// Phase 43D: Parse Pop statement for collection operations
@@ -4545,8 +5352,8 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
             // Parse size number
             let size_value = match &self.peek().kind {
                 TokenType::Number(sym) => {
-                    let num_str = self.interner.resolve(*sym);
-                    let val = num_str.replace('_', "").parse::<usize>().unwrap_or(0);
+                    let num_str = self.interner.resolve(*sym).to_string();
+                    let val = self.parse_i64_numeral(&num_str)? as usize;
                     self.advance();
                     val
                 }
@@ -5223,8 +6030,31 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
         // Parse premises (Given: statements)
         // Each premise is a sentence that can introduce referents for subsequent premises
         let mut premises = Vec::new();
+        let mut premise_names: Vec<Option<String>> = Vec::new();
         while self.check(&TokenType::Given) {
             self.advance(); // consume "Given"
+
+            self.skip_whitespace_tokens();
+
+            // Optional premise NAME in parentheses: `Given (h): …` names this premise
+            // `h`, so a `Proof:` script can say `cases h` instead of the positional `hp0`.
+            let mut this_name: Option<String> = None;
+            if self.check(&TokenType::LParen) {
+                self.advance();
+                self.skip_whitespace_tokens();
+                if let Some(token) = self.tokens.get(self.current) {
+                    if !matches!(token.kind, TokenType::RParen) {
+                        this_name = Some(self.interner.resolve(token.lexeme).to_string());
+                        self.advance();
+                    }
+                }
+                self.skip_whitespace_tokens();
+                if self.check(&TokenType::RParen) {
+                    self.advance();
+                }
+                self.skip_whitespace_tokens();
+            }
+            premise_names.push(this_name);
 
             // Expect colon
             if self.check(&TokenType::Colon) {
@@ -5300,8 +6130,15 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
 
         self.skip_whitespace_tokens();
 
-        // Parse proof strategy (Proof: Auto.)
-        let strategy = if self.check(&TokenType::BlockHeader { block_type: crate::token::BlockType::Proof }) {
+        // Parse proof strategy (`Proof: Auto.` or `Proof: <tactic script>`). The word
+        // `Proof` may lex as a real `Proof` block header OR — inline, after `Prove:` —
+        // as an ordinary capitalized name; accept both so the `Proof:` line is found.
+        let at_proof = self
+            .check(&TokenType::BlockHeader { block_type: crate::token::BlockType::Proof })
+            || self.tokens.get(self.current).is_some_and(|t| {
+                self.interner.resolve(t.lexeme).eq_ignore_ascii_case("proof")
+            });
+        let strategy = if at_proof {
             self.advance();
             self.skip_whitespace_tokens();
 
@@ -5315,8 +6152,26 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                 self.advance();
                 ProofStrategy::Auto
             } else {
-                // For now, default to Auto if we can't parse the strategy
-                ProofStrategy::Auto
+                // Anything else is an explicit tactic SCRIPT, written in the
+                // English-esque vernacular: collect every token's lexeme up to the end
+                // of the block (the next `##` header, a dedent, or EOF) and join them —
+                // the tactic-script parser re-lexes the result, treating sentence
+                // punctuation as step separators. So a prose proof flows straight in.
+                let mut parts: Vec<String> = Vec::new();
+                while !self.is_at_end()
+                    && !matches!(self.tokens[self.current].kind, TokenType::BlockHeader { .. })
+                    && !self.check(&TokenType::Dedent)
+                {
+                    let lexeme = self.tokens[self.current].lexeme;
+                    parts.push(self.interner.resolve(lexeme).to_string());
+                    self.advance();
+                }
+                let script = parts.join(" ");
+                if script.trim().is_empty() {
+                    ProofStrategy::Auto
+                } else {
+                    ProofStrategy::Script(script)
+                }
             }
         } else {
             // No explicit proof strategy, default to Auto
@@ -5331,6 +6186,7 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
         let theorem = TheoremBlock {
             name,
             premises,
+            premise_names,
             goal,
             strategy,
         };
@@ -5425,6 +6281,79 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
             definiendum,
             definiens,
         }))
+    }
+
+    /// Parse a `## Axiom` block: `## Axiom <name>: <formula>`. The leading identifier is
+    /// the axiom's name; the remainder of the block is captured as formula text and parsed
+    /// downstream by the formal-formula parser (`logicaffeine_proof::formula`). The body is
+    /// formal first-order logic — `for all a b, Cong(a, b, b, a)` — which the NL parser
+    /// cannot express, so it is kept as text rather than parsed here.
+    fn parse_axiom_block(&mut self) -> ParseResult<Stmt<'a>> {
+        use crate::ast::axiom::AxiomBlock;
+        self.skip_whitespace_tokens();
+        let name = self.read_block_name();
+        self.skip_whitespace_tokens();
+        if self.check(&TokenType::Colon) {
+            self.advance();
+        }
+        let formula = self.collect_block_text();
+        Ok(Stmt::Axiom(AxiomBlock { name, formula }))
+    }
+
+    /// Parse a `## Theory` block: `## Theory <name>` optionally followed by a development
+    /// body (`Axiom …` / `Theorem …` declarations). The leading identifier is the theory's
+    /// name; the remainder of the block is captured as development text, parsed downstream.
+    fn parse_theory_block(&mut self) -> ParseResult<Stmt<'a>> {
+        use crate::ast::axiom::TheoryBlock;
+        self.skip_whitespace_tokens();
+        let name = self.read_block_name();
+        self.skip_whitespace_tokens();
+        if self.check(&TokenType::Colon) {
+            self.advance();
+        }
+        let body = self.collect_block_text();
+        Ok(Stmt::Theory(TheoryBlock { name, body }))
+    }
+
+    /// Read a block's leading name token (a proper name / noun / adjective / verb lexeme),
+    /// returning its text. `"Anonymous"` if no name token is present.
+    fn read_block_name(&mut self) -> String {
+        if let Some(token) = self.tokens.get(self.current) {
+            if matches!(
+                token.kind,
+                TokenType::Noun(_)
+                    | TokenType::ProperName(_)
+                    | TokenType::Adjective(_)
+                    | TokenType::Verb { .. }
+            ) {
+                let name = self.interner.resolve(token.lexeme).to_string();
+                self.advance();
+                return name;
+            }
+        }
+        "Anonymous".to_string()
+    }
+
+    /// Collect the remaining tokens of the current block as text — each token's lexeme
+    /// joined with spaces, up to the next `##` block header or EOF. Layout tokens
+    /// (`Newline`/`Indent`/`Dedent`) are skipped rather than emitted, so a multi-line,
+    /// indented development body flows through as clean whitespace-separated words for the
+    /// downstream formal parser.
+    fn collect_block_text(&mut self) -> String {
+        let mut parts: Vec<String> = Vec::new();
+        while !self.is_at_end()
+            && !matches!(self.tokens[self.current].kind, TokenType::BlockHeader { .. })
+        {
+            match &self.tokens[self.current].kind {
+                TokenType::Newline | TokenType::Indent | TokenType::Dedent => {}
+                _ => {
+                    let lexeme = self.tokens[self.current].lexeme;
+                    parts.push(self.interner.resolve(lexeme).to_string());
+                }
+            }
+            self.advance();
+        }
+        parts.join(" ")
     }
 
     /// Skip whitespace tokens (newlines, indentation)
@@ -5579,9 +6508,22 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                 }
                 self.advance(); // consume :
 
+                // MVS: a `mutable` parameter passes by reference (callee mutations
+                // visible to caller) under value semantics — carried as a
+                // `TypeExpr::Mutable` wrapper so the parameter tuple is unchanged.
+                let param_is_mutable = self.check_mutable_keyword();
+                if param_is_mutable {
+                    self.advance(); // consume the `mutable`/`mut` keyword
+                }
+
                 // Phase 38: Parse full type expression instead of simple identifier
                 let param_type_expr = self.parse_type_expression()?;
-                let param_type = self.ctx.alloc_type_expr(param_type_expr);
+                let param_type_inner = self.ctx.alloc_type_expr(param_type_expr);
+                let param_type = if param_is_mutable {
+                    self.ctx.alloc_type_expr(TypeExpr::Mutable { inner: param_type_inner })
+                } else {
+                    param_type_inner
+                };
 
                 params.push((param_name, param_type));
 
@@ -5716,6 +6658,16 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
         }
         self.advance(); // consume Indent
 
+        // Scope the `=`-mutation decision (and the infinity/nan literal guard)
+        // to THIS function body: seed a fresh bound-set with the params, restore
+        // the outer set on exit so a sibling function's or Main's `x = e` never
+        // mistakes an out-of-scope `x` for a local (which would wrongly emit a
+        // `Set` on an unbound name).
+        let saved_user_bound = std::mem::take(&mut self.user_bound);
+        for (param_name, _) in &params {
+            self.user_bound.insert(*param_name);
+        }
+
         // Parse body statements
         let mut body_stmts = Vec::new();
         // Contract clauses: `Requires <cond>.` (precondition, checked at entry) and
@@ -5758,6 +6710,9 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
             self.advance();
         }
 
+        // Leave the function scope: the outer bound-set regains control.
+        self.user_bound = saved_user_bound;
+
         // Desugar postconditions: a hard assert before EVERY return path (recursing
         // into nested control flow) and at fallthrough — so no exit escapes the check.
         if !ensures_checks.is_empty() {
@@ -5797,8 +6752,94 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
     }
 
     /// Parse a primary expression (literal, identifier, index, slice, list, etc.)
+    /// Depth-guarded wrapper: primary expressions are the re-entry point of
+    /// the imperative expression descent (`( expr )`, prefix forms), so a
+    /// parenthesis tower recurses here once per level — the guard turns a
+    /// would-be parser stack overflow into a graceful `AstTooDeep`.
     fn parse_primary_expr(&mut self) -> ParseResult<&'a Expr<'a>> {
+        self.enter_recursion()?;
+        let result = self.parse_primary_expr_inner();
+        self.leave_recursion();
+        result
+    }
+
+    fn parse_primary_expr_inner(&mut self) -> ParseResult<&'a Expr<'a>> {
         use crate::ast::{Expr, Literal};
+
+        // English prefix arithmetic: `the sum/product/difference/quotient/remainder of A and B`
+        // → the matching binary op. Unambiguous (the distinctive `the <op-noun> of` prefix), so it
+        // never shadows a plain variable. `A`/`B` are full sub-expressions; the `and` delimiter is
+        // consumed here (it binds tighter than the boolean `and`, which lives far above additive).
+        if self.check_word("the") && self.peek_word_at(2, "of") {
+            let op = if self.peek_word_at(1, "sum") {
+                Some(BinaryOpKind::Add)
+            } else if self.peek_word_at(1, "product") {
+                Some(BinaryOpKind::Multiply)
+            } else if self.peek_word_at(1, "difference") {
+                Some(BinaryOpKind::Subtract)
+            } else if self.peek_word_at(1, "quotient") {
+                Some(BinaryOpKind::Divide)
+            } else if self.peek_word_at(1, "remainder") {
+                Some(BinaryOpKind::Modulo)
+            } else {
+                None
+            };
+            if let Some(op) = op {
+                self.advance(); // "the"
+                self.advance(); // op-noun
+                self.advance(); // "of"
+                let a = self.parse_additive_expr()?;
+                if self.check(&TokenType::And) || self.check_word("and") {
+                    self.advance(); // "and"
+                } else {
+                    return Err(ParseError {
+                        kind: ParseErrorKind::ExpectedKeyword { keyword: "and".to_string() },
+                        span: self.current_span(),
+                    });
+                }
+                let b = self.parse_additive_expr()?;
+                return Ok(self.ctx.alloc_imperative_expr(Expr::BinaryOp { op, left: a, right: b }));
+            }
+        }
+
+        // Natural timestamp literal: `timestamp "2024-03-10T07:30:00Z"` → a Moment. Reads as a
+        // value, not a function call; lowers to the (invisible) parse_timestamp. Only fires when an
+        // identifier `timestamp` is immediately followed by a string, so a variable named
+        // `timestamp` used on its own is unaffected.
+        if matches!(self.peek().kind, TokenType::Identifier | TokenType::Noun(_))
+            && self.interner.resolve(self.peek().lexeme).eq_ignore_ascii_case("timestamp")
+        {
+            let str_sym = match self.tokens.get(self.current + 1).map(|t| &t.kind) {
+                Some(TokenType::StringLiteral(s)) => Some(*s),
+                _ => None,
+            };
+            if let Some(s) = str_sym {
+                self.advance(); // "timestamp"
+                self.advance(); // the string
+                let text = self.ctx.alloc_imperative_expr(Expr::Literal(Literal::Text(s)));
+                let func = self.interner.intern("parse_timestamp");
+                return Ok(self.ctx.alloc_imperative_expr(Expr::Call { function: func, args: vec![text] }));
+            }
+        }
+
+        // Natural UUID literal: `uuid "550e8400-…"` → a Uuid (parses/normalizes the text). Reads as a
+        // value; lowers to the invisible `uuid(text)` builtin. Only fires when the identifier `uuid`
+        // is immediately followed by a string, so a variable named `uuid` is unaffected.
+        if matches!(self.peek().kind, TokenType::Identifier | TokenType::Noun(_))
+            && self.interner.resolve(self.peek().lexeme).eq_ignore_ascii_case("uuid")
+        {
+            let str_sym = match self.tokens.get(self.current + 1).map(|t| &t.kind) {
+                Some(TokenType::StringLiteral(s)) => Some(*s),
+                _ => None,
+            };
+            if let Some(s) = str_sym {
+                self.advance(); // "uuid"
+                self.advance(); // the string
+                let text = self.ctx.alloc_imperative_expr(Expr::Literal(Literal::Text(s)));
+                let func = self.interner.intern("uuid");
+                return Ok(self.ctx.alloc_imperative_expr(Expr::Call { function: func, args: vec![text] }));
+            }
+        }
 
         let token = self.peek().clone();
         match &token.kind {
@@ -5856,6 +6897,113 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
             // Phase 33: Extended for variant constructors "a new Circle with radius 10"
             // Phase 34: Extended for generic instantiation "a new Box of Int"
             TokenType::Article(_) => {
+                // Natural date-component accessor: `the year|month|day|weekday of <moment>` reads as
+                // a sentence and desugars to the extractor (which threads through every tier). The
+                // component words lex as CalendarUnit/Noun; we match by lexeme and require `of` next.
+                let comp_lex = self.tokens.get(self.current + 1).map(|t| t.lexeme);
+                let of_lex = self.tokens.get(self.current + 2).map(|t| t.lexeme);
+                if let (Some(cl), Some(ol)) = (comp_lex, of_lex) {
+                    let extractor = match self.interner.resolve(cl).to_ascii_lowercase().as_str() {
+                        "year" => Some("year_of"),
+                        "month" => Some("month_of"),
+                        "day" => Some("day_of"),
+                        "weekday" => Some("weekday_of"),
+                        "hour" => Some("hour_of"),
+                        "minute" => Some("minute_of"),
+                        "second" => Some("second_of"),
+                        "date" => Some("date_of"),
+                        "time" => Some("time_of"),
+                        "week" => Some("week_of"),
+                        "quarter" => Some("quarter_of"),
+                        _ => None,
+                    };
+                    if let Some(extractor) = extractor {
+                        if self.interner.resolve(ol).eq_ignore_ascii_case("of") {
+                            self.advance(); // "the"
+                            self.advance(); // component noun
+                            self.advance(); // "of"
+                            let mut operand = self.parse_primary_expr()?;
+                            // Zoned read: `the hour of m in "Asia/Tokyo"` → the LOCAL component. We
+                            // intercept the `in "<zone>"` here (before it reaches the in_zone postfix,
+                            // which would wrongly wrap the resulting Int) and shift the operand to the
+                            // zone's local-as-UTC instant, so the SAME extractor yields the local field.
+                            if self.check(&TokenType::In) || self.check_preposition_is("in") {
+                                let zone_sym = match self.tokens.get(self.current + 1).map(|t| &t.kind) {
+                                    Some(TokenType::StringLiteral(z)) => Some(*z),
+                                    _ => None,
+                                };
+                                if let Some(z) = zone_sym {
+                                    self.advance(); // "in"
+                                    self.advance(); // the zone string
+                                    let zone = self
+                                        .ctx
+                                        .alloc_imperative_expr(Expr::Literal(crate::ast::Literal::Text(z)));
+                                    let local = self.interner.intern("local_instant");
+                                    operand = self.ctx.alloc_imperative_expr(Expr::Call {
+                                        function: local,
+                                        args: vec![operand, zone],
+                                    });
+                                }
+                            }
+                            let func = self.interner.intern(extractor);
+                            return Ok(self
+                                .ctx
+                                .alloc_imperative_expr(Expr::Call { function: func, args: vec![operand] }));
+                        }
+                    }
+                    // Natural elapsed-time: `the <unit> between <a> and <b>`. FIXED-width units
+                    // (second…week) divide the second-difference; CALENDAR units (month/year) count
+                    // complete periods (a month is 28–31 days, so it cannot be a fixed division).
+                    let unit_lexeme = self.interner.resolve(cl).to_ascii_lowercase();
+                    let per_unit: Option<i64> = match unit_lexeme.as_str() {
+                        "second" | "seconds" => Some(1),
+                        "minute" | "minutes" => Some(60),
+                        "hour" | "hours" => Some(3600),
+                        "day" | "days" => Some(86400),
+                        "week" | "weeks" => Some(604800),
+                        _ => None,
+                    };
+                    let cal_func: Option<&str> = match unit_lexeme.as_str() {
+                        "month" | "months" => Some("months_between"),
+                        "year" | "years" => Some("years_between"),
+                        _ => None,
+                    };
+                    if (per_unit.is_some() || cal_func.is_some())
+                        && self.interner.resolve(ol).eq_ignore_ascii_case("between")
+                    {
+                        self.advance(); // "the"
+                        self.advance(); // unit noun
+                        self.advance(); // "between"
+                        let a = self.parse_primary_expr()?;
+                        if !(self.check(&TokenType::And) || self.check_word("and")) {
+                            return Err(ParseError {
+                                kind: ParseErrorKind::ExpectedKeyword { keyword: "and".to_string() },
+                                span: self.current_span(),
+                            });
+                        }
+                        self.advance(); // "and"
+                        let b = self.parse_primary_expr()?;
+                        if let Some(cal) = cal_func {
+                            let func = self.interner.intern(cal);
+                            return Ok(self
+                                .ctx
+                                .alloc_imperative_expr(Expr::Call { function: func, args: vec![a, b] }));
+                        }
+                        let per_unit = per_unit.unwrap();
+                        let func = self.interner.intern("seconds_between");
+                        let secs = self.ctx.alloc_imperative_expr(Expr::Call { function: func, args: vec![a, b] });
+                        return Ok(if per_unit == 1 {
+                            secs
+                        } else {
+                            let d = self.ctx.alloc_imperative_expr(Expr::Literal(Literal::Number(per_unit)));
+                            self.ctx.alloc_imperative_expr(Expr::BinaryOp {
+                                op: BinaryOpKind::Divide,
+                                left: secs,
+                                right: d,
+                            })
+                        });
+                    }
+                }
                 // Phase 48: Check if followed by Manifest or Chunk token
                 // Pattern: "the manifest of Zone" or "the chunk at N in Zone"
                 if let Some(next) = self.tokens.get(self.current + 1) {
@@ -5937,27 +7085,45 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
 
                 // Grand Challenge: Parse index as expression (number, identifier, or parenthesized)
                 let index = if let TokenType::Number(sym) = &self.peek().kind {
-                    // Literal number - check for zero index at compile time
+                    // Literal numeral — 0 is guarded, floats are real keys.
                     let sym = *sym;
                     self.advance();
-                    let num_str = self.interner.resolve(sym);
-                    let index_val = num_str.parse::<i64>().unwrap_or(0);
-
-                    // Index 0 Guard: LOGOS uses 1-based indexing
-                    if index_val == 0 {
-                        return Err(ParseError {
-                            kind: ParseErrorKind::ZeroIndex,
-                            span: self.current_span(),
-                        });
-                    }
-
-                    self.ctx.alloc_imperative_expr(
-                        Expr::Literal(crate::ast::Literal::Number(index_val))
+                    self.parse_index_numeral(sym)?
+                } else if self.check(&TokenType::Minus)
+                    && matches!(
+                        self.tokens.get(self.current + 1).map(|t| &t.kind),
+                        Some(TokenType::Number(_))
                     )
+                {
+                    // Negative index literal — end-relative (`item -1 of xs`
+                    // is the last element).
+                    self.advance(); // consume '-'
+                    let TokenType::Number(sym) = self.peek().kind else { unreachable!() };
+                    self.advance();
+                    let num_str = self.interner.resolve(sym).to_string();
+                    let n = self.parse_i64_numeral_signed(&num_str, true).map_err(|_| ParseError {
+                        kind: ParseErrorKind::ExpectedKeyword {
+                            keyword: format!("a numeric index (got '{}')", num_str),
+                        },
+                        span: self.current_span(),
+                    })?;
+                    self.ctx
+                        .alloc_imperative_expr(Expr::Literal(crate::ast::Literal::Number(n)))
                 } else if self.check(&TokenType::LParen) {
-                    // Parenthesized expression like (mid + 1)
+                    // Parenthesized expression like (mid + 1) — or a TUPLE
+                    // key like ("a", 1) (tuples are content-keyed map keys).
                     self.advance(); // consume '('
-                    let inner = self.parse_imperative_expr()?;
+                    let first = self.parse_imperative_expr()?;
+                    let inner = if self.check(&TokenType::Comma) {
+                        let mut items = vec![first];
+                        while self.check(&TokenType::Comma) {
+                            self.advance(); // consume ","
+                            items.push(self.parse_imperative_expr()?);
+                        }
+                        self.ctx.alloc_imperative_expr(Expr::Tuple(items))
+                    } else {
+                        first
+                    };
                     if !self.check(&TokenType::RParen) {
                         return Err(ParseError {
                             kind: ParseErrorKind::ExpectedKeyword { keyword: ")".to_string() },
@@ -5971,6 +7137,21 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                     let sym = sym;
                     self.advance();
                     self.ctx.alloc_imperative_expr(Expr::Literal(crate::ast::Literal::Text(sym)))
+                } else if self.check(&TokenType::LBracket) {
+                    // `item [1, 2] of m` — a List as a map key, rejected by
+                    // design (a live List can mutate after insertion and the
+                    // map would lose the entry). Name the key problem here;
+                    // the generic missing-'of' error buries the lesson.
+                    return Err(ParseError {
+                        kind: ParseErrorKind::Custom(
+                            "A List cannot be a map key: keys must be immutable, and a live \
+                             List can change after insertion — the map would lose the entry. \
+                             Which fixed value identifies this entry? Use an Int or Text key, \
+                             or a tuple like ('a', 1) for a compound key."
+                                .to_string(),
+                        ),
+                        span: self.peek().span,
+                    });
                 } else if !self.check_preposition_is("of") {
                     // Check for boolean literals before treating as variable
                     let word = self.interner.resolve(self.peek().lexeme);
@@ -6039,20 +7220,7 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                     // Literal number - check for zero index at compile time
                     let sym = *sym;
                     self.advance();
-                    let num_str = self.interner.resolve(sym);
-                    let start_val = num_str.parse::<i64>().unwrap_or(0);
-
-                    // Index 0 Guard for start
-                    if start_val == 0 {
-                        return Err(ParseError {
-                            kind: ParseErrorKind::ZeroIndex,
-                            span: self.current_span(),
-                        });
-                    }
-
-                    self.ctx.alloc_imperative_expr(
-                        Expr::Literal(crate::ast::Literal::Number(start_val))
-                    )
+                    self.parse_index_numeral(sym)?
                 } else if self.check(&TokenType::LParen) {
                     // Parenthesized expression like (mid + 1)
                     self.advance(); // consume '('
@@ -6103,20 +7271,7 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                     // Literal number - check for zero index at compile time
                     let sym = *sym;
                     self.advance();
-                    let num_str = self.interner.resolve(sym);
-                    let end_val = num_str.parse::<i64>().unwrap_or(0);
-
-                    // Index 0 Guard for end
-                    if end_val == 0 {
-                        return Err(ParseError {
-                            kind: ParseErrorKind::ZeroIndex,
-                            span: self.current_span(),
-                        });
-                    }
-
-                    self.ctx.alloc_imperative_expr(
-                        Expr::Literal(crate::ast::Literal::Number(end_val))
-                    )
+                    self.parse_index_numeral(sym)?
                 } else if self.check(&TokenType::LParen) {
                     // Parenthesized expression like (mid + 1)
                     self.advance(); // consume '('
@@ -6184,6 +7339,10 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                             break;
                         }
                         self.advance(); // consume ","
+                        // A trailing comma (`[1, 2, 3,]`) ends the list.
+                        if self.check(&TokenType::RBracket) {
+                            break;
+                        }
                     }
                 }
 
@@ -6211,6 +7370,122 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                 Ok(self.ctx.alloc_imperative_expr(Expr::List(items)))
             }
 
+            // `{k: v, …}` map literal / `{a, b, …}` set literal. A `:` after
+            // the first element decides map-ness; the empty form requires an
+            // element type exactly like `[] of Int` — `{} of Int` (set) /
+            // `{} of Text to Int` (map). Non-empty literals lower to the
+            // variadic `mapOf`/`setOf` builtins, so every engine shares one
+            // construction path.
+            TokenType::LBrace => {
+                self.advance(); // consume "{"
+
+                if self.check(&TokenType::RBrace) {
+                    self.advance(); // consume "}"
+                    if !self.check_word("of") {
+                        return Err(ParseError {
+                            kind: ParseErrorKind::ExpectedKeyword {
+                                keyword: "of — an empty {} needs its element type: `{} of Int` (set) or `{} of Text to Int` (map)".to_string(),
+                            },
+                            span: self.current_span(),
+                        });
+                    }
+                    self.advance(); // consume "of"
+                    let first_ty = self.expect_identifier()?;
+                    if self.check(&TokenType::To) || self.check_preposition_is("to") {
+                        self.advance(); // consume "to"
+                        let val_ty = self.expect_identifier()?;
+                        let map_sym = self.interner.intern("Map");
+                        return Ok(self.ctx.alloc_imperative_expr(Expr::New {
+                            type_name: map_sym,
+                            type_args: vec![TypeExpr::Named(first_ty), TypeExpr::Named(val_ty)],
+                            init_fields: vec![],
+                        }));
+                    }
+                    let set_sym = self.interner.intern("Set");
+                    return Ok(self.ctx.alloc_imperative_expr(Expr::New {
+                        type_name: set_sym,
+                        type_args: vec![TypeExpr::Named(first_ty)],
+                        init_fields: vec![],
+                    }));
+                }
+
+                let first = self.parse_imperative_expr()?;
+                if self.check(&TokenType::Colon) {
+                    // Map literal: `{k: v, …}` → `mapOf(k, v, …)` (pairs flat,
+                    // insertion order preserved by the ordered-map contract).
+                    self.advance(); // consume ":"
+                    let mut args = vec![first, self.parse_imperative_expr()?];
+                    while self.check(&TokenType::Comma) {
+                        self.advance(); // consume ","
+                        // A trailing comma (`{a: 1, b: 2,}`) ends the map.
+                        if self.check(&TokenType::RBrace) {
+                            break;
+                        }
+                        args.push(self.parse_imperative_expr()?);
+                        if !self.check(&TokenType::Colon) {
+                            return Err(ParseError {
+                                kind: ParseErrorKind::ExpectedKeyword { keyword: ":".to_string() },
+                                span: self.current_span(),
+                            });
+                        }
+                        self.advance(); // consume ":"
+                        args.push(self.parse_imperative_expr()?);
+                    }
+                    if !self.check(&TokenType::RBrace) {
+                        return Err(ParseError {
+                            kind: ParseErrorKind::ExpectedKeyword { keyword: "}".to_string() },
+                            span: self.current_span(),
+                        });
+                    }
+                    self.advance(); // consume "}"
+                    let map_of = self.interner.intern("mapOf");
+                    return Ok(self.ctx.alloc_imperative_expr(Expr::Call { function: map_of, args }));
+                }
+
+                // Set literal: `{a, b, …}` → `setOf(a, b, …)`.
+                let mut args = vec![first];
+                while self.check(&TokenType::Comma) {
+                    self.advance(); // consume ","
+                    // A trailing comma (`{a, b, c,}`) ends the set.
+                    if self.check(&TokenType::RBrace) {
+                        break;
+                    }
+                    args.push(self.parse_imperative_expr()?);
+                }
+                if !self.check(&TokenType::RBrace) {
+                    return Err(ParseError {
+                        kind: ParseErrorKind::ExpectedKeyword { keyword: "}".to_string() },
+                        span: self.current_span(),
+                    });
+                }
+                self.advance(); // consume "}"
+                let set_of = self.interner.intern("setOf");
+                Ok(self.ctx.alloc_imperative_expr(Expr::Call { function: set_of, args }))
+            }
+
+            // Currency-symbol money literal (`$19.99`, `€5`, `¥100`) desugars to `money(num, "CODE")`,
+            // the same shape as the spelled `19.99 USD` form. An exact (decimal) magnitude rides
+            // `decimal(..)` so it never float-drifts; an integer magnitude passes through directly.
+            TokenType::MoneyLiteral { amount, currency } => {
+                let amount = *amount;
+                let currency = *currency;
+                let num_str = self.interner.resolve(amount).to_string();
+                self.advance();
+                let num_expr = if num_str.contains('.') {
+                    let text = self.ctx.alloc_imperative_expr(Expr::Literal(Literal::Text(amount)));
+                    let dec = self.interner.intern("decimal");
+                    self.ctx.alloc_imperative_expr(Expr::Call { function: dec, args: vec![text] })
+                } else {
+                    let num = self.parse_i64_numeral(&num_str)?;
+                    self.ctx.alloc_imperative_expr(Expr::Literal(Literal::Number(num)))
+                };
+                let code_expr = self.ctx.alloc_imperative_expr(Expr::Literal(Literal::Text(currency)));
+                let func = self.interner.intern("money");
+                return Ok(self
+                    .ctx
+                    .alloc_imperative_expr(Expr::Call { function: func, args: vec![num_expr, code_expr] }));
+            }
+
             TokenType::Number(sym) => {
                 let num_str = self.interner.resolve(*sym).to_string();
                 self.advance();
@@ -6220,12 +7495,82 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                     return self.parse_span_literal_from_num(&num_str);
                 }
 
-                // Check if it's a float (contains decimal point or scientific notation)
-                if num_str.contains('.') || num_str.contains('e') || num_str.contains('E') {
-                    let num = num_str.parse::<f64>().unwrap_or(0.0);
+                // Dimensioned quantity literal: a number immediately followed by a unit word
+                // (`2 inches`, `5 kilograms`, `20 celsius`) desugars to `quantity(num, "unit")`.
+                // Imperative-only (this path allocs imperative exprs), so natural-language phrases
+                // like "ran 2 miles" — parsed by the clause grammar — are untouched. An exact
+                // (decimal) magnitude rides the `decimal(..)` constructor so it never float-drifts.
+                if matches!(
+                    self.peek().kind,
+                    TokenType::Identifier | TokenType::Noun(_) | TokenType::Adjective(_)
+                ) {
+                    let unit_lexeme = self.peek().lexeme;
+                    let is_unit =
+                        logicaffeine_base::quantity::units::by_name(self.interner.resolve(unit_lexeme)).is_some();
+                    if is_unit {
+                        self.advance(); // consume the unit word
+                        let num_expr = if num_str.contains('.') || num_str.contains('e') || num_str.contains('E') {
+                            let text = self.ctx.alloc_imperative_expr(Expr::Literal(Literal::Text(*sym)));
+                            let dec = self.interner.intern("decimal");
+                            self.ctx.alloc_imperative_expr(Expr::Call { function: dec, args: vec![text] })
+                        } else {
+                            let num = self.parse_i64_numeral(&num_str)?;
+                            self.ctx.alloc_imperative_expr(Expr::Literal(Literal::Number(num)))
+                        };
+                        let unit_expr = self.ctx.alloc_imperative_expr(Expr::Literal(Literal::Text(unit_lexeme)));
+                        let func = self.interner.intern("quantity");
+                        return Ok(self
+                            .ctx
+                            .alloc_imperative_expr(Expr::Call { function: func, args: vec![num_expr, unit_expr] }));
+                    }
+                }
+
+                // `19.99 USD` / `5 EUR` desugars to `money(num, "CODE")` — the same shape as the unit
+                // sugar above, but the trailing token is an ISO-4217 currency code (checked AFTER
+                // units so a unit word is never mis-read as money, and gated on `currency::by_code` so
+                // only a real code triggers). An exact (decimal) amount rides `decimal(..)`.
+                if matches!(
+                    self.peek().kind,
+                    TokenType::Identifier
+                        | TokenType::Noun(_)
+                        | TokenType::ProperName(_)
+                        | TokenType::Adjective(_)
+                ) {
+                    let code_lexeme = self.peek().lexeme;
+                    if logicaffeine_base::money::currency::by_code(self.interner.resolve(code_lexeme)).is_some() {
+                        self.advance(); // consume the currency code
+                        let num_expr = if num_str.contains('.') || num_str.contains('e') || num_str.contains('E') {
+                            let text = self.ctx.alloc_imperative_expr(Expr::Literal(Literal::Text(*sym)));
+                            let dec = self.interner.intern("decimal");
+                            self.ctx.alloc_imperative_expr(Expr::Call { function: dec, args: vec![text] })
+                        } else {
+                            let num = self.parse_i64_numeral(&num_str)?;
+                            self.ctx.alloc_imperative_expr(Expr::Literal(Literal::Number(num)))
+                        };
+                        let code_expr = self.ctx.alloc_imperative_expr(Expr::Literal(Literal::Text(code_lexeme)));
+                        let func = self.interner.intern("money");
+                        return Ok(self
+                            .ctx
+                            .alloc_imperative_expr(Expr::Call { function: func, args: vec![num_expr, code_expr] }));
+                    }
+                }
+
+                // Radix first (`0x1E` has an `E` that is a hex digit, not
+                // scientific notation); then the float sniff; both parse
+                // EXACTLY or fail loudly — never a silent 0.
+                if Self::is_radix_numeral(&num_str) {
+                    let num = self.parse_i64_numeral(&num_str)?;
+                    Ok(self.ctx.alloc_imperative_expr(Expr::Literal(Literal::Number(num))))
+                } else if num_str.contains('.') || num_str.contains('e') || num_str.contains('E') {
+                    let num = num_str.replace('_', "").parse::<f64>().map_err(|_| ParseError {
+                        kind: ParseErrorKind::ExpectedKeyword {
+                            keyword: format!("a Float literal (got `{}`)", num_str),
+                        },
+                        span: self.current_span(),
+                    })?;
                     Ok(self.ctx.alloc_imperative_expr(Expr::Literal(Literal::Float(num))))
                 } else {
-                    let num = num_str.parse::<i64>().unwrap_or(0);
+                    let num = self.parse_i64_numeral(&num_str)?;
                     Ok(self.ctx.alloc_imperative_expr(Expr::Literal(Literal::Number(num))))
                 }
             }
@@ -6396,7 +7741,13 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                 }
                 self.advance(); // consume "at"
 
-                let index = self.parse_imperative_expr()?;
+                // The index is a dimensionless position, so it is parsed BELOW every construct that
+                // consumes `in`: `parse_xor_expr`, not `parse_imperative_expr`/`parse_or_condition`.
+                // The `in` here is the chunk construct's own keyword and must not be swallowed as an
+                // `in "<zone>"` / `in <unit>` conversion (handled above `parse_or_condition`) nor as
+                // Pythonic membership `<index> in <collection>` (handled in `parse_comparison`, which
+                // `parse_or_condition` descends through).
+                let index = self.parse_xor_expr()?;
 
                 // Expect "in"
                 if !self.check_preposition_is("in") && !self.check(&TokenType::In) {
@@ -6474,6 +7825,16 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                 if word == "false" {
                     self.advance();
                     return Ok(self.ctx.alloc_imperative_expr(Expr::Literal(Literal::Boolean(false))));
+                }
+                // Float word literals (the `true`/`false` precedent): the
+                // values every float tower needs a spelling for.
+                if word == "infinity" && !self.user_bound.contains(&sym) {
+                    self.advance();
+                    return Ok(self.ctx.alloc_imperative_expr(Expr::Literal(Literal::Float(f64::INFINITY))));
+                }
+                if word == "nan" && !self.user_bound.contains(&sym) {
+                    self.advance();
+                    return Ok(self.ctx.alloc_imperative_expr(Expr::Literal(Literal::Float(f64::NAN))));
                 }
 
                 // Check for 'empty' - treat as unit value for collections
@@ -6574,6 +7935,7 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
             TokenType::Both |      // correlative: "both X and Y"
             TokenType::Either |    // correlative: "either X or Y"
             TokenType::Combined |  // string concat: "combined with"
+            TokenType::Followed |  // seq concat: "followed by" (also a valid variable name)
             TokenType::Shared |    // CRDT modifier
             TokenType::Particle(_) |  // phrasal verb particles: out, up, down, etc.
             TokenType::Preposition(_) |  // prepositions: from, into, etc.
@@ -6667,7 +8029,9 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                         });
                     }
                     self.advance(); // consume ')'
-                    Ok(first)
+                    // A parenthesized expression supports the same postfix chain
+                    // as any primary: `(5).double()`, `(p).x`, `(xs)[1]`.
+                    self.parse_field_access_chain(first)
                 }
             }
 
@@ -6822,16 +8186,51 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
         self.parse_condition()
     }
 
-    /// Parse XOR expressions: "x xor y" → `x ^ y`
-    /// Precedence: below comparison, above additive.
+    /// The bitwise chain, C precedence: `|` lowest, then `^`/`xor`, then
+    /// `&`, all below comparison and above additive. On Sets the same
+    /// operators are union / symmetric-difference / intersection.
     fn parse_xor_expr(&mut self) -> ParseResult<&'a Expr<'a>> {
-        let mut left = self.parse_additive_expr()?;
+        let mut left = self.parse_bitxor_expr()?;
 
-        while self.check(&TokenType::Xor) {
-            self.advance(); // consume "xor"
-            let right = self.parse_additive_expr()?;
+        while self.check(&TokenType::VBar) {
+            self.advance(); // consume "|"
+            let right = self.parse_bitxor_expr()?;
+            left = self.ctx.alloc_imperative_expr(Expr::BinaryOp {
+                op: BinaryOpKind::BitOr,
+                left,
+                right,
+            });
+        }
+
+        Ok(left)
+    }
+
+    /// `^` (or the word `xor`): bitwise XOR / set symmetric difference.
+    fn parse_bitxor_expr(&mut self) -> ParseResult<&'a Expr<'a>> {
+        let mut left = self.parse_bitand_expr()?;
+
+        while self.check(&TokenType::Xor) || self.check(&TokenType::Caret) {
+            self.advance(); // consume "xor" / "^"
+            let right = self.parse_bitand_expr()?;
             left = self.ctx.alloc_imperative_expr(Expr::BinaryOp {
                 op: BinaryOpKind::BitXor,
+                left,
+                right,
+            });
+        }
+
+        Ok(left)
+    }
+
+    /// `&`: bitwise AND / set intersection.
+    fn parse_bitand_expr(&mut self) -> ParseResult<&'a Expr<'a>> {
+        let mut left = self.parse_additive_expr()?;
+
+        while self.check(&TokenType::Amp) {
+            self.advance(); // consume "&"
+            let right = self.parse_additive_expr()?;
+            left = self.ctx.alloc_imperative_expr(Expr::BinaryOp {
+                op: BinaryOpKind::BitAnd,
                 left,
                 right,
             });
@@ -6882,6 +8281,23 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                         right,
                     });
                 }
+                // "followed by" for sequence concatenation (merge two sequences into one)
+                TokenType::Followed => {
+                    self.advance(); // consume "followed"
+                    if !self.check_preposition_is("by") {
+                        return Err(ParseError {
+                            kind: ParseErrorKind::ExpectedKeyword { keyword: "by".to_string() },
+                            span: self.current_span(),
+                        });
+                    }
+                    self.advance(); // consume "by"
+                    let right = self.parse_shift_expr()?;
+                    left = self.ctx.alloc_imperative_expr(Expr::BinaryOp {
+                        op: BinaryOpKind::SeqConcat,
+                        left,
+                        right,
+                    });
+                }
                 // Set operations: union, intersection
                 TokenType::Union => {
                     self.advance(); // consume "union"
@@ -6907,6 +8323,44 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                         collection: left,
                         value,
                     });
+                }
+                // `a without b` — the English set difference (`-` is the
+                // symbolic spelling). Lowers to Subtract, which dispatches on
+                // Set operands.
+                _ if self.check_word("without") => {
+                    self.advance(); // consume "without"
+                    let right = self.parse_shift_expr()?;
+                    left = self.ctx.alloc_imperative_expr(Expr::BinaryOp {
+                        op: BinaryOpKind::Subtract,
+                        left,
+                        right,
+                    });
+                }
+                // `n copies of x` — the English fill: a fresh sequence of n
+                // deep-copied slots (`[x] * n` is the symbolic spelling).
+                // Guarded on the following `of`, so a plain variable named
+                // `copies` keeps resolving as an identifier.
+                _ if self.check_word("copies") && self.peek_word_at(1, "of") => {
+                    self.advance(); // consume "copies"
+                    self.advance(); // consume "of"
+                    let element = self.parse_shift_expr()?;
+                    let repeat_sym = self.interner.intern("repeatSeq");
+                    left = self.ctx.alloc_imperative_expr(Expr::Call {
+                        function: repeat_sym,
+                        args: vec![element, left],
+                    });
+                }
+                // English infix `A plus B` / `A minus B` — the spoken spellings of `+`/`-`,
+                // additive precedence. `check_op_word` yields to a same-named variable.
+                _ if self.check_op_word("plus") => {
+                    self.advance(); // consume "plus"
+                    let right = self.parse_shift_expr()?;
+                    left = self.ctx.alloc_imperative_expr(Expr::BinaryOp { op: BinaryOpKind::Add, left, right });
+                }
+                _ if self.check_op_word("minus") => {
+                    self.advance(); // consume "minus"
+                    let right = self.parse_shift_expr()?;
+                    left = self.ctx.alloc_imperative_expr(Expr::BinaryOp { op: BinaryOpKind::Subtract, left, right });
                 }
                 _ => break,
             }
@@ -6959,7 +8413,55 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
     fn parse_unary_expr(&mut self) -> ParseResult<&'a Expr<'a>> {
         use crate::ast::{Expr, Literal};
 
+        if self.check(&TokenType::Tilde) {
+            self.advance(); // consume "~"
+            let operand = self.parse_unary_expr()?;
+            // `~x` IS `x ^ -1` in two's complement — reuse the existing
+            // BitXor path end to end (no new op anywhere downstream).
+            let neg_one = self.ctx.alloc_imperative_expr(Expr::Literal(Literal::Number(-1)));
+            return Ok(self.ctx.alloc_imperative_expr(Expr::BinaryOp {
+                op: BinaryOpKind::BitXor,
+                left: operand,
+                right: neg_one,
+            }));
+        }
         if self.check(&TokenType::Minus) {
+            // A negative LITERAL parses as one exact literal — the sign
+            // attaches to the digits, so `-9223372036854775808` (i64::MIN,
+            // whose magnitude alone overflows) and `-1.5` (a real Float
+            // literal, not `0 - 1.5`) both come out exact.
+            if let Some(TokenType::Number(sym)) =
+                self.tokens.get(self.current + 1).map(|t| t.kind.clone())
+            {
+                self.advance(); // consume '-'
+                self.advance(); // consume the numeral
+                let num_str = self.interner.resolve(sym).to_string();
+                if !Self::is_radix_numeral(&num_str)
+                    && (num_str.contains('.') || num_str.contains('e') || num_str.contains('E'))
+                {
+                    let f = num_str.replace('_', "").parse::<f64>().map_err(|_| ParseError {
+                        kind: ParseErrorKind::ExpectedKeyword {
+                            keyword: format!("a Float literal (got `-{}`)", num_str),
+                        },
+                        span: self.current_span(),
+                    })?;
+                    return Ok(self.ctx.alloc_imperative_expr(Expr::Literal(Literal::Float(-f))));
+                }
+                let n = self.parse_i64_numeral_signed(&num_str, true)?;
+                return Ok(self.ctx.alloc_imperative_expr(Expr::Literal(Literal::Number(n))));
+            }
+            if self
+                .tokens
+                .get(self.current + 1)
+                .is_some_and(|t| self.interner.resolve(t.lexeme) == "infinity"
+                    && !self.user_bound.contains(&t.lexeme))
+            {
+                self.advance(); // consume '-'
+                self.advance(); // consume "infinity"
+                return Ok(self
+                    .ctx
+                    .alloc_imperative_expr(Expr::Literal(Literal::Float(f64::NEG_INFINITY))));
+            }
             self.advance(); // consume '-'
             let operand = self.parse_unary_expr()?; // recursive for --5
             // Implement as 0 - operand (no UnaryOp variant in Expr)
@@ -6973,8 +8475,38 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
     }
 
     /// Parse multiplicative expressions (*, /, %) - left-to-right associative
+    /// Exponentiation  — binds tighter than , RIGHT-associative
+    /// ( = ). The base is a unary expression; the exponent
+    /// recurses into itself for right-associativity.
+    fn parse_power_expr(&mut self) -> ParseResult<&'a Expr<'a>> {
+        let base = self.parse_unary_expr()?;
+        // `**` or the English spelling `A to the power of B` — both right-associative.
+        let symbolic = self.check(&TokenType::StarStar);
+        let spoken = (self.check_to_preposition() || self.check_word("to"))
+            && self.peek_word_at(1, "the")
+            && self.peek_word_at(2, "power")
+            && self.peek_word_at(3, "of");
+        if symbolic || spoken {
+            if symbolic {
+                self.advance(); // consume "**"
+            } else {
+                self.advance(); // "to"
+                self.advance(); // "the"
+                self.advance(); // "power"
+                self.advance(); // "of"
+            }
+            let exp = self.parse_power_expr()?;
+            return Ok(self.ctx.alloc_imperative_expr(Expr::BinaryOp {
+                op: BinaryOpKind::Pow,
+                left: base,
+                right: exp,
+            }));
+        }
+        Ok(base)
+    }
+
     fn parse_multiplicative_expr(&mut self) -> ParseResult<&'a Expr<'a>> {
-        let mut left = self.parse_unary_expr()?;
+        let mut left = self.parse_power_expr()?;
 
         loop {
             let op = match &self.peek().kind {
@@ -6986,13 +8518,33 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                     self.advance();
                     BinaryOpKind::Divide
                 }
+                TokenType::SlashSlash => {
+                    self.advance();
+                    BinaryOpKind::FloorDivide
+                }
                 TokenType::Percent => {
                     self.advance();
                     BinaryOpKind::Modulo
                 }
+                // English infix `A times B`, `A divided by B`, `A modulo B` (`mod`) — the spoken
+                // spellings of `*`/`/`/`%`, multiplicative precedence. `check_op_word` yields to a
+                // same-named variable (declarer-wins).
+                _ if self.check_op_word("times") => {
+                    self.advance(); // consume "times"
+                    BinaryOpKind::Multiply
+                }
+                _ if self.check_op_word("divided") && self.peek_word_at(1, "by") => {
+                    self.advance(); // consume "divided"
+                    self.advance(); // consume "by"
+                    BinaryOpKind::Divide
+                }
+                _ if self.check_op_word("modulo") || self.check_op_word("mod") => {
+                    self.advance(); // consume "modulo"/"mod"
+                    BinaryOpKind::Modulo
+                }
                 _ => break,
             };
-            let right = self.parse_unary_expr()?;
+            let right = self.parse_power_expr()?;
             left = self.ctx.alloc_imperative_expr(Expr::BinaryOp {
                 op,
                 left,
@@ -7202,7 +8754,7 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
         use crate::ast::Literal;
         use crate::token::CalendarUnit;
 
-        let first_num = first_num_str.parse::<i64>().unwrap_or(0);
+        let first_num = self.parse_i64_numeral(first_num_str)?;
 
         // We expect a CalendarUnit after the number
         let unit = match self.peek().kind {
@@ -7281,7 +8833,7 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                 TokenType::Number(sym) => {
                     let num_str = self.interner.resolve(*sym).to_string();
                     self.advance();
-                    num_str.parse::<i64>().unwrap_or(0)
+                    self.parse_i64_numeral(&num_str)?
                 }
                 _ => break, // Not a number, backtrack is complex so just stop
             };
@@ -7348,7 +8900,40 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
 
         // Keep parsing field accesses and bracket indexing
         loop {
-            if self.check(&TokenType::Possessive) {
+            if self.check(&TokenType::Dot) {
+                // The dot: `p.x` field access (≡ `p's x`) or `xs.f(a)` UFCS
+                // method syntax (≡ `f(xs, a)` — the RECEIVER becomes the first
+                // argument, so every method spelling lowers to a plain call and
+                // all engines get it free).
+                self.advance(); // consume "."
+                let name = self.expect_identifier()?;
+                if self.check(&TokenType::LParen) {
+                    self.advance(); // consume "("
+                    let mut args = vec![result]; // receiver first
+                    if !self.check(&TokenType::RParen) {
+                        loop {
+                            args.push(self.parse_imperative_expr()?);
+                            if !self.check(&TokenType::Comma) {
+                                break;
+                            }
+                            self.advance(); // consume ","
+                        }
+                    }
+                    if !self.check(&TokenType::RParen) {
+                        return Err(ParseError {
+                            kind: ParseErrorKind::ExpectedKeyword { keyword: ")".to_string() },
+                            span: self.current_span(),
+                        });
+                    }
+                    self.advance(); // consume ")"
+                    result = self.ctx.alloc_imperative_expr(Expr::Call { function: name, args });
+                } else {
+                    result = self.ctx.alloc_imperative_expr(Expr::FieldAccess {
+                        object: result,
+                        field: name,
+                    });
+                }
+            } else if self.check(&TokenType::Possessive) {
                 // Field access: p's x
                 self.advance(); // consume "'s"
                 let field = self.expect_identifier()?;
@@ -7458,6 +9043,7 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
             TokenType::Both |            // "both" (correlative: both X and Y)
             TokenType::Either |          // "either" (correlative: either X or Y)
             TokenType::Combined |        // "combined" (string concat: combined with)
+            TokenType::Followed |        // "followed" (seq concat: followed by; also a variable name)
             TokenType::Shared |          // "shared" (CRDT type modifier)
             TokenType::All |             // "all" (FOL quantifier, valid variable name in imperative)
             // Calendar units can be type/variable names (Day, Week, Month, Year)
@@ -10851,12 +12437,17 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                 roles.push((ThematicRole::Theme, self.noun_phrase_to_term(&object)));
             }
 
+            // A trailing manner adverb attaches to the generic nucleus's event
+            // ("Dogs bark loudly." → Gen x(Dog(x) → ∃e(Bark(e) ∧ … ∧ Loudly(e)))),
+            // the same event modifier an instance sentence produces.
+            let manner_adverbs = self.collect_adverbs();
+
             let event_var = self.get_event_var();
             let verb_pred = self.ctx.exprs.alloc(LogicExpr::NeoEvent(Box::new(NeoEventData {
                 event_var,
                 verb,
                 roles: self.ctx.roles.alloc_slice(roles),
-                modifiers: self.ctx.syms.alloc_slice(vec![]),
+                modifiers: self.ctx.syms.alloc_slice(manner_adverbs),
                 suppress_existential: false,
                 world: None,
             })));
@@ -13306,8 +14897,22 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
     /// Check if current token is a word (noun/adj/verb lexeme) matching the given string
     fn check_word(&self, word: &str) -> bool {
         let token = self.peek();
+        // A string/char LITERAL is a value, never a keyword — a `"not"` literal
+        // must not be mistaken for the `not` operator (which the lexeme match
+        // would otherwise do, breaking `Show "not".`).
+        if matches!(token.kind, TokenType::StringLiteral(_) | TokenType::CharLiteral(_)) {
+            return false;
+        }
         let lexeme = self.interner.resolve(token.lexeme);
         lexeme.eq_ignore_ascii_case(word)
+    }
+
+    /// Like [`check_word`], but declines when the current token is a bound user
+    /// variable — an English arithmetic operator word (`plus`, `times`, …) must
+    /// yield to a variable of the same name (declarer-wins), so `Let times be 5`
+    /// keeps `times` an identifier rather than the multiply operator.
+    fn check_op_word(&self, word: &str) -> bool {
+        self.check_word(word) && !self.user_bound.contains(&self.peek().lexeme)
     }
 
     fn peek_word_at(&self, offset: usize, word: &str) -> bool {
@@ -13315,6 +14920,9 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
             return false;
         }
         let token = &self.tokens[self.current + offset];
+        if matches!(token.kind, TokenType::StringLiteral(_) | TokenType::CharLiteral(_)) {
+            return false;
+        }
         let lexeme = self.interner.resolve(token.lexeme);
         lexeme.eq_ignore_ascii_case(word)
     }
@@ -14046,7 +15654,11 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
     }
 
     fn peek(&self) -> &Token {
-        &self.tokens[self.current]
+        // Clamp to the EOF terminator (guaranteed by `Parser::new`): a walk
+        // that overshoots reads EOF forever instead of panicking.
+        self.tokens
+            .get(self.current)
+            .unwrap_or_else(|| self.tokens.last().expect("stream ends with EOF"))
     }
 
     /// Phase 35: Check if the next token (after current) is a string literal.
@@ -14415,6 +16027,8 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
         let mut layout = None;
         let mut shared = false;
         let mut computed = false;
+        let mut indexed = false;
+        let mut deduped = false;
         loop {
             if !cached && self.check_word("cached") {
                 self.advance();
@@ -14422,6 +16036,12 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
             } else if !shared && (self.check_word("shared") || self.check_word("known")) {
                 self.advance();
                 shared = true;
+            } else if !indexed && (self.check_word("indexed") || self.check_word("addressable")) {
+                self.advance();
+                indexed = true;
+            } else if !deduped && (self.check_word("deduped") || self.check_word("shared_refs")) {
+                self.advance();
+                deduped = true;
             } else if !computed && self.check_word("computed") {
                 self.advance();
                 computed = true;
@@ -14495,7 +16115,18 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
         // Parse destination expression
         let destination = self.parse_imperative_expr()?;
 
-        Ok(Stmt::SendMessage { message, destination, compression, cached, unchecked, layout, shared, computed })
+        Ok(Stmt::SendMessage {
+            message,
+            destination,
+            compression,
+            cached,
+            unchecked,
+            layout,
+            shared,
+            computed,
+            indexed,
+            deduped,
+        })
     }
 
     /// Parse await statement: "Await response from 'agent' into result."
@@ -14503,9 +16134,15 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
         self.advance(); // consume "Await"
 
         // Optional `view` knob: receive a record-list LAZILY (zero-copy, decode-on-touch).
+        // Optional `stream` knob: receive a batch STREAM and deframe it into a list.
         let mut view = false;
+        let mut stream = false;
         if self.check_word("view") || self.check_word("viewed") {
             view = true;
+            self.advance();
+        }
+        if self.check_word("stream") {
+            stream = true;
             self.advance();
         }
 
@@ -14541,7 +16178,33 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
         // binding (`expect_identifier`).
         let into = self.expect_identifier()?;
 
-        Ok(Stmt::AwaitMessage { source, into, view })
+        Ok(Stmt::AwaitMessage { source, into, view, stream })
+    }
+
+    /// Parse a batch stream send. The transport is the one-word knob, exactly as `Send` chooses:
+    ///   `Stream <values> into <pipe>` → an in-process channel send (`SendPipe`) — CROSS-TIER (runs
+    ///                                   on the VM + AOT + tree-walker), the compute-speed pro.
+    ///   `Stream <values> to <peer>`   → a relay batch stream (`StreamMessage`) — the NETWORK pro
+    ///                                   (framed, zero-copy deframe), on the async tree-walker tier.
+    fn parse_stream_statement(&mut self) -> ParseResult<Stmt<'a>> {
+        self.advance(); // consume "Stream"
+        let values = self.parse_imperative_expr()?;
+        // `into` <pipe>: the cross-tier in-process transport (reuses the channel-send lowering).
+        if self.check(&TokenType::Into) || self.check_word("into") {
+            self.advance();
+            let pipe = self.parse_imperative_expr()?;
+            return Ok(Stmt::SendPipe { value: values, pipe });
+        }
+        // `to` <peer>: the relay network transport.
+        if self.check(&TokenType::To) || self.check_preposition_is("to") || self.check_word("to") {
+            self.advance();
+            let destination = self.parse_imperative_expr()?;
+            return Ok(Stmt::StreamMessage { values, destination });
+        }
+        Err(ParseError {
+            kind: ParseErrorKind::ExpectedKeyword { keyword: "to (relay) or into (pipe)".to_string() },
+            span: self.current_span(),
+        })
     }
 
     // =========================================================================

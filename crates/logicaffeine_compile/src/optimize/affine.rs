@@ -48,7 +48,7 @@ pub(crate) fn var(s: Symbol) -> LinearExpr {
 
 /// The constant linear expression `n`.
 pub(crate) fn konst(n: i64) -> LinearExpr {
-    LinearExpr::constant(Rational::from_int(n))
+    LinearExpr::constant(Rational::from_i64(n))
 }
 
 /// `a <= b` as a kernel constraint (`a - b <= 0`).
@@ -90,7 +90,7 @@ pub(crate) fn consistent(facts: &[Constraint]) -> bool {
 /// valid. Soundness is the kernel's (rational-unsat ⟹ integer-unsat) and is
 /// additionally certified against Z3 by the differential below.
 pub(crate) fn prove(facts: &[Constraint], goal: &LinearExpr) -> bool {
-    let neg = goal.add(&LinearExpr::constant(Rational::from_int(1)));
+    let neg = goal.add(&LinearExpr::constant(Rational::from_i64(1)));
     let mut system: Vec<Constraint> = facts.to_vec();
     system.push(Constraint { expr: neg, strict: false });
     fourier_motzkin_unsat(&system)
@@ -100,10 +100,10 @@ pub(crate) fn prove(facts: &[Constraint], goal: &LinearExpr) -> bool {
 /// affine over symbols (a product of two variables, a modulo, a call, …). The
 /// multi-variable generalization of `abstract_interp::affine_of`.
 pub(crate) fn lin_of(e: &Expr) -> Option<LinearExpr> {
-    // Cap literals well below i64 so the (checked) construction below, and the
-    // small-constant arithmetic the callers do on the result, never overflow.
-    // Real array indices / sizes are far under 2^50; a larger literal is not a
-    // bounds expression worth proving, so decline it.
+    // Cap literals well below i64: the callers render coefficients back to
+    // `i64` program constants, and a larger literal is not a bounds
+    // expression worth proving, so decline it. The `LinearExpr` arithmetic
+    // itself is exact at any magnitude.
     const LIT_CAP: u64 = 1 << 50;
     match e {
         Expr::Identifier(s) => Some(var(*s)),
@@ -111,16 +111,14 @@ pub(crate) fn lin_of(e: &Expr) -> Option<LinearExpr> {
             (n.unsigned_abs() <= LIT_CAP).then(|| konst(*n))
         }
         Expr::BinaryOp { op, left, right } => match op {
-            // Checked throughout: a pathological expression yields `None`
-            // (decline to prove) rather than panicking on overflow.
-            BinaryOpKind::Add => lin_of(left)?.checked_add(&lin_of(right)?),
-            BinaryOpKind::Subtract => lin_of(left)?.checked_sub(&lin_of(right)?),
+            BinaryOpKind::Add => Some(lin_of(left)?.add(&lin_of(right)?)),
+            BinaryOpKind::Subtract => Some(lin_of(left)?.sub(&lin_of(right)?)),
             BinaryOpKind::Multiply => {
                 let (l, r) = (lin_of(left)?, lin_of(right)?);
                 if l.is_constant() {
-                    r.checked_scale(&l.constant)
+                    Some(r.scale(&l.constant))
                 } else if r.is_constant() {
-                    l.checked_scale(&r.constant)
+                    Some(l.scale(&r.constant))
                 } else {
                     None // nonlinear (x·y)
                 }
@@ -154,7 +152,7 @@ mod tests {
     }
     /// `c·x`.
     fn term(x: Symbol, c: i64) -> LinearExpr {
-        var(x).scale(&Rational::from_int(c))
+        var(x).scale(&Rational::from_i64(c))
     }
 
     // ---- prove: the three hard-loss relations the engine exists to discharge ----
@@ -339,8 +337,8 @@ mod z3_certifier {
     /// A kernel `Rational` that is integer-valued (every fact/goal we build is)
     /// as an `i64`.
     fn as_int(r: &Rational) -> i64 {
-        assert_eq!(r.denominator, 1, "certifier only encodes integer constraints");
-        r.numerator
+        r.to_i64()
+            .expect("certifier only encodes integer constraints")
     }
 
     /// Encode a kernel `LinearExpr` as a Z3 integer term (deterministic order:
@@ -495,6 +493,6 @@ mod z3_certifier {
     }
 
     fn term_of(x: Symbol, c: i64) -> LinearExpr {
-        var(x).scale(&Rational::from_int(c))
+        var(x).scale(&Rational::from_i64(c))
     }
 }

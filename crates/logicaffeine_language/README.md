@@ -2,13 +2,13 @@
 
 The English → first-order logic pipeline: lexer, parser, semantics, and transpiler that turn natural-language sentences into formal logic with neo-Davidsonian event semantics and ontology expansion.
 
-Part of the [Logicaffeine](../../NEW_README.md) workspace. Tier 3 — depends on logicaffeine_base, logicaffeine_lexicon, logicaffeine_proof.
+Part of the [Logicaffeine](https://github.com/Brahmastra-Labs/logicaffeine/blob/main/README.md) workspace. Tier 3 — depends on logicaffeine_base, logicaffeine_lexicon, logicaffeine_proof.
 
 ## Role in the workspace
 
-This is the language front-end. It sits between the structural atoms (`logicaffeine-base` — arena, interner, spans), the vocabulary (`logicaffeine-lexicon`), and the proof engine (`logicaffeine-proof`), and is consumed by the compiler, CLI, LSP, and web app. See [../../new_docs/logic-mode.md](../../new_docs/logic-mode.md).
+This is the language front-end. It sits between the structural atoms (`logicaffeine-base` — arena, interner, spans), the vocabulary (`logicaffeine-lexicon`), and the proof engine (`logicaffeine-proof`), and is consumed by the compiler, CLI, LSP, and web app. See [logic-mode.md](https://github.com/Brahmastra-Labs/logicaffeine/blob/main/docs/logic-mode.md).
 
-```
+```text
 Input → Lexer → Parser (AST + DRS) → Semantics → Transpiler → FOL
 ```
 
@@ -17,6 +17,27 @@ Input → Lexer → Parser (AST + DRS) → Semantics → Transpiler → FOL
 - **AST** (`ast/{logic,stmt,theorem}`) — the arena-lifetime `LogicExpr<'a>` / `Term<'a>` logical form plus statement and theorem nodes.
 - **Semantics** (`semantics/{axioms,kripke,knowledge_graph}`, `lambda`, `scope`) — axiom expansion, Kripke lowering for modals, intensional/event readings, and Montague-style lambda transforms.
 - **Transpiler** (`transpile`, `formatter`) — renders the logical form to the target notation.
+
+The parser handles both declarative natural language and the imperative LOGOS surface (selected by `ParserMode`), so recent imperative constructs — `## Define` definitional blocks and the `followed by` sequence-concatenation operator among them — flow through this same front-end; the full LOGOS surface is in the imperative-mode guide.
+
+### Module map
+
+Grouped by pipeline stage. `intern` and `arena` re-export the `logicaffeine-base` primitives so downstream crates need only depend on this one.
+
+| Module | Role |
+|--------|------|
+| `token`, `lexer`, `lexicon`, `mwe` | tokenization: structural `LineLexer` → token `Lexer`, morphology, lexicon lookup, multi-word-expression collapsing |
+| `parser`, `ast`, `arena_ctx` | recursive-descent parse into arena-allocated AST (`arena_ctx` owns the allocation context) |
+| `drs`, `session`, `pragmatics` | discourse: Discourse Representation Structures, the incremental-evaluation `Session`, and post-parse pragmatic inference |
+| `semantics`, `lambda`, `scope`, `ontology` | axiom expansion, Montague lambda transforms, quantifier-scope permutation, and sort/anaphora ontology checks |
+| `transpile`, `formatter`, `view`, `style` | render the logical form; `view` is the owned serialization form, `style` adds ANSI coloring |
+| `source_format` | the canonical LOGOS source formatter (`format_source`/`format_line`) — structural reindent (4 spaces per lexed nesting level), string/prose interiors untouched; one rule set shared by the LSP's formatting providers and `largo fmt` |
+| `token_class` | the single token-classification truth (verbs=function, nouns=type, …) every highlighting surface derives from — LSP semantic tokens and the REPL's ANSI painting can never disagree |
+| `teach` | the single teaching truth: a `ConstructDoc` lesson (one plain sentence + runnable example + socratic question/tip, all required by the type) for every taught keyword, every `##` block type, and the built-in types — LSP hover/completion docs and the REPL's `:explain` all derive from this table, ratcheted by `tests/teach_lock.rs`; also the literate-doc extractors (`module_doc`/`doc_for_header_at`/`extract_literate_docs`) that turn a `## Note` above a definition into its hover documentation |
+| `analysis`, `registry`, `symbol_dict` | static discovery passes (`## Definition` scan), the symbol/type registries, and symbol-dictionary extraction |
+| `optimization`, `proof_convert` | the shared `Opt` optimization bitset and the bridge from arena `LogicExpr` to the proof engine's owned `ProofExpr` |
+| `ast_depth` | the nesting-depth gate: rejects programs whose AST nests deeper than every downstream walker (optimizer, codegen, interpreter, VM) can safely recurse — `AstTooDeep` at parse time instead of a stack overflow later |
+| `error`, `suggest`, `visitor`, `debug`, `analysis` | parse-error types + Socratic explanations, spelling suggestions, the AST visitor, and interner-aware debug display |
 
 ## Public API
 
@@ -83,7 +104,7 @@ External: `bumpalo` (arena allocation), `serde` + `serde_json` (hardware/ontolog
 
 ## License
 
-Business Source License 1.1 — see [LICENSE.md](../../LICENSE.md).
+Business Source License 1.1 — see [LICENSE.md](https://github.com/Brahmastra-Labs/logicaffeine/blob/main/LICENSE.md).
 
 ---
-[Docs index](../../new_docs/README.md) · [Root README](../../NEW_README.md) · [Changelog](../../CHANGELOG.md)
+[Docs index](https://github.com/Brahmastra-Labs/logicaffeine/blob/main/docs/README.md) · [Root README](https://github.com/Brahmastra-Labs/logicaffeine/blob/main/README.md) · [Changelog](https://github.com/Brahmastra-Labs/logicaffeine/blob/main/CHANGELOG.md)

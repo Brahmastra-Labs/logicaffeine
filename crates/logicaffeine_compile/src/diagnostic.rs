@@ -363,23 +363,33 @@ impl<'a> DiagnosticBridge<'a> {
 
 /// Translates rustc diagnostics to LOGOS errors.
 ///
-/// Iterates through all diagnostics and returns the first successfully
-/// translated error. Uses the source map to map Rust error locations
-/// back to LOGOS source positions.
+/// Returns the first successfully translated error — the CLI's
+/// one-error-at-a-time contract. IDE surfaces want
+/// [`translate_diagnostics_all`].
 pub fn translate_diagnostics(
     diagnostics: &[RustcDiagnostic],
     source_map: &SourceMap,
     interner: &Interner,
 ) -> Option<LogosError> {
+    translate_diagnostics_all(diagnostics, source_map, interner)
+        .into_iter()
+        .next()
+}
+
+/// Translates EVERY rustc diagnostic that has a LOGOS reading.
+///
+/// Diagnostics the bridge cannot translate (rustc internals with no LOGOS
+/// counterpart) are skipped, not fabricated.
+pub fn translate_diagnostics_all(
+    diagnostics: &[RustcDiagnostic],
+    source_map: &SourceMap,
+    interner: &Interner,
+) -> Vec<LogosError> {
     let bridge = DiagnosticBridge::new(source_map, interner);
-
-    for diag in diagnostics {
-        if let Some(error) = bridge.translate(diag) {
-            return Some(error);
-        }
-    }
-
-    None
+    diagnostics
+        .iter()
+        .filter_map(|diag| bridge.translate(diag))
+        .collect()
 }
 
 #[cfg(test)]

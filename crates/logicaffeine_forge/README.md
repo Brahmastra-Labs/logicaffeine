@@ -5,7 +5,7 @@ pages, build-time-baked machine-code stencils, the copy-and-patch assembler, the
 J1 micro-op compiler, and the EXODIA contiguous register-allocating x86-64
 codegen tier.
 
-Part of the [Logicaffeine](../../NEW_README.md) workspace. Tier 0, native-only
+Part of the [Logicaffeine](https://github.com/Brahmastra-Labs/logicaffeine/blob/main/README.md) workspace. Tier 0, native-only
 (cfg-gated off wasm32); no internal dependencies. Wired into the VM by
 logicaffeine_jit.
 
@@ -30,7 +30,7 @@ error) and **tail calls** (each continuation site must decode as an
 unconditional `b`/`jmp`). The build also generates the EXODIA register-threading
 variants and emits `STENCILS`, the per-stencil `ST_*` statics, and the
 `V_BINOP`/`V_FBINOP`/`V_SQRTF`/`V_DIVF`/… variant tables (all `include!`d into
-`lib.rs`). See [execution-and-performance.md](../../new_docs/execution-and-performance.md).
+`lib.rs`). See [execution-and-performance.md](https://github.com/Brahmastra-Labs/logicaffeine/blob/main/docs/execution-and-performance.md).
 
 ## Public API
 
@@ -127,7 +127,7 @@ build-dependency for parsing the compiled stencil object files).
 
 ## License
 
-Business Source License 1.1 — see [LICENSE.md](../../LICENSE.md).
+Business Source License 1.1 — see [LICENSE.md](https://github.com/Brahmastra-Labs/logicaffeine/blob/main/LICENSE.md).
 
 ---
-[Docs index](../../new_docs/README.md) · [Root README](../../NEW_README.md) · [Changelog](../../CHANGELOG.md)
+[Docs index](https://github.com/Brahmastra-Labs/logicaffeine/blob/main/docs/README.md) · [Root README](https://github.com/Brahmastra-Labs/logicaffeine/blob/main/README.md) · [Changelog](https://github.com/Brahmastra-Labs/logicaffeine/blob/main/CHANGELOG.md)

@@ -205,8 +205,21 @@ pub(crate) fn try_emit_for_range_pattern<'a>(
     let indent_str = "    ".repeat(indent);
     let names = RustNames::new(interner);
     let counter_name = names.ident(counter_sym);
-    let limit_str = codegen_expr_simple(limit_expr, interner);
-    let start_str = codegen_expr_simple(counter_start_expr, interner);
+    // A PROMOTED (`LogosInt`) bound narrows at the range — a Rust `Range`
+    // needs i64 ends, and the i64-sink ruling is a loud canonical error
+    // (a loop can't run 2^63 times anyway; the interpreter's behavior past
+    // that bound is unreachable in either form).
+    let narrowed = |e: &Expr, s: String| -> String {
+        let is_promoted = matches!(e, Expr::Identifier(sym)
+            if ctx.get_variable_types().get(sym).is_some_and(|t| t.contains("__bigint")));
+        if is_promoted {
+            format!("{}.expect_i64(\"Int\")", s)
+        } else {
+            s
+        }
+    };
+    let limit_str = narrowed(limit_expr, codegen_expr_simple(limit_expr, interner));
+    let start_str = narrowed(counter_start_expr, codegen_expr_simple(counter_start_expr, interner));
 
     // OPT-8: Zero-based counter normalization (general, any start).
     // When the counter is ONLY used for direct array indexing in the body, shift
@@ -1360,6 +1373,29 @@ fn try_emit_tiled_inner<'a>(
             pad, n = bound_str, arr = arr_name
         ).unwrap();
     }
+    // The emitted guard is ALSO the overflow proof for every bilinear index
+    // binding in the tile body: with `R,C ∈ [0, bound)` the value `R*S+C+1`
+    // is at most `(bound-1)*bound + (bound-1) + 1 ≤ len ≤ isize::MAX`, so
+    // its adds/mul can never leave i64. Register the binding's nodes so the
+    // exact-Int lowering emits them RAW — one `logos_narrow_i128` in the
+    // innermost tile loop is the difference between SIMD and scalar.
+    if !bilinear_guards.is_empty() {
+        for stmt in inner_body_sans_inc {
+            if let Stmt::Let { value, .. } = stmt {
+                if let Some(inner) = match_tiled_bilinear(value, &[outer_sym, mid_sym, inner_sym], outer_bound) {
+                    crate::optimize::mark_proven_raw_int_op(value);
+                    crate::optimize::mark_proven_raw_int_op(inner);
+                    if let Expr::BinaryOp { left, right, .. } = inner {
+                        for side in [left, right] {
+                            if matches!(&**side, Expr::BinaryOp { op: BinaryOpKind::Multiply, .. }) {
+                                crate::optimize::mark_proven_raw_int_op(side);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
 
     writeln!(
         out,
@@ -2012,6 +2048,34 @@ fn body_has_string_self_append(stmts: &[Stmt], str_sym: Symbol) -> bool {
     false
 }
 
+/// `codegen_expr_simple`, but a promoted (`LogosInt`) variable narrows to i64 via
+/// `.expect_i64("Int")` — the write/swap-path mirror of the read path's index-context
+/// narrow (`ExprCtx::int_index_context`). An index must fit i64 (collections are
+/// memory-bounded), so the narrow is the same fail-loud contract the reads use.
+fn codegen_index_operand(expr: &Expr, interner: &Interner, variable_types: &HashMap<Symbol, String>) -> String {
+    match expr {
+        Expr::Identifier(sym)
+            if variable_types.get(sym).map_or(false, |t| t.contains("__bigint")) =>
+        {
+            format!("{}.expect_i64(\"Int\")", interner.resolve(*sym))
+        }
+        Expr::BinaryOp { op, left, right } => {
+            let l = codegen_index_operand(left, interner, variable_types);
+            let r = codegen_index_operand(right, interner, variable_types);
+            let op_str = match op {
+                BinaryOpKind::Add => "+",
+                BinaryOpKind::Subtract => "-",
+                BinaryOpKind::Multiply => "*",
+                BinaryOpKind::Divide => "/",
+                BinaryOpKind::Modulo => "%",
+                _ => return format!("({})", l),
+            };
+            format!("({} {} {})", l, op_str, r)
+        }
+        _ => codegen_expr_simple(expr, interner),
+    }
+}
+
 /// Convert a LOGOS 1-based index expression to a Rust 0-based index string.
 ///
 /// Algebraic simplifications:
@@ -2023,8 +2087,14 @@ fn body_has_string_self_append(stmts: &[Stmt], str_sym: Symbol) -> bool {
 ///   fallback        → "(expr - 1) as usize"
 ///
 /// When `include_as_usize` is false, the result omits " as usize" (for use in `.swap()` calls
-/// where the caller adds it).
-pub(crate) fn simplify_1based_index(expr: &Expr, interner: &Interner, include_as_usize: bool) -> String {
+/// where the caller adds it). `variable_types` narrows promoted (`LogosInt`) variables inside
+/// the index expression, matching the read path.
+pub(crate) fn simplify_1based_index(
+    expr: &Expr,
+    interner: &Interner,
+    include_as_usize: bool,
+    variable_types: &HashMap<Symbol, String>,
+) -> String {
     let cast = if include_as_usize { " as usize" } else { "" };
 
     match expr {
@@ -2037,7 +2107,7 @@ pub(crate) fn simplify_1based_index(expr: &Expr, interner: &Interner, include_as
             match (left, right) {
                 // (X + 1) → X
                 (_, Expr::Literal(Literal::Number(1))) => {
-                    let inner = codegen_expr_simple(left, interner);
+                    let inner = codegen_index_operand(left, interner, variable_types);
                     if include_as_usize {
                         format!("({}){}", inner, cast)
                     } else {
@@ -2046,7 +2116,7 @@ pub(crate) fn simplify_1based_index(expr: &Expr, interner: &Interner, include_as
                 }
                 // (1 + X) → X
                 (Expr::Literal(Literal::Number(1)), _) => {
-                    let inner = codegen_expr_simple(right, interner);
+                    let inner = codegen_index_operand(right, interner, variable_types);
                     if include_as_usize {
                         format!("({}){}", inner, cast)
                     } else {
@@ -2055,24 +2125,24 @@ pub(crate) fn simplify_1based_index(expr: &Expr, interner: &Interner, include_as
                 }
                 // (X + K) where K > 1 → (X + K-1)
                 (_, Expr::Literal(Literal::Number(k))) if *k > 1 => {
-                    let inner = codegen_expr_simple(left, interner);
+                    let inner = codegen_index_operand(left, interner, variable_types);
                     format!("({} + {}){}", inner, k - 1, cast)
                 }
                 // (K + X) where K > 1 → (X + K-1)
                 (Expr::Literal(Literal::Number(k)), _) if *k > 1 => {
-                    let inner = codegen_expr_simple(right, interner);
+                    let inner = codegen_index_operand(right, interner, variable_types);
                     format!("({} + {}){}", inner, k - 1, cast)
                 }
                 // Fallback: (expr - 1)
                 _ => {
-                    let full = codegen_expr_simple(expr, interner);
+                    let full = codegen_index_operand(expr, interner, variable_types);
                     format!("({} - 1){}", full, cast)
                 }
             }
         }
         // Fallback: (expr - 1)
         _ => {
-            let full = codegen_expr_simple(expr, interner);
+            let full = codegen_index_operand(expr, interner, variable_types);
             format!("({} - 1){}", full, cast)
         }
     }
@@ -3709,8 +3779,8 @@ pub(crate) fn try_emit_swap_pattern<'a>(
             // Pattern matched! Emit optimized swap
             let indent_str = "    ".repeat(indent);
             let arr_name = interner.resolve(arr_sym_1);
-            let idx1_simplified = simplify_1based_index(idx_expr_1, interner, true);
-            let idx2_simplified = simplify_1based_index(idx_expr_2, interner, true);
+            let idx1_simplified = simplify_1based_index(idx_expr_1, interner, true, variable_types);
+            let idx2_simplified = simplify_1based_index(idx_expr_2, interner, true, variable_types);
 
             // The source guard may be written `a OP b` OR `b OP a`; emit the
             // comparison with operands in SOURCE order so the swap fires on
@@ -5367,8 +5437,8 @@ fn try_emit_unconditional_swap<'a>(
     // Pattern matched! Emit manual swap with direct indexing
     let indent_str = "    ".repeat(indent);
     let arr_name = interner.resolve(arr_sym);
-    let idx1_simplified = simplify_1based_index(idx_expr_1, interner, true);
-    let idx2_simplified = simplify_1based_index(idx_expr_2, interner, true);
+    let idx1_simplified = simplify_1based_index(idx_expr_1, interner, true, variable_types);
+    let idx2_simplified = simplify_1based_index(idx_expr_2, interner, true, variable_types);
 
     let is_logos_seq = variable_types.get(&arr_sym)
         .map_or(false, |t| t.starts_with("LogosSeq"));

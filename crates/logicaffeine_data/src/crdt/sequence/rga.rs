@@ -260,11 +260,17 @@ impl<T: Clone + PartialEq + Serialize + DeserializeOwned + Send + 'static> Delta
             return None;
         }
 
-        // Return full state as delta
-        Some(RGADelta {
-            nodes: self.nodes.clone(),
-            timestamp: self.timestamp,
-        })
+        // A TRUE incremental delta: only the nodes CREATED after `since` (per replica). `apply_delta`
+        // inserts by id, so shipping just the new nodes is safe and small — a one-element append on a
+        // long sequence ships one node, not the whole RGA. (Tombstoning an OLD node still needs a full
+        // sync, since a node records only its creation timestamp; `merge` handles that case.)
+        let nodes: Vec<RgaNode<T>> = self
+            .nodes
+            .iter()
+            .filter(|n| n.id.timestamp > since.get(n.id.replica))
+            .cloned()
+            .collect();
+        Some(RGADelta { nodes, timestamp: self.timestamp })
     }
 
     fn apply_delta(&mut self, delta: &Self::Delta) {

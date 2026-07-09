@@ -306,7 +306,7 @@ fn collect_int_vars<'ctx>(expr: &VerifyExpr, int_vars: &mut HashMap<String, Int<
         VerifyExpr::Binary { op, left, right } => {
             match op {
                 // Arithmetic ops: children are integer-typed
-                VerifyOp::Add | VerifyOp::Sub | VerifyOp::Mul | VerifyOp::Div => {
+                VerifyOp::Add | VerifyOp::Sub | VerifyOp::Mul | VerifyOp::Div | VerifyOp::FloorDiv => {
                     collect_int_var_leaves(left, int_vars, ctx);
                     collect_int_var_leaves(right, int_vars, ctx);
                 }
@@ -635,7 +635,7 @@ fn type_to_z3_sort<'ctx>(ctx: &'ctx Context, ty: &VerifyType) -> z3::Sort<'ctx> 
 fn expr_is_integer(expr: &VerifyExpr) -> bool {
     matches!(expr,
         VerifyExpr::Int(_)
-        | VerifyExpr::Binary { op: VerifyOp::Add | VerifyOp::Sub | VerifyOp::Mul | VerifyOp::Div, .. }
+        | VerifyExpr::Binary { op: VerifyOp::Add | VerifyOp::Sub | VerifyOp::Mul | VerifyOp::Div | VerifyOp::FloorDiv, .. }
     )
 }
 
@@ -746,6 +746,12 @@ impl<'ctx> EquivEncoder<'ctx> {
                     VerifyOp::Div => {
                         if let (Some(li), Some(ri)) = (l.as_int(), r.as_int()) {
                             Dynamic::from_ast(&li.div(&ri))
+                        } else { l }
+                    }
+                    // Floor division: real division then floor (`Real::to_int`), exact toward -inf.
+                    VerifyOp::FloorDiv => {
+                        if let (Some(li), Some(ri)) = (l.as_int(), r.as_int()) {
+                            Dynamic::from_ast(&(li.to_real() / ri.to_real()).to_int())
                         } else { l }
                     }
                     // Comparison ops → Bool (from Int operands)

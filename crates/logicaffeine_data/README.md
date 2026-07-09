@@ -6,7 +6,7 @@ collections the code generator emits for proven-safe hot paths, the 1-based
 indexing traits that make values subscriptable, and the eight CRDTs that converge
 those values across replicas — all with no path to system IO.
 
-Part of the [Logicaffeine](../../NEW_README.md) workspace. Tier 1 — depends on
+Part of the [Logicaffeine](https://github.com/Brahmastra-Labs/logicaffeine/blob/main/README.md) workspace. Tier 1 — depends on
 logicaffeine_base. **Lamport invariant**: no IO dependencies, so these structures
 stay WASM-safe and clock-agnostic.
 
@@ -17,7 +17,7 @@ and `logicaffeine_system` build on its runtime types and CRDTs; the web app link
 it for `wasm32-unknown-unknown`. Everything compiles identically for native and
 WASM because nothing here touches the clock, the network, or the filesystem. The
 networking wrappers that *do* (e.g. `Synced<T>`) live one tier up in
-`logicaffeine_system`. See [concurrency](../../new_docs/concurrency.md) for how
+`logicaffeine_system`. See [concurrency](https://github.com/Brahmastra-Labs/logicaffeine/blob/main/docs/concurrency.md) for how
 replicated state flows through the runtime.
 
 The Lamport invariant is enforced at the dependency boundary: no tokio, no libp2p,
@@ -76,6 +76,20 @@ out-of-order dot cloud) track happens-before across replicas.
 match natural language; `LogosGetChar` returns a `char` without allocating. They
 cover `Vec`, `[T]`, `&mut [T]`, `String`, `LogosSeq`, `LogosMap`, and `FxHashMap`.
 
+**Shared wire codec** (`wire`) — the byte format of the peer/transport codec,
+factored out so both the interpreter's `RuntimeValue` and AOT-generated types
+encode through one definition (`WireEncode`/`WireDecode` over the `T_INT`/`T_TEXT`/
+`T_LIST`/`T_INDUCTIVE` tagged-varint form). Byte-identical across value models —
+what lets a compile-once native partial evaluator receive a program as data.
+
+**Cross-tier arithmetic and formatting** — `ops` is the exact numeric-comparison
+layer the code generator emits (`logos_cmp_i64_f64`/`logos_i64_eq_f64`/
+`logos_approx_eq`/`logos_truthy`), so a statically-mixed `Int`/`Float` compare is
+exact — never a lossy `as f64` cast that would call `9007199254740993` equal to
+`9007199254740992.0`. `fmt` is the single float-display authority: every tier
+(tree-walker, VM, AOT binary, direct-WASM host) renders an `f64` through it, so
+the same program prints the same decimal string however it was run.
+
 ```rust
 use logicaffeine_data::{ORMap, PNCounter, Merge};
 
@@ -102,7 +116,7 @@ build script.
 
 ## License
 
-Business Source License 1.1 — see [LICENSE.md](../../LICENSE.md).
+Business Source License 1.1 — see [LICENSE.md](https://github.com/Brahmastra-Labs/logicaffeine/blob/main/LICENSE.md).
 
 ---
-[Docs index](../../new_docs/README.md) · [Root README](../../NEW_README.md) · [Changelog](../../CHANGELOG.md)
+[Docs index](https://github.com/Brahmastra-Labs/logicaffeine/blob/main/docs/README.md) · [Root README](https://github.com/Brahmastra-Labs/logicaffeine/blob/main/README.md) · [Changelog](https://github.com/Brahmastra-Labs/logicaffeine/blob/main/CHANGELOG.md)

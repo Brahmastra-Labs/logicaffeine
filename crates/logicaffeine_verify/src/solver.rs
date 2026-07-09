@@ -1012,6 +1012,15 @@ impl<'ctx> Encoder<'ctx> {
                     l
                 }
             }
+            // Floor division `a // b`: `to_int(to_real(a) / to_real(b))` — real division then the
+            // floor (`Real::to_int` is floor), exact toward -inf for every sign.
+            VerifyOp::FloorDiv => {
+                if let (Some(li), Some(ri)) = (l.as_int(), r.as_int()) {
+                    Dynamic::from_ast(&(li.to_real() / ri.to_real()).to_int())
+                } else {
+                    l
+                }
+            }
 
             // Comparison
             VerifyOp::Gt => {

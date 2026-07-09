@@ -69,6 +69,15 @@ impl Session {
         }
     }
 
+    /// Switch the output format mid-session.
+    ///
+    /// Affects only how subsequent sentences are rendered; discourse state
+    /// (referents, event counters) is untouched, so a session switched to
+    /// LaTeX renders exactly as one that used LaTeX from the start.
+    pub fn set_format(&mut self, format: OutputFormat) {
+        self.format = format;
+    }
+
     /// Create a new session with a specific output format.
     pub fn with_format(format: OutputFormat) -> Self {
         Session {

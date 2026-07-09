@@ -86,12 +86,12 @@ const NQUEENS: &str = "\
     If row equals n:
         Return 1.
     Let all be (1 shifted left by n) - 1.
-    Let mutable available be all and not (cols or diag1 or diag2).
+    Let mutable available be all & ~(cols | diag1 | diag2).
     Let mutable count be 0.
     While available is not 0:
-        Let bit be available and (0 - available).
+        Let bit be available & (0 - available).
         Set available to available xor bit.
-        Set count to count + solve(row + 1, cols or bit, (diag1 or bit) shifted left by 1, (diag2 or bit) shifted right by 1, n).
+        Set count to count + solve(row + 1, cols | bit, (diag1 | bit) shifted left by 1, (diag2 | bit) shifted right by 1, n).
     Return count.
 
 ## Main

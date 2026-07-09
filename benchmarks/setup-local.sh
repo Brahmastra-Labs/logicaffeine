@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # LOGICAFFEINE Local Benchmark Toolchain Setup
 #
-# Installs every compiler/runtime the benchmark suite needs, pinned to the
-# same versions CI uses (.github/workflows/benchmark.yml) where pinnable.
+# Installs every compiler/runtime the benchmark suite needs, pinned where
+# pinnable so every bench box measures with the same tools.
 # Idempotent: tools that already resolve on PATH are left alone.
 #
 # Usage: bash benchmarks/setup-local.sh

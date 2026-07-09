@@ -63,6 +63,16 @@ impl Perm {
         self.pos_image.iter().enumerate().all(|(v, &img)| img == Lit::pos(v as Var))
     }
 
+    /// Extend to `nv` variables, acting as the identity on the new (higher-indexed) variables.
+    /// Used to lift a base-formula symmetry over auxiliary variables it does not touch.
+    pub fn extended(&self, nv: usize) -> Perm {
+        let mut pos_image = self.pos_image.clone();
+        for v in pos_image.len()..nv {
+            pos_image.push(Lit::pos(v as Var));
+        }
+        Perm { pos_image }
+    }
+
     /// Compose: `(self ∘ other)(l) = self(other(l))` — apply `other` first, then `self`.
     pub fn compose(&self, other: &Perm) -> Perm {
         Perm {
@@ -84,7 +94,9 @@ pub enum Witness {
     Substitution(Perm),
 }
 
-/// One step of a refutation: add a clause with the justification a checker replays.
+/// One step of a refutation: add a clause with the justification a checker replays, or delete a
+/// clause from the working database (the DRAT deletion that inprocessing — vivification, BVE —
+/// relies on; deletions are unchecked, only additions carry a redundancy obligation).
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ProofStep {
     /// Add a clause that is RUP w.r.t. the current database.
@@ -92,13 +104,15 @@ pub enum ProofStep {
     /// Add a clause that is propagation-redundant w.r.t. the current database, certified by
     /// `witness`. May remove models; preserves satisfiability.
     Pr { clause: Vec<Lit>, witness: Witness },
+    /// Remove a clause from the working database (a sound DRAT deletion).
+    Delete(Vec<Lit>),
 }
 
 impl ProofStep {
-    /// The clause this step adds.
+    /// The clause this step adds or deletes.
     pub fn clause(&self) -> &[Lit] {
         match self {
-            ProofStep::Rup(c) => c,
+            ProofStep::Rup(c) | ProofStep::Delete(c) => c,
             ProofStep::Pr { clause, .. } => clause,
         }
     }

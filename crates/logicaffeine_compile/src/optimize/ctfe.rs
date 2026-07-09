@@ -49,7 +49,7 @@ fn is_pure_stmt(stmt: &Stmt) -> bool {
         Stmt::Show { .. } | Stmt::Escape { .. } | Stmt::Push { .. }
         | Stmt::Pop { .. } | Stmt::Add { .. } | Stmt::Remove { .. }
         | Stmt::SetIndex { .. } | Stmt::SetField { .. } | Stmt::Give { .. }
-        | Stmt::WriteFile { .. } | Stmt::SendMessage { .. }
+        | Stmt::WriteFile { .. } | Stmt::SendMessage { .. } | Stmt::StreamMessage { .. }
         | Stmt::Sleep { .. } | Stmt::Spawn { .. } | Stmt::Break => false,
         _ => false,
     }

@@ -23,10 +23,20 @@
 //! Polynomials are stored as a map from monomials to coefficients.
 //! Monomials are maps from variable indices to exponents.
 //! BTreeMap ensures deterministic ordering for canonical comparison.
+//!
+//! # Exactness
+//!
+//! Coefficients and exponents are arbitrary-precision ([`BigInt`]): the
+//! verdict feeds trusted reflection reductions, so the arithmetic must be
+//! exact at every magnitude — a wrapped coefficient or exponent would equate
+//! unequal polynomials.
 
 use std::collections::BTreeMap;
 
-use crate::term::{Literal, Term};
+use logicaffeine_base::numeric::BigInt;
+
+use crate::reify::{extract_binary_app, extract_slit, extract_sname, extract_svar, VarInterner};
+use crate::term::Term;
 
 /// A monomial is a product of variables with their powers.
 ///
@@ -38,7 +48,7 @@ use crate::term::{Literal, Term};
 pub struct Monomial {
     /// Maps variable index to its exponent.
     /// Variables with exponent 0 are omitted.
-    powers: BTreeMap<i64, u32>,
+    powers: BTreeMap<i64, BigInt>,
 }
 
 impl Monomial {
@@ -52,7 +62,7 @@ impl Monomial {
     /// A single variable: x_i^1
     pub fn var(index: i64) -> Self {
         let mut powers = BTreeMap::new();
-        powers.insert(index, 1);
+        powers.insert(index, BigInt::from_i64(1));
         Monomial { powers }
     }
 
@@ -63,7 +73,8 @@ impl Monomial {
     pub fn mul(&self, other: &Monomial) -> Monomial {
         let mut result = self.powers.clone();
         for (var, exp) in &other.powers {
-            *result.entry(*var).or_insert(0) += exp;
+            let entry = result.entry(*var).or_insert_with(BigInt::zero);
+            *entry = entry.add(exp);
         }
         Monomial { powers: result }
     }
@@ -78,7 +89,7 @@ impl Monomial {
 pub struct Polynomial {
     /// Maps monomials to their coefficients.
     /// Terms with coefficient 0 are omitted.
-    terms: BTreeMap<Monomial, i64>,
+    terms: BTreeMap<Monomial, BigInt>,
 }
 
 impl Polynomial {
@@ -94,8 +105,9 @@ impl Polynomial {
     /// Create a constant polynomial from an integer.
     ///
     /// Returns the zero polynomial if `c` is 0.
-    pub fn constant(c: i64) -> Self {
-        if c == 0 {
+    pub fn constant(c: impl Into<BigInt>) -> Self {
+        let c = c.into();
+        if c.is_zero() {
             return Self::zero();
         }
         let mut terms = BTreeMap::new();
@@ -106,7 +118,7 @@ impl Polynomial {
     /// A single variable: x_i
     pub fn var(index: i64) -> Self {
         let mut terms = BTreeMap::new();
-        terms.insert(Monomial::var(index), 1);
+        terms.insert(Monomial::var(index), BigInt::from_i64(1));
         Polynomial { terms }
     }
 
@@ -114,9 +126,9 @@ impl Polynomial {
     pub fn add(&self, other: &Polynomial) -> Polynomial {
         let mut result = self.terms.clone();
         for (mono, coeff) in &other.terms {
-            let entry = result.entry(mono.clone()).or_insert(0);
-            *entry += coeff;
-            if *entry == 0 {
+            let entry = result.entry(mono.clone()).or_insert_with(BigInt::zero);
+            *entry = entry.add(coeff);
+            if entry.is_zero() {
                 result.remove(mono);
             }
         }
@@ -127,7 +139,7 @@ impl Polynomial {
     pub fn neg(&self) -> Polynomial {
         let mut result = BTreeMap::new();
         for (mono, coeff) in &self.terms {
-            result.insert(mono.clone(), -coeff);
+            result.insert(mono.clone(), coeff.negated());
         }
         Polynomial { terms: result }
     }
@@ -143,13 +155,13 @@ impl Polynomial {
         for (m1, c1) in &self.terms {
             for (m2, c2) in &other.terms {
                 let mono = m1.mul(m2);
-                let coeff = c1 * c2;
-                let entry = result.terms.entry(mono).or_insert(0);
-                *entry += coeff;
+                let coeff = c1.mul(c2);
+                let entry = result.terms.entry(mono).or_insert_with(BigInt::zero);
+                *entry = entry.add(&coeff);
             }
         }
         // Clean up zero coefficients
-        result.terms.retain(|_, c| *c != 0);
+        result.terms.retain(|_, c| !c.is_zero());
         result
     }
 
@@ -181,7 +193,7 @@ pub enum ReifyError {
 ///
 /// - `SLit n` - Integer literal becomes a constant polynomial
 /// - `SVar i` - De Bruijn variable becomes a polynomial variable
-/// - `SName "x"` - Named global becomes a polynomial variable (hashed)
+/// - `SName "x"` - Named global becomes a polynomial variable (interned)
 /// - `SApp (SApp (SName "add") a) b` - Addition of two terms
 /// - `SApp (SApp (SName "sub") a) b` - Subtraction of two terms
 /// - `SApp (SApp (SName "mul") a) b` - Multiplication of two terms
@@ -193,9 +205,11 @@ pub enum ReifyError {
 ///
 /// # Named Variables
 ///
-/// Named variables (via SName) are converted to unique negative indices
-/// to avoid collision with De Bruijn indices (which are non-negative).
-pub fn reify(term: &Term) -> Result<Polynomial, ReifyError> {
+/// Named globals draw their indices from `vars`, so distinct names get
+/// distinct variables and repeated names get the same one. Every term
+/// reified for one goal must share one interner — comparing polynomials
+/// reified under different interners is meaningless.
+pub fn reify(term: &Term, vars: &mut VarInterner) -> Result<Polynomial, ReifyError> {
     // SLit n -> constant
     if let Some(n) = extract_slit(term) {
         return Ok(Polynomial::constant(n));
@@ -208,27 +222,25 @@ pub fn reify(term: &Term) -> Result<Polynomial, ReifyError> {
 
     // SName "x" -> treat as variable (global constant)
     if let Some(name) = extract_sname(term) {
-        // Use negative indices for named globals to distinguish from SVar
-        let hash = name_to_var_index(&name);
-        return Ok(Polynomial::var(hash));
+        return Ok(Polynomial::var(vars.intern(&name)));
     }
 
     // SApp (SApp (SName "op") a) b -> binary operation
     if let Some((op, a, b)) = extract_binary_app(term) {
         match op.as_str() {
             "add" => {
-                let pa = reify(&a)?;
-                let pb = reify(&b)?;
+                let pa = reify(&a, vars)?;
+                let pb = reify(&b, vars)?;
                 return Ok(pa.add(&pb));
             }
             "sub" => {
-                let pa = reify(&a)?;
-                let pb = reify(&b)?;
+                let pa = reify(&a, vars)?;
+                let pb = reify(&b, vars)?;
                 return Ok(pa.sub(&pb));
             }
             "mul" => {
-                let pa = reify(&a)?;
-                let pb = reify(&b)?;
+                let pa = reify(&a, vars)?;
+                let pb = reify(&b, vars)?;
                 return Ok(pa.mul(&pb));
             }
             "div" | "mod" => {
@@ -250,91 +262,6 @@ pub fn reify(term: &Term) -> Result<Polynomial, ReifyError> {
     Err(ReifyError::NonPolynomial(
         "Unrecognized term structure".to_string(),
     ))
-}
-
-/// Extract integer from SLit n
-fn extract_slit(term: &Term) -> Option<i64> {
-    // Pattern: App(Global("SLit"), Lit(Int(n)))
-    if let Term::App(ctor, arg) = term {
-        if let Term::Global(name) = ctor.as_ref() {
-            if name == "SLit" {
-                if let Term::Lit(Literal::Int(n)) = arg.as_ref() {
-                    return Some(*n);
-                }
-            }
-        }
-    }
-    None
-}
-
-/// Extract variable index from SVar i
-fn extract_svar(term: &Term) -> Option<i64> {
-    // Pattern: App(Global("SVar"), Lit(Int(i)))
-    if let Term::App(ctor, arg) = term {
-        if let Term::Global(name) = ctor.as_ref() {
-            if name == "SVar" {
-                if let Term::Lit(Literal::Int(i)) = arg.as_ref() {
-                    return Some(*i);
-                }
-            }
-        }
-    }
-    None
-}
-
-/// Extract name from SName "x"
-fn extract_sname(term: &Term) -> Option<String> {
-    // Pattern: App(Global("SName"), Lit(Text(s)))
-    if let Term::App(ctor, arg) = term {
-        if let Term::Global(name) = ctor.as_ref() {
-            if name == "SName" {
-                if let Term::Lit(Literal::Text(s)) = arg.as_ref() {
-                    return Some(s.clone());
-                }
-            }
-        }
-    }
-    None
-}
-
-/// Extract binary application: SApp (SApp (SName "op") a) b
-fn extract_binary_app(term: &Term) -> Option<(String, Term, Term)> {
-    // Structure: App(App(SApp, App(App(SApp, op_term), a)), b)
-    // Which represents: SApp (SApp op a) b
-    if let Term::App(outer, b) = term {
-        if let Term::App(sapp_outer, inner) = outer.as_ref() {
-            if let Term::Global(ctor) = sapp_outer.as_ref() {
-                if ctor == "SApp" {
-                    // inner should be: App(App(SApp, op), a)
-                    if let Term::App(partial, a) = inner.as_ref() {
-                        if let Term::App(sapp_inner, op_term) = partial.as_ref() {
-                            if let Term::Global(ctor2) = sapp_inner.as_ref() {
-                                if ctor2 == "SApp" {
-                                    if let Some(op) = extract_sname(op_term) {
-                                        return Some((
-                                            op,
-                                            a.as_ref().clone(),
-                                            b.as_ref().clone(),
-                                        ));
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
-    None
-}
-
-/// Convert a name to a unique negative variable index
-fn name_to_var_index(name: &str) -> i64 {
-    // Use a hash of the name, made negative to distinguish from SVar indices
-    let hash: i64 = name
-        .bytes()
-        .fold(0i64, |acc, b| acc.wrapping_mul(31).wrapping_add(b as i64));
-    -(hash.abs() + 1_000_000) // Ensure it's negative and far from typical SVar indices
 }
 
 #[cfg(test)]

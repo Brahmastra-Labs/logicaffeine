@@ -7,6 +7,12 @@ on:
     branches: [main]
   workflow_dispatch:
 
+env:
+  # The `z3` crate links the system libz3 (no bundled feature); libz3-dev puts
+  # the header here. cargo doc --workspace compiles verify/tv/synth, so the
+  # docs build needs Z3 exactly like the test suite does.
+  Z3_SYS_Z3_HEADER: /usr/include/z3.h
+
 jobs:
   deploy:
     runs-on: ubuntu-latest
@@ -23,6 +29,9 @@ jobs:
 
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
+
+      - name: Install Z3
+        run: sudo apt-get update && sudo apt-get install -y z3 libz3-dev
 
       - name: Cache Cargo
         uses: actions/cache@v4

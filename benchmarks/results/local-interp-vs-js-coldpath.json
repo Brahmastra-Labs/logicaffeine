@@ -1,0 +1,278 @@
+{
+  "schema_version": 1,
+  "metadata": {
+    "date": "2026-06-12T21:25:46Z",
+    "commit": "4d31c18",
+    "logos_version": "0.9.17",
+    "node": "v22.22.3",
+    "cpu": "Intel(R) Core(TM) i9-14900K",
+    "os": "Ubuntu 24.04.2 LTS x86_64",
+    "warmup": 1,
+    "runs": 5
+  },
+  "languages": [
+    {
+      "id": "logos_interp",
+      "label": "LOGOS (interpreted)",
+      "color": "#ff8c00",
+      "tier": "interpreted"
+    },
+    {
+      "id": "js",
+      "label": "Node v22.22.3",
+      "color": "#f7df1e",
+      "tier": "interpreted"
+    }
+  ],
+  "benchmarks": [
+    {
+      "id": "fib",
+      "name": "Recursive Fibonacci",
+      "reference_size": "30",
+      "interpreter_engine": "vm+jit",
+      "sizes": [
+        "30",
+        "35",
+        "40"
+      ],
+      "logos_source": "## To native args () -> Seq of Text\n## To native parseInt (s: Text) -> Int\n\n## To fib (n: Int) -> Int:\n    If n is less than 2:\n        Return n.\n    Return fib(n - 1) + fib(n - 2).\n\n## Main\nLet arguments be args().\nLet n be parseInt(item 2 of arguments).\nShow fib(n).",
+      "js_source": "function fib(n) {\n    if (n < 2) return n;\n    return fib(n - 1) + fib(n - 2);\n}\n\nconst n = parseInt(process.argv[2]);\nconsole.log(fib(n));",
+      "scaling": {
+        "30": {
+          "logos_interp": {
+            "mean_ms": 150.43026486000,
+            "median_ms": 155.23300306000,
+            "stddev_ms": 6.7967130786007685000,
+            "min_ms": 142.71893006000,
+            "max_ms": 155.58301206000,
+            "cv": 0.04518181952897725224,
+            "runs": 5,
+            "user_ms": 144.2212000,
+            "system_ms": 6.0742999999999995000
+          },
+          "js": {
+            "mean_ms": 28.916612599999995000,
+            "median_ms": 28.662727000000002000,
+            "stddev_ms": 7.725237342010328000,
+            "min_ms": 19.714807000,
+            "max_ms": 38.329219000000005000,
+            "cv": 0.26715568136809805086,
+            "runs": 5,
+            "user_ms": 23.773999999999997000,
+            "system_ms": 6.0944000
+          }
+        }
+      },
+      "compilation": {},
+      "timeouts": {}
+    },
+    {
+      "id": "nqueens",
+      "name": "N-Queens",
+      "reference_size": "11",
+      "interpreter_engine": "vm+jit",
+      "sizes": [
+        "12",
+        "13",
+        "14"
+      ],
+      "logos_source": "## To native args () -> Seq of Text\n## To native parseInt (s: Text) -> Int\n\n## To solve (row: Int, cols: Int, diag1: Int, diag2: Int, n: Int) -> Int:\n    If row equals n:\n        Return 1.\n    Let all be (1 shifted left by n) - 1.\n    Let mutable available be all and not (cols or diag1 or diag2).\n    Let mutable count be 0.\n    While available is not 0:\n        Let bit be available and (0 - available).\n        Set available to available xor bit.\n        Set count to count + solve(row + 1, cols or bit, (diag1 or bit) shifted left by 1, (diag2 or bit) shifted right by 1, n).\n    Return count.\n\n## Main\nLet arguments be args().\nLet n be parseInt(item 2 of arguments).\nShow solve(0, 0, 0, 0, n).",
+      "js_source": "function solve(row, cols, diag1, diag2, n) {\n    if (row === n) return 1;\n    let count = 0;\n    let available = ((1 << n) - 1) & ~(cols | diag1 | diag2);\n    while (available) {\n        const bit = available & (-available);\n        available ^= bit;\n        count += solve(row + 1, cols | bit, (diag1 | bit) << 1, (diag2 | bit) >> 1, n);\n    }\n    return count;\n}\nconst n = parseInt(process.argv[2]);\nconsole.log(solve(0, 0, 0, 0, n));",
+      "scaling": {
+        "11": {
+          "logos_interp": {
+            "mean_ms": 61.389798179999996000,
+            "median_ms": 59.497176980000004000,
+            "stddev_ms": 3.7615720524686457000,
+            "min_ms": 58.659614980000004000,
+            "max_ms": 67.48888298000,
+            "cv": 0.06127356928979312609,
+            "runs": 5,
+            "user_ms": 47.66286000000001000,
+            "system_ms": 13.5938000
+          },
+          "js": {
+            "mean_ms": 19.2565976000,
+            "median_ms": 19.591546000,
+            "stddev_ms": 1.5384284525668723000,
+            "min_ms": 17.383319000,
+            "max_ms": 21.161218000000002000,
+            "cv": 0.07989097993961676282,
+            "runs": 5,
+            "user_ms": 15.6198000,
+            "system_ms": 4.9106000
+          }
+        }
+      },
+      "compilation": {},
+      "timeouts": {}
+    },
+    {
+      "id": "fannkuch",
+      "name": "Fannkuch Redux",
+      "reference_size": "8",
+      "interpreter_engine": "vm+jit",
+      "sizes": [
+        "9",
+        "10",
+        "11"
+      ],
+      "logos_source": "## To native args () -> Seq of Text\n## To native parseInt (s: Text) -> Int\n\n## Main\nLet arguments be args().\nLet n be parseInt(item 2 of arguments).\nLet mutable perm1 be a new Seq of Int.\nLet mutable count be a new Seq of Int.\nLet mutable i be 0.\nWhile i is less than n:\n    Push i to perm1.\n    Push 0 to count.\n    Set i to i + 1.\nLet mutable maxFlips be 0.\nLet mutable checksum be 0.\nLet mutable permCount be 0.\nLet mutable r be n.\nLet mutable done be 0.\nWhile done equals 0:\n    While r is greater than 1:\n        Set item r of count to r.\n        Set r to r - 1.\n    Let mutable perm be a new Seq of Int.\n    Set i to 1.\n    While i is at most n:\n        Push item i of perm1 to perm.\n        Set i to i + 1.\n    Let mutable flips be 0.\n    While item 1 of perm is not 0:\n        Let k be item 1 of perm + 1.\n        Let mutable lo be 1.\n        Let mutable hi be k.\n        While lo is less than hi:\n            Let tmp be item lo of perm.\n            Set item lo of perm to item hi of perm.\n            Set item hi of perm to tmp.\n            Set lo to lo + 1.\n            Set hi to hi - 1.\n        Set flips to flips + 1.\n    If flips is greater than maxFlips:\n        Set maxFlips to flips.\n    If permCount % 2 equals 0:\n        Set checksum to checksum + flips.\n    Otherwise:\n        Set checksum to checksum - flips.\n    Set permCount to permCount + 1.\n    Set done to 1.\n    While done equals 1:\n        If r equals n:\n            Set done to 2.\n        Otherwise:\n            Let perm0 be item 1 of perm1.\n            Set i to 1.\n            While i is at most r:\n                Set item i of perm1 to item (i + 1) of perm1.\n                Set i to i + 1.\n            Set item (r + 1) of perm1 to perm0.\n            Set item (r + 1) of count to (item (r + 1) of count) - 1.\n            If item (r + 1) of count is greater than 0:\n                Set done to 0.\n            Otherwise:\n                Set r to r + 1.\nShow checksum.\nShow maxFlips.",
+      "js_source": "const n = parseInt(process.argv[2]);\nconst perm1 = Array.from({length: n}, (_, i) => i);\nconst count = new Array(n).fill(0);\nlet maxFlips = 0, checksum = 0, permCount = 0, r = n;\nouter: while (true) {\n    while (r > 1) { count[r-1] = r; r--; }\n    const perm = [...perm1];\n    let flips = 0;\n    while (perm[0] !== 0) {\n        const k = perm[0] + 1;\n        for (let i = 0; i < k >> 1; i++) { const t = perm[i]; perm[i] = perm[k-1-i]; perm[k-1-i] = t; }\n        flips++;\n    }\n    if (flips > maxFlips) maxFlips = flips;\n    checksum += (permCount % 2 === 0) ? flips : -flips;\n    permCount++;\n    while (true) {\n        if (r === n) break outer;\n        const p0 = perm1[0];\n        for (let i = 0; i < r; i++) perm1[i] = perm1[i+1];\n        perm1[r] = p0;\n        if (--count[r] > 0) break;\n        r++;\n    }\n}\nconsole.log(checksum + \"\\n\" + maxFlips);",
+      "scaling": {
+        "8": {
+          "logos_interp": {
+            "mean_ms": 54.009931420000004000,
+            "median_ms": 55.73680602000,
+            "stddev_ms": 5.228637556024784000,
+            "min_ms": 47.08172402000,
+            "max_ms": 59.060338020000006000,
+            "cv": 0.09680881679639769505,
+            "runs": 5,
+            "user_ms": 53.05333999999999000,
+            "system_ms": 0.70928000
+          },
+          "js": {
+            "mean_ms": 27.474881000,
+            "median_ms": 26.624523000,
+            "stddev_ms": 4.65462045684463000,
+            "min_ms": 21.071748000,
+            "max_ms": 32.994275000,
+            "cv": 0.16941367123099204688,
+            "runs": 5,
+            "user_ms": 24.331000,
+            "system_ms": 6.9908000
+          }
+        }
+      },
+      "compilation": {},
+      "timeouts": {}
+    },
+    {
+      "id": "gcd",
+      "name": "GCD Sum",
+      "reference_size": "1200",
+      "interpreter_engine": "vm+jit",
+      "sizes": [
+        "2000",
+        "3000",
+        "5000"
+      ],
+      "logos_source": "## To native args () -> Seq of Text\n## To native parseInt (s: Text) -> Int\n\n## To gcd (a: Int, b: Int) -> Int:\n    Let mutable x be a.\n    Let mutable y be b.\n    While y is greater than 0:\n        Let temp be y.\n        Set y to x % y.\n        Set x to temp.\n    Return x.\n\n## Main\nLet arguments be args().\nLet n be parseInt(item 2 of arguments).\nLet mutable sum be 0.\nLet mutable i be 1.\nWhile i is at most n:\n    Let mutable j be i.\n    While j is at most n:\n        Set sum to sum + gcd(i, j).\n        Set j to j + 1.\n    Set i to i + 1.\nShow sum.",
+      "js_source": "function gcd(a, b) {\n    while (b > 0) { const t = b; b = a % b; a = t; }\n    return a;\n}\nconst n = parseInt(process.argv[2]);\nlet sum = 0;\nfor (let i = 1; i <= n; i++)\n    for (let j = i; j <= n; j++)\n        sum += gcd(i, j);\nconsole.log(sum);",
+      "scaling": {
+        "1200": {
+          "logos_interp": {
+            "mean_ms": 78.83847120000001000,
+            "median_ms": 78.1154468000,
+            "stddev_ms": 2.4610890810590935000,
+            "min_ms": 76.17694180000001000,
+            "max_ms": 82.8484448000,
+            "cv": 0.03121685445695315801,
+            "runs": 5,
+            "user_ms": 67.51866000,
+            "system_ms": 11.15822000
+          },
+          "js": {
+            "mean_ms": 33.1720936000,
+            "median_ms": 34.577428000,
+            "stddev_ms": 4.992718435861099000,
+            "min_ms": 27.348934000000002000,
+            "max_ms": 39.785721000,
+            "cv": 0.15050959689385113154,
+            "runs": 5,
+            "user_ms": 29.607799999999997000,
+            "system_ms": 5.6174000
+          }
+        }
+      },
+      "compilation": {},
+      "timeouts": {}
+    },
+    {
+      "id": "binary_trees",
+      "name": "Binary Trees",
+      "reference_size": "13",
+      "interpreter_engine": "vm+jit",
+      "sizes": [
+        "20",
+        "25",
+        "30"
+      ],
+      "logos_source": "## To native args () -> Seq of Text\n## To native parseInt (s: Text) -> Int\n\n## To makeCheck (depth: Int) -> Int:\n    If depth equals 0:\n        Return 1.\n    Return 1 + makeCheck(depth - 1) + makeCheck(depth - 1).\n\n## Main\nLet arguments be args().\nLet n be parseInt(item 2 of arguments).\nLet minDepth be 4.\nLet mutable maxDepth be n.\nIf minDepth + 2 is greater than maxDepth:\n    Set maxDepth to minDepth + 2.\n\nLet stretchCheck be makeCheck(maxDepth + 1).\nShow \"stretch tree of depth \" + (maxDepth + 1) + \" check: \" + stretchCheck.\n\nLet longLived be makeCheck(maxDepth).\n\nLet mutable depth be minDepth.\nWhile depth is at most maxDepth:\n    Let mutable iterations be 1.\n    Let mutable p be 0.\n    While p is less than maxDepth - depth + minDepth:\n        Set iterations to iterations * 2.\n        Set p to p + 1.\n    Let mutable totalCheck be 0.\n    Let mutable i be 0.\n    While i is less than iterations:\n        Set totalCheck to totalCheck + makeCheck(depth).\n        Set i to i + 1.\n    Show \"\" + iterations + \" trees of depth \" + depth + \" check: \" + totalCheck.\n    Set depth to depth + 2.\nShow \"long lived tree of depth \" + maxDepth + \" check: \" + longLived.",
+      "js_source": "function makeCheck(d) { return d === 0 ? 1 : 1 + makeCheck(d-1) + makeCheck(d-1); }\nconst n = parseInt(process.argv[2]), mn = 4;\nlet mx = Math.max(mn + 2, n);\nconsole.log(`stretch tree of depth ${mx+1}\\t check: ${makeCheck(mx+1)}`);\nconst ll = makeCheck(mx);\nfor (let d = mn; d <= mx; d += 2) {\n    const it = 1 << (mx - d + mn); let tc = 0;\n    for (let i = 0; i < it; i++) tc += makeCheck(d);\n    console.log(`${it}\\t trees of depth ${d}\\t check: ${tc}`);\n}\nconsole.log(`long lived tree of depth ${mx}\\t check: ${ll}`);",
+      "scaling": {
+        "13": {
+          "logos_interp": {
+            "mean_ms": 89.54340778000,
+            "median_ms": 89.41589918000001000,
+            "stddev_ms": 3.3626533393328367000,
+            "min_ms": 84.26900618000001000,
+            "max_ms": 93.07907218000,
+            "cv": 0.03755333220726387570,
+            "runs": 5,
+            "user_ms": 75.63561999999999000,
+            "system_ms": 13.6824000
+          },
+          "js": {
+            "mean_ms": 20.66809000,
+            "median_ms": 20.049898000,
+            "stddev_ms": 1.3074156547619048000,
+            "min_ms": 19.192055000,
+            "max_ms": 22.22029000,
+            "cv": 0.06325769119265035133,
+            "runs": 5,
+            "user_ms": 16.7272000,
+            "system_ms": 4.7868000
+          }
+        }
+      },
+      "compilation": {},
+      "timeouts": {}
+    },
+    {
+      "id": "spectral_norm",
+      "name": "Spectral Norm",
+      "reference_size": "171",
+      "interpreter_engine": "vm+jit",
+      "sizes": [
+        "1000",
+        "2000",
+        "5000"
+      ],
+      "logos_source": "## To native args () -> Seq of Text\n## To native parseInt (s: Text) -> Int\n\n## To aVal (i: Int, j: Int) -> Float:\n    Return 1.0 / ((i + j) * (i + j + 1) / 2 + i + 1).\n\n## To mulAv (n: Int, v: Seq of Float, out: Seq of Float) -> Seq of Float:\n    Let mutable result be out.\n    Let mutable i be 0.\n    While i is less than n:\n        Let mutable sum be 0.0.\n        Let mutable j be 0.\n        While j is less than n:\n            Set sum to sum + aVal(i, j) * item (j + 1) of v.\n            Set j to j + 1.\n        Set item (i + 1) of result to sum.\n        Set i to i + 1.\n    Return result.\n\n## To mulAtv (n: Int, v: Seq of Float, out: Seq of Float) -> Seq of Float:\n    Let mutable result be out.\n    Let mutable i be 0.\n    While i is less than n:\n        Let mutable sum be 0.0.\n        Let mutable j be 0.\n        While j is less than n:\n            Set sum to sum + aVal(j, i) * item (j + 1) of v.\n            Set j to j + 1.\n        Set item (i + 1) of result to sum.\n        Set i to i + 1.\n    Return result.\n\n## To mulAtav (n: Int, v: Seq of Float, result: Seq of Float, tmp: Seq of Float) -> Seq of Float:\n    Let t be mulAv(n, v, tmp).\n    Return mulAtv(n, t, result).\n\n## Main\nLet arguments be args().\nLet n be parseInt(item 2 of arguments).\nLet mutable u be a new Seq of Float.\nLet mutable v be a new Seq of Float.\nLet mutable tmp be a new Seq of Float.\nLet mutable i be 0.\nWhile i is less than n:\n    Push 1.0 to u.\n    Push 0.0 to v.\n    Push 0.0 to tmp.\n    Set i to i + 1.\nSet i to 0.\nWhile i is less than 10:\n    Set v to mulAtav(n, u, v, tmp).\n    Set u to mulAtav(n, v, u, tmp).\n    Set i to i + 1.\nLet mutable vbv be 0.0.\nLet mutable vv be 0.0.\nSet i to 1.\nWhile i is at most n:\n    Set vbv to vbv + item i of u * item i of v.\n    Set vv to vv + item i of v * item i of v.\n    Set i to i + 1.\nLet result be sqrt(vbv / vv).\nShow \"{result:.9}\".",
+      "js_source": "function A(i,j){return 1/((i+j)*(i+j+1)/2+i+1)}\nfunction mulAv(n,v,r){for(let i=0;i<n;i++){r[i]=0;for(let j=0;j<n;j++)r[i]+=A(i,j)*v[j]}}\nfunction mulAtv(n,v,r){for(let i=0;i<n;i++){r[i]=0;for(let j=0;j<n;j++)r[i]+=A(j,i)*v[j]}}\nfunction mulAtAv(n,v,r,t){mulAv(n,v,t);mulAtv(n,t,r)}\nconst n=parseInt(process.argv[2]);\nconst u=new Float64Array(n).fill(1),v=new Float64Array(n),t=new Float64Array(n);\nfor(let i=0;i<10;i++){mulAtAv(n,u,v,t);mulAtAv(n,v,u,t)}\nlet vBv=0,vv=0;\nfor(let i=0;i<n;i++){vBv+=u[i]*v[i];vv+=v[i]*v[i]}\nconsole.log(Math.sqrt(vBv/vv).toFixed(9));",
+      "scaling": {
+        "171": {
+          "logos_interp": {
+            "mean_ms": 22.5239877000,
+            "median_ms": 22.993672500000003000,
+            "stddev_ms": 4.1452401956860955000,
+            "min_ms": 18.270748500000003000,
+            "max_ms": 26.841699500000003000,
+            "cv": 0.18403669238756046292,
+            "runs": 5,
+            "user_ms": 21.643779999999998000,
+            "system_ms": 0.8770399999999999000
+          },
+          "js": {
+            "mean_ms": 25.9721898000,
+            "median_ms": 21.841401000,
+            "stddev_ms": 8.176598252743755000,
+            "min_ms": 18.006738000,
+            "max_ms": 35.187088000000005000,
+            "cv": 0.31482128829752179771,
+            "runs": 5,
+            "user_ms": 24.2608000,
+            "system_ms": 5.9298000
+          }
+        }
+      },
+      "compilation": {},
+      "timeouts": {}
+    }
+  ],
+  "summary": {
+    "geometric_mean_logos_interp_over_node": 2.574
+  }
+}

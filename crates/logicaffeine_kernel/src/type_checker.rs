@@ -65,6 +65,25 @@ pub fn infer_type(ctx: &Context, term: &Term) -> KernelResult<Term> {
             .cloned()
             .ok_or_else(|| KernelError::UnboundVariable(name.clone())),
 
+        // Const: a universe-polymorphic global at explicit levels. Look up its stored
+        // universe parameters and type, then instantiate the parameters with `levels`.
+        Term::Const { name, levels } => {
+            let (params, ty, _body) = ctx
+                .get_universe_poly(name)
+                .ok_or_else(|| KernelError::UnboundVariable(name.clone()))?;
+            if params.len() != levels.len() {
+                return Err(KernelError::CertificationError(format!(
+                    "universe-polymorphic '{}' expects {} level argument(s), got {}",
+                    name,
+                    params.len(),
+                    levels.len()
+                )));
+            }
+            let subst: std::collections::HashMap<String, Universe> =
+                params.iter().cloned().zip(levels.iter().cloned()).collect();
+            Ok(crate::term::instantiate_universes(&ty.clone(), &subst))
+        }
+
         // Pi: Π(x:A). B : Type max(sort(A), sort(B))
         Term::Pi {
             param,
@@ -82,12 +101,11 @@ pub fn infer_type(ctx: &Context, term: &Term) -> KernelResult<Term> {
             // codomain is a proposition is itself a proposition, no matter the
             // domain's universe — so `∀x:Entity. P(x)` is a `Prop`, and FOL
             // formulas built from it (And/Or/Ex over universals) stay in `Prop`
-            // where `And`/`Ex` require their arguments to live. For a non-`Prop`
-            // codomain the Π lives in the max of the two universes (predicative).
-            let pi_sort = match b_sort {
-                Universe::Prop => Universe::Prop,
-                _ => a_sort.max(&b_sort),
-            };
+            // where `And`/`Ex` require their arguments to live. `imax` is exactly
+            // this rule: `imax(a, Prop) = Prop`, `imax(a, non-Prop) = max(a, b)`,
+            // and it stays SYMBOLIC when the codomain level is a variable (whose
+            // Prop-ness is not yet known) — the case the old `_ => max` got wrong.
+            let pi_sort = a_sort.imax(&b_sort);
             Ok(Term::Sort(pi_sort))
         }
 
@@ -112,9 +130,28 @@ pub fn infer_type(ctx: &Context, term: &Term) -> KernelResult<Term> {
             })
         }
 
+        // Let: `let x : A := v in b`. Check `A` is a type and `v : A`, then type
+        // the body with `x` bound TRANSPARENTLY — by zeta-substituting `v` for
+        // `x` (so `b`'s type sees `x ≡ v`, not an opaque hypothesis). This is
+        // exactly zeta-expansion, so it is trivially sound and identical in both
+        // kernels; the value is duplicated per occurrence during checking.
+        Term::Let { name, ty, value, body } => {
+            let _ = infer_sort(ctx, ty)?;
+            check_type(ctx, value, ty)?;
+            let unfolded = substitute(body, name, value);
+            infer_type(ctx, &unfolded)
+        }
+
         // App: (f a) : B[x := a] where f : Π(x:A). B and a : A
         Term::App(func, arg) => {
             let func_type = infer_type(ctx, func)?;
+            // The function's type must be a Π, but it may be a redex that only REDUCES to
+            // one — e.g. a recursor result `P x` whose motive `P` is a λ. Normalize to
+            // expose the Π head before matching (the de Bruijn re-checker whnf's here too).
+            let func_type = match func_type {
+                Term::Pi { .. } => func_type,
+                other => normalize(ctx, &other),
+            };
 
             match func_type {
                 Term::Pi {
@@ -144,6 +181,26 @@ pub fn infer_type(ctx: &Context, term: &Term) -> KernelResult<Term> {
             let disc_type = normalize(ctx, &infer_type(ctx, discriminant)?);
             let inductive_name = extract_inductive_name(ctx, &disc_type)
                 .ok_or_else(|| KernelError::NotAnInductive(format!("{}", disc_type)))?;
+
+            // Parameter/index split. `num_params` leading arguments of the inductive are
+            // uniform PARAMETERS fixed by the discriminant; any remaining arguments are
+            // INDICES that vary per constructor, over which the motive abstracts (`Eq`'s
+            // `P : Π(y:A). Eq A x y → Sort`). When there are no indices this is the
+            // ordinary eliminator, which takes the original path below byte-for-byte.
+            let disc_args = extract_type_args(&disc_type);
+            let num_params = ctx.inductive_num_params(&inductive_name).min(disc_args.len());
+            if disc_args.len() > num_params {
+                return infer_indexed_match(
+                    ctx,
+                    discriminant,
+                    motive,
+                    cases,
+                    &disc_type,
+                    &inductive_name,
+                    num_params,
+                    &disc_args,
+                );
+            }
 
             // 2. Check motive is well-formed
             // The motive can be either:
@@ -211,17 +268,38 @@ pub fn infer_type(ctx: &Context, term: &Term) -> KernelResult<Term> {
             // 5. Return type is Motive(discriminant), beta-reduced
             // Without beta reduction, (λ_:T. R) x returns the un-reduced form
             // which causes type mismatches in nested matches.
-            let return_type = Term::App(
-                Box::new(effective_motive),
-                discriminant.clone(),
-            );
-            Ok(beta_reduce(&return_type))
+            let return_type = beta_reduce(&Term::App(Box::new(effective_motive), discriminant.clone()));
+
+            // 6. CIC large-elimination restriction. A `Prop` inductive may be eliminated into a larger
+            // sort (`Type`) ONLY if it is a subsingleton — zero constructors (so `ex falso` over `False`
+            // stays legal), or exactly one whose non-parameter arguments are all proofs (`And`, `eq`).
+            // Otherwise large elimination extracts computational content from a proof and breaks
+            // consistency: large-eliminating `Or` would let a *proof* pick a `Type`-level value.
+            if matches!(normalize(ctx, &infer_type(ctx, &disc_type)?), Term::Sort(Universe::Prop)) {
+                let large = !matches!(normalize(ctx, &infer_type(ctx, &return_type)?), Term::Sort(Universe::Prop));
+                if large && !is_subsingleton_prop(ctx, &inductive_name)? {
+                    return Err(KernelError::InvalidMotive(format!(
+                        "large elimination of proposition '{}' into a larger sort is not allowed: only \
+                         subsingleton propositions (empty, or one constructor with propositional arguments \
+                         — e.g. False, And, eq) may be eliminated into Type",
+                        inductive_name
+                    )));
+                }
+            }
+
+            Ok(return_type)
         }
 
         // Literal: infer type based on literal kind
         Term::Lit(lit) => {
             match lit {
-                Literal::Int(_) => Ok(Term::Global("Int".to_string())),
+                Literal::Int(_) | Literal::BigInt(_) => Ok(Term::Global("Int".to_string())),
+                Literal::Nat(n) if *n < logicaffeine_base::BigInt::from_i64(0) => {
+                    Err(KernelError::CertificationError(
+                        "a `Nat` literal must be non-negative".to_string(),
+                    ))
+                }
+                Literal::Nat(_) => Ok(Term::Global("Nat".to_string())),
                 Literal::Float(_) => Ok(Term::Global("Float".to_string())),
                 Literal::Text(_) => Ok(Term::Global("Text".to_string())),
                 Literal::Duration(_) => Ok(Term::Global("Duration".to_string())),
@@ -263,6 +341,39 @@ pub fn infer_type(ctx: &Context, term: &Term) -> KernelResult<Term> {
 
             Ok(structural_type)
         }
+
+        // MutualFix: a block of mutually-recursive definitions; this occurrence denotes
+        // the `index`-th one. Each definition's type is inferred structurally (like the
+        // single Fix), all names are put in scope, and the MUTUAL Giménez guard verifies
+        // termination before the bodies are sanity-checked with every sibling bound.
+        Term::MutualFix { defs, index } => {
+            if defs.is_empty() || *index >= defs.len() {
+                return Err(KernelError::CertificationError(
+                    "mutual fixpoint with an empty block or out-of-range index".to_string(),
+                ));
+            }
+
+            // Structural type of each definition (independent of the others' bodies).
+            let mut types = Vec::with_capacity(defs.len());
+            for (_, body) in defs {
+                types.push(infer_fix_type_structurally(ctx, body)?);
+            }
+
+            // *** THE GUARDIAN: MUTUAL TERMINATION CHECK ***
+            crate::termination::check_termination_mutual(ctx, defs)?;
+
+            // Sanity: every body is well-formed with ALL names bound to their structural
+            // types (a sibling call `rec_Odd n' o` sees `rec_Odd`'s type this way).
+            let mut extended = ctx.clone();
+            for ((name, _), ty) in defs.iter().zip(types.iter()) {
+                extended = extended.extend(name, ty.clone());
+            }
+            for (_, body) in defs {
+                let _ = infer_type(&extended, body)?;
+            }
+
+            Ok(types[*index].clone())
+        }
     }
 }
 
@@ -296,19 +407,38 @@ fn infer_fix_type_structurally(ctx: &Context, term: &Term) -> KernelResult<Term>
             })
         }
         // For non-lambda bodies (the base case), we need to determine the return type.
-        // This is typically a Match expression whose motive determines the return type.
-        Term::Match { motive, .. } => {
-            // The motive λx:I. T tells us the return type when applied to discriminant.
-            // For a simple motive λ_. Nat, the return type is Nat.
-            // We extract the body of the motive as the return type.
-            if let Term::Lambda { body, .. } = motive.as_ref() {
-                Ok((**body).clone())
-            } else {
-                // Motive is a raw type (constant motive) - return it directly
-                // This handles cases like `match xs return Nat with ...`
-                // where the return type is just `Nat`
-                Ok((**motive).clone())
+        // This is typically a Match whose motive determines it: the return type is the
+        // `motive` applied to the discriminant's INDEX arguments (for an indexed family) and
+        // then the discriminant itself, β-normalized. Computing the application — rather
+        // than just reading off the motive's body — is robust to the motive's binder names
+        // (which need not match the fixpoint's) and to indexed families. The discriminant is
+        // the fixpoint's structural binder, in scope, so its type is available without the
+        // not-yet-bound recursive name.
+        Term::Match { discriminant, motive, .. } => {
+            // A constant motive `return T` — one whose own type is a Sort — IS the result
+            // type and is not applied to the discriminant. Only a function motive `λx. P x`
+            // is applied to the discriminant's index arguments and then the discriminant
+            // itself. This mirrors the Term::Match inference rule, which wraps a Sort-typed
+            // motive as the constant `λ_:I. T` rather than applying it; without this guard a
+            // constant motive `Nat`/`List A` becomes the ill-formed `App(Nat, n)`.
+            if let Ok(mt) = infer_type(ctx, motive) {
+                if matches!(normalize(ctx, &mt), Term::Sort(_)) {
+                    return Ok(normalize(ctx, motive));
+                }
             }
+            let mut applied = (**motive).clone();
+            if let Ok(dt) = infer_type(ctx, discriminant) {
+                let dt = normalize(ctx, &dt);
+                if let Some(ind) = extract_inductive_name(ctx, &dt) {
+                    let args = extract_type_args(&dt);
+                    let p = ctx.inductive_num_params(&ind).min(args.len());
+                    for idx in &args[p..] {
+                        applied = Term::App(Box::new(applied), Box::new(idx.clone()));
+                    }
+                }
+            }
+            applied = Term::App(Box::new(applied), discriminant.clone());
+            Ok(normalize(ctx, &applied))
         }
         // For other expressions, try normal inference
         _ => infer_type(ctx, term),
@@ -394,6 +524,63 @@ fn infer_sort(ctx: &Context, term: &Term) -> KernelResult<Universe> {
     }
 }
 
+/// The RESULT sort of an inductive's arity — peel its leading `Π`s to the final `Sort`.
+fn result_sort_universe(t: &Term) -> Option<Universe> {
+    let mut cur = t;
+    while let Term::Pi { body_type, .. } = cur {
+        cur = body_type;
+    }
+    match cur {
+        Term::Sort(u) => Some(u.clone()),
+        _ => None,
+    }
+}
+
+/// Check the CIC UNIVERSE CONSTRAINT of an inductive constructor: every VALUE argument's
+/// sort must be `≤` the inductive's result sort — so a `Type 0` inductive cannot store a
+/// `Type 0`-typed field (which lives in `Type 1`), the universe inconsistency that opens
+/// Girard/Hurkens paradoxes. A `Prop` inductive is exempt (impredicative `Prop` admits
+/// arguments of any sort), exactly as in Coq/Lean. The inductive (and any mutual siblings
+/// a recursive field references) must already be registered in `ctx`.
+pub fn check_constructor_universes(
+    ctx: &Context,
+    ind: &str,
+    ctor: &str,
+    ty: &Term,
+) -> KernelResult<()> {
+    let ind_ty = match ctx.get_global(ind) {
+        Some(t) => t.clone(),
+        None => return Ok(()),
+    };
+    let target = match result_sort_universe(&ind_ty) {
+        // Impredicative Prop: no constraint on argument universes.
+        Some(Universe::Prop) => return Ok(()),
+        Some(u) => u,
+        None => return Ok(()),
+    };
+    let num_params = ctx.inductive_num_params(ind);
+    // Walk the constructor telescope; the leading `num_params` are the inductive's uniform
+    // parameters, the rest are stored VALUE fields subject to the constraint.
+    let mut ext = ctx.clone();
+    let mut cur = ty;
+    let mut i = 0usize;
+    while let Term::Pi { param, param_type, body_type } = cur {
+        if i >= num_params {
+            let s = infer_sort(&ext, param_type)?;
+            if !s.is_subtype_of(&target) {
+                return Err(KernelError::CertificationError(format!(
+                    "universe inconsistency: constructor '{ctor}' stores an argument in sort \
+                     {s}, which exceeds the sort {target} of its inductive '{ind}'"
+                )));
+            }
+        }
+        ext = ext.extend(param, (**param_type).clone());
+        cur = body_type;
+        i += 1;
+    }
+    Ok(())
+}
+
 /// Beta-reduce a term (single step, at the head).
 ///
 /// (λx.body) arg → body[x := arg]
@@ -410,6 +597,171 @@ fn beta_reduce(term: &Term) -> Term {
         }
         _ => term.clone(),
     }
+}
+
+/// Type an INDEXED match: the discriminant's inductive has `num_params` uniform
+/// parameters and one or more trailing INDICES, and the `motive` abstracts over those
+/// indices plus the scrutinee — `P : Π(indices…). Π(z : I params indices). Sort`.
+///
+/// The return type is `motive` applied to the discriminant's own index arguments and then
+/// the discriminant itself; each constructor's case is checked against `motive` applied to
+/// THAT constructor's result indices and the constructor value. Soundness rides on the
+/// final `infer_type(return_type)` being a `Sort`: an ill-shaped motive makes those
+/// applications fail to type-check, so nothing unsound slips through.
+#[allow(clippy::too_many_arguments)]
+fn infer_indexed_match(
+    ctx: &Context,
+    discriminant: &Term,
+    motive: &Term,
+    cases: &[Term],
+    disc_type: &Term,
+    inductive_name: &str,
+    num_params: usize,
+    disc_args: &[Term],
+) -> KernelResult<Term> {
+    // The discriminant's own parameter args (fixed) and index args (what the motive is
+    // instantiated at for the *result* type).
+    let disc_params = &disc_args[0..num_params];
+    let disc_indices = &disc_args[num_params..];
+
+    // The motive must at least type-check; its shape is enforced structurally by the case
+    // and return-type checks below.
+    let _ = infer_type(ctx, motive)?;
+
+    // Coverage: exactly one case per constructor, in registration order.
+    let constructors = ctx.get_constructors(inductive_name);
+    if cases.len() != constructors.len() {
+        return Err(KernelError::WrongNumberOfCases {
+            expected: constructors.len(),
+            found: cases.len(),
+        });
+    }
+
+    // Each case against its indexed constructor type.
+    for (case, (ctor_name, ctor_type)) in cases.iter().zip(constructors.iter()) {
+        let expected = compute_indexed_case_type(motive, ctor_name, ctor_type, num_params, disc_params);
+        check_type(ctx, case, &expected)?;
+    }
+
+    // Return type: `motive disc_index₁ … disc_indexₖ discriminant`, normalized.
+    let mut ret = motive.clone();
+    for idx in disc_indices {
+        ret = Term::App(Box::new(ret), Box::new(idx.clone()));
+    }
+    ret = Term::App(Box::new(ret), Box::new(discriminant.clone()));
+    let ret = normalize(ctx, &ret);
+
+    // The result must be a type — this is what certifies the motive is a well-formed
+    // family into a sort (a non-family motive would not infer to a `Sort` here).
+    match normalize(ctx, &infer_type(ctx, &ret)?) {
+        Term::Sort(_) => {}
+        other => {
+            return Err(KernelError::InvalidMotive(format!(
+                "indexed match on '{}' has non-type result {} — the motive is not a family into a sort",
+                inductive_name, other
+            )));
+        }
+    }
+
+    // CIC large-elimination restriction (identical rule to the non-indexed path).
+    if matches!(normalize(ctx, &infer_type(ctx, disc_type)?), Term::Sort(Universe::Prop)) {
+        let large = !matches!(normalize(ctx, &infer_type(ctx, &ret)?), Term::Sort(Universe::Prop));
+        if large && !is_subsingleton_prop(ctx, inductive_name)? {
+            return Err(KernelError::InvalidMotive(format!(
+                "large elimination of proposition '{}' into a larger sort is not allowed",
+                inductive_name
+            )));
+        }
+    }
+
+    Ok(ret)
+}
+
+/// The expected type of one constructor's case in an INDEXED match: the constructor's
+/// leading `num_params` parameters are instantiated by the discriminant's `disc_params`;
+/// its remaining value arguments become the case's `Π` binders; and the codomain is the
+/// `motive` applied to the constructor's RESULT indices (as they appear in its declared
+/// return type) and then the constructor value itself.
+fn compute_indexed_case_type(
+    motive: &Term,
+    ctor_name: &str,
+    ctor_type: &Term,
+    num_params: usize,
+    disc_params: &[Term],
+) -> Term {
+    // Peel the constructor's full Π telescope; the residual is its result `I params… idx…`.
+    let mut all_params: Vec<(String, Term)> = Vec::new();
+    let mut current = ctor_type;
+    while let Term::Pi { param, param_type, body_type } = current {
+        all_params.push((param.clone(), (**param_type).clone()));
+        current = body_type;
+    }
+    let result_args = extract_type_args(current);
+
+    let split = num_params.min(all_params.len());
+    let param_binders = &all_params[0..split];
+    // Fresh names for the value parameters (those past the inductive's parameters).
+    let value_named: Vec<(String, String, Term)> = all_params[split..]
+        .iter()
+        .enumerate()
+        .map(|(i, (orig, ty))| (orig.clone(), format!("__arg{}", i), ty.clone()))
+        .collect();
+
+    // Rewrite a term from the constructor's scope into the case's scope: parameter names →
+    // the discriminant's parameter arguments, and each value parameter → its fresh name.
+    // `upto` bounds which value parameters are already in scope (for dependent arg types).
+    let rewrite = |t: &Term, upto: usize| -> Term {
+        let mut out = t.clone();
+        for (i, (name, _)) in param_binders.iter().enumerate() {
+            if name != "_" {
+                out = substitute(&out, name, &disc_params[i]);
+            }
+        }
+        for (orig, fresh, _) in value_named.iter().take(upto) {
+            if orig != "_" {
+                out = substitute(&out, orig, &Term::Var(fresh.clone()));
+            }
+        }
+        out
+    };
+
+    // The constructor's result index expressions (its result args past the parameters),
+    // rewritten into the case's scope.
+    let index_exprs: Vec<Term> = result_args
+        .iter()
+        .skip(split)
+        .map(|e| beta_reduce(&rewrite(e, value_named.len())))
+        .collect();
+
+    // `C disc_params… value_vars…`.
+    let mut ctor_applied = Term::Global(ctor_name.to_string());
+    for pa in disc_params {
+        ctor_applied = Term::App(Box::new(ctor_applied), Box::new(pa.clone()));
+    }
+    for (_, fresh, _) in &value_named {
+        ctor_applied = Term::App(Box::new(ctor_applied), Box::new(Term::Var(fresh.clone())));
+    }
+
+    // `motive index_exprs… ctor_applied`, beta-reduced.
+    let mut body = motive.clone();
+    for e in &index_exprs {
+        body = Term::App(Box::new(body), Box::new(e.clone()));
+    }
+    body = Term::App(Box::new(body), Box::new(ctor_applied));
+    let mut case_type = beta_reduce(&body);
+
+    // Re-wrap the value parameters as `Π`, each type closed into the case's scope.
+    for k in (0..value_named.len()).rev() {
+        let (_, fresh, ty_k) = &value_named[k];
+        let pty = beta_reduce(&rewrite(ty_k, k));
+        case_type = Term::Pi {
+            param: fresh.clone(),
+            param_type: Box::new(pty),
+            body_type: Box::new(case_type),
+        };
+    }
+
+    case_type
 }
 
 /// Compute the expected type for a match case.
@@ -555,7 +907,7 @@ pub fn substitute(body: &Term, var: &str, replacement: &Term) -> Term {
 fn occurs_free(term: &Term, var: &str) -> bool {
     match term {
         Term::Var(name) => name == var,
-        Term::Sort(_) | Term::Lit(_) | Term::Hole | Term::Global(_) => false,
+        Term::Sort(_) | Term::Lit(_) | Term::Hole | Term::Global(_) | Term::Const { .. } => false,
         Term::App(func, arg) => occurs_free(func, var) || occurs_free(arg, var),
         Term::Pi { param, param_type, body_type } => {
             occurs_free(param_type, var) || (param != var && occurs_free(body_type, var))
@@ -564,6 +916,16 @@ fn occurs_free(term: &Term, var: &str) -> bool {
             occurs_free(param_type, var) || (param != var && occurs_free(body, var))
         }
         Term::Fix { name, body } => name != var && occurs_free(body, var),
+        Term::MutualFix { defs, .. } => {
+            // `var` is free only if it is not one of the (all-binding) def names AND
+            // occurs free in some body.
+            !defs.iter().any(|(n, _)| n == var) && defs.iter().any(|(_, b)| occurs_free(b, var))
+        }
+        Term::Let { name, ty, value, body } => {
+            occurs_free(ty, var)
+                || occurs_free(value, var)
+                || (name != var && occurs_free(body, var))
+        }
         Term::Match { discriminant, motive, cases } => {
             occurs_free(discriminant, var)
                 || occurs_free(motive, var)
@@ -581,7 +943,7 @@ fn free_vars(term: &Term) -> std::collections::HashSet<String> {
                     acc.insert(name.clone());
                 }
             }
-            Term::Sort(_) | Term::Lit(_) | Term::Hole | Term::Global(_) => {}
+            Term::Sort(_) | Term::Lit(_) | Term::Hole | Term::Global(_) | Term::Const { .. } => {}
             Term::App(func, arg) => {
                 go(func, bound, acc);
                 go(arg, bound, acc);
@@ -599,6 +961,24 @@ fn free_vars(term: &Term) -> std::collections::HashSet<String> {
                 bound.pop();
             }
             Term::Fix { name, body } => {
+                bound.push(name.clone());
+                go(body, bound, acc);
+                bound.pop();
+            }
+            Term::MutualFix { defs, .. } => {
+                for (n, _) in defs {
+                    bound.push(n.clone());
+                }
+                for (_, b) in defs {
+                    go(b, bound, acc);
+                }
+                for _ in defs {
+                    bound.pop();
+                }
+            }
+            Term::Let { name, ty, value, body } => {
+                go(ty, bound, acc);
+                go(value, bound, acc);
                 bound.push(name.clone());
                 go(body, bound, acc);
                 bound.pop();
@@ -624,7 +1004,7 @@ fn all_var_names(term: &Term, acc: &mut std::collections::HashSet<String>) {
         Term::Var(name) => {
             acc.insert(name.clone());
         }
-        Term::Sort(_) | Term::Lit(_) | Term::Hole | Term::Global(_) => {}
+        Term::Sort(_) | Term::Lit(_) | Term::Hole | Term::Global(_) | Term::Const { .. } => {}
         Term::App(func, arg) => {
             all_var_names(func, acc);
             all_var_names(arg, acc);
@@ -641,6 +1021,18 @@ fn all_var_names(term: &Term, acc: &mut std::collections::HashSet<String>) {
         }
         Term::Fix { name, body } => {
             acc.insert(name.clone());
+            all_var_names(body, acc);
+        }
+        Term::MutualFix { defs, .. } => {
+            for (n, b) in defs {
+                acc.insert(n.clone());
+                all_var_names(b, acc);
+            }
+        }
+        Term::Let { name, ty, value, body } => {
+            acc.insert(name.clone());
+            all_var_names(ty, acc);
+            all_var_names(value, acc);
             all_var_names(body, acc);
         }
         Term::Match { discriminant, motive, cases } => {
@@ -701,6 +1093,9 @@ fn substitute_avoiding(
 ) -> Term {
     match body {
         Term::Sort(u) => Term::Sort(u.clone()),
+
+        // A universe-polymorphic reference has no term variables to substitute.
+        Term::Const { .. } => body.clone(),
 
         // Literals are never substituted
         Term::Lit(lit) => Term::Lit(lit.clone()),
@@ -818,6 +1213,75 @@ fn substitute_avoiding(
                 }
             }
         }
+
+        Term::MutualFix { defs, index } => {
+            // Every def name binds in EVERY body. If `var` is one of them it is shadowed
+            // throughout — leave the whole block untouched.
+            if defs.iter().any(|(n, _)| n == var) {
+                return body.clone();
+            }
+            // Capture-avoidance: any def name that is a free var of `replacement` must be
+            // α-renamed CONSISTENTLY across all bodies (it is one mutual binder shared by
+            // all) before the substitution descends.
+            let mut names: Vec<String> = defs.iter().map(|(n, _)| n.clone()).collect();
+            let mut bodies: Vec<Term> = defs.iter().map(|(_, b)| b.clone()).collect();
+            for i in 0..names.len() {
+                if replacement_fvs.contains(&names[i]) {
+                    let mut avoid = replacement_fvs.clone();
+                    for b in &bodies {
+                        all_var_names(b, &mut avoid);
+                    }
+                    for n in &names {
+                        avoid.insert(n.clone());
+                    }
+                    avoid.insert(var.to_string());
+                    let fresh = fresh_name(&names[i], &avoid);
+                    for b in bodies.iter_mut() {
+                        *b = rename_var(b, &names[i], &fresh);
+                    }
+                    names[i] = fresh;
+                }
+            }
+            let new_defs = names
+                .into_iter()
+                .zip(bodies.iter())
+                .map(|(n, b)| (n, substitute_avoiding(b, var, replacement, replacement_fvs)))
+                .collect();
+            Term::MutualFix { defs: new_defs, index: *index }
+        }
+
+        Term::Let { name, ty, value, body } => {
+            // `ty` and `value` are outside the `name` binder — always substitute.
+            let new_ty = substitute_avoiding(ty, var, replacement, replacement_fvs);
+            let new_value = substitute_avoiding(value, var, replacement, replacement_fvs);
+            if name == var {
+                // The let-binder shadows `var`: leave the body untouched.
+                Term::Let {
+                    name: name.clone(),
+                    ty: Box::new(new_ty),
+                    value: Box::new(new_value),
+                    body: body.clone(),
+                }
+            } else if replacement_fvs.contains(name) {
+                // Capture-avoidance: rename the let-binder away from the
+                // replacement's free vars before substituting into the body.
+                let fresh = freshen(name, body, replacement_fvs, var);
+                let renamed = rename_var(body, name, &fresh);
+                Term::Let {
+                    name: fresh,
+                    ty: Box::new(new_ty),
+                    value: Box::new(new_value),
+                    body: Box::new(substitute_avoiding(&renamed, var, replacement, replacement_fvs)),
+                }
+            } else {
+                Term::Let {
+                    name: name.clone(),
+                    ty: Box::new(new_ty),
+                    value: Box::new(new_value),
+                    body: Box::new(substitute_avoiding(body, var, replacement, replacement_fvs)),
+                }
+            }
+        }
     }
 }
 
@@ -858,7 +1322,11 @@ pub fn is_subtype(ctx: &Context, a: &Term, b: &Term) -> bool {
     is_subtype_normalized(ctx, &a_norm, &b_norm)
 }
 
-/// Check subtyping on already-normalized terms.
+/// Check subtyping on already-normalized terms. Cumulativity lives ONLY here: universes
+/// follow `Prop ≤ Type i ≤ Type j`, and a `Π` is contravariant in its domain and covariant
+/// in its codomain. Every other position is INVARIANT and delegates to [`def_eq_normalized`]
+/// (definitional equality: reduction + η + proof irrelevance) — using cumulative subtyping
+/// in an invariant position (e.g. a function argument) would be unsound.
 fn is_subtype_normalized(ctx: &Context, a: &Term, b: &Term) -> bool {
     match (a, b) {
         // Universe subtyping
@@ -879,14 +1347,222 @@ fn is_subtype_normalized(ctx: &Context, a: &Term, b: &Term) -> bool {
         ) => {
             // Contravariant: t2 ≤ t1 (the expected param can be more specific)
             is_subtype_normalized(ctx, t2, t1) && {
-                // Covariant: b1 ≤ b2 (alpha-rename to compare bodies)
+                // Covariant: b1 ≤ b2 (alpha-rename to compare bodies, under the binder)
+                let ext = ctx.extend(p1, (**t1).clone());
                 let b2_renamed = substitute(b2, p2, &Term::Var(p1.clone()));
-                is_subtype_normalized(ctx, b1, &b2_renamed)
+                is_subtype_normalized(&ext, b1, &b2_renamed)
             }
         }
 
-        // Fall back to structural equality for other terms
-        _ => types_equal(a, b),
+        // Everything else is invariant: definitional equality.
+        _ => def_eq_normalized(ctx, a, b),
+    }
+}
+
+/// Definitional equality (symmetric): reduction, congruence, η, and proof irrelevance. This
+/// is the conversion used in INVARIANT positions (function arguments, `Lambda`/`Match`/`Fix`
+/// subterms). `is_subtype` layers cumulativity on top of it.
+pub(crate) fn def_eq(ctx: &Context, a: &Term, b: &Term) -> bool {
+    if types_equal(a, b) {
+        return true;
+    }
+    let a_norm = normalize(ctx, a);
+    let b_norm = normalize(ctx, b);
+    def_eq_normalized(ctx, &a_norm, &b_norm)
+}
+
+/// Decompose a term into its head and argument spine (`f a b c` → `(f, [a,b,c])`).
+fn spine_of(t: &Term) -> (&Term, Vec<&Term>) {
+    let mut args = Vec::new();
+    let mut head = t;
+    while let Term::App(f, a) = head {
+        args.push(a.as_ref());
+        head = f;
+    }
+    args.reverse();
+    (head, args)
+}
+
+/// Structure η in ONE direction: if `mk_term` is a fully-applied constructor of a
+/// registered structure `S` (`S_mk p̄ ā`) and `other` is not itself constructor-
+/// headed, return `Some(eq)` where `eq` decides `mk_term ≡ other` by comparing each
+/// field `aᵢ` against `S_projᵢ p̄ other`. `None` when the shape does not apply, so the
+/// caller falls through to ordinary congruence.
+fn try_structure_eta(ctx: &Context, mk_term: &Term, other: &Term) -> Option<bool> {
+    let (head, args) = spine_of(mk_term);
+    let Term::Global(hname) = head else { return None };
+    let (_sname, info) = ctx.struct_of_constructor(hname)?;
+    let nfields = info.projections.len();
+    // Must be fully applied: params + one argument per field.
+    if args.len() != info.num_params + nfields {
+        return None;
+    }
+    // Do not eta when `other` is ALSO this constructor — that is ordinary
+    // congruence (and avoids a pointless expansion loop).
+    let (ohead, _) = spine_of(other);
+    if matches!(ohead, Term::Global(n) if n == hname) {
+        return None;
+    }
+    let params = &args[..info.num_params];
+    let field_args = &args[info.num_params..];
+    // Each field argument must equal the projection of `other`.
+    Some(info.projections.iter().enumerate().all(|(i, proj)| {
+        let mut proj_applied = Term::Global(proj.clone());
+        for p in params {
+            proj_applied = Term::App(Box::new(proj_applied), Box::new((*p).clone()));
+        }
+        proj_applied = Term::App(Box::new(proj_applied), Box::new(other.clone()));
+        def_eq(ctx, field_args[i], &proj_applied)
+    }))
+}
+
+/// True if `t` is the head of a `Nat` Peano value — `Zero` or `Succ _` — the shape a
+/// `Nat` literal bridges against (K6).
+fn is_nat_peano_headed(t: &Term) -> bool {
+    match t {
+        Term::Global(n) => n == "Zero",
+        Term::App(f, _) => matches!(f.as_ref(), Term::Global(n) if n == "Succ"),
+        _ => false,
+    }
+}
+
+/// One Peano-unfolding step of a `Nat` literal: `Nat(0) → Zero`, `Nat(n) → Succ (Nat(n-1))`.
+fn nat_peano_step(t: &Term) -> Term {
+    match t {
+        // `n ≤ 0` collapses to `Zero`, so peeling always TERMINATES even on a malformed
+        // negative literal (a well-formed Nat is non-negative).
+        Term::Lit(Literal::Nat(n)) if *n <= logicaffeine_base::BigInt::from_i64(0) => {
+            Term::Global("Zero".to_string())
+        }
+        Term::Lit(Literal::Nat(n)) => Term::App(
+            Box::new(Term::Global("Succ".to_string())),
+            Box::new(Term::Lit(Literal::Nat(n.sub(&logicaffeine_base::BigInt::from_i64(1))))),
+        ),
+        other => other.clone(),
+    }
+}
+
+/// Definitional equality on already-normalized terms.
+fn def_eq_normalized(ctx: &Context, a: &Term, b: &Term) -> bool {
+    if types_equal(a, b) {
+        return true;
+    }
+
+    // η-conversion: `f ≡ λx. f x`. When exactly one side is a λ, compare its body against
+    // the other side applied to the bound variable, under the binder.
+    if let Term::Lambda { param, param_type, body } = a {
+        if !matches!(b, Term::Lambda { .. }) {
+            let ext = ctx.extend(param, (**param_type).clone());
+            let bx = normalize(ctx, &Term::App(Box::new(b.clone()), Box::new(Term::Var(param.clone()))));
+            return def_eq_normalized(&ext, body, &bx);
+        }
+    }
+    if let Term::Lambda { param, param_type, body } = b {
+        if !matches!(a, Term::Lambda { .. }) {
+            let ext = ctx.extend(param, (**param_type).clone());
+            let ax = normalize(ctx, &Term::App(Box::new(a.clone()), Box::new(Term::Var(param.clone()))));
+            return def_eq_normalized(&ext, &ax, body);
+        }
+    }
+
+    // Structure η: `⟨p.1, …, p.n⟩ ≡ p`. When one side is a fully-applied
+    // constructor of a REGISTERED structure and the other is not constructor-
+    // headed, compare each field argument against the matching projection of the
+    // other side. Keyed on the structure registry, so it never fires for an
+    // ordinary inductive.
+    if let Some(eq) = try_structure_eta(ctx, a, b) {
+        return eq;
+    }
+    if let Some(eq) = try_structure_eta(ctx, b, a) {
+        return eq;
+    }
+
+    // Peano bridge (K6): a `Nat(n)` literal is definitionally `Succ^n Zero`. Two Nat
+    // literals are equal iff their counts are; a Nat literal and a `Zero`/`Succ`-headed
+    // Peano term are compared by peeling one `Succ` at a time (terminating at
+    // `Nat(0) ≡ Zero`). Sound because the bridge unfolds to EXACTLY `Succ^n Zero`.
+    match (a, b) {
+        (Term::Lit(Literal::Nat(x)), Term::Lit(Literal::Nat(y))) => return x == y,
+        (Term::Lit(Literal::Nat(_)), _) if is_nat_peano_headed(b) => {
+            return def_eq_normalized(ctx, &nat_peano_step(a), b);
+        }
+        (_, Term::Lit(Literal::Nat(_))) if is_nat_peano_headed(a) => {
+            return def_eq_normalized(ctx, a, &nat_peano_step(b));
+        }
+        _ => {}
+    }
+
+    let congruent = match (a, b) {
+        (Term::Sort(u1), Term::Sort(u2)) => u1.equiv(u2),
+        (
+            Term::Pi { param: p1, param_type: t1, body_type: b1 },
+            Term::Pi { param: p2, param_type: t2, body_type: b2 },
+        ) => {
+            def_eq_normalized(ctx, t1, t2) && {
+                let ext = ctx.extend(p1, (**t1).clone());
+                let b2r = substitute(b2, p2, &Term::Var(p1.clone()));
+                def_eq_normalized(&ext, b1, &b2r)
+            }
+        }
+        (
+            Term::Lambda { param: p1, param_type: t1, body: b1 },
+            Term::Lambda { param: p2, param_type: t2, body: b2 },
+        ) => {
+            def_eq_normalized(ctx, t1, t2) && {
+                let ext = ctx.extend(p1, (**t1).clone());
+                let b2r = substitute(b2, p2, &Term::Var(p1.clone()));
+                def_eq_normalized(&ext, b1, &b2r)
+            }
+        }
+        (Term::App(f1, a1), Term::App(f2, a2)) => {
+            def_eq_normalized(ctx, f1, f2) && def_eq_normalized(ctx, a1, a2)
+        }
+        (
+            Term::Match { discriminant: d1, motive: m1, cases: c1 },
+            Term::Match { discriminant: d2, motive: m2, cases: c2 },
+        ) => {
+            def_eq_normalized(ctx, d1, d2)
+                && def_eq_normalized(ctx, m1, m2)
+                && c1.len() == c2.len()
+                && c1.iter().zip(c2.iter()).all(|(x, y)| def_eq_normalized(ctx, x, y))
+        }
+        (Term::Fix { name: n1, body: b1 }, Term::Fix { name: n2, body: b2 }) => {
+            let b2r = substitute(b2, n2, &Term::Var(n1.clone()));
+            def_eq_normalized(ctx, b1, &b2r)
+        }
+        _ => false,
+    };
+    if congruent {
+        return true;
+    }
+
+    // Proof irrelevance: any two proofs of the same proposition are equal. Fires only when
+    // structural comparison fails (so it never costs on the common path).
+    proof_irrelevant(ctx, a, b)
+}
+
+/// Proof irrelevance: `a ≡ b` if `a`'s type is a proposition and `b` has a definitionally
+/// equal type — i.e. both are proofs of the same `Prop`. Sound because `Prop` is a universe
+/// of proof-irrelevant propositions.
+fn proof_irrelevant(ctx: &Context, a: &Term, b: &Term) -> bool {
+    let ta = match infer_type(ctx, a) {
+        Ok(t) => t,
+        Err(_) => return false,
+    };
+    // `a`'s type must itself be a proposition (`ta : Prop` or the definitionally-irrelevant
+    // `ta : SProp`).
+    match infer_type(ctx, &ta) {
+        Ok(sort)
+            if matches!(
+                normalize(ctx, &sort),
+                Term::Sort(Universe::Prop) | Term::Sort(Universe::SProp)
+            ) => {}
+        _ => return false,
+    }
+    // `b` must be a proof of a definitionally-equal proposition.
+    match infer_type(ctx, b) {
+        Ok(tb) => def_eq(ctx, &ta, &tb),
+        Err(_) => false,
     }
 }
 
@@ -921,7 +1597,7 @@ fn types_equal(a: &Term, b: &Term) -> bool {
     }
 
     match (a, b) {
-        (Term::Sort(u1), Term::Sort(u2)) => u1 == u2,
+        (Term::Sort(u1), Term::Sort(u2)) => u1.equiv(u2),
 
         (Term::Lit(l1), Term::Lit(l2)) => l1 == l2,
 
@@ -1002,5 +1678,113 @@ fn types_equal(a: &Term, b: &Term) -> bool {
         }
 
         _ => false,
+    }
+}
+
+/// Whether a `Prop` inductive may be **large-eliminated** (into `Type`): true iff it is a subsingleton —
+/// zero constructors, or exactly one whose non-parameter arguments all live in `Prop`. This is the CIC
+/// elimination criterion that keeps `False` (ex falso), `And`, and `eq` eliminable while forbidding
+/// multi-constructor propositions like `Or` and existentials carrying a `Type`-level witness.
+pub(crate) fn is_subsingleton_prop(ctx: &Context, inductive_name: &str) -> KernelResult<bool> {
+    let ctors = ctx.get_constructors(inductive_name);
+    match ctors.len() {
+        0 => Ok(true),
+        1 => {
+            let ctor_type = ctors[0].1.clone();
+            let ind_type = ctx
+                .get_global(inductive_name)
+                .cloned()
+                .ok_or_else(|| KernelError::UnboundVariable(inductive_name.to_string()))?;
+            // The inductive's arity prefix (parameters + indices) is not "data"; only constructor
+            // arguments beyond it carry content and must be propositional.
+            let arity = pi_param_count(&ind_type);
+            let mut local = ctx.clone();
+            let mut t = ctor_type;
+            let mut i = 0;
+            while let Term::Pi { param, param_type, body_type } = t {
+                if i >= arity && infer_sort(&local, &param_type)? != Universe::Prop {
+                    return Ok(false);
+                }
+                local = local.extend(&param, (*param_type).clone());
+                t = *body_type;
+                i += 1;
+            }
+            Ok(true)
+        }
+        _ => Ok(false),
+    }
+}
+
+/// Count the leading `Π` binders of a type (an inductive's arity).
+fn pi_param_count(ty: &Term) -> usize {
+    match ty {
+        Term::Pi { body_type, .. } => 1 + pi_param_count(body_type),
+        _ => 0,
+    }
+}
+
+#[cfg(test)]
+mod large_elim_tests {
+    use super::*;
+    use crate::context::Context;
+    use crate::prelude::StandardLibrary;
+    use crate::term::{Term, Universe};
+
+    fn g(s: &str) -> Term { Term::Global(s.to_string()) }
+    fn app(f: Term, x: Term) -> Term { Term::App(Box::new(f), Box::new(x)) }
+    fn lam(p: &str, ty: Term, body: Term) -> Term {
+        Term::Lambda { param: p.to_string(), param_type: Box::new(ty), body: Box::new(body) }
+    }
+    fn or_tt() -> Term { app(app(g("Or"), g("True")), g("True")) }
+
+    /// CRITIQUE #1 (open half): CIC large-elimination restriction. Matching a proof of `Or` (a Prop with
+    /// TWO constructors) into `Type` (here returning `Nat`) extracts computational content from a proof
+    /// and breaks consistency — the kernel MUST reject it.
+    #[test]
+    fn large_elimination_of_or_into_type_is_rejected() {
+        let mut ctx = Context::new();
+        StandardLibrary::register(&mut ctx);
+        let case = lam("_", g("True"), g("Zero")); // λ_:True. Zero  (Zero : Nat)
+        let m = Term::Match {
+            discriminant: Box::new(Term::Var("h".to_string())),
+            motive: Box::new(lam("_", or_tt(), g("Nat"))), // λ_:Or True True. Nat  (large)
+            cases: vec![case.clone(), case],
+        };
+        let term = lam("h", or_tt(), m);
+        assert!(
+            infer_type(&ctx, &term).is_err(),
+            "large elimination of Or (2 constructors) into Type must be rejected for consistency"
+        );
+    }
+
+    /// Regression: `ex falso` — large elimination of `False` (ZERO constructors, a subsingleton) into any
+    /// type — MUST stay legal, or every proof-by-contradiction breaks.
+    #[test]
+    fn ex_falso_large_elimination_of_false_still_allowed() {
+        let mut ctx = Context::new();
+        StandardLibrary::register(&mut ctx);
+        let m = Term::Match {
+            discriminant: Box::new(Term::Var("h".to_string())),
+            motive: Box::new(lam("_", g("False"), g("Nat"))), // λ_:False. Nat (large, but False is empty)
+            cases: vec![],
+        };
+        let term = lam("h", g("False"), m);
+        assert!(infer_type(&ctx, &term).is_ok(), "ex falso (large elim of empty False) must stay legal");
+    }
+
+    /// Regression: SMALL elimination of `Or` (into a `Prop`) is always fine — the restriction must not
+    /// over-reach and reject ordinary propositional case analysis.
+    #[test]
+    fn small_elimination_of_or_into_prop_still_allowed() {
+        let mut ctx = Context::new();
+        StandardLibrary::register(&mut ctx);
+        let case = lam("_", g("True"), g("I")); // λ_:True. I  (I : True)
+        let m = Term::Match {
+            discriminant: Box::new(Term::Var("h".to_string())),
+            motive: Box::new(lam("_", or_tt(), g("True"))), // λ_:Or True True. True  (small, Prop)
+            cases: vec![case.clone(), case],
+        };
+        let term = lam("h", or_tt(), m);
+        assert!(infer_type(&ctx, &term).is_ok(), "small elimination of Or into Prop must stay legal");
     }
 }

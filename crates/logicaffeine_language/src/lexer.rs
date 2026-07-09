@@ -548,6 +548,11 @@ impl<'a> Lexer<'a> {
         let chars: Vec<char> = input.chars().collect();
         let mut char_idx = 0;
         let mut skip_count = 0;
+        // Inside `[` … `]` a digit-flanked comma is a list separator, not a
+        // thousands separator — `[1,2,3]` is three elements. Money literals
+        // (`$125,000`) keep their commas at any depth; line-local so an
+        // unbalanced bracket never poisons the rest of the input.
+        let mut bracket_depth: usize = 0;
         // Track byte offset for escape range matching
         let mut skip_to_byte: Option<usize> = None;
 
@@ -598,6 +603,9 @@ impl<'a> Lexer<'a> {
                 // the time literal: skip the flush so "pm" joins "8:15" → "8:15pm".
                 ' ' if Self::is_time_space_before_ampm(&current_word, &chars, char_idx) => {}
                 ' ' | '\t' | '\n' | '\r' => {
+                    if c == '\n' {
+                        bracket_depth = 0;
+                    }
                     if !current_word.is_empty() {
                         items.push(WordItem {
                             word: std::mem::take(&mut current_word),
@@ -616,9 +624,47 @@ impl<'a> Lexer<'a> {
                     let next_is_digit = char_idx + 1 < chars.len()
                         && chars[char_idx + 1].is_ascii_digit();
 
+                    // Field-access / UFCS DOT: an identifier char (letter/`_`) or a
+                    // closing `)`/`]` immediately before, and an identifier-start
+                    // immediately after — no whitespace either side. `p.x`, `xs.f(a)`,
+                    // `(e).m`. Digit-glue wins (`5.sqrt` stays `5` + period + `sqrt`,
+                    // `5.0` stays a decimal), and `Show x.` stays a sentence (the next
+                    // char is a newline, not an identifier). Mode is resolved later:
+                    // `classify_with_lookahead` maps the `\x00DOT` marker to `Dot`
+                    // (imperative) or a sentence `Period` (declarative — prose keeps
+                    // `e.g.` exactly as today).
+                    let prev_ident = current_word
+                        .chars()
+                        .last()
+                        .map_or(false, |ch| ch.is_alphabetic() || ch == '_');
+                    let prev_close = current_word.is_empty()
+                        && char_idx > 0
+                        && matches!(chars[char_idx - 1], ')' | ']');
+                    let next_ident = char_idx + 1 < chars.len()
+                        && (chars[char_idx + 1].is_alphabetic() || chars[char_idx + 1] == '_');
+
                     if prev_is_digit && next_is_digit {
                         // This is a decimal point, include it in the current word
                         current_word.push(c);
+                    } else if (prev_ident || prev_close) && next_ident {
+                        // Flush the receiver, then the mode-deferred dot marker.
+                        if !current_word.is_empty() {
+                            items.push(WordItem {
+                                word: std::mem::take(&mut current_word),
+                                trailing_punct: None,
+                                start: word_start,
+                                end: i,
+                                punct_pos: None,
+                            });
+                        }
+                        items.push(WordItem {
+                            word: "\x00DOT".to_string(),
+                            trailing_punct: None,
+                            start: i,
+                            end: next_pos,
+                            punct_pos: None,
+                        });
+                        word_start = next_pos;
                     } else {
                         // This is a sentence period
                         if !current_word.is_empty() {
@@ -701,8 +747,14 @@ impl<'a> Lexer<'a> {
                 }
                 // String literals: "hello world" or """multi-line"""
                 '"' => {
-                    // Push any pending word
-                    if !current_word.is_empty() {
+                    // `r"…"` RAW string: the adjacent `r` prefix is part of
+                    // the literal, not a word — backslashes stay verbatim
+                    // (paths, regexes). Only the exact word `r` glued to the
+                    // quote triggers it; `Show r.` (a variable) is untouched.
+                    let raw_string = current_word == "r";
+                    if raw_string {
+                        current_word.clear();
+                    } else if !current_word.is_empty() {
                         items.push(WordItem {
                             word: std::mem::take(&mut current_word),
                             trailing_punct: None,
@@ -756,11 +808,41 @@ impl<'a> Lexer<'a> {
                         let mut j = char_idx + 1;
                         let mut string_content = String::new();
                         while j < chars.len() && chars[j] != '"' {
-                            if chars[j] == '\\' && j + 1 < chars.len() {
-                                // Escape sequence - skip backslash, include next char
+                            if chars[j] == '\\' && j + 1 < chars.len() && !raw_string {
+                                // DECODE the escape (`"a\nb"` is two lines,
+                                // not the letters a-n-b). Unknown escapes and
+                                // malformed \u{…} stay verbatim rather than
+                                // silently dropping the backslash.
                                 j += 1;
-                                if j < chars.len() {
-                                    string_content.push(chars[j]);
+                                match chars[j] {
+                                    'n' => string_content.push('\n'),
+                                    't' => string_content.push('\t'),
+                                    'r' => string_content.push('\r'),
+                                    '0' => string_content.push('\0'),
+                                    '\\' => string_content.push('\\'),
+                                    '"' => string_content.push('"'),
+                                    'u' if j + 1 < chars.len() && chars[j + 1] == '{' => {
+                                        let mut k = j + 2;
+                                        let mut hex = String::new();
+                                        while k < chars.len() && chars[k] != '}' {
+                                            hex.push(chars[k]);
+                                            k += 1;
+                                        }
+                                        match u32::from_str_radix(&hex, 16).ok().and_then(char::from_u32) {
+                                            Some(c) if k < chars.len() => {
+                                                string_content.push(c);
+                                                j = k;
+                                            }
+                                            _ => {
+                                                string_content.push('\\');
+                                                string_content.push('u');
+                                            }
+                                        }
+                                    }
+                                    other => {
+                                        string_content.push('\\');
+                                        string_content.push(other);
+                                    }
                                 }
                             } else {
                                 string_content.push(chars[j]);
@@ -1011,11 +1093,15 @@ impl<'a> Lexer<'a> {
                 }
                 // Thousands separator inside a number: "125,000", "1,234,567".
                 // A comma flanked by digits is part of the numeral, not a clause
-                // separator.
+                // separator — except inside a bracketed list, where `[1,2,3]`
+                // means three elements. A money word (`$125,000`) keeps its
+                // commas even there.
                 ',' if char_idx > 0
                     && chars[char_idx - 1].is_ascii_digit()
                     && char_idx + 1 < chars.len()
-                    && chars[char_idx + 1].is_ascii_digit() => {
+                    && chars[char_idx + 1].is_ascii_digit()
+                    && (bracket_depth == 0
+                        || current_word.chars().next().map_or(false, Self::is_currency_symbol)) => {
                     current_word.push(c);
                 }
                 // Date separator inside a numeral: "04/2024", "12/25", "04/2024"
@@ -1048,7 +1134,85 @@ impl<'a> Lexer<'a> {
                     }
                     word_start = next_pos;
                 }
-                '(' | ')' | '[' | ']' | ',' | '?' | '!' | ':' | '+' | '-' | '*' | '/' | '%' | '<' | '>' | '=' => {
+                // `**` exponentiation — a single two-char token (before the
+                // generic punct arm and the `*=` arm; `**` is `*` then `*`).
+                '*' if char_idx + 1 < chars.len() && chars[char_idx + 1] == '*' => {
+                    if !current_word.is_empty() {
+                        items.push(WordItem {
+                            word: std::mem::take(&mut current_word),
+                            trailing_punct: None,
+                            start: word_start,
+                            end: i,
+                            punct_pos: None,
+                        });
+                    }
+                    items.push(WordItem {
+                        word: "**".to_string(),
+                        trailing_punct: None,
+                        start: i,
+                        end: i + 2,
+                        punct_pos: None,
+                    });
+                    skip_count = 1;
+                    word_start = i + 2;
+                }
+                // `//` floor division — a single two-char token (before the generic
+                // punct arm and the `/=` arm; `//` is `/` then `/`, not `/` then `=`).
+                // A digit-flanked `/` is already claimed above as a date separator, so
+                // this only fires on a genuine `x // y`.
+                '/' if char_idx + 1 < chars.len() && chars[char_idx + 1] == '/' => {
+                    if !current_word.is_empty() {
+                        items.push(WordItem {
+                            word: std::mem::take(&mut current_word),
+                            trailing_punct: None,
+                            start: word_start,
+                            end: i,
+                            punct_pos: None,
+                        });
+                    }
+                    items.push(WordItem {
+                        word: "//".to_string(),
+                        trailing_punct: None,
+                        start: i,
+                        end: i + 2,
+                        punct_pos: None,
+                    });
+                    skip_count = 1;
+                    word_start = i + 2;
+                }
+                // Compound assignment `+= -= *= /= %=` — a single two-char token
+                // (before the generic punct arm so `+` etc. don't split first).
+                // `-=` is distinct from `->` (next is `=`, not `>`); `/=` from `//`.
+                '+' | '-' | '*' | '/' | '%'
+                    if char_idx + 1 < chars.len() && chars[char_idx + 1] == '=' =>
+                {
+                    if !current_word.is_empty() {
+                        items.push(WordItem {
+                            word: std::mem::take(&mut current_word),
+                            trailing_punct: None,
+                            start: word_start,
+                            end: i,
+                            punct_pos: None,
+                        });
+                    }
+                    items.push(WordItem {
+                        word: format!("{c}="),
+                        trailing_punct: None,
+                        start: i,
+                        end: i + 2,
+                        punct_pos: None,
+                    });
+                    skip_count = 1;
+                    word_start = i + 2;
+                }
+                '(' | ')' | '[' | ']' | '{' | '}' | '|' | '~' | '^' | ',' | '?' | '!' | ':' | '+' | '-' | '*' | '/' | '%' | '<' | '>' | '=' => {
+                    match c {
+                        // `{…}` literals are bracket contexts for the comma
+                        // rule too: `{1,2}` is a two-element set, not `{12}`.
+                        '[' | '{' => bracket_depth += 1,
+                        ']' | '}' => bracket_depth = bracket_depth.saturating_sub(1),
+                        _ => {}
+                    }
                     if !current_word.is_empty() {
                         items.push(WordItem {
                             word: std::mem::take(&mut current_word),
@@ -1128,6 +1292,25 @@ impl<'a> Lexer<'a> {
                         word_start = next_pos;
                     }
                 }
+                // Currency-symbol money literal: a `$ € £ ¥` directly before a digit starts a money
+                // word (`$19.99`, `€5`, `¥100`), so the symbol survives into the word for
+                // `classify_with_lookahead` to read as `MoneyLiteral`. A lone or non-numeric symbol
+                // (`$ each`) still falls through to the default arm and is dropped, as before.
+                c if Self::is_currency_symbol(c)
+                    && char_idx + 1 < chars.len()
+                    && chars[char_idx + 1].is_ascii_digit() => {
+                    if !current_word.is_empty() {
+                        items.push(WordItem {
+                            word: std::mem::take(&mut current_word),
+                            trailing_punct: None,
+                            start: word_start,
+                            end: i,
+                            punct_pos: None,
+                        });
+                    }
+                    word_start = i;
+                    current_word.push(c);
+                }
                 c if c.is_alphabetic() || c.is_ascii_digit() || (c == '.' && !current_word.is_empty() && current_word.chars().all(|ch| ch.is_ascii_digit())) || c == '_' => {
                     if current_word.is_empty() {
                         word_start = i;
@@ -1155,8 +1338,11 @@ impl<'a> Lexer<'a> {
                         .find(|ch| !ch.is_whitespace())
                         .map_or(false, |ch| ch.is_ascii_uppercase());
                     if !next_cap {
+                        // Mode-deferred: `classify_with_lookahead` resolves the
+                        // marker to prose "and" (Declarative) or the bitwise
+                        // `&` operator (Imperative).
                         items.push(WordItem {
-                            word: "and".to_string(),
+                            word: "\x00AMP".to_string(),
                             trailing_punct: None,
                             start: i,
                             end: next_pos,
@@ -1278,6 +1464,13 @@ impl<'a> Lexer<'a> {
                         ')' => TokenType::RParen,
                         '[' => TokenType::LBracket,
                         ']' => TokenType::RBracket,
+                        '{' => TokenType::LBrace,
+                        '}' => TokenType::RBrace,
+                        // Bitwise symbols exist only in IMPERATIVE code; in
+                        // prose they stay dropped (the old behavior).
+                        '|' if matches!(self.mode, LexerMode::Imperative) => TokenType::VBar,
+                        '~' if matches!(self.mode, LexerMode::Imperative) => TokenType::Tilde,
+                        '^' if matches!(self.mode, LexerMode::Imperative) => TokenType::Caret,
                         ',' => TokenType::Comma,
                         ':' => TokenType::Colon,
                         '.' | '?' => {
@@ -1417,6 +1610,11 @@ impl<'a> Lexer<'a> {
                                     ')' => TokenType::RParen,
                                     '[' => TokenType::LBracket,
                                     ']' => TokenType::RBracket,
+                                    '{' => TokenType::LBrace,
+                                    '}' => TokenType::RBrace,
+                                    '|' if matches!(self.mode, LexerMode::Imperative) => TokenType::VBar,
+                                    '~' if matches!(self.mode, LexerMode::Imperative) => TokenType::Tilde,
+                                    '^' if matches!(self.mode, LexerMode::Imperative) => TokenType::Caret,
                                     ',' => TokenType::Comma,
                                     ':' => TokenType::Colon,
                                     '.' | '?' => TokenType::Period,
@@ -1463,6 +1661,11 @@ impl<'a> Lexer<'a> {
                     ')' => TokenType::RParen,
                     '[' => TokenType::LBracket,
                     ']' => TokenType::RBracket,
+                    '{' => TokenType::LBrace,
+                    '}' => TokenType::RBrace,
+                    '|' if matches!(self.mode, LexerMode::Imperative) => TokenType::VBar,
+                    '~' if matches!(self.mode, LexerMode::Imperative) => TokenType::Tilde,
+                    '^' if matches!(self.mode, LexerMode::Imperative) => TokenType::Caret,
                     ',' => TokenType::Comma,
                     ':' => TokenType::Colon,
                     '.' | '?' => {
@@ -1579,6 +1782,35 @@ impl<'a> Lexer<'a> {
             if !string_spans.is_empty() {
                 structural_events.retain(|&(pos, _)| {
                     !string_spans.iter().any(|(start, end)| pos > *start && pos < *end)
+                });
+            }
+        }
+
+        // Bracket line-continuation: a collection literal / call / parenthesised expression may span
+        // lines with the continuation lines INDENTED (`[\n    1,\n    2,\n]`). The LineLexer sees that
+        // indentation and emits Indent/Dedent, which would break element parsing. Drop every
+        // structural event that falls strictly inside an unclosed `(`/`[`/`{` … `)`/`]`/`}` span. Both
+        // the opening Indent and the matching Dedent lie inside the span, so they are dropped as a
+        // balanced pair — the enclosing block level is preserved.
+        {
+            let mut bracket_ranges: Vec<(usize, usize)> = Vec::new();
+            let mut open_stack: Vec<usize> = Vec::new();
+            for t in &tokens {
+                match t.kind {
+                    TokenType::LParen | TokenType::LBracket | TokenType::LBrace => {
+                        open_stack.push(t.span.start);
+                    }
+                    TokenType::RParen | TokenType::RBracket | TokenType::RBrace => {
+                        if let Some(open) = open_stack.pop() {
+                            bracket_ranges.push((open, t.span.end));
+                        }
+                    }
+                    _ => {}
+                }
+            }
+            if !bracket_ranges.is_empty() {
+                structural_events.retain(|&(pos, _)| {
+                    !bracket_ranges.iter().any(|(start, end)| pos > *start && pos < *end)
                 });
             }
         }
@@ -2067,7 +2299,43 @@ impl<'a> Lexer<'a> {
         Some(nanos)
     }
 
+    /// True for the currency symbols that prefix a money literal (`$ € £ ¥`).
+    fn is_currency_symbol(c: char) -> bool {
+        matches!(c, '$' | '€' | '£' | '¥')
+    }
+
+    /// The ISO-4217 code a leading currency symbol denotes — `$`→USD, `€`→EUR, `£`→GBP, `¥`→JPY (the
+    /// dominant reading of each symbol). Unknown symbols yield `None`.
+    fn currency_for_symbol(c: char) -> Option<&'static str> {
+        Some(match c {
+            '$' => "USD",
+            '€' => "EUR",
+            '£' => "GBP",
+            '¥' => "JPY",
+            _ => return None,
+        })
+    }
+
     fn classify_with_lookahead(&mut self, word: &str) -> TokenType {
+        // The `&` character, deferred by the word-splitter: prose keeps the
+        // coordination reading (`black & red` → and); imperative code gets
+        // the bitwise operator.
+        if word == "\x00AMP" {
+            return if matches!(self.mode, LexerMode::Imperative) {
+                TokenType::Amp
+            } else {
+                TokenType::And
+            };
+        }
+        if word == "\x00DOT" {
+            // Imperative: the field-access / UFCS operator. Declarative/prose:
+            // a plain sentence period (so `e.g.` and abbreviations read as today).
+            return if matches!(self.mode, LexerMode::Imperative) {
+                TokenType::Dot
+            } else {
+                TokenType::Period
+            };
+        }
         // Handle block headers (##Theorem, ##Main, etc.)
         if word.starts_with("##") {
             let block_name = &word[2..];
@@ -2076,6 +2344,8 @@ impl<'a> Lexer<'a> {
                 "main" => BlockType::Main,
                 "definition" => BlockType::Definition,
                 "define" => BlockType::Define,  // Vernacular-logic predicate definition (Rung 0a)
+                "axiom" => BlockType::Axiom,    // Formal first-order axiom (the seam for Tarski)
+                "theory" => BlockType::Theory,  // Named development grouping axioms + theorems
                 "proof" => BlockType::Proof,
                 "example" => BlockType::Example,
                 "logic" => BlockType::Logic,
@@ -2088,7 +2358,28 @@ impl<'a> Lexer<'a> {
                 "property" => BlockType::Property,  // Temporal assertions
                 "no" => BlockType::No,  // Optimization annotation: ## No Memo, ## No TCO, etc.
                 "tier" => BlockType::Tier,  // Tiered-optimizer pin: ## Tier specialize eager, etc.
-                _ => BlockType::Note, // Default unknown block types to Note
+                other => {
+                    // A near-miss of a CONSEQUENTIAL header is a probable
+                    // typo — `## Mian` silently becoming prose is the bug
+                    // class where a whole program runs to empty output.
+                    // Prose-type names (note/example/logic) and the short
+                    // forms are excluded, so ordinary literate headings
+                    // (`## Notes`, `## Design`) keep working.
+                    const CONSEQUENTIAL: &[&str] = &[
+                        "main", "theorem", "definition", "define", "axiom",
+                        "theory", "proof", "policy", "requires", "hardware",
+                        "property", "tier",
+                    ];
+                    if let Some(similar) =
+                        crate::suggest::find_similar(other, CONSEQUENTIAL, 2)
+                    {
+                        let found = self.interner.intern(block_name);
+                        let suggestion = self.interner.intern(similar);
+                        BlockType::SuspectedTypo { found, suggestion }
+                    } else {
+                        BlockType::Note // Unknown block types stay literate prose
+                    }
+                }
             };
 
             // Update lexer mode based on block type
@@ -2096,6 +2387,7 @@ impl<'a> Lexer<'a> {
                 BlockType::Main | BlockType::Function => LexerMode::Imperative,
                 _ => LexerMode::Declarative,
             };
+
 
             return TokenType::BlockHeader { block_type };
         }
@@ -2172,10 +2464,30 @@ impl<'a> Lexer<'a> {
             return TokenType::TimeLiteral { nanos_from_midnight };
         }
 
-        // Currency / comma-grouped numerals: "$125,000", "$2.60", "1,234".
-        // Strip the currency marker and thousands separators; the puzzle
-        // constraint is the magnitude (125000, 2.60).
-        if word.starts_with('$')
+        // Currency-symbol money literal: `$19.99`, `€5`, `£10`, `¥100`, `$1,250.50`. The symbol
+        // resolves to its ISO-4217 code; the magnitude keeps its digits and decimal point (thousands
+        // separators stripped). A `MoneyLiteral` carries both, so the parser builds an exact
+        // currency-tagged value rather than dropping the symbol. ONLY in imperative code — in
+        // natural-language clauses `$25,000` is a bare magnitude (a logic-grid constraint), handled
+        // by the magnitude-stripping block below; the symbol there is just orthography.
+        if self.mode == LexerMode::Imperative {
+            if let Some(first) = word.chars().next() {
+                if let Some(code) = Self::currency_for_symbol(first) {
+                    let cleaned: String =
+                        word.chars().skip(1).filter(|c| c.is_ascii_digit() || *c == '.').collect();
+                    if cleaned.starts_with(|c: char| c.is_ascii_digit()) {
+                        let amount = self.interner.intern(&cleaned);
+                        let currency = self.interner.intern(code);
+                        return TokenType::MoneyLiteral { amount, currency };
+                    }
+                }
+            }
+        }
+
+        // Currency / comma-grouped numerals: "$125,000", "€2.60", "1,234". Strip the currency
+        // marker and thousands separators; in a natural-language clause the puzzle constraint is the
+        // bare magnitude (125000, 2.60). (Imperative code took the `MoneyLiteral` path above.)
+        if word.starts_with(|c: char| Self::is_currency_symbol(c))
             || (word.starts_with(|c: char| c.is_ascii_digit()) && word.contains(','))
         {
             let cleaned: String = word
@@ -2309,6 +2621,16 @@ impl<'a> Lexer<'a> {
         }
         if word == ">=" {
             return TokenType::GtEq;
+        }
+        match word {
+            "+=" => return TokenType::PlusEq,
+            "-=" => return TokenType::MinusEq,
+            "*=" => return TokenType::StarEq,
+            "/=" => return TokenType::SlashEq,
+            "%=" => return TokenType::PercentEq,
+            "**" => return TokenType::StarStar,
+            "//" => return TokenType::SlashSlash,
+            _ => {}
         }
         if word == "==" {
             return TokenType::EqEq;
@@ -2515,6 +2837,7 @@ impl<'a> Lexer<'a> {
             "mount" if self.mode == LexerMode::Imperative => return TokenType::Mount,
             "persistent" => return TokenType::Persistent,  // Works in type expressions
             "combined" if self.mode == LexerMode::Imperative => return TokenType::Combined,
+            "followed" if self.mode == LexerMode::Imperative => return TokenType::Followed,
             // Go-like Concurrency keywords (Imperative mode only)
             // Note: "first" and "after" are NOT keywords - they're checked via lookahead in parser
             // to avoid conflicting with their use as variable names

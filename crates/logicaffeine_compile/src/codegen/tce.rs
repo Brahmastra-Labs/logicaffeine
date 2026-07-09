@@ -49,7 +49,7 @@ pub(super) fn has_tail_call_in_stmt(func_name: Symbol, stmt: &Stmt) -> bool {
     }
 }
 
-pub(super) fn is_tail_recursive(func_name: Symbol, body: &[Stmt]) -> bool {
+pub(crate) fn is_tail_recursive(func_name: Symbol, body: &[Stmt]) -> bool {
     body.iter().any(|s| has_tail_call_in_stmt(func_name, s))
 }
 

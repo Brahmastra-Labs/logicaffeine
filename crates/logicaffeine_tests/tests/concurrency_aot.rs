@@ -1,4 +1,4 @@
-//! Phase 8 (FINISH_INTERPRETER.md) — the AOT dual-mode performance contract.
+//! Phase 8 (work/FINISH_INTERPRETER.md) — the AOT dual-mode performance contract.
 //!
 //! Two guarantees:
 //!   1. **Mode A (default, free-running multicore)** stays byte-identical to

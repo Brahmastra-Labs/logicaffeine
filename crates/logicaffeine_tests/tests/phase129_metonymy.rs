@@ -1,4 +1,4 @@
-//! Phase 129 — §8.6 Metonymy (MISSING_ENGLISH.md).
+//! Phase 129 — §8.6 Metonymy (work/MISSING_ENGLISH.md).
 //!
 //! Reference by association: a place that conventionally denotes an institution
 //! coerces to that institution when it acts:

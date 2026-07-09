@@ -20,8 +20,8 @@ bash benchmarks/setup-local.sh
 ```
 
 Installs every missing toolchain: Go/JDK/Ruby via apt, plus Zig 0.15.2,
-Nim 2.0.4, and hyperfine 1.18.0 pinned to the versions CI uses
-(`.github/workflows/benchmark.yml`). Rust is expected to already be present
+Nim 2.0.4, and hyperfine 1.18.0, pinned so every bench box measures with
+the same tools. Rust is expected to already be present
 via rustup. Idempotent — tools already on PATH are left alone. clang is
 needed for the C-side assembly/LLVM dumps.
 
@@ -153,7 +153,7 @@ benchmarks/
     └── local-logos-vs-c.json
 ```
 
-## Full suite (what CI runs)
+## Full suite (the publishable run)
 
 ```bash
 bash benchmarks/run.sh
@@ -162,10 +162,10 @@ bash benchmarks/run.sh
 The complete pipeline: builds everything (plus a LOGOS debug build), verifies
 at reference sizes, sweeps every size in each benchmark's `sizes.txt` with
 per-language timeout isolation, measures compile times, and writes
-`results/latest.json`. This is what `.github/workflows/benchmark.yml` runs
-on version tags (with `SKIP_LANGS=python,ruby` to keep CI time bounded);
-CI commits the refreshed `latest.json` back to main. Takes hours — use the
-local scripts for iteration.
+`results/latest.json`. This runs on the dedicated bench box — never CI, whose
+shared runners are too noisy for publishable numbers — with the box silenced
+and all 11 languages included; commit the refreshed `results/` afterwards.
+Takes hours — use the local scripts for iteration.
 
 The `languages` array in the output JSON only lists languages that actually
 produced results, so skipped languages never show up as data-less gaps on

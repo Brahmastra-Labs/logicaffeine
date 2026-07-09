@@ -589,6 +589,7 @@ impl<'a> LogicExpr<'a> {
                     write!(w, "{}", registry.get_symbol_full(data.verb, interner))?;
                     write!(w, "(")?;
                     let mut first = true;
+                    let mut subject_term = None;
                     for (role, term) in data.roles.iter() {
                         // Include core thematic roles in SimpleFOL output
                         if matches!(role, ThematicRole::Agent | ThematicRole::Patient | ThematicRole::Theme | ThematicRole::Goal | ThematicRole::Location) {
@@ -597,9 +598,27 @@ impl<'a> LogicExpr<'a> {
                             }
                             first = false;
                             term.write_to_full(w, registry, interner)?;
+                            // The adverb reattaches to the agent (or the first core
+                            // participant when there is no agent).
+                            if subject_term.is_none() || matches!(role, ThematicRole::Agent) {
+                                subject_term = Some(term);
+                            }
                         }
                     }
-                    write!(w, ")")
+                    write!(w, ")")?;
+                    // Flattening the event drops the ∃e binder, so an adverbial
+                    // modifier `Loudly(e)` must reattach to the participant, or it is
+                    // silently lost: ∃e(Bark(e) ∧ Agent(e,y) ∧ Loudly(e)) ⇒ Bark(y) ∧ Loudly(y).
+                    for mod_sym in data.modifiers.iter() {
+                        write!(w, " {} ", fmt.and())?;
+                        write_capitalized(w, interner.resolve(*mod_sym))?;
+                        write!(w, "(")?;
+                        if let Some(term) = subject_term {
+                            term.write_to_full(w, registry, interner)?;
+                        }
+                        write!(w, ")")?;
+                    }
+                    Ok(())
                 } else {
                     let e = interner.resolve(data.event_var);
                     let mut body = String::new();

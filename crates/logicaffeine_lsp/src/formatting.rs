@@ -2,36 +2,52 @@ use tower_lsp::lsp_types::TextEdit;
 
 use crate::document::DocumentState;
 
+/// Range formatting: the whole-document structural format (a line's depth
+/// depends on the lines above it — depth is a document-level fact), filtered
+/// to the edits whose lines intersect the requested range. Sound because
+/// `format_source` is line-count preserving: every edit stays on its line.
+pub fn format_range(doc: &DocumentState, range: tower_lsp::lsp_types::Range) -> Vec<TextEdit> {
+    format_document(doc)
+        .into_iter()
+        .filter(|edit| {
+            edit.range.start.line <= range.end.line && edit.range.end.line >= range.start.line
+        })
+        .collect()
+}
+
 /// Handle document formatting request.
 ///
-/// Normalizes indentation (tabs → 4 spaces, mixed leading whitespace)
-/// and removes trailing whitespace from all lines.
+/// Formats the WHOLE document through the canonical LOGOS formatter
+/// ([`logicaffeine_language::source_format::format_source`] — identical to
+/// `largo fmt`, structural reindent and string/prose protection included)
+/// and emits per-line [`TextEdit`]s for the lines that changed.
 pub fn format_document(doc: &DocumentState) -> Vec<TextEdit> {
     let mut edits = Vec::new();
 
-    for (line_num, line) in doc.source.lines().enumerate() {
-        let mut new_line = String::new();
+    let formatted = logicaffeine_language::source_format::format_source(&doc.source);
+    let mut formatted_lines = formatted.lines();
 
-        // Normalize leading whitespace: replace any tabs with 4 spaces
-        let leading_len = line.len() - line.trim_start().len();
-        let leading = &line[..leading_len];
-        if leading.contains('\t') {
-            for ch in leading.chars() {
-                if ch == '\t' {
-                    new_line.push_str("    ");
-                } else {
-                    new_line.push(ch);
-                }
-            }
-            new_line.push_str(line[leading_len..].trim_end());
-        } else {
-            new_line.push_str(line.trim_end());
-        }
+    for (line_num, line) in doc.source.lines().enumerate() {
+        // format_source is line-count preserving by construction.
+        let new_line = formatted_lines.next().unwrap_or_default().to_string();
 
         if new_line != line {
             let line_start = doc.line_index.line_start_offset(line_num);
-            let line_end = doc.line_index.line_start_offset(line_num + 1).saturating_sub(1)
-                .max(line_start);
+            // The line's content ends at `line_start + line.len()` (always a
+            // char boundary). Terminated lines extend the range up to the
+            // `\n` so a `\r` (CRLF) is replaced away too; the final
+            // unterminated line ends exactly at EOF — never one byte short,
+            // which would duplicate the last character (or split a
+            // multibyte one and panic).
+            let content_end = line_start + line.len();
+            let next_start = doc.line_index.line_start_offset(line_num + 1);
+            let line_end = if next_start > content_end
+                && doc.source.as_bytes().get(next_start.saturating_sub(1)) == Some(&b'\n')
+            {
+                next_start - 1
+            } else {
+                content_end
+            };
 
             let start = doc.line_index.position(line_start);
             let end = doc.line_index.position(line_end);
@@ -82,14 +98,15 @@ mod tests {
     }
 
     #[test]
-    fn formatting_multiple_tabs() {
+    fn formatting_reindents_by_lexed_depth_not_tab_width() {
+        // A double-tab as the FIRST indent is still one nesting level to the
+        // lexer — the canonical form is depth × 4 spaces, not width × 4.
         let doc = make_doc("## Main\n\t\tLet x be 5.\n");
         let edits = format_document(&doc);
         assert!(!edits.is_empty(), "Expected edits for double-tabbed line");
-        assert!(
-            edits[0].new_text.starts_with("        "),
-            "Two tabs should become 8 spaces: {:?}",
-            edits[0].new_text
+        assert_eq!(
+            edits[0].new_text, "    Let x be 5.",
+            "depth 1 canonicalizes to 4 spaces regardless of original width"
         );
     }
 
@@ -151,5 +168,31 @@ mod tests {
         assert!(!edits.is_empty(), "Expected edits for mixed tabs/spaces");
         assert!(!edits[0].new_text.contains('\t'),
             "Mixed tabs should be replaced: {:?}", edits[0].new_text);
+    }
+
+    #[test]
+    fn formatting_final_line_without_trailing_newline_covers_whole_line() {
+        // The edit range must span the ENTIRE final line — an off-by-one end
+        // would leave the last character outside the replacement and
+        // duplicate it when the client applies the edit.
+        let doc = make_doc("## Main\n\tX");
+        let edits = format_document(&doc);
+        assert_eq!(edits.len(), 1, "one edit for the tabbed final line");
+        assert_eq!(edits[0].new_text, "    X");
+        assert_eq!(edits[0].range.start.line, 1);
+        assert_eq!(edits[0].range.start.character, 0);
+        assert_eq!(
+            edits[0].range.end.character, 2,
+            "range must cover both characters of \"\\tX\""
+        );
+    }
+
+    #[test]
+    fn formatting_final_line_ending_in_multibyte_char_does_not_panic() {
+        let doc = make_doc("\tπ");
+        let edits = format_document(&doc);
+        assert_eq!(edits.len(), 1);
+        assert_eq!(edits[0].new_text, "    π");
+        assert_eq!(edits[0].range.end.character, 2, "tab + π in UTF-16 units");
     }
 }

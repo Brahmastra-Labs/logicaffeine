@@ -172,6 +172,19 @@ impl<'a> Converter<'a> {
             // NEVER be floor-folded by the e-graph — treat the whole division as an opaque
             // leaf so the optimizer leaves it verbatim for the runtime.
             Expr::BinaryOp { op: BinaryOpKind::ExactDivide, .. } => self.opaque(expr),
+            // Sequence concatenation has no arithmetic e-node model — leave it opaque so the
+            // optimizer never tries to fold it.
+            Expr::BinaryOp { op: BinaryOpKind::SeqConcat, .. } => self.opaque(expr),
+            // Tolerant float comparison: opaque — no algebraic rewrites apply.
+            Expr::BinaryOp { op: BinaryOpKind::ApproxEq, .. } => self.opaque(expr),
+            // `&`/`|` are type-dispatched (Int bitwise / Set ops): opaque to
+            // the numeric e-graph.
+            Expr::BinaryOp { op: BinaryOpKind::BitAnd | BinaryOpKind::BitOr, .. } => self.opaque(expr),
+            // `**` has no e-node model (BigInt-promoting / Float): opaque.
+            Expr::BinaryOp { op: BinaryOpKind::Pow, .. } => self.opaque(expr),
+            // `//` floors toward -inf (distinct from `Div`'s truncation) and can promote
+            // to BigInt — no e-node model, so it stays opaque (never algebraically rewritten).
+            Expr::BinaryOp { op: BinaryOpKind::FloorDivide, .. } => self.opaque(expr),
             Expr::BinaryOp { op, left, right } => {
                 let (l, ls) = self.to_node(left, facts);
                 let (r, rs) = self.to_node(right, facts);
@@ -181,6 +194,10 @@ impl<'a> Converter<'a> {
                     BinaryOpKind::Multiply => CompilerENode::Mul(l, r),
                     BinaryOpKind::Divide => CompilerENode::Div(l, r),
                     BinaryOpKind::ExactDivide => unreachable!("ExactDivide handled by the opaque arm above"),
+                    BinaryOpKind::Pow => unreachable!("Pow handled by the opaque arm above"),
+                    BinaryOpKind::FloorDivide => unreachable!("FloorDivide handled by the opaque arm above"),
+                    BinaryOpKind::ApproxEq => unreachable!("ApproxEq handled by the opaque arm above"),
+                    BinaryOpKind::BitAnd | BinaryOpKind::BitOr => unreachable!("BitAnd/BitOr handled by the opaque arm above"),
                     BinaryOpKind::Modulo => CompilerENode::Mod(l, r),
                     BinaryOpKind::Eq => CompilerENode::Eq(l, r),
                     BinaryOpKind::NotEq => CompilerENode::Ne(l, r),
@@ -191,6 +208,7 @@ impl<'a> Converter<'a> {
                     BinaryOpKind::And => CompilerENode::And(l, r),
                     BinaryOpKind::Or => CompilerENode::Or(l, r),
                     BinaryOpKind::Concat => CompilerENode::Concat(l, r),
+                    BinaryOpKind::SeqConcat => unreachable!("SeqConcat handled by the opaque arm above"),
                     BinaryOpKind::BitXor => CompilerENode::BitXor(l, r),
                     BinaryOpKind::Shl => CompilerENode::Shl(l, r),
                     BinaryOpKind::Shr => CompilerENode::Shr(l, r),
@@ -316,6 +334,8 @@ impl<'a> Converter<'a> {
             CompilerENode::Shl(..) => bin(BinaryOpKind::Shl, self),
             CompilerENode::Shr(..) => bin(BinaryOpKind::Shr, self),
             CompilerENode::BitXor(..) => bin(BinaryOpKind::BitXor, self),
+            CompilerENode::BitAnd(..) => bin(BinaryOpKind::BitAnd, self),
+            CompilerENode::BitOr(..) => bin(BinaryOpKind::BitOr, self),
             CompilerENode::And(..) => bin(BinaryOpKind::And, self),
             CompilerENode::Or(..) => bin(BinaryOpKind::Or, self),
             CompilerENode::Eq(..) => bin(BinaryOpKind::Eq, self),
@@ -870,8 +890,11 @@ fn walk_stmt<'a>(
         Stmt::WriteFile { content, path } => {
             Stmt::WriteFile { content: se(content), path: se(path) }
         }
-        Stmt::SendMessage { message, destination, compression, cached, unchecked, layout, shared, computed } => {
-            Stmt::SendMessage { message: se(message), destination: se(destination), compression, cached, unchecked, layout, shared, computed }
+        Stmt::SendMessage { message, destination, compression, cached, unchecked, layout, shared, computed, indexed, deduped } => {
+            Stmt::SendMessage { message: se(message), destination: se(destination), compression, cached, unchecked, layout, shared, computed, indexed, deduped }
+        }
+        Stmt::StreamMessage { values, destination } => {
+            Stmt::StreamMessage { values: se(values), destination: se(destination) }
         }
         Stmt::IncreaseCrdt { object, field, amount } => {
             Stmt::IncreaseCrdt { object: se(object), field, amount: se(amount) }

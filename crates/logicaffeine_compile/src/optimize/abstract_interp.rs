@@ -568,9 +568,14 @@ fn binop_type(op: BinaryOpKind, l: &TypeAbstraction, r: &TypeAbstraction) -> Typ
     let is = |a: &TypeAbstraction, t: TypeTag| matches!(a, TypeAbstraction::Concrete(x) if *x == t);
     match op {
         // Relational and equality always yield Bool.
-        Lt | Gt | LtEq | GtEq | Eq | NotEq => conc(TypeTag::Bool),
+        Lt | Gt | LtEq | GtEq | Eq | NotEq | ApproxEq => conc(TypeTag::Bool),
+        // Bitwise on ints; on Sets these are set ops — Top keeps them out of
+        // numeric reductions.
+        BitAnd | BitOr => TypeAbstraction::Top,
         // Explicit concatenation is always Text.
         Concat => conc(TypeTag::Text),
+        // Sequence concatenation yields a sequence — `Top` keeps it out of numeric reductions.
+        SeqConcat => TypeAbstraction::Top,
         Add => {
             if is(l, TypeTag::Int) && is(r, TypeTag::Int) { conc(TypeTag::Int) }
             else if is(l, TypeTag::Float) && is(r, TypeTag::Float) { conc(TypeTag::Float) }
@@ -579,8 +584,9 @@ fn binop_type(op: BinaryOpKind, l: &TypeAbstraction, r: &TypeAbstraction) -> Typ
         }
         // ExactDivide produces a Rational, never a known Int — `Top` keeps a
         // Rational-derived value out of the integer-only strength reductions.
-        ExactDivide => TypeAbstraction::Top,
-        Subtract | Multiply | Divide | Modulo => {
+        // Pow can promote to BigInt (or a Float) — `Top` likewise.
+        ExactDivide | Pow => TypeAbstraction::Top,
+        Subtract | Multiply | Divide | FloorDivide | Modulo => {
             if is(l, TypeTag::Int) && is(r, TypeTag::Int) { conc(TypeTag::Int) }
             else if is(l, TypeTag::Float) && is(r, TypeTag::Float) { conc(TypeTag::Float) }
             else { TypeAbstraction::Top }
@@ -1825,6 +1831,19 @@ pub enum ScalarKind {
     Text,
 }
 
+/// A variable's program-wide PROVEN facts — the statically-verified summary the
+/// debugger shows beside its live value (distinct from the dynamic, observed-this-run
+/// invariants). All fields are sound over-approximations: present ⇒ proven.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct VarProvenFacts {
+    /// Proven scalar type, if concrete across the program.
+    pub scalar: Option<ScalarKind>,
+    /// Proven finite integer range `[lo, hi]` (the value was in it at every occurrence).
+    pub int_range: Option<(i64, i64)>,
+    /// Proven non-negative everywhere (even if unbounded above).
+    pub nonneg: bool,
+}
+
 /// EXODIA Phase 1's DELIVERY layer: a product fact for every expression
 /// occurrence at its program point, keyed by ARENA ADDRESS (stable for the
 /// analyzed snapshot — record facts immediately before consuming them, and
@@ -1995,6 +2014,46 @@ impl OracleFacts {
             (Bound::Finite(lo), Bound::Finite(hi)) if lo <= hi => Some((*lo, *hi)),
             _ => None,
         }
+    }
+
+    /// **Debugger-only** by-name rollup: walk `stmts` and JOIN every `Identifier(sym)`
+    /// occurrence's already-recorded abstract value into one proven summary per variable.
+    /// Sound by construction (joining widens), so a returned `int_range` of `[0, 9]` means
+    /// the variable was within it at *every* use — a program-wide proven invariant.
+    ///
+    /// This re-reads the facts that the production walk already computed; it adds NOTHING
+    /// to `record_expr`/`oracle_analyze`, so it is **zero cost** unless the debugger calls
+    /// it (no production path does). Reused from the same module so it can read `exprs`.
+    pub fn summarize_variables(&self, stmts: &[Stmt]) -> Vec<(Symbol, VarProvenFacts)> {
+        let mut by_sym: HashMap<Symbol, AbstractValue> = HashMap::new();
+        collect_idents_block(stmts, &mut |sym, addr| {
+            if let Some(av) = self.exprs.get(&addr) {
+                match by_sym.get_mut(&sym) {
+                    None => {
+                        by_sym.insert(sym, av.clone());
+                    }
+                    Some(prev) => *prev = prev.join(av),
+                }
+            }
+        });
+        by_sym
+            .into_iter()
+            .map(|(sym, av)| {
+                let int_range = match (&av.interval.lo, &av.interval.hi) {
+                    (Bound::Finite(lo), Bound::Finite(hi)) if lo <= hi => Some((*lo, *hi)),
+                    _ => None,
+                };
+                let scalar = match &av.ty {
+                    TypeAbstraction::Concrete(TypeTag::Int) => Some(ScalarKind::Int),
+                    TypeAbstraction::Concrete(TypeTag::Float) => Some(ScalarKind::Float),
+                    TypeAbstraction::Concrete(TypeTag::Bool) => Some(ScalarKind::Bool),
+                    TypeAbstraction::Concrete(TypeTag::Text) => Some(ScalarKind::Text),
+                    _ => None,
+                };
+                let nonneg = matches!(av.interval.lo, Bound::Finite(v) if v >= 0);
+                (sym, VarProvenFacts { scalar, int_range, nonneg })
+            })
+            .collect()
     }
 
     /// Does this `Map of Int to Int` have a recorded invariant affine capacity
@@ -2202,6 +2261,146 @@ fn record_expr(e: &Expr, st: &RichAbstractState, facts: &mut OracleFacts) {
         if !facts.suppress_exprs && st.coll_vars.contains(sym) {
             facts.collections.insert(e as *const Expr as usize);
         }
+    }
+}
+
+/// **Debugger-only** traversal: invoke `f(sym, addr)` for every `Identifier(sym)`
+/// occurrence in `stmts`, mirroring the production walk's coverage so the addresses
+/// line up with the recorded `exprs`. Never called on a production compile path —
+/// only [`OracleFacts::summarize_variables`] uses it. Incompleteness here would only
+/// narrow the debugger's summary (still sound), never affect codegen.
+fn collect_idents_block(stmts: &[Stmt], f: &mut dyn FnMut(Symbol, usize)) {
+    for s in stmts {
+        collect_idents_stmt(s, f);
+    }
+}
+
+fn collect_idents_stmt(stmt: &Stmt, f: &mut dyn FnMut(Symbol, usize)) {
+    use crate::ast::stmt::ReadSource;
+    // Direct expressions a statement holds (mirror `record_stmt_exprs`).
+    match stmt {
+        Stmt::Let { value, .. } | Stmt::Set { value, .. } => collect_idents_expr(value, f),
+        Stmt::Return { value: Some(e) } => collect_idents_expr(e, f),
+        Stmt::Call { args, .. } => {
+            for a in args {
+                collect_idents_expr(a, f);
+            }
+        }
+        Stmt::If { cond, .. } | Stmt::While { cond, .. } => collect_idents_expr(cond, f),
+        Stmt::Repeat { iterable, .. } => collect_idents_expr(iterable, f),
+        Stmt::Show { object, .. } | Stmt::Give { object, .. } => collect_idents_expr(object, f),
+        Stmt::Push { value, collection }
+        | Stmt::Add { value, collection }
+        | Stmt::Remove { value, collection } => {
+            collect_idents_expr(value, f);
+            collect_idents_expr(collection, f);
+        }
+        Stmt::SetIndex { collection, index, value } => {
+            collect_idents_expr(collection, f);
+            collect_idents_expr(index, f);
+            collect_idents_expr(value, f);
+        }
+        Stmt::SetField { object, value, .. } => {
+            collect_idents_expr(object, f);
+            collect_idents_expr(value, f);
+        }
+        Stmt::Inspect { target, .. } => collect_idents_expr(target, f),
+        Stmt::RuntimeAssert { condition, .. } => collect_idents_expr(condition, f),
+        Stmt::Sleep { milliseconds } => collect_idents_expr(milliseconds, f),
+        Stmt::ReadFrom { source: ReadSource::File(p), .. } => collect_idents_expr(p, f),
+        _ => {}
+    }
+    // Nested blocks (mirror the block recursion the production walk does).
+    match stmt {
+        Stmt::If { then_block, else_block, .. } => {
+            collect_idents_block(then_block, f);
+            if let Some(eb) = else_block {
+                collect_idents_block(eb, f);
+            }
+        }
+        Stmt::While { body, .. } | Stmt::Repeat { body, .. } => collect_idents_block(body, f),
+        Stmt::FunctionDef { body, .. } => collect_idents_block(body, f),
+        Stmt::Inspect { arms, .. } => {
+            for arm in arms {
+                collect_idents_block(arm.body, f);
+            }
+        }
+        Stmt::Zone { body, .. } => collect_idents_block(body, f),
+        Stmt::Concurrent { tasks } | Stmt::Parallel { tasks } => collect_idents_block(tasks, f),
+        _ => {}
+    }
+}
+
+fn collect_idents_expr(e: &Expr, f: &mut dyn FnMut(Symbol, usize)) {
+    use crate::ast::stmt::StringPart;
+    if let Expr::Identifier(sym) = e {
+        f(*sym, e as *const Expr as usize);
+    }
+    match e {
+        Expr::BinaryOp { left, right, .. }
+        | Expr::Union { left, right }
+        | Expr::Intersection { left, right }
+        | Expr::Range { start: left, end: right } => {
+            collect_idents_expr(left, f);
+            collect_idents_expr(right, f);
+        }
+        Expr::Not { operand } => collect_idents_expr(operand, f),
+        Expr::Call { args, .. } => {
+            for a in args {
+                collect_idents_expr(a, f);
+            }
+        }
+        Expr::CallExpr { callee, args } => {
+            collect_idents_expr(callee, f);
+            for a in args {
+                collect_idents_expr(a, f);
+            }
+        }
+        Expr::Index { collection, index } => {
+            collect_idents_expr(collection, f);
+            collect_idents_expr(index, f);
+        }
+        Expr::Slice { collection, start, end } => {
+            collect_idents_expr(collection, f);
+            collect_idents_expr(start, f);
+            collect_idents_expr(end, f);
+        }
+        Expr::Copy { expr } => collect_idents_expr(expr, f),
+        Expr::Give { value } => collect_idents_expr(value, f),
+        Expr::Length { collection } => collect_idents_expr(collection, f),
+        Expr::Contains { collection, value } => {
+            collect_idents_expr(collection, f);
+            collect_idents_expr(value, f);
+        }
+        Expr::List(items) | Expr::Tuple(items) => {
+            for i in items {
+                collect_idents_expr(i, f);
+            }
+        }
+        Expr::FieldAccess { object, .. } => collect_idents_expr(object, f),
+        Expr::New { init_fields, .. } => {
+            for (_, fe) in init_fields {
+                collect_idents_expr(fe, f);
+            }
+        }
+        Expr::NewVariant { fields, .. } => {
+            for (_, fe) in fields {
+                collect_idents_expr(fe, f);
+            }
+        }
+        Expr::OptionSome { value } => collect_idents_expr(value, f),
+        Expr::WithCapacity { value, capacity } => {
+            collect_idents_expr(value, f);
+            collect_idents_expr(capacity, f);
+        }
+        Expr::InterpolatedString(parts) => {
+            for p in parts {
+                if let StringPart::Expr { value, .. } = p {
+                    collect_idents_expr(value, f);
+                }
+            }
+        }
+        _ => {}
     }
 }
 
@@ -4089,10 +4288,9 @@ fn gather_implicit_map_caps(
 /// clean rendering), in which case the dense gate declines and the map stays a
 /// hash table. Terms are emitted in symbol-index order for determinism.
 pub fn lin_to_rust(e: &super::affine::LinExpr, interner: &crate::intern::Interner) -> Option<String> {
-    let int_of = |num: i64, den: i64| -> Option<i64> { (den == 1).then_some(num) };
     let mut coeffs: Vec<(i64, i64)> = Vec::new();
     for (idx, c) in e.coefficients.iter() {
-        let ci = int_of(c.numerator, c.denominator)?;
+        let ci = c.to_i64()?;
         if ci != 0 {
             coeffs.push((*idx, ci));
         }
@@ -4107,7 +4305,7 @@ pub fn lin_to_rust(e: &super::affine::LinExpr, interner: &crate::intern::Interne
             format!("{} * {}", ci, name)
         });
     }
-    let k = int_of(e.constant.numerator, e.constant.denominator)?;
+    let k = e.constant.to_i64()?;
     if k != 0 || terms.is_empty() {
         terms.push(k.to_string());
     }
@@ -4668,16 +4866,16 @@ fn join_sym_upper(
 /// emits for `(...) % m`. Its `m >= 1` precondition is what the positivity guard
 /// discharges.
 fn mod_upper_divisor(e: &super::affine::LinExpr) -> Option<Symbol> {
-    if e.coefficients.len() != 1 || e.constant.numerator != -1 || e.constant.denominator != 1 {
+    if e.coefficients.len() != 1 || e.constant.to_i64() != Some(-1) {
         return None;
     }
     let (&idx, coeff) = e.coefficients.iter().next()?;
-    (coeff.numerator == 1 && coeff.denominator == 1).then(|| Symbol::from_index(idx as usize))
+    (coeff.to_i64() == Some(1)).then(|| Symbol::from_index(idx as usize))
 }
 
 /// Is `e` a constant `<= 0` (no variables, non-positive)?
 fn is_nonpos_const(e: &super::affine::LinExpr) -> bool {
-    e.coefficients.is_empty() && e.constant.numerator <= 0
+    e.coefficients.is_empty() && !e.constant.is_positive()
 }
 
 /// Is the linear expression `e` provably `>= 0` under the current per-variable
@@ -4685,11 +4883,10 @@ fn is_nonpos_const(e: &super::affine::LinExpr) -> bool {
 /// bound is a finite non-negative. A non-integer rational or a variable whose
 /// interval is unbounded below (for a positive coefficient) fails closed.
 fn lin_ge_zero(e: &super::affine::LinExpr, st: &RichAbstractState) -> bool {
-    let as_int = |num: i64, den: i64| -> Option<i64> { (den == 1).then_some(num) };
-    let Some(k) = as_int(e.constant.numerator, e.constant.denominator) else { return false };
+    let Some(k) = e.constant.to_i64() else { return false };
     let mut acc = Interval::exact(k);
     for (idx, coeff) in &e.coefficients {
-        let Some(c) = as_int(coeff.numerator, coeff.denominator) else { return false };
+        let Some(c) = coeff.to_i64() else { return false };
         let sym = Symbol::from_index(*idx as usize);
         acc = acc.add(&Interval::exact(c).mul(&st.intervals.get_var(&sym)));
     }

@@ -48,9 +48,12 @@ Show item (capacity + 1) of prev.
 #[test]
 fn knapsack_inner_loop_is_split_into_three_for_w_loops() {
     let rust = compile_to_rust(KNAPSACK).expect("knapsack compiles");
-    // prefix [0, wi), suffix [wi, cols), and the out-of-range fallback.
+    // prefix [0, wi), suffix [wi, cols), and the out-of-range fallback — five in
+    // all: the exact-Int narrowing versions each loop that reads `prev[w - wi]` on
+    // `wi`'s magnitude, cloning the prefix and the fallback into a raw/exact pair
+    // (2 + 1 + 2). The split itself is intact (the sibling store/load locks pass).
     let for_w = rust.matches("for w in").count();
-    assert_eq!(for_w, 3, "expected prefix + suffix + fallback `for w` loops:\n{rust}");
+    assert_eq!(for_w, 5, "expected versioned prefix + suffix + fallback `for w` loops:\n{rust}");
 }
 
 #[test]

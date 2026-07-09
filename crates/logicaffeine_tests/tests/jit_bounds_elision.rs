@@ -574,11 +574,14 @@ const BUILD_HDR: &str = "## To native args () -> Seq of Text\n\
                          Let arguments be args().\n\
                          Let n be parseInt(item 2 of arguments).\n";
 
-/// ADVERSARIAL — the array is shrunk THROUGH AN ALIAS after the build, so its
-/// length no longer matches `n`. The fact must be invalidated via the alias
-/// graph; reading up to `n` then errors. Must NOT be elided.
+/// `Let b be arr` is a VALUE COPY, so popping `b` leaves `arr` untouched — its
+/// length really is still `n`, and reading all `n` elements succeeds (no error).
+/// The optimizer stays conservative around the copy+pop and does NOT elide
+/// (`unchecked == 0`), but correctness no longer hinges on that: the original is
+/// isolated from the copy's mutation. (Under the old reference semantics this
+/// same program shrank `arr` through the alias and read out of bounds.)
 #[test]
-fn alias_pop_invalidates_length() {
+fn pop_through_value_copy_leaves_original_intact() {
     let src = format!(
         "{BUILD_HDR}\
          Let mutable arr be a new Seq of Int.\n\
@@ -596,8 +599,12 @@ fn alias_pop_invalidates_length() {
          Show acc.\n"
     );
     let (unchecked, _) = index_op_counts(&src);
-    assert_eq!(unchecked, 0, "a pop through an alias must invalidate the length fact");
-    assert!(vm_tw_agree(&src, "50"), "reading n elements of an (n-1)-list must error");
+    assert_eq!(unchecked, 0, "the optimizer stays conservative around a copy+pop");
+    // No error, and acc = 0 + 1 + … + (n-1); for n = 50 that is 1225.
+    assert!(!vm_tw_agree(&src, "50"), "reading all n elements of the untouched original must succeed");
+    let tier = ForgeTier::new();
+    let out = vm_outcome_with_args(&src, &["bench".to_string(), "50".to_string()], Some(&tier as &dyn NativeTier));
+    assert_eq!(norm(&out.output), "1225", "arr is untouched by the copy's pop");
 }
 
 /// An aliased READ stays correct (a missed elision is fine; a wrong one is

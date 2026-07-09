@@ -1,16 +1,14 @@
-//! Phase 37/39: LOGOS CLI (largo)
+//! LOGOS CLI (largo) — argument parsing and dispatch.
 //!
-//! Command-line interface for the LOGOS build system and package registry.
-//!
-//! This module provides the command-line argument parsing and dispatch logic
-//! for the `largo` CLI tool. It handles all user-facing commands including
-//! project scaffolding, building, running, and package registry operations.
+//! This module defines the `largo` command-line surface: the [`Cli`] parser,
+//! the [`Commands`] enum, and [`run_cli`], which dispatches each subcommand
+//! to its handler in [`crate::commands`].
 //!
 //! # Architecture
 //!
 //! The CLI is built on [`clap`] for argument parsing with derive macros.
-//! Each command variant in [`Commands`] maps to a handler function that
-//! performs the actual work.
+//! Each command variant in [`Commands`] maps to a handler function in a
+//! dedicated module under `commands/` that performs the actual work.
 //!
 //! # Examples
 //!
@@ -28,18 +26,10 @@
 //! ```
 
 use clap::{Parser, Subcommand};
-use std::env;
-use std::fs;
-use std::io::{self, Write};
 use std::path::PathBuf;
 
-use crate::compile::compile_project;
-use crate::project::build::{self, find_project_root, BuildConfig};
-use crate::project::manifest::Manifest;
-use crate::project::credentials::{Credentials, get_token};
-use crate::project::registry::{
-    RegistryClient, PublishMetadata, create_tarball, is_git_dirty,
-};
+use crate::commands;
+use crate::ui::{self, ColorMode};
 
 /// Command-line interface for the LOGOS build tool.
 ///
@@ -59,14 +49,36 @@ use crate::project::registry::{
 ///     std::process::exit(1);
 /// }
 /// ```
+/// The version string, flavor-stamped: the full build (Z3 verification
+/// statically linked) reports `X.Y.Z (full)` so installs are diagnosable.
+#[cfg(feature = "verification")]
+const LARGO_VERSION: &str = concat!(env!("CARGO_PKG_VERSION"), " (full)");
+/// The lean build reports the bare version.
+#[cfg(not(feature = "verification"))]
+const LARGO_VERSION: &str = env!("CARGO_PKG_VERSION");
+
 #[derive(Parser)]
 #[command(name = "largo")]
 #[command(about = "The LOGOS build tool", long_about = None)]
-#[command(version)]
+#[command(version = LARGO_VERSION)]
+#[command(arg_required_else_help = true)]
+#[command(styles = ui::CLAP_STYLES)]
 pub struct Cli {
     /// The subcommand to execute.
     #[command(subcommand)]
     pub command: Commands,
+
+    /// Suppress informational output (errors still print).
+    #[arg(long, short, global = true)]
+    pub quiet: bool,
+
+    /// Increase output verbosity (repeatable).
+    #[arg(long, short, global = true, action = clap::ArgAction::Count)]
+    pub verbose: u8,
+
+    /// When to use terminal colors.
+    #[arg(long, global = true, value_enum, default_value = "auto", value_name = "WHEN")]
+    pub color: ColorMode,
 }
 
 /// Available CLI subcommands.
@@ -104,6 +116,7 @@ pub enum Commands {
     /// cd my_project
     /// largo run
     /// ```
+    #[command(after_help = "Examples:\n  largo new hello\n  cd hello\n  largo run")]
     New {
         /// The project name, used for the directory and package name.
         name: String,
@@ -120,6 +133,7 @@ pub enum Commands {
     /// mkdir my_project && cd my_project
     /// largo init
     /// ```
+    #[command(after_help = "Examples:\n  mkdir app && cd app\n  largo init\n  largo init --name my_app")]
     Init {
         /// Project name. If omitted, uses the current directory name.
         #[arg(long)]
@@ -146,6 +160,7 @@ pub enum Commands {
     /// largo build --release    # Release build with optimizations
     /// largo build --verify     # Build with Z3 verification
     /// ```
+    #[command(after_help = "Examples:\n  largo build\n  largo build --release\n  largo build --emit wasm\n  largo build --lib --target aarch64-unknown-linux-gnu")]
     Build {
         /// Build with optimizations enabled.
         #[arg(long, short)]
@@ -175,6 +190,15 @@ pub enum Commands {
         /// tier bundle (a cached cdylib per function) under `.logos-native/`.
         #[arg(long)]
         native_functions: bool,
+
+        /// Emit target. `wasm` compiles the project DIRECTLY to a self-contained `.wasm` module via the
+        /// built-in backend (no rustc / cargo / wasm-bindgen — milliseconds), written to
+        /// `target/<name>.wasm`. `wasm-linked` additionally links the real `logicaffeine_base::BigInt`
+        /// runtime (via `rust-lld`) so overflowing integer arithmetic computes the exact big number
+        /// instead of wrapping — needs the Rust toolchain + a wasm32 `base` build. Omit for the default
+        /// rustc-based Rust build.
+        #[arg(long)]
+        emit: Option<String>,
     },
 
     /// Run Z3 static verification without building.
@@ -193,6 +217,7 @@ pub enum Commands {
     /// export LOGOS_LICENSE=sub_xxxxx
     /// largo verify
     /// ```
+    #[command(after_help = "Examples:\n  largo verify --license sub_xxxxx\n  LOGOS_LICENSE=sub_xxxxx largo verify")]
     Verify {
         /// License key for verification.
         /// Can also be set via the `LOGOS_LICENSE` environment variable.
@@ -215,6 +240,7 @@ pub enum Commands {
     /// largo run --release    # Release mode
     /// largo run --interpret  # Interpret directly (no compilation)
     /// ```
+    #[command(after_help = "Examples:\n  largo run\n  largo run --release\n  largo run --interpret\n  largo run --emit wasm\n  largo run -- input.txt --program-flag")]
     Run {
         /// Build with optimizations enabled.
         #[arg(long, short)]
@@ -224,6 +250,12 @@ pub enum Commands {
         /// Provides sub-second feedback but lacks full Rust performance.
         #[arg(long, short)]
         interpret: bool,
+
+        /// `wasm` compiles DIRECTLY to a `.wasm` (built-in backend, no rustc) and runs it via the
+        /// emitted host shim (node). `wasm-linked` links the real `BigInt` runtime first (exact
+        /// arbitrary-precision integers; needs the Rust toolchain). Compile-and-run in one step.
+        #[arg(long, conflicts_with = "interpret")]
+        emit: Option<String>,
 
         /// Arguments to pass to the program.
         #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
@@ -240,7 +272,13 @@ pub enum Commands {
     /// ```bash
     /// largo check
     /// ```
-    Check,
+    #[command(after_help = "Examples:\n  largo check\n  largo check --quiet")]
+    Check {
+        /// Also run rustc's analysis over the generated code (the same deep
+        /// pass the IDE's flycheck uses) and translate its findings to LOGOS.
+        #[arg(long)]
+        deep: bool,
+    },
 
     /// Report which optimizations actually FIRE when compiling a LOGOS file.
     ///
@@ -255,6 +293,7 @@ pub enum Commands {
     /// largo opts src/main.lg
     /// largo opts src/main.lg --json
     /// ```
+    #[command(after_help = "Examples:\n  largo opts src/main.lg\n  largo opts src/main.lg --json")]
     Opts {
         /// The `.lg` source file to analyze.
         file: PathBuf,
@@ -282,6 +321,7 @@ pub enum Commands {
     /// largo publish              # Publish to default registry
     /// largo publish --dry-run    # Validate without uploading
     /// ```
+    #[command(after_help = "Examples:\n  largo publish --dry-run\n  largo publish\n  largo publish --allow-dirty")]
     Publish {
         /// Registry URL. Defaults to `registry.logicaffeine.com`.
         #[arg(long)]
@@ -316,6 +356,7 @@ pub enum Commands {
     /// largo login                       # Interactive prompt
     /// largo login --token tok_xxxxx     # Non-interactive
     /// ```
+    #[command(after_help = "Examples:\n  largo login\n  largo login --token lgr_xxxxx")]
     Login {
         /// Registry URL. Defaults to `registry.logicaffeine.com`.
         #[arg(long)]
@@ -335,10 +376,231 @@ pub enum Commands {
     /// ```bash
     /// largo logout
     /// ```
+    #[command(after_help = "Examples:\n  largo logout\n  largo logout --registry https://registry.example.com")]
     Logout {
         /// Registry URL. Defaults to `registry.logicaffeine.com`.
         #[arg(long)]
         registry: Option<String>,
+    },
+
+    /// Diagnose the environment largo runs in.
+    ///
+    /// Checks the Rust toolchain (needed by `build`/`run`), the wasm32
+    /// target, node (for `--emit wasm`), the verification flavor, registry
+    /// reachability and credentials, update freshness, and — inside a
+    /// project — manifest health. Degradations are warnings; only a broken
+    /// project fails. Works offline.
+    #[command(after_help = "Examples:\n  largo doctor\n  largo doctor --registry https://registry.example.com")]
+    Doctor {
+        /// Registry URL to probe (defaults to the LOGOS registry).
+        #[arg(long)]
+        registry: Option<String>,
+    },
+
+    /// Start the interactive LOGOS REPL.
+    ///
+    /// Two modes in one session: imperative statements against a
+    /// persistent interpreter session (`logos>`), and English→FOL logic
+    /// mode with discourse-aware anaphora (`logic>`). Type `:help` inside
+    /// for the meta-commands (`:mode`, `:format`, `:readings`, `:vars`,
+    /// `:save`, …). Works on a pipe too — no terminal required.
+    #[command(after_help = "Examples:\n  largo repl\n  largo repl --logic\n  largo repl --logic --format latex\n  largo repl --load session.lg\n  printf 'Let x be 5.\\nShow x.\\n' | largo repl")]
+    Repl {
+        /// Start in logic mode (English → FOL).
+        #[arg(long)]
+        logic: bool,
+
+        /// Initial logic output format.
+        #[arg(long, value_enum)]
+        format: Option<crate::commands::logic::LogicFormat>,
+
+        /// Load a saved session/program on startup.
+        #[arg(long)]
+        load: Option<PathBuf>,
+    },
+
+    /// Solve a DIMACS CNF with the certified SAT engine.
+    ///
+    /// The SAT Competition interface as a largo verb: prints
+    /// `s SATISFIABLE` with a `v` model or `s UNSATISFIABLE`, optionally
+    /// exporting a DRAT/DPR/SR refutation for external checkers
+    /// (drat-trim). Exit codes follow the competition convention:
+    /// 10 = SAT, 20 = UNSAT, 1 = error.
+    #[command(after_help = "Examples:\n  largo sat instance.cnf\n  largo sat instance.cnf --proof refutation.drat\n  largo sat instance.cnf --stats")]
+    Sat {
+        /// The DIMACS CNF file to solve.
+        file: PathBuf,
+
+        /// Write the UNSAT certificate here (DRAT; DPR/SR for symmetry routes).
+        #[arg(long)]
+        proof: Option<PathBuf>,
+
+        /// Print solver statistics to stderr.
+        #[arg(long)]
+        stats: bool,
+    },
+
+    /// Prove the theorems in a LOGOS source file (kernel-certified).
+    ///
+    /// Runs `## Theory` developments (formal Axiom/Theorem declarations,
+    /// proved in citation order) and English `## Theorem` blocks
+    /// (Given/Prove/Proof) through the proof engine. Every ✓ is certified
+    /// by the type-theory kernel — a mere derivation never counts.
+    #[command(after_help = "Examples:\n  largo prove                 # prove the project entry\n  largo prove geometry.lg\n  largo prove socrates.lg --trace\n  largo prove tarski.lg --json")]
+    Prove {
+        /// The source file (defaults to the project entry).
+        file: Option<PathBuf>,
+
+        /// Show the rendered derivation tree under each proved theorem.
+        #[arg(long)]
+        trace: bool,
+
+        /// Emit machine-readable JSON results.
+        #[arg(long, conflicts_with = "trace")]
+        json: bool,
+    },
+
+    /// Translate English to First-Order Logic.
+    ///
+    /// Compiles a natural-language sentence to formal logic — the LOGOS
+    /// logic mode from the terminal. Reads the sentence inline, from
+    /// `--file`, or from piped stdin. Prints bare FOL on stdout, so output
+    /// pipes cleanly into other tools.
+    #[command(after_help = "Examples:\n  largo logic \"Every woman loves a man.\"\n  largo logic \"Every woman loves a man.\" --all-readings\n  largo logic \"It might rain.\" --format kripke\n  echo \"Socrates is mortal.\" | largo logic\n  printf 'A farmer owns a donkey.\\nHe feeds it.' | largo logic --discourse")]
+    Logic {
+        /// The English sentence to translate.
+        sentence: Option<String>,
+
+        /// Read the sentence (or discourse) from a file.
+        #[arg(long, short, conflicts_with = "sentence")]
+        file: Option<PathBuf>,
+
+        /// Output format for the logical form.
+        #[arg(long, value_enum, default_value = "unicode")]
+        format: crate::commands::logic::LogicFormat,
+
+        /// Show every reading (quantifier scopes + parse forest), numbered.
+        #[arg(long, conflicts_with = "discourse")]
+        all_readings: bool,
+
+        /// Enrich with scalar implicature (pragmatic strengthening).
+        #[arg(long)]
+        pragmatic: bool,
+
+        /// Treat each input line as one sentence of a discourse with
+        /// shared anaphora context.
+        #[arg(long)]
+        discourse: bool,
+    },
+
+    /// Generate documentation from the project's `##` blocks.
+    ///
+    /// Renders a markdown reference from the literate structure of the
+    /// entry file: `## To` signatures, type definitions, notes, examples,
+    /// and formal blocks — in source order. `## Main` is omitted.
+    #[command(after_help = "Examples:\n  largo doc\n  largo doc --out book")]
+    Doc {
+        /// Output directory (defaults to `target/doc`).
+        #[arg(long)]
+        out: Option<PathBuf>,
+    },
+
+    /// Add a dependency to Largo.toml.
+    ///
+    /// Accepts `name` (any version), `name@version`, or `logos:name` (the
+    /// registry URI form). `--path` and `--git` record local and git
+    /// dependencies. Edits preserve the manifest's comments and formatting.
+    #[command(after_help = "Examples:\n  largo add math_utils\n  largo add math_utils@1.2\n  largo add logos:std\n  largo add local_lib --path ../local_lib\n  largo add remote --git https://example.com/remote.git")]
+    Add {
+        /// The dependency: `name`, `name@version`, or `logos:name`.
+        spec: String,
+
+        /// Use a local path dependency.
+        #[arg(long, conflicts_with = "git")]
+        path: Option<String>,
+
+        /// Use a git dependency.
+        #[arg(long, conflicts_with = "path")]
+        git: Option<String>,
+    },
+
+    /// Remove a dependency from Largo.toml.
+    ///
+    /// Deletes the named entry from `[dependencies]`, leaving the rest of
+    /// the manifest byte-identical.
+    #[command(after_help = "Examples:\n  largo remove math_utils")]
+    Remove {
+        /// The dependency name to remove.
+        name: String,
+    },
+
+    /// Format LOGOS source files.
+    ///
+    /// Applies the canonical style (4-space indentation, no tabs, no
+    /// trailing whitespace) — the same rules the language server uses.
+    /// Without paths, formats the whole project; with paths, exactly those
+    /// files. `--check` writes nothing and exits 1 if anything would change.
+    #[command(after_help = "Examples:\n  largo fmt\n  largo fmt src/main.lg\n  largo fmt --check    # CI gate, writes nothing")]
+    Fmt {
+        /// Specific files to format (defaults to all project sources).
+        paths: Vec<PathBuf>,
+
+        /// Check only: list files that need formatting, exit 1 if any.
+        #[arg(long)]
+        check: bool,
+    },
+
+    /// Emit compiled code without building a binary.
+    ///
+    /// Prints the generated Rust or C translation of the program, or writes
+    /// a self-contained `.wasm` module (built-in backend, no rustc) with its
+    /// Node.js host shim. Without FILE, uses the current project's entry;
+    /// with FILE, works on any standalone `.lg`/`.md` source.
+    #[command(after_help = "Examples:\n  largo emit rust\n  largo emit rust -o generated.rs\n  largo emit c standalone.lg\n  largo emit wasm\n  largo emit wasm-linked -o dist/app.wasm")]
+    Emit {
+        /// What to emit.
+        #[arg(value_enum)]
+        target: crate::commands::emit::EmitTarget,
+
+        /// A standalone source file (defaults to the project entry).
+        file: Option<PathBuf>,
+
+        /// Write to this path instead of stdout (rust/c) or the default
+        /// module path (wasm).
+        #[arg(long, short)]
+        output: Option<PathBuf>,
+    },
+
+    /// Remove build artifacts.
+    ///
+    /// Deletes the project's `target/` directory. With `--all`, also removes
+    /// the `.logos-native/` compiled-function bundle cache produced by
+    /// `largo build --native-functions`.
+    #[command(after_help = "Examples:\n  largo clean\n  largo clean --all")]
+    Clean {
+        /// Also remove the `.logos-native/` bundle cache.
+        #[arg(long)]
+        all: bool,
+    },
+
+    /// Generate shell completions for largo.
+    ///
+    /// Writes a completion script for the given shell to stdout. Source it
+    /// from your shell's configuration to get tab completion for every
+    /// largo command and flag.
+    #[command(after_help = "Examples:\n  largo completions bash > ~/.local/share/bash-completion/completions/largo\n  largo completions zsh > ~/.zfunc/_largo\n  largo completions fish > ~/.config/fish/completions/largo.fish")]
+    Completions {
+        /// The shell to generate completions for.
+        #[arg(value_enum)]
+        shell: clap_complete::Shell,
+    },
+
+    /// Reserved for the LOGOS test framework (coming in a future release).
+    #[command(hide = true)]
+    Test {
+        /// Ignored; the verb is reserved.
+        #[arg(trailing_var_arg = true, allow_hyphen_values = true, hide = true)]
+        args: Vec<String>,
     },
 }
 
@@ -370,531 +632,48 @@ pub enum Commands {
 /// ```
 pub fn run_cli() -> Result<(), Box<dyn std::error::Error>> {
     let cli = Cli::parse();
+    ui::init(cli.color, cli.quiet, cli.verbose);
 
     match cli.command {
-        Commands::New { name } => cmd_new(&name),
-        Commands::Init { name } => cmd_init(name.as_deref()),
-        Commands::Build { release, verify, license, lib, target, native_functions } => cmd_build(release, verify, license, lib, target, native_functions),
-        Commands::Run { interpret, args, .. } if interpret => cmd_run_interpret(&args),
-        Commands::Run { release, args, .. } => cmd_run(release, &args),
-        Commands::Check => cmd_check(),
-        Commands::Opts { file, json } => cmd_opts(&file, json),
-        Commands::Verify { license } => cmd_verify(license),
+        Commands::New { name } => commands::new::cmd_new(&name),
+        Commands::Init { name } => commands::new::cmd_init(name.as_deref()),
+        Commands::Build { release, verify, license, lib, target, native_functions, emit } => {
+            commands::build::cmd_build(release, verify, license, lib, target, native_functions, emit)
+        }
+        Commands::Run { emit: Some(e), args, .. } if e == "wasm" => commands::run::cmd_run_wasm(&args, false),
+        Commands::Run { emit: Some(e), args, .. } if e == "wasm-linked" => commands::run::cmd_run_wasm(&args, true),
+        Commands::Run { emit: Some(e), .. } => {
+            Err(format!("unknown --emit target '{e}' (expected 'wasm' or 'wasm-linked')").into())
+        }
+        Commands::Run { interpret, args, .. } if interpret => commands::run::cmd_run_interpret(&args),
+        Commands::Run { release, args, .. } => commands::run::cmd_run(release, &args),
+        Commands::Check { deep } => commands::check::cmd_check(deep),
+        Commands::Opts { file, json } => commands::opts::cmd_opts(&file, json),
+        Commands::Verify { license } => commands::verify::cmd_verify(license),
         Commands::Publish { registry, dry_run, allow_dirty } => {
-            cmd_publish(registry.as_deref(), dry_run, allow_dirty)
+            commands::publish::cmd_publish(registry.as_deref(), dry_run, allow_dirty)
         }
-        Commands::Login { registry, token } => cmd_login(registry.as_deref(), token),
-        Commands::Logout { registry } => cmd_logout(registry.as_deref()),
-    }
-}
-
-fn cmd_new(name: &str) -> Result<(), Box<dyn std::error::Error>> {
-    let project_dir = PathBuf::from(name);
-
-    if project_dir.exists() {
-        return Err(format!("Directory '{}' already exists", project_dir.display()).into());
-    }
-
-    // Create project structure
-    fs::create_dir_all(&project_dir)?;
-    fs::create_dir_all(project_dir.join("src"))?;
-
-    // Write Largo.toml
-    let manifest = Manifest::new(name);
-    fs::write(project_dir.join("Largo.toml"), manifest.to_toml()?)?;
-
-    // Write src/main.lg
-    let main_lg = r#"# Main
-
-A simple LOGOS program.
-
-## Main
-
-Show "Hello, world!".
-"#;
-    fs::write(project_dir.join("src/main.lg"), main_lg)?;
-
-    // Write .gitignore
-    fs::write(project_dir.join(".gitignore"), "/target\n")?;
-
-    println!("Created LOGOS project '{}'", name);
-    println!("  cd {}", project_dir.display());
-    println!("  largo run");
-
-    Ok(())
-}
-
-fn cmd_init(name: Option<&str>) -> Result<(), Box<dyn std::error::Error>> {
-    let current_dir = env::current_dir()?;
-    let project_name = name
-        .map(String::from)
-        .or_else(|| {
-            current_dir
-                .file_name()
-                .and_then(|n| n.to_str())
-                .map(String::from)
-        })
-        .unwrap_or_else(|| "project".to_string());
-
-    if current_dir.join("Largo.toml").exists() {
-        return Err("Largo.toml already exists".into());
-    }
-
-    // Create src directory if needed
-    fs::create_dir_all(current_dir.join("src"))?;
-
-    // Write Largo.toml
-    let manifest = Manifest::new(&project_name);
-    fs::write(current_dir.join("Largo.toml"), manifest.to_toml()?)?;
-
-    // Write src/main.lg if it doesn't exist
-    let main_path = current_dir.join("src/main.lg");
-    if !main_path.exists() {
-        let main_lg = r#"# Main
-
-A simple LOGOS program.
-
-## Main
-
-Show "Hello, world!".
-"#;
-        fs::write(main_path, main_lg)?;
-    }
-
-    println!("Initialized LOGOS project '{}'", project_name);
-
-    Ok(())
-}
-
-fn cmd_build(
-    release: bool,
-    verify: bool,
-    license: Option<String>,
-    lib: bool,
-    target: Option<String>,
-    native_functions: bool,
-) -> Result<(), Box<dyn std::error::Error>> {
-    let current_dir = env::current_dir()?;
-    let project_root =
-        find_project_root(&current_dir).ok_or("Not in a LOGOS project (Largo.toml not found)")?;
-
-    // Run verification if requested
-    if verify {
-        run_verification(&project_root, license.as_deref())?;
-    }
-
-    let config = BuildConfig {
-        project_dir: project_root.clone(),
-        release,
-        lib_mode: lib,
-        target,
-    };
-
-    let result = build::build(config)?;
-
-    let mode = if release { "release" } else { "debug" };
-    println!("Built {} [{}]", result.binary_path.display(), mode);
-
-    if native_functions {
-        build_native_function_bundle(&project_root)?;
-    }
-
-    Ok(())
-}
-
-/// Pre-build the AOT-native tier bundle (HOTSWAP §Axis-3): every `is exported for
-/// native` function compiled to a cached cdylib under `.logos-native/`. Functions
-/// outside the sound scalar subset are skipped — they keep running on VM+JIT.
-fn build_native_function_bundle(
-    project_root: &std::path::Path,
-) -> Result<(), Box<dyn std::error::Error>> {
-    let manifest = Manifest::load(project_root)?;
-    let entry_path = project_root.join(&manifest.package.entry);
-    let source = fs::read_to_string(&entry_path)?;
-
-    let bundle_dir = project_root.join(".logos-native");
-    let built = logicaffeine_compile::compile::build_native_bundle(&source, &bundle_dir)
-        .map_err(|e| format!("native bundle build failed: {e:?}"))?;
-
-    if built.is_empty() {
-        println!("No `is exported for native` functions to bundle.");
-    } else {
-        println!("Bundled {} native function(s) into {}:", built.len(), bundle_dir.display());
-        for (name, so) in &built {
-            println!("  {name} -> {}", so.display());
+        Commands::Login { registry, token } => commands::publish::cmd_login(registry.as_deref(), token),
+        Commands::Logout { registry } => commands::publish::cmd_logout(registry.as_deref()),
+        Commands::Doctor { registry } => commands::doctor::cmd_doctor(registry),
+        Commands::Repl { logic, format, load } => crate::repl::cmd_repl(logic, format, load),
+        Commands::Sat { file, proof, stats } => commands::sat::cmd_sat(file, proof, stats),
+        Commands::Prove { file, trace, json } => commands::prove::cmd_prove(file, trace, json),
+        Commands::Logic { sentence, file, format, all_readings, pragmatic, discourse } => {
+            commands::logic::cmd_logic(sentence, file, format, all_readings, pragmatic, discourse)
         }
-    }
-    Ok(())
-}
-
-fn cmd_verify(license: Option<String>) -> Result<(), Box<dyn std::error::Error>> {
-    let current_dir = env::current_dir()?;
-    let project_root =
-        find_project_root(&current_dir).ok_or("Not in a LOGOS project (Largo.toml not found)")?;
-
-    run_verification(&project_root, license.as_deref())?;
-    println!("Verification passed");
-    Ok(())
-}
-
-#[cfg(feature = "verification")]
-fn run_verification(
-    project_root: &std::path::Path,
-    license: Option<&str>,
-) -> Result<(), Box<dyn std::error::Error>> {
-    use logicaffeine_verify::{LicenseValidator, Verifier};
-
-    // Get license key from argument or environment
-    let license_key = license
-        .map(String::from)
-        .or_else(|| env::var("LOGOS_LICENSE").ok());
-
-    let license_key = license_key.ok_or(
-        "Verification requires a license key.\n\
-         Use --license <key> or set LOGOS_LICENSE environment variable.\n\
-         Get a license at https://logicaffeine.com/pricing",
-    )?;
-
-    // Validate license
-    println!("Validating license...");
-    let validator = LicenseValidator::new();
-    let plan = validator.validate(&license_key)?;
-    println!("License valid ({})", plan);
-
-    // Load and parse the project
-    let manifest = Manifest::load(project_root)?;
-    let entry_path = project_root.join(&manifest.package.entry);
-    let source = fs::read_to_string(&entry_path)?;
-
-    // For now, just verify that Z3 works
-    // TODO: Implement full AST encoding in Phase 2
-    println!("Running Z3 verification...");
-    let verifier = Verifier::new();
-
-    // Basic smoke test - verify that true is valid
-    verifier.check_bool(true)?;
-
-    Ok(())
-}
-
-#[cfg(not(feature = "verification"))]
-fn run_verification(
-    _project_root: &std::path::Path,
-    _license: Option<&str>,
-) -> Result<(), Box<dyn std::error::Error>> {
-    Err("Verification requires the 'verification' feature.\n\
-         Rebuild with: cargo build --features verification"
-        .into())
-}
-
-fn cmd_run(release: bool, args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
-    let current_dir = env::current_dir()?;
-    let project_root =
-        find_project_root(&current_dir).ok_or("Not in a LOGOS project (Largo.toml not found)")?;
-
-    let config = BuildConfig {
-        project_dir: project_root,
-        release,
-        lib_mode: false,
-        target: None,
-    };
-
-    let result = build::build(config)?;
-    let exit_code = build::run(&result, args)?;
-
-    if exit_code != 0 {
-        std::process::exit(exit_code);
-    }
-
-    Ok(())
-}
-
-fn cmd_run_interpret(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
-    let current_dir = env::current_dir()?;
-    let project_root =
-        find_project_root(&current_dir).ok_or("Not in a LOGOS project (Largo.toml not found)")?;
-
-    let manifest = Manifest::load(&project_root)?;
-    let entry_path = project_root.join(&manifest.package.entry);
-    let source = fs::read_to_string(&entry_path)?;
-
-    // Build the argv the program's `args()` sees: index 0 is the program name
-    // (the compiled binary's `env::args()[0]`), then the user arguments — so
-    // `item 2 of args()` is the first user argument on the interpreter exactly
-    // as on the native binary.
-    let mut argv = Vec::with_capacity(args.len() + 1);
-    argv.push(manifest.package.name.clone());
-    argv.extend(args.iter().cloned());
-
-    // Compiled-native tier (HOTSWAP §Axis-3): if the program annotates functions
-    // `is exported for native`, load them as rustc -O3 machine code (cached, so a
-    // pre-built `largo build --native-functions` bundle is a cache hit) and queue them
-    // so the VM dispatches those functions to compiled native from their first call.
-    // Absent / unbuildable ⇒ nothing queued ⇒ runs on VM+JIT, no gap at the seam.
-    #[cfg(not(target_arch = "wasm32"))]
-    {
-        let names = logicaffeine_compile::compile::native_export_function_names(&source);
-        if !names.is_empty() {
-            let cache_dir = project_root.join(".logos-native");
-            let natives = logicaffeine_compile::compile::aot_load_bundle(&source, &cache_dir);
-            if !natives.is_empty() {
-                logicaffeine_compile::ui_bridge::set_pending_aot_natives(natives);
-            }
-        }
-    }
-
-    let result = futures::executor::block_on(
-        logicaffeine_compile::interpret_for_ui_with_args(&source, &argv),
-    );
-
-    for line in &result.lines {
-        println!("{}", line);
-    }
-
-    if let Some(err) = result.error {
-        eprintln!("{}", err);
-        std::process::exit(1);
-    }
-
-    Ok(())
-}
-
-fn cmd_check() -> Result<(), Box<dyn std::error::Error>> {
-    let current_dir = env::current_dir()?;
-    let project_root =
-        find_project_root(&current_dir).ok_or("Not in a LOGOS project (Largo.toml not found)")?;
-
-    let manifest = Manifest::load(&project_root)?;
-    let entry_path = project_root.join(&manifest.package.entry);
-
-    // Just compile to Rust without building (discard output, only care about success)
-    let _ = compile_project(&entry_path)?;
-
-    println!("Check passed");
-    Ok(())
-}
-
-/// `largo opts <file>` — report which optimizations actually fire for a program.
-fn cmd_opts(file: &std::path::Path, json: bool) -> Result<(), Box<dyn std::error::Error>> {
-    use logicaffeine_compile::optimization::REGISTRY;
-    let source = fs::read_to_string(file)?;
-
-    // The complete per-program optimization graph from one all-on evaluation: what
-    // FIRED, the BLOCKERS (precedence preemptions that occurred), and the emergent
-    // DEPENDENCIES (one optimization only fired because another was on). All on the
-    // AOT codegen path, so the three views agree with the generated Rust.
-    let (fired, blockers, dependencies) = crate::compile::optimization_graph(&source);
-
-    if json {
-        let arr = |v: &[&str]| -> String {
-            v.iter().map(|k| format!("\"{k}\"")).collect::<Vec<_>>().join(",")
-        };
-        let pairs = |v: &[(&str, &str)]| -> String {
-            v.iter().map(|(a, b)| format!("[\"{a}\",\"{b}\"]")).collect::<Vec<_>>().join(",")
-        };
-        println!(
-            "{{\"fired\":[{}],\"blockers\":[{}],\"dependencies\":[{}]}}",
-            arr(&fired),
-            pairs(&blockers),
-            pairs(&dependencies)
-        );
-        return Ok(());
-    }
-
-    if fired.is_empty() {
-        println!("No optimizations fired for {}.", file.display());
-        return Ok(());
-    }
-
-    let fired_set: std::collections::BTreeSet<&str> = fired.iter().copied().collect();
-    println!(
-        "Optimizations that fired for {} ({} of {}):",
-        file.display(),
-        fired.len(),
-        REGISTRY.len()
-    );
-    // List in registry order, grouped by category.
-    let mut last_group = "";
-    for m in REGISTRY {
-        if !fired_set.contains(m.keyword) {
-            continue;
-        }
-        if m.group != last_group {
-            println!("  {}", m.group);
-            last_group = m.group;
-        }
-        println!("    {:<14} {}", m.keyword, m.label);
-    }
-    if !dependencies.is_empty() {
-        println!("Dependencies (one fired only because another was on):");
-        for (dependent, dep) in &dependencies {
-            println!("    {dependent:<14} depends on {dep}");
-        }
-    }
-    if !blockers.is_empty() {
-        println!("Blockers (one took precedence, skipping another):");
-        for (winner, loser) in &blockers {
-            println!("    {winner:<14} blocks    {loser}");
-        }
-    }
-    Ok(())
-}
-
-// ============================================================
-// Phase 39: Registry Commands
-// ============================================================
-
-fn cmd_publish(
-    registry: Option<&str>,
-    dry_run: bool,
-    allow_dirty: bool,
-) -> Result<(), Box<dyn std::error::Error>> {
-    let current_dir = env::current_dir()?;
-    let project_root =
-        find_project_root(&current_dir).ok_or("Not in a LOGOS project (Largo.toml not found)")?;
-
-    // Load manifest
-    let manifest = Manifest::load(&project_root)?;
-    let name = &manifest.package.name;
-    let version = &manifest.package.version;
-
-    println!("Packaging {} v{}", name, version);
-
-    // Determine registry URL
-    let registry_url = registry.unwrap_or(RegistryClient::default_url());
-
-    // Get authentication token
-    let token = get_token(registry_url).ok_or_else(|| {
-        format!(
-            "No authentication token found for {}.\n\
-             Run 'largo login' or set LOGOS_TOKEN environment variable.",
-            registry_url
+        Commands::Doc { out } => commands::doc::cmd_doc(out),
+        Commands::Add { spec, path, git } => commands::deps::cmd_add(spec, path, git),
+        Commands::Remove { name } => commands::deps::cmd_remove(name),
+        Commands::Fmt { paths, check } => commands::fmt::cmd_fmt(paths, check),
+        Commands::Emit { target, file, output } => commands::emit::cmd_emit(target, file, output),
+        Commands::Clean { all } => commands::clean::cmd_clean(all),
+        Commands::Completions { shell } => commands::completions::cmd_completions(shell),
+        Commands::Test { .. } => Err(ui::CliError::with_hint(
+            "`largo test` is reserved for the LOGOS test framework (coming in a future release)",
+            "run `largo check` to validate your project today",
         )
-    })?;
-
-    // Verify the package
-    let entry_path = project_root.join(&manifest.package.entry);
-    if !entry_path.exists() {
-        return Err(format!(
-            "Entry point '{}' not found",
-            manifest.package.entry
-        ).into());
+        .exit_code(ui::EXIT_USAGE)
+        .into()),
     }
-
-    // Check for uncommitted changes
-    if !allow_dirty && is_git_dirty(&project_root) {
-        return Err(
-            "Working directory has uncommitted changes.\n\
-             Use --allow-dirty to publish anyway.".into()
-        );
-    }
-
-    // Create tarball
-    println!("Creating package tarball...");
-    let tarball = create_tarball(&project_root)?;
-    println!("  Package size: {} bytes", tarball.len());
-
-    // Read README if present
-    let readme = project_root.join("README.md");
-    let readme_content = if readme.exists() {
-        fs::read_to_string(&readme).ok()
-    } else {
-        None
-    };
-
-    // Build metadata
-    let metadata = PublishMetadata {
-        name: name.clone(),
-        version: version.clone(),
-        description: manifest.package.description.clone(),
-        repository: None, // Could add to manifest later
-        homepage: None,
-        license: None,
-        keywords: vec![],
-        entry_point: manifest.package.entry.clone(),
-        dependencies: manifest
-            .dependencies
-            .iter()
-            .map(|(k, v)| (k.clone(), v.to_string()))
-            .collect(),
-        readme: readme_content,
-    };
-
-    if dry_run {
-        println!("\n[dry-run] Would publish to {}", registry_url);
-        println!("[dry-run] Package validated successfully");
-        return Ok(());
-    }
-
-    // Upload to registry
-    println!("Uploading to {}...", registry_url);
-    let client = RegistryClient::new(registry_url, &token);
-    let result = client.publish(name, version, &tarball, &metadata)?;
-
-    println!(
-        "\nPublished {} v{} to {}",
-        result.package, result.version, registry_url
-    );
-    println!("  SHA256: {}", result.sha256);
-
-    Ok(())
-}
-
-fn cmd_login(
-    registry: Option<&str>,
-    token: Option<String>,
-) -> Result<(), Box<dyn std::error::Error>> {
-    let registry_url = registry.unwrap_or(RegistryClient::default_url());
-
-    // Get token from argument or stdin
-    let token = match token {
-        Some(t) => t,
-        None => {
-            println!("To get a token, visit: {}/auth/github", registry_url);
-            println!("Then generate an API token from your profile.");
-            println!();
-            print!("Enter token for {}: ", registry_url);
-            io::stdout().flush()?;
-
-            let mut line = String::new();
-            io::stdin().read_line(&mut line)?;
-            line.trim().to_string()
-        }
-    };
-
-    if token.is_empty() {
-        return Err("Token cannot be empty".into());
-    }
-
-    // Validate token with registry
-    println!("Validating token...");
-    let client = RegistryClient::new(registry_url, &token);
-    let user_info = client.validate_token()?;
-
-    // Save to credentials file
-    let mut creds = Credentials::load().unwrap_or_default();
-    creds.set_token(registry_url, &token);
-    creds.save()?;
-
-    println!("Logged in as {} to {}", user_info.login, registry_url);
-
-    Ok(())
-}
-
-fn cmd_logout(registry: Option<&str>) -> Result<(), Box<dyn std::error::Error>> {
-    let registry_url = registry.unwrap_or(RegistryClient::default_url());
-
-    let mut creds = Credentials::load().unwrap_or_default();
-
-    if creds.get_token(registry_url).is_none() {
-        println!("Not logged in to {}", registry_url);
-        return Ok(());
-    }
-
-    creds.remove_token(registry_url);
-    creds.save()?;
-
-    println!("Logged out from {}", registry_url);
-
-    Ok(())
 }

@@ -1,6 +1,6 @@
 [package]
 name = "logicaffeine-verify"
-version = "0.9.17"
+version.workspace = true
 edition.workspace = true
 authors.workspace = true
 repository.workspace = true
@@ -11,6 +11,12 @@ rust-version.workspace = true
 license = "BUSL-1.1"
 description = "Z3-based static verification for Logicaffeine (requires Pro+ license)"
 readme = "README.md"
+
+[features]
+# Build Z3 from the source vendored in z3-sys and link it statically —
+# the release-binary flavor (`largo-full`). Default stays dynamic against
+# the system libz3.
+static-link-z3 = ["z3/static-link-z3"]
 
 [dependencies]
 # SMT solver

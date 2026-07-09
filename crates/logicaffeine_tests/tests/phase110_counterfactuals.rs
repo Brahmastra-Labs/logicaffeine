@@ -1,4 +1,4 @@
-//! Phase 110 — §4.5 Counterfactual conditionals (MISSING_ENGLISH.md).
+//! Phase 110 — §4.5 Counterfactual conditionals (work/MISSING_ENGLISH.md).
 //!
 //! Subjunctive conditionals over the closest worlds:
 //!   "If John had studied, he would have passed." → Study(John) □→ Pass(John)

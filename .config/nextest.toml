@@ -1,6 +1,10 @@
 [profile.default]
 retries = 0
-slow-warning = { period = "60s" }
+# Warn every 60s, then TERMINATE at 20 min (60s × 20). No single test may hang an
+# interactive/iteration run — a runaway (e.g. a non-ignored research probe) is killed
+# and reported, never left spinning. Non-ignored tests should finish in seconds, so this
+# only ever fires on an accidental hang or an unbounded research test run ad hoc.
+slow-timeout = { period = "60s", terminate-after = 20 }
 fail-fast = false
 
 [profile.ci]
@@ -11,7 +15,12 @@ fail-fast = true
 # scripts/run-all-tests-fast.sh for parity with the cargo-test baseline run.
 [profile.full]
 retries = 0
-slow-timeout = { period = "120s" }
+# Warn at 120s, then TERMINATE at 30 min (120s × 15) — a HARD backstop so no single
+# test can hang the baseline for hours. The legit heavies (aot_montgomery ~875s,
+# jit_mega_fuzz, futamura) finish well under this; the multi-hour SAT/coNP research
+# probes are excluded up front by run-all-tests-fast.sh, and this catches any straggler
+# that isn't. A terminated test is a FAILURE, so a genuine new hang is never silent.
+slow-timeout = { period = "120s", terminate-after = 15 }
 fail-fast = false
 final-status-level = "slow"
 

@@ -4,9 +4,9 @@ How to write and work with every construct in LOGOS, in one place. Each table
 shows the **canonical** form, the **ambiguous alternatives that also parse** (LOGOS
 supports many surfaces for one meaning), and what it **lowers to** internally.
 
-Forms marked **(proposed)** are designed in `LANGUAGE_SMELLS.md` but not yet
-implemented — they are listed here so this guide doubles as the target spec.
-Everything not so marked works in-tree today.
+Forms marked **(proposed)** are designed but not yet implemented — they are
+listed here so this guide doubles as the target spec. Everything not so
+marked works in-tree today.
 
 ---
 
@@ -49,13 +49,21 @@ LOGOS source is literate Markdown; `##` headers introduce definitions.
 | Not equal | `x != y` | `x is not y` | `NotEq` |
 | Greater / less | `x > y` · `x < y` | `x is greater than y` · `x is less than y` | `Gt/Lt` |
 | ≥ / ≤ | `x >= y` · `x <= y` | `x is at least y` · `x is at most y` | `GtEq/LtEq` |
-| Logical | — | `a and b` · `a or b` · `not a` | `And/Or/Not` (type-aware) |
-| Bitwise xor | — | `x xor y` | `BitXor` |
+| Chained | `lo <= x <= hi` | — | `(lo <= x) and (x <= hi)` |
+| Range test | — | `x is between lo and hi` | inclusive `lo <= x and x <= hi` |
+| Parity / divisibility | — | `x is even` · `x is odd` · `x is divisible by n` | `x % 2 == 0` · `== 1` · `x % n == 0` |
+| Logical | — | `a and b` · `a or b` · `not a` | `And/Or/Not` (truthiness → Bool, short-circuit) |
+| Bitwise and/or | `x & y` · `x \| y` | — | `BitAnd/BitOr` (Set: intersection/union) |
+| Bitwise xor | `x ^ y` | `x xor y` | `BitXor` (Set: symmetric difference) |
+| Bitwise not | `~x` | — | lowers to `x ^ -1` |
 | Shift | — | `x shifted left by n` · `x shifted right by n` | `Shl/Shr` |
 | Negate | `-x` | — | `0 - x` |
 | Popcount | — | `count_ones(x)` | builtin |
 
-Note: `and`/`or` are logical for `Bool` and bitwise for `Int` (resolved in codegen).
+Note: `and`/`or`/`not` are LOGICAL — truthiness in, `Bool` out, short-circuit. Falsy:
+`false`, `0`, `0.0`, `nothing`, empty Text/Seq/Map/Set (so `If items:` tests emptiness).
+The bitwise spellings are the symbols `&`/`|`/`^`/`~`; on Sets, `&`/`|`/`^`/`-` are
+intersection/union/symmetric-difference/difference (`a without b` is the English difference).
 
 ---
 
@@ -103,8 +111,8 @@ Note: `and`/`or` are logical for `Bool` and bitwise for `Int` (resolved in codeg
 | Copy | `copy of xs` | `copy(xs)` | `Expr::Copy` |
 
 > ⚠️ Indexing is **1-based**: `item 1 of xs` and `xs[1]` are the *first* element.
-> `item 0 of xs` is a compile error; `xs[0]` currently underflows
-> (see `LANGUAGE_SMELLS.md` §I-1). A project may opt into 0-based indexing
+> `item 0 of xs` is a compile error; `xs[0]` currently underflows.
+> A project may opt into 0-based indexing
 > **(proposed)** via `logos.toml`.
 
 ### 5.3 Mutate (lists & sets)
@@ -169,9 +177,10 @@ Note: `and`/`or` are logical for `Bool` and bitwise for `Int` (resolved in codeg
 |-----------|------|------------|-----------|
 | Struct def | `## A Point has:` then `An x: Int.` `A y: Int.` | — | `StructDef` |
 | Construct | `a new Point` | `a new Point with x 10 and y 20` | `Expr::New` |
-| Field read | `p's x` | **(proposed)** `p.x` | `FieldAccess` |
-| Nested field | `b's location's x` | **(proposed)** `b.location.x` | chained `FieldAccess` |
-| Field write | `Set p's x to 5.` | **(proposed)** `p.x = 5.` · `Set p.x to 5.` | `SetField` |
+| Field read | `p's x` | `p.x` | `FieldAccess` |
+| Nested field | `b's location's x` | `b.location.x` | chained `FieldAccess` |
+| Field write | `Set p's x to 5.` | `Set p.x to 5.` · `p.x = 5.` | `SetField` |
+| Method (UFCS) | `f(xs, a)` | `xs.f(a)` · `xs.f().g()` · `(5).double()` | same `Call` (receiver is arg 0) |
 | Enum def | `## A Shape is one of:` then `A Circle with radius Int.` | — | enum `StructDef` |
 | Variant construct | `a new Circle with radius 10` | — | `NewVariant` |
 | Match variant | `Inspect s:` `When Circle (r):` … | — | `Inspect` |
@@ -225,7 +234,7 @@ Note: `and`/`or` are logical for `Bool` and bitwise for `Int` (resolved in codeg
 | Shared sequence | `Append "Line 1" to doc's lines.` | RGA semantics |
 | Spawn agent | `Spawn an EchoAgent called "echo".` | actor |
 | Zone (arena) | `Inside a zone called "Scratch":` | scoped allocation |
-| Listen | `Listen on "/ip4/0.0.0.0/tcp/8000".` | raw multiaddr (leaky — see smells §I-5) |
+| Listen | `Listen on "/ip4/0.0.0.0/tcp/8000".` | raw multiaddr (low-level) |
 
 ---
 
@@ -241,6 +250,6 @@ Note: `and`/`or` are logical for `Bool` and bitwise for `Int` (resolved in codeg
 
 ### Legend
 
-- **(proposed)** — designed in `LANGUAGE_SMELLS.md`, not yet implemented.
+- **(proposed)** — designed but not yet implemented.
 - "Lowers to" names the AST node in `crates/logicaffeine_language/src/ast/stmt.rs`.
 - Everything unmarked parses in-tree today.

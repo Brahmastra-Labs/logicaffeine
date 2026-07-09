@@ -1,6 +1,6 @@
 //! Embedded guide content for the Programmer's Guide page.
 //!
-//! Contains all 24 sections from PROGRAMMERS_LANGUAGE_STARTER.md as Rust constants.
+//! Contains all 24 sections from work/PROGRAMMERS_LANGUAGE_STARTER.md as Rust constants.
 //! WASM cannot read files at runtime, so we embed the content at compile time.
 
 /// Mode for code examples - determines how "Run" executes them
@@ -88,6 +88,30 @@ When you write LOGOS, you're not writing comments that describe code—you're wr
         title: "Getting Started",
         part: "Part I: Programming in LOGOS",
         content: r#"
+### Installing largo
+
+Everything on this site runs in your browser — but for real projects you want `largo`,
+the LOGOS build tool, on your machine. One line, no toolchain required:
+
+```bash
+curl -fsSL https://logicaffeine.com/install.sh | sh
+```
+
+On Windows:
+
+```powershell
+powershell -ExecutionPolicy Bypass -c "irm https://logicaffeine.com/install.ps1 | iex"
+```
+
+The installer fetches the prebuilt binary for your platform (Linux/macOS x64 + arm64,
+Windows x64), verifies its SHA-256 checksum, and installs it to `~/.local/bin` — no sudo,
+no shell-config edits. Add `--full` (`sh -s -- --full`) for the build with Z3 verification
+bundled. Then:
+
+```bash
+largo new hello && cd hello && largo run
+```
+
 ### Hello World
 
 Every programming journey begins with Hello World. In LOGOS:
@@ -2046,6 +2070,16 @@ Show "5 squared = " + result."#,
         content: r#"
 LOGOS projects are built with `largo`, the LOGOS build tool.
 
+### Installing
+
+```bash
+curl -fsSL https://logicaffeine.com/install.sh | sh
+```
+
+Windows: `powershell -ExecutionPolicy Bypass -c "irm https://logicaffeine.com/install.ps1 | iex"`.
+Prebuilt for Linux/macOS (x64 + arm64) and Windows x64, SHA-256-verified, installed to
+`~/.local/bin` with no sudo. `--full` bundles Z3 static verification.
+
 ### Creating a Project
 
 | Command | Description |
@@ -2069,6 +2103,21 @@ This creates a `Largo.toml` manifest and `src/main.lg` entry point.
 | `largo build --verify` | Build with verification |
 | `largo build --target wasm` | Cross-compile to WebAssembly |
 | `largo opts <file>` | Report which optimizations actually fire |
+
+### The Wider Verbs
+
+| Command | Description |
+|---------|-------------|
+| `largo repl` | Interactive session: imperative statements + English→FOL logic mode |
+| `largo logic "<sentence>"` | English → First-Order Logic (`--all-readings`, `--format latex`) |
+| `largo prove [file]` | Kernel-certified theorem proving (`## Theory` / `## Theorem` blocks) |
+| `largo sat <file.cnf>` | The certified SAT solver (DIMACS in, DRAT proofs out) |
+| `largo fmt [--check]` | Format sources (the LSP's rules) |
+| `largo emit <rust\|c\|wasm>` | Print or write the generated code |
+| `largo doc` | Generate markdown docs from a project's `##` blocks |
+| `largo add / remove <dep>` | Edit `Largo.toml` dependencies (format-preserving) |
+| `largo clean` | Remove build artifacts |
+| `largo completions <shell>` | Shell tab-completion scripts |
 
 ### Package Registry
 

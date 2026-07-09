@@ -4,7 +4,13 @@ default_platform = "web"
 asset_dir = "assets"
 
 [web.app]
-title = "LOGOS Studio"
+title = "LOGICAFFEINE | Debug Your Thoughts"
+
+# Pin binaryen's post-link optimizer to the size-first level (dx's release default —
+# pinned so an upstream default change can't silently regrow the bundle).
+[web.wasm_opt]
+level = "z"
+debug = false
 
 [web.resource]
 dev = []

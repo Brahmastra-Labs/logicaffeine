@@ -1,4 +1,4 @@
-//! Phase 119 — §7.1 Equatives (as…as) (MISSING_ENGLISH.md).
+//! Phase 119 — §7.1 Equatives (as…as) (work/MISSING_ENGLISH.md).
 //!
 //! An equative is an at-least degree comparison (≥), distinct from the strict
 //! comparative (>):

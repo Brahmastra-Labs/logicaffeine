@@ -13,8 +13,8 @@ use crate::ui::components::icon::{Icon, IconVariant, IconSize};
 use crate::content::ContentEngine;
 use crate::ui::pages::guide::content::SECTIONS;
 
-/// Embedded logo SVG
-const LOGO_SVG: &str = include_str!("../../../assets/logo.svg");
+/// Embedded logo SVG — the single embedded copy, shared by nav and footer.
+pub(crate) const LOGO_SVG: &str = include_str!("../../../assets/logo.svg");
 
 /// Which page is currently active
 #[derive(Clone, Copy, PartialEq, Default)]
@@ -25,7 +25,6 @@ pub enum ActivePage {
     Learn,
     Studio,
     Roadmap,
-    RoadmapNew,
     Pricing,
     Registry,
     Profile,
@@ -42,16 +41,15 @@ impl ActivePage {
             Route::Guide {} => ActivePage::Guide,
             Route::Crates {} => ActivePage::Crates,
             Route::Learn {} => ActivePage::Learn,
-            Route::Studio {} => ActivePage::Studio,
+            Route::Studio { .. } => ActivePage::Studio,
             Route::Workspace { .. } => ActivePage::Studio,
             Route::Roadmap {} => ActivePage::Roadmap,
-            Route::RoadmapNew {} => ActivePage::RoadmapNew,
             Route::Pricing {} => ActivePage::Pricing,
-            Route::Success {} => ActivePage::Pricing,
-            Route::Registry {} => ActivePage::Registry,
+            Route::Success { .. } => ActivePage::Pricing,
+            Route::Registry { .. } => ActivePage::Registry,
             Route::PackageDetail { .. } => ActivePage::Registry,
             Route::Profile {} => ActivePage::Profile,
-            Route::News {} => ActivePage::News,
+            Route::News { .. } => ActivePage::News,
             Route::NewsArticle { .. } => ActivePage::News,
             Route::Benchmarks {} => ActivePage::Benchmarks,
             _ => ActivePage::Other,
@@ -538,7 +536,7 @@ pub fn MainNav(
                             "Learn Logic"
                         }
                         Link {
-                            to: Route::Studio {},
+                            to: Route::Studio { file: None },
                             class: if active == ActivePage::Studio { "main-nav-link active" } else { "main-nav-link" },
                             "Studio"
                         }
@@ -548,17 +546,12 @@ pub fn MainNav(
                             "Roadmap"
                         }
                         Link {
-                            to: Route::RoadmapNew {},
-                            class: if active == ActivePage::RoadmapNew { "main-nav-link active" } else { "main-nav-link" },
-                            "New Roadmap"
-                        }
-                        Link {
                             to: Route::Pricing {},
                             class: if active == ActivePage::Pricing { "main-nav-link active" } else { "main-nav-link" },
                             "Contact"
                         }
                         Link {
-                            to: Route::News {},
+                            to: Route::News { tag: None },
                             class: if active == ActivePage::News { "main-nav-link active" } else { "main-nav-link" },
                             "News"
                         }
@@ -719,7 +712,7 @@ pub fn MainNav(
 
                 // Simple links for other pages
                 Link {
-                    to: Route::Studio {},
+                    to: Route::Studio { file: None },
                     class: if active == ActivePage::Studio { "mobile-nav-link active" } else { "mobile-nav-link" },
                     onclick: move |_| drawer_open.set(false),
                     span { class: "mobile-nav-link-icon",
@@ -746,15 +739,6 @@ pub fn MainNav(
                     "Roadmap"
                 }
                 Link {
-                    to: Route::RoadmapNew {},
-                    class: if active == ActivePage::RoadmapNew { "mobile-nav-link active" } else { "mobile-nav-link" },
-                    onclick: move |_| drawer_open.set(false),
-                    span { class: "mobile-nav-link-icon",
-                        Icon { variant: IconVariant::Sparkles, size: IconSize::Medium }
-                    }
-                    "New Roadmap"
-                }
-                Link {
                     to: Route::Pricing {},
                     class: if active == ActivePage::Pricing { "mobile-nav-link active" } else { "mobile-nav-link" },
                     onclick: move |_| drawer_open.set(false),
@@ -764,7 +748,7 @@ pub fn MainNav(
                     "Contact"
                 }
                 Link {
-                    to: Route::News {},
+                    to: Route::News { tag: None },
                     class: if active == ActivePage::News { "mobile-nav-link active" } else { "mobile-nav-link" },
                     onclick: move |_| drawer_open.set(false),
                     span { class: "mobile-nav-link-icon",

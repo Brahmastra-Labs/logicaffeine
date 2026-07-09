@@ -5,7 +5,7 @@
 //! here runs a program through *both* and proves with Z3 that they produce the same
 //! observable behavior. Without this anchor, a buggy encoder could "prove" two wrong
 //! programs equivalent — so this is tested first, before anything is validated against
-//! it (`PE_IMPROVE.md §4.2`). Requires the `verification` feature (Z3).
+//! it (`work/PE_IMPROVE.md §4.2`). Requires the `verification` feature (Z3).
 
 #![cfg(feature = "verification")]
 

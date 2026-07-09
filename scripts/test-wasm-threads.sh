@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# WS5 (FINISH_INTERPRETER.md Phase 12) — true-multicore WebAssembly, verified headlessly.
+# WS5 (work/FINISH_INTERPRETER.md Phase 12) — true-multicore WebAssembly, verified headlessly.
 #
 # Compiles the single-file probe `scripts/wasm-threads/worker_probe.rs` for wasm32 with
 # ATOMICS + SHARED MEMORY (the same build a browser Web-Worker pool needs), then drives it from

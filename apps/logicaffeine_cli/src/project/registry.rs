@@ -154,8 +154,6 @@ impl RegistryClient {
         tarball: &[u8],
         metadata: &PublishMetadata,
     ) -> Result<PublishResult, RegistryError> {
-        use std::io::Read;
-
         let url = format!("{}/packages/publish", self.base_url);
 
         // Create multipart form data
@@ -231,8 +229,6 @@ pub fn create_tarball(project_dir: &Path) -> Result<Vec<u8>, PackageError> {
     use flate2::write::GzEncoder;
     use flate2::Compression;
     use tar::Builder;
-    use std::fs::File;
-    use std::io::Write;
 
     let mut tarball = Vec::new();
 

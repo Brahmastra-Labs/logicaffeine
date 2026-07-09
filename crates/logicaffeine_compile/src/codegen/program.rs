@@ -7,6 +7,8 @@ use crate::analysis::types::RustNames;
 use crate::ast::stmt::{Expr, Stmt, TypeExpr};
 use crate::optimization::{Opt, OptimizationConfig};
 use crate::intern::{Interner, Symbol};
+use crate::sourcemap::{OwnershipRole, SourceMap, SourceMapBuilder};
+use crate::token::Span as LogosSpan;
 use crate::registry::SymbolRegistry;
 
 use super::context::{RefinementContext, VariableCapabilities, analyze_variable_capabilities};
@@ -95,7 +97,7 @@ use super::{
 /// Check if a function body contains escape blocks (raw Rust code).
 /// Functions with escape blocks should not have their param types changed
 /// by borrow optimization, since the escape code may depend on specific types.
-fn body_contains_escape(body: &[Stmt]) -> bool {
+pub(crate) fn body_contains_escape(body: &[Stmt]) -> bool {
     body.iter().any(|stmt| stmt_contains_escape(stmt))
 }
 
@@ -150,6 +152,50 @@ fn is_affine_array_decl(stmt: &Stmt, ctx: &RefinementContext) -> bool {
         if matches!(value, Expr::New { .. }) && ctx.affine_array(*var).is_some())
 }
 
+/// A statement that BUILDS a constant-table local (its `Let` or one of its constant `Push`es). Filtered
+/// out of the body: the table is emitted once as a stack array `[T; N]` at the top of the function, so
+/// its original heap-`Vec` build (`Seq::default()` + `push` × N) is dropped.
+fn is_const_table_stmt(stmt: &Stmt, ctx: &RefinementContext) -> bool {
+    match stmt {
+        Stmt::Let { var, .. } => ctx.const_table(*var).is_some(),
+        Stmt::Push { collection: Expr::Identifier(c), .. } => ctx.const_table(*c).is_some(),
+        _ => false,
+    }
+}
+
+/// Recursively collect every symbol in `stmts` (INCLUDING nested loop / if / match blocks) whose interned
+/// name equals `name`. Needed because the parser mints distinct symbols per occurrence of an identifier,
+/// so a constant-table's `[T; N]` type must be registered for the USE-SITE symbol (e.g. a call argument
+/// inside a loop), not only the `Let`-binding symbol — `variable_types` is symbol-keyed.
+fn collect_named_syms(stmts: &[Stmt], name: &str, interner: &Interner, out: &mut std::collections::HashSet<Symbol>) {
+    for s in stmts {
+        super::worklist::for_each_stmt_expr(s, &mut |e| {
+            super::worklist::visit_idents(e, &mut |sym| {
+                if name == interner.resolve(sym) {
+                    out.insert(sym);
+                }
+            });
+        });
+        match s {
+            Stmt::If { then_block, else_block, .. } => {
+                collect_named_syms(then_block, name, interner, out);
+                if let Some(eb) = else_block {
+                    collect_named_syms(eb, name, interner, out);
+                }
+            }
+            Stmt::While { body, .. } | Stmt::Repeat { body, .. } => {
+                collect_named_syms(body, name, interner, out);
+            }
+            Stmt::Inspect { arms, .. } => {
+                for arm in arms {
+                    collect_named_syms(arm.body, name, interner, out);
+                }
+            }
+            _ => {}
+        }
+    }
+}
+
 /// Run i64→i32 narrowing detection (on by default). `LOGOS_NO_NARROW` is the
 /// kill-switch (A/B and debugging), matching the other codegen toggles. Excludes
 /// deleted-affine and worklist sequences. `LOGOS_NARROW_TRACE` reports what
@@ -195,6 +241,173 @@ fn narrow_seqs<'a>(
     n
 }
 
+/// Register every function's call-site param-role info into a context's
+/// `variable_types`, packing readonly-borrow (`&[T]`), element-`&mut`-borrow, and
+/// value-semantics `mutable`-collection indices into a single slot per function.
+/// A function may hold several roles (e.g. a readonly `Seq` param plus a `mutable`
+/// param), so the sets are combined rather than written as separate overwriting
+/// strings.
+fn register_fn_roles(
+    ctx: &mut RefinementContext,
+    borrow_params_map: &HashMap<Symbol, HashSet<usize>>,
+    mut_borrow_params_map: &HashMap<Symbol, HashSet<usize>>,
+    value_mutable_params_map: &HashMap<Symbol, HashSet<usize>>,
+) {
+    let mut role_fns: HashSet<Symbol> = HashSet::new();
+    role_fns.extend(borrow_params_map.keys().copied());
+    role_fns.extend(mut_borrow_params_map.keys().copied());
+    role_fns.extend(value_mutable_params_map.keys().copied());
+    let empty = HashSet::new();
+    for fn_sym in role_fns {
+        let b = borrow_params_map.get(&fn_sym).unwrap_or(&empty);
+        let m = mut_borrow_params_map.get(&fn_sym).unwrap_or(&empty);
+        let v = value_mutable_params_map.get(&fn_sym).unwrap_or(&empty);
+        ctx.register_variable_type(fn_sym, super::encode_fn_roles(b, m, v));
+    }
+}
+
+/// The fixed length of every local that codegen emits as a `[T; N]` stack array in `body`, keyed by NAME
+/// (the parser mints distinct symbols per occurrence; a call argument's symbol differs from the decl's).
+/// Computed from the SAME detections codegen uses, so it never over-approximates (a size here ⟹ a real
+/// `[T; N]`), which keeps the derived `&[T; N]` parameter type sound.
+fn scope_array_sizes(
+    body: &[Stmt],
+    all_stmts: &[Stmt],
+    is_main: bool,
+    returns_vec: bool,
+    this_ret: Option<&super::affine_array::ArrayReturnInfo>,
+    borrow_params: &HashMap<Symbol, HashSet<usize>>,
+    mut_borrow_params: &HashMap<Symbol, HashSet<usize>>,
+    vec_return_fns: &HashSet<Symbol>,
+    array_return_fns: &HashMap<Symbol, super::affine_array::ArrayReturnInfo>,
+    interner: &Interner,
+) -> HashMap<String, usize> {
+    let de_rc = collect_de_rc_seqs(body, interner, borrow_params, mut_borrow_params, vec_return_fns, returns_vec);
+    let mut m: HashMap<String, usize> = HashMap::new();
+    let mut put = |sym: Symbol, n: usize| { m.insert(interner.resolve(sym).to_string(), n); };
+    if is_main {
+        // Main scalarizes ONLY via `collect_scalarizable_seqs` (indexed/const O3 walk that disqualifies
+        // call-arg appearances) + straight-line buffers (borrow-aware) + fn-return arrays. The scratch /
+        // indexed / const-table passes are function-body-only, so including them here would over-report.
+        for (v, info) in collect_scalarizable_seqs(body, interner) { put(v, info.len); }
+    } else {
+        for (v, info) in super::affine_array::detect_const_tables(body, all_stmts, &de_rc, borrow_params, interner) { put(v, info.values.len()); }
+        for (v, info) in super::affine_array::detect_scratch_buffers(body, &de_rc, borrow_params, interner) { put(v, info.len); }
+        for (v, info) in super::affine_array::detect_indexed_buffers(body, &de_rc, interner) { put(v, info.len); }
+    }
+    for (v, (_, len)) in super::affine_array::detect_straightline_buffers(body, &de_rc, borrow_params, interner) { put(v, len); }
+    for (v, ty) in super::affine_array::array_var_types(body, this_ret, array_return_fns) {
+        if let Some(n) = ty.strip_prefix('[').and_then(|s| s.rsplit_once("; ")).and_then(|(_, n)| n.strip_suffix(']')).and_then(|n| n.parse::<usize>().ok()) {
+            put(v, n);
+        }
+    }
+    m
+}
+
+/// Record the fixed array length of every read-borrow argument of every `Call` in `e` (recursing into
+/// sub-expressions). `None` = a non-fixed argument at a borrow position (that param can't be `&[T; N]`).
+fn record_call_arg_sizes(
+    e: &Expr,
+    borrow_params: &HashMap<Symbol, HashSet<usize>>,
+    sizes: &HashMap<String, usize>,
+    interner: &Interner,
+    agg: &mut HashMap<(Symbol, usize), Option<usize>>,
+) {
+    match e {
+        Expr::Call { function, args } => {
+            if let Some(bset) = borrow_params.get(function) {
+                for (i, a) in args.iter().enumerate() {
+                    if bset.contains(&i) {
+                        let val = if let Expr::Identifier(v) = a { sizes.get(interner.resolve(*v)).copied() } else { None };
+                        agg.entry((*function, i)).and_modify(|cur| { if *cur != val { *cur = None; } }).or_insert(val);
+                    }
+                }
+            }
+            for a in args {
+                record_call_arg_sizes(a, borrow_params, sizes, interner, agg);
+            }
+        }
+        Expr::BinaryOp { left, right, .. } | Expr::Union { left, right } | Expr::Intersection { left, right } | Expr::Range { start: left, end: right } => {
+            record_call_arg_sizes(left, borrow_params, sizes, interner, agg);
+            record_call_arg_sizes(right, borrow_params, sizes, interner, agg);
+        }
+        Expr::Index { collection, index } => {
+            record_call_arg_sizes(collection, borrow_params, sizes, interner, agg);
+            record_call_arg_sizes(index, borrow_params, sizes, interner, agg);
+        }
+        Expr::Not { operand } => record_call_arg_sizes(operand, borrow_params, sizes, interner, agg),
+        Expr::Length { collection } | Expr::Copy { expr: collection } | Expr::Give { value: collection } | Expr::OptionSome { value: collection } | Expr::FieldAccess { object: collection, .. } => {
+            record_call_arg_sizes(collection, borrow_params, sizes, interner, agg)
+        }
+        Expr::CallExpr { callee, args } => {
+            record_call_arg_sizes(callee, borrow_params, sizes, interner, agg);
+            for a in args {
+                record_call_arg_sizes(a, borrow_params, sizes, interner, agg);
+            }
+        }
+        Expr::List(items) | Expr::Tuple(items) => {
+            for it in items {
+                record_call_arg_sizes(it, borrow_params, sizes, interner, agg);
+            }
+        }
+        _ => {}
+    }
+}
+
+fn walk_call_sizes<'a>(
+    scope: &[Stmt<'a>],
+    borrow_params: &HashMap<Symbol, HashSet<usize>>,
+    sizes: &HashMap<String, usize>,
+    interner: &Interner,
+    agg: &mut HashMap<(Symbol, usize), Option<usize>>,
+) {
+    for s in scope {
+        super::worklist::for_each_stmt_expr(s, &mut |e| record_call_arg_sizes(e, borrow_params, sizes, interner, agg));
+        match s {
+            Stmt::If { then_block, else_block, .. } => {
+                walk_call_sizes(then_block, borrow_params, sizes, interner, agg);
+                if let Some(eb) = else_block {
+                    walk_call_sizes(eb, borrow_params, sizes, interner, agg);
+                }
+            }
+            Stmt::While { body, .. } | Stmt::Repeat { body, .. } => walk_call_sizes(body, borrow_params, sizes, interner, agg),
+            Stmt::Inspect { arms, .. } => {
+                for arm in arms {
+                    walk_call_sizes(arm.body, borrow_params, sizes, interner, agg);
+                }
+            }
+            _ => {}
+        }
+    }
+}
+
+/// Fixed-array borrow-parameter propagation: `(fn, param_idx) → N` when EVERY call site passes a fixed
+/// `[T; N]` array of the same N at that read-borrow position. The parameter then becomes `&[T; N]`, so
+/// LLVM elides the constant-index bounds checks. Value-safe: `&arr` coerces to either form.
+fn fixed_array_params(
+    stmts: &[Stmt],
+    borrow_params: &HashMap<Symbol, HashSet<usize>>,
+    mut_borrow_params: &HashMap<Symbol, HashSet<usize>>,
+    vec_return_fns: &HashSet<Symbol>,
+    array_return_fns: &HashMap<Symbol, super::affine_array::ArrayReturnInfo>,
+    interner: &Interner,
+) -> HashMap<(Symbol, usize), usize> {
+    if !crate::optimize::active_config().is_on(crate::optimization::Opt::Scalarize) {
+        return HashMap::new();
+    }
+    let mut agg: HashMap<(Symbol, usize), Option<usize>> = HashMap::new();
+    let main_sizes = scope_array_sizes(stmts, stmts, true, false, None, borrow_params, mut_borrow_params, vec_return_fns, array_return_fns, interner);
+    walk_call_sizes(stmts, borrow_params, &main_sizes, interner, &mut agg);
+    for s in stmts {
+        if let Stmt::FunctionDef { name, body, is_native: false, .. } = s {
+            let rv = vec_return_fns.contains(name);
+            let sizes = scope_array_sizes(body, stmts, false, rv, array_return_fns.get(name), borrow_params, mut_borrow_params, vec_return_fns, array_return_fns, interner);
+            walk_call_sizes(body, borrow_params, &sizes, interner, &mut agg);
+        }
+    }
+    agg.into_iter().filter_map(|(k, v)| v.map(|n| (k, n))).collect()
+}
+
 pub fn codegen_program(stmts: &[Stmt], registry: &TypeRegistry, policies: &PolicyRegistry, interner: &Interner, type_env: &crate::analysis::types::TypeEnv, cfg: &OptimizationConfig) -> String {
     codegen_program_with_proven(stmts, registry, policies, interner, type_env, cfg, "proven", None)
 }
@@ -209,8 +422,38 @@ pub fn codegen_program(stmts: &[Stmt], registry: &TypeRegistry, policies: &Polic
 /// proven modules reachable and avoids polluting the imperative namespace. When
 /// `proven` is `None`/blank the output is byte-identical to [`codegen_program`].
 pub fn codegen_program_with_proven(stmts: &[Stmt], registry: &TypeRegistry, policies: &PolicyRegistry, interner: &Interner, type_env: &crate::analysis::types::TypeEnv, cfg: &OptimizationConfig, module_name: &str, proven: Option<&str>) -> String {
+    codegen_program_inner(stmts, registry, policies, interner, type_env, cfg, module_name, proven, None).0
+}
+
+/// Like [`codegen_program`], but also builds the rustc→LOGOS [`SourceMap`]:
+/// every generated line maps to the top-level statement that produced it
+/// (`stmt_spans` is the parser's side-table, 1:1 with `stmts`; zero-width
+/// spans mark prelude statements and are skipped), and variable origins carry
+/// ownership roles for the diagnostic bridge. This is the flycheck substrate.
+pub fn codegen_program_mapped(
+    stmts: &[Stmt],
+    registry: &TypeRegistry,
+    policies: &PolicyRegistry,
+    interner: &Interner,
+    type_env: &crate::analysis::types::TypeEnv,
+    cfg: &OptimizationConfig,
+    stmt_spans: &[LogosSpan],
+    logos_source: &str,
+) -> (String, SourceMap) {
+    let (code, map) = codegen_program_inner(
+        stmts, registry, policies, interner, type_env, cfg, "proven", None,
+        Some((stmt_spans, logos_source)),
+    );
+    (code, map.expect("mapping was requested"))
+}
+
+#[allow(clippy::too_many_arguments)]
+fn codegen_program_inner(stmts: &[Stmt], registry: &TypeRegistry, policies: &PolicyRegistry, interner: &Interner, type_env: &crate::analysis::types::TypeEnv, cfg: &OptimizationConfig, module_name: &str, proven: Option<&str>, mapping: Option<(&[LogosSpan], &str)>) -> (String, Option<SourceMap>) {
     crate::optimize::set_active_config(*cfg);
     let mut output = String::new();
+    // (rust line, LOGOS span) records; materialized into the SourceMap at the
+    // end. `line_count(&output)` before/after an emission brackets its lines.
+    let mut line_records: Vec<(u32, LogosSpan)> = Vec::new();
 
     // Prelude
     // Use extracted crates instead of logos_core
@@ -379,8 +622,24 @@ pub fn codegen_program_with_proven(stmts: &[Stmt], registry: &TypeRegistry, poli
     let mut borrow_params_map: HashMap<Symbol, HashSet<usize>> = HashMap::new();
     for stmt in stmts {
         if let Stmt::FunctionDef { name, params, body, is_native, is_exported, opt_flags, .. } = stmt {
-            // Skip native, exported, TCE, accumulator, and mutual TCE functions
-            if *is_native || *is_exported || mutual_tce_members.contains(name) {
+            // Native wrappers pass each Seq param straight to the underlying kernel (which takes
+            // `&[i64]`), reading but never mutating it — so every Seq param is readonly-borrowed.
+            // This makes the whole native call path zero-copy: a caller's `&[i64]` Seq param flows
+            // through the wrapper to the kernel with no `LogosSeq` materialization.
+            if *is_native {
+                if crate::optimize::active_config().merged(opt_flags).is_on(Opt::Borrow) {
+                    let indices: HashSet<usize> = params.iter().enumerate()
+                        .filter(|(_, (_, param_type))| is_vec_type_expr(param_type, interner))
+                        .map(|(i, _)| i)
+                        .collect();
+                    if !indices.is_empty() {
+                        borrow_params_map.insert(*name, indices);
+                    }
+                }
+                continue;
+            }
+            // Skip exported, TCE, accumulator, and mutual TCE functions
+            if *is_exported || mutual_tce_members.contains(name) {
                 continue;
             }
             // Respect ## No Borrow / ## No Optimize annotations
@@ -442,6 +701,12 @@ pub fn codegen_program_with_proven(stmts: &[Stmt], registry: &TypeRegistry, poli
             let readonly_indices = borrow_params_map.get(name).cloned().unwrap_or_default();
             let indices: HashSet<usize> = params.iter().enumerate()
                 .filter(|(i, (sym, param_type))| {
+                    // Under value semantics this in-place lowering stays EXACT:
+                    // every call site is the consuming `Set x to f(x, ...)` shape
+                    // (enforced by `collect_incompatible_mut_borrow_callsites`)
+                    // and the call site `cow()`s the handle first, so the
+                    // callee's element writes land on a buffer no other live
+                    // handle can observe.
                     mutable_borrow_params.is_mutable_borrow(*name, *sym)
                         && !readonly_indices.contains(i)
                         && is_vec_type_expr(param_type, interner)
@@ -455,6 +720,28 @@ pub fn codegen_program_with_proven(stmts: &[Stmt], registry: &TypeRegistry, poli
         }
     }
 
+    // `mutable` collection params (value semantics): passed by shared `&LogosSeq`/
+    // `&LogosMap` so the callee's in-place mutation reaches the caller. Distinct
+    // from the `&mut [T]` borrow opt (which has no `.push()`). Skip functions
+    // already using the readonly borrow opt (mixed readonly+mutable is rare and
+    // would clobber the single-slot call-site encoding).
+    let mut value_mutable_params_map: HashMap<Symbol, HashSet<usize>> = HashMap::new();
+    if crate::semantics::collections::value_semantics_enabled() {
+        for stmt in stmts {
+            if let Stmt::FunctionDef { name, params, is_native: false, .. } = stmt {
+                let idx: HashSet<usize> = params.iter().enumerate()
+                    .filter(|(_, (_, ty))| {
+                        matches!(ty, crate::ast::stmt::TypeExpr::Mutable { .. })
+                    })
+                    .map(|(i, _)| i)
+                    .collect();
+                if !idx.is_empty() {
+                    value_mutable_params_map.insert(*name, idx);
+                }
+            }
+        }
+    }
+
     // Pass 2: Compute liveness for all user-defined functions (backward dataflow).
     // Used by codegen_function_def to enable last-use move optimization (OPT-1C).
     let liveness = LivenessResult::analyze(stmts);
@@ -463,15 +750,26 @@ pub fn codegen_program_with_proven(stmts: &[Stmt], registry: &TypeRegistry, poli
     // return `Vec<T>` instead of `LogosSeq<T>` — removing the per-call Rc
     // clone/borrow and unblocking de-Rc on the locals that capture the result
     // (`Set left to mergeSort(left)`). The mergesort allocation keystone.
-    let vec_return_fns = collect_vec_return_fns(stmts, interner, &borrow_params_map, &mut_borrow_params_map);
+    let mut vec_return_fns = collect_vec_return_fns(stmts, interner, &borrow_params_map, &mut_borrow_params_map);
+    // Step 3b: functions returning a fixed-size buffer return `[T; N]` by value (a stack array). Disjoint
+    // from vec-return (the array is the stricter, zero-heap representation) — exclude them from vec-return
+    // so the array path is authoritative.
+    let array_return_fns = super::affine_array::collect_array_return_fns(stmts, &borrow_params_map, interner);
+    vec_return_fns.retain(|f| !array_return_fns.contains_key(f));
+    // Fixed-array borrow-parameter propagation: a read-borrow param passed only fixed `[T; N]` arrays
+    // becomes `&[T; N]` (LLVM elides its constant-index bounds checks).
+    let fixed_array_param_map = fixed_array_params(stmts, &borrow_params_map, &mut_borrow_params_map, &vec_return_fns, &array_return_fns, interner);
 
     // Build function return type map for variable type inference at call sites.
     // Phase 4: a return-type-de-Rc'd function returns `Vec<T>`, so callers infer
-    // the result var as `Vec` (not `LogosSeq`) — keeping its uses Rc-free.
-    let fn_returns_map: HashMap<Symbol, String> = stmts.iter().filter_map(|s| {
+    // the result var as `Vec` (not `LogosSeq`) — keeping its uses Rc-free. Step 3b:
+    // an array-return function's callers infer the result var as `[T; N]`.
+    let mut fn_returns_map: HashMap<Symbol, String> = stmts.iter().filter_map(|s| {
         if let Stmt::FunctionDef { name, return_type: Some(rt), .. } = s {
             let ty = codegen_type_expr(rt, interner);
-            let ty = if vec_return_fns.contains(name) {
+            let ty = if let Some(info) = array_return_fns.get(name) {
+                format!("[{}; {}]", info.elem_ty, info.len)
+            } else if vec_return_fns.contains(name) {
                 ty.replacen("LogosSeq<", "Vec<", 1)
             } else {
                 ty
@@ -481,6 +779,19 @@ pub fn codegen_program_with_proven(stmts: &[Stmt], registry: &TypeRegistry, poli
             None
         }
     }).collect();
+
+    // Overflow-promoting return: the whole-program set of `Int`-returning functions whose value can
+    // exceed i64 (a running product/power, or a call to another such function). Their signature
+    // becomes `-> LogosInt`, and a caller's binding of the result is itself promotable. Record the
+    // `|__bigint` sentinel so a call result classifies as Int (exact-arith path) yet stores LogosInt.
+    let bigint_fns = super::bigint_promote::bigint_returning_fns(stmts, interner);
+    for f in &bigint_fns {
+        fn_returns_map.insert(*f, "i64|__bigint".to_string());
+    }
+    // Record the bignum-returning set for the expression codegen, so an INLINE call to such a
+    // function is detected as a promoted `LogosInt` operand and routed through the exact helper
+    // (a bare `LogosInt <op> LogosInt` has no operator impl — see `mentions_bigint_var`).
+    super::expr::set_bigint_returning_fns(&bigint_fns);
 
     // O1 borrow hoisting: analyze the oracle ONCE on this exact statement
     // slice (loop alias snapshots are keyed by Stmt address; codegen walks
@@ -495,7 +806,8 @@ pub fn codegen_program_with_proven(stmts: &[Stmt], registry: &TypeRegistry, poli
         };
 
     // Phase 32/38: Emit function definitions before main
-    for stmt in stmts {
+    for (top_idx, stmt) in stmts.iter().enumerate() {
+        let fn_emit_start = line_count(&output) + 1;
         if let Stmt::FunctionDef { name, params, generics, body, return_type, is_native, native_path, is_exported, export_target, opt_flags } = stmt {
             if mutual_tce_members.contains(name) {
                 // Part of a mutual pair — emit merged function when we see the first member
@@ -509,7 +821,10 @@ pub fn codegen_program_with_proven(stmts: &[Stmt], registry: &TypeRegistry, poli
                 }
                 // Skip individual emission — already emitted as part of merged pair
             } else {
-                output.push_str(&codegen_function_def(*name, generics, params, body, return_type.as_ref().copied(), *is_native, *native_path, *is_exported, *export_target, interner, &lww_fields, &mv_fields, &async_functions, &boxed_fields, registry, &pure_functions, type_env, &borrow_params_map, &mut_borrow_params_map, &liveness, opt_flags, &fn_returns_map, &vec_return_fns, oracle.as_ref()));
+                output.push_str(&codegen_function_def(*name, generics, params, body, stmts, return_type.as_ref().copied(), *is_native, *native_path, *is_exported, *export_target, interner, &lww_fields, &mv_fields, &async_functions, &boxed_fields, registry, &pure_functions, type_env, &borrow_params_map, &mut_borrow_params_map, &value_mutable_params_map, &liveness, opt_flags, &fn_returns_map, &vec_return_fns, &array_return_fns, &fixed_array_param_map, oracle.as_ref(), &bigint_fns));
+            }
+            if let Some((spans, _)) = mapping {
+                record_emitted_lines(&output, fn_emit_start, spans.get(top_idx).copied(), &mut line_records);
             }
         }
     }
@@ -561,6 +876,8 @@ pub fn codegen_program_with_proven(stmts: &[Stmt], registry: &TypeRegistry, poli
     // Local Vec optimization: detect which collection vars escape main
     let main_escaping = collect_escaping_collection_vars(stmts, interner);
     main_ctx.set_escaping_vars(main_escaping);
+    // Overflow-promoting Int bindings: which integer vars must store `LogosInt`.
+    main_ctx.set_promotable_candidates(crate::codegen::bigint_promote::promotable_int_vars(stmts, &bigint_fns));
     // OPT: Register single-char text vars as u8 type for optimized codegen
     for sym in &single_char_vars {
         main_ctx.register_variable_type(*sym, "__single_char_u8".to_string());
@@ -597,6 +914,16 @@ pub fn codegen_program_with_proven(stmts: &[Stmt], registry: &TypeRegistry, poli
         main_ctx.register_variable_type(*sym, format!("[{}; {}]", info.elem_ty, info.len));
         main_ctx.init_array_fill(*sym);
     }
+    // Step 3b: register the `[T; N]` type for Main's result variables bound to an array-return fn (the
+    // per-function registration in `codegen_function_def` does not cover the top-level Main body).
+    for (sym, ty) in super::affine_array::array_var_types(stmts, None, &array_return_fns) {
+        let name = interner.resolve(sym).to_string();
+        let mut syms: HashSet<Symbol> = HashSet::new();
+        collect_named_syms(stmts, &name, interner, &mut syms);
+        for s in syms {
+            main_ctx.register_variable_type(s, ty.clone());
+        }
+    }
     // O2 de-Rc: Seqs proven to never need reference semantics → plain Vec<T>
     // (no Rc/RefCell). A var already scalarized to `[T; N]` (O3) wins — exclude it.
     let mut de_rc_seqs = collect_de_rc_seqs(stmts, interner, &borrow_params_map, &mut_borrow_params_map, &vec_return_fns, false);
@@ -604,6 +931,20 @@ pub fn codegen_program_with_proven(stmts: &[Stmt], registry: &TypeRegistry, poli
         // A `[T; N]`-scalarized var already gets the win — it preempts de-Rc here.
         if de_rc_seqs.remove(sym) {
             crate::optimize::mark_preempted(Opt::Scalarize, Opt::Unbox);
+        }
+    }
+    // Straight-line-push fixed buffers in Main → `[T; K]` (borrow-aware — the scalarizer disqualifies any
+    // call-arg, even a read-only borrow, so Main's small input buffers stayed heap Vecs). The O3 `Let`/
+    // `Push` handlers emit the stack array + `buf[k]=expr` fills.
+    let main_sl = super::affine_array::detect_straightline_buffers(stmts, &de_rc_seqs, &borrow_params_map, interner);
+    for (sym, (elem_ty, len)) in &main_sl {
+        let ty = format!("[{}; {}]", elem_ty, len);
+        de_rc_seqs.remove(sym);
+        let name = interner.resolve(*sym).to_string();
+        let mut syms: HashSet<Symbol> = HashSet::new();
+        collect_named_syms(stmts, &name, interner, &mut syms);
+        for s in syms {
+            main_ctx.register_variable_type(s, ty.clone());
         }
     }
     // Append-only worklist → pre-sized buffer + register tail (BFS frontier).
@@ -660,16 +1001,12 @@ pub fn codegen_program_with_proven(stmts: &[Stmt], registry: &TypeRegistry, poli
     main_ctx.set_vec_presize(main_presize);
     // Loop-invariant positive divisors → precomputed `LogosDivU64` magic multiply.
     main_ctx.set_fast_div(super::fast_div::detect_fast_div(stmts, oracle.as_deref(), interner));
-    // Register function borrow info on main context for call-site optimization
-    for (fn_sym, indices) in &borrow_params_map {
-        let indices_str = indices.iter().map(|i| i.to_string()).collect::<Vec<_>>().join(",");
-        main_ctx.register_variable_type(*fn_sym, format!("fn_borrow:{}", indices_str));
-    }
-    // Register mutable borrow info for call-site transformation
-    for (fn_sym, indices) in &mut_borrow_params_map {
-        let indices_str = indices.iter().map(|i| i.to_string()).collect::<Vec<_>>().join(",");
-        main_ctx.register_variable_type(*fn_sym, format!("fn_mut_borrow:{}", indices_str));
-    }
+    // Register function param-role info on main context for call-site lowering:
+    // readonly borrow (`&[T]`), element-mutating borrow (`&mut [T]`), and
+    // value-semantics `mutable` collection (`&LogosSeq`/`&LogosMap`). A function
+    // can play several at once, so all its roles pack into ONE slot (else the last
+    // registered would clobber the rest and every call site mis-lower the others).
+    register_fn_roles(&mut main_ctx, &borrow_params_map, &mut_borrow_params_map, &value_mutable_params_map);
     // Register function return types for variable type inference at call sites
     for (fn_sym, rt_str) in &fn_returns_map {
         main_ctx.register_fn_return(*fn_sym, rt_str.clone());
@@ -699,16 +1036,182 @@ pub fn codegen_program_with_proven(stmts: &[Stmt], registry: &TypeRegistry, poli
             // Statement-sequence peepholes (naive-search, cascade fold, presize,
             // for-range, swap, …) — one shared chain for every block context.
             if let Some((code, skip)) = super::peephole::try_block_peepholes(&stmt_refs, i, interner, 1, &main_mutable_vars, &mut main_ctx, &lww_fields, &mv_fields, &mut main_synced_vars, &main_var_caps, &async_functions, &main_pipe_vars, &boxed_fields, registry, type_env) {
+                let emit_start = line_count(&output) + 1;
                 output.push_str(&code);
+                if let Some((spans, _)) = mapping {
+                    // A peephole fuses statements i..=i+skip: map its lines to
+                    // the merged span of everything it consumed.
+                    let merged = match (spans.get(i), spans.get(i + skip)) {
+                        (Some(a), Some(b)) if a.start < b.end => Some(LogosSpan::new(a.start, b.end)),
+                        (Some(a), _) => Some(*a),
+                        _ => None,
+                    };
+                    record_emitted_lines(&output, emit_start, merged, &mut line_records);
+                }
                 i += 1 + skip;
                 continue;
             }
+            let emit_start = line_count(&output) + 1;
             output.push_str(&codegen_stmt(stmt_refs[i], interner, 1, &main_mutable_vars, &mut main_ctx, &lww_fields, &mv_fields, &mut main_synced_vars, &main_var_caps, &async_functions, &main_pipe_vars, &boxed_fields, registry, type_env));
+            if let Some((spans, _)) = mapping {
+                record_emitted_lines(&output, emit_start, spans.get(i).copied(), &mut line_records);
+            }
             i += 1;
         }
     }
     writeln!(output, "}}").unwrap();
-    output
+
+    let map = mapping.map(|(spans, logos_source)| {
+        let mut builder = SourceMapBuilder::new(logos_source);
+        for (line, span) in line_records {
+            builder.record_line_at(line, span);
+        }
+        record_var_origins(stmts, spans, interner, &mut builder);
+        builder.build()
+    });
+    (output, map)
+}
+
+/// Newlines emitted so far — brackets each statement's generated line range.
+fn line_count(s: &str) -> u32 {
+    s.bytes().filter(|&b| b == b'\n').count() as u32
+}
+
+/// Map every line an emission produced (`start..=` the current line) to the
+/// statement's span. Zero-width spans are prelude sentinels — skipped, so
+/// prelude-generated code never claims user-source positions.
+fn record_emitted_lines(
+    output: &str,
+    start_line: u32,
+    span: Option<LogosSpan>,
+    records: &mut Vec<(u32, LogosSpan)>,
+) {
+    let Some(span) = span else { return };
+    if span.start >= span.end {
+        return;
+    }
+    let mut end_line = line_count(output);
+    if !output.ends_with('\n') {
+        end_line += 1;
+    }
+    for line in start_line..=end_line.max(start_line) {
+        records.push((line, span));
+    }
+}
+
+/// Ownership-role priority: when one variable plays several roles, the move
+/// is what a borrow-check error will be about.
+fn role_rank(role: OwnershipRole) -> u8 {
+    match role {
+        // The move itself: E0382 phrasing hangs off it.
+        OwnershipRole::GiveObject => 7,
+        // Zone membership is structural — E0597 escape phrasing needs it even
+        // when the variable is also shown or set inside the zone.
+        OwnershipRole::ZoneLocal => 6,
+        OwnershipRole::ShowObject => 5,
+        OwnershipRole::SetTarget => 4,
+        OwnershipRole::GiveRecipient => 3,
+        OwnershipRole::ShowRecipient => 2,
+        OwnershipRole::LetBinding => 1,
+    }
+}
+
+/// Walk the program recording each variable's Rust name → LOGOS origin.
+/// Nested statements attribute to their containing top-level statement's
+/// span; higher-priority roles win when a variable plays several.
+fn record_var_origins(
+    stmts: &[Stmt],
+    stmt_spans: &[LogosSpan],
+    interner: &Interner,
+    builder: &mut SourceMapBuilder,
+) {
+    use std::collections::HashMap as Map;
+    let mut best: Map<String, (u8, Symbol, LogosSpan, OwnershipRole)> = Map::new();
+
+    fn ident_of(expr: &Expr, interner: &Interner) -> Option<(String, Symbol)> {
+        if let Expr::Identifier(sym) = expr {
+            Some((super::escape_rust_ident(interner.resolve(*sym)), *sym))
+        } else {
+            None
+        }
+    }
+
+    fn note(
+        best: &mut Map<String, (u8, Symbol, LogosSpan, OwnershipRole)>,
+        name: String,
+        sym: Symbol,
+        span: LogosSpan,
+        role: OwnershipRole,
+    ) {
+        let rank = role_rank(role);
+        match best.get(&name) {
+            Some((existing, ..)) if *existing >= rank => {}
+            _ => {
+                best.insert(name, (rank, sym, span, role));
+            }
+        }
+    }
+
+    fn walk(
+        stmts: &[Stmt],
+        span: LogosSpan,
+        in_zone: bool,
+        interner: &Interner,
+        best: &mut Map<String, (u8, Symbol, LogosSpan, OwnershipRole)>,
+    ) {
+        for stmt in stmts {
+            match stmt {
+                Stmt::Let { var, .. } => {
+                    let role = if in_zone { OwnershipRole::ZoneLocal } else { OwnershipRole::LetBinding };
+                    let name = super::escape_rust_ident(interner.resolve(*var));
+                    note(best, name, *var, span, role);
+                }
+                Stmt::Set { target, .. } => {
+                    let name = super::escape_rust_ident(interner.resolve(*target));
+                    note(best, name, *target, span, OwnershipRole::SetTarget);
+                }
+                Stmt::Give { object, recipient } => {
+                    if let Some((name, sym)) = ident_of(object, interner) {
+                        note(best, name, sym, span, OwnershipRole::GiveObject);
+                    }
+                    if let Some((name, sym)) = ident_of(recipient, interner) {
+                        note(best, name, sym, span, OwnershipRole::GiveRecipient);
+                    }
+                }
+                Stmt::Show { object, recipient } => {
+                    if let Some((name, sym)) = ident_of(object, interner) {
+                        note(best, name, sym, span, OwnershipRole::ShowObject);
+                    }
+                    if let Some((name, sym)) = ident_of(recipient, interner) {
+                        note(best, name, sym, span, OwnershipRole::ShowRecipient);
+                    }
+                }
+                Stmt::Zone { body, .. } => walk(body, span, true, interner, best),
+                Stmt::If { then_block, else_block, .. } => {
+                    walk(then_block, span, in_zone, interner, best);
+                    if let Some(else_block) = else_block {
+                        walk(else_block, span, in_zone, interner, best);
+                    }
+                }
+                Stmt::While { body, .. } => walk(body, span, in_zone, interner, best),
+                Stmt::Repeat { body, .. } => walk(body, span, in_zone, interner, best),
+                Stmt::FunctionDef { body, .. } => walk(body, span, in_zone, interner, best),
+                _ => {}
+            }
+        }
+    }
+
+    for (i, stmt) in stmts.iter().enumerate() {
+        let Some(span) = stmt_spans.get(i).copied() else { continue };
+        if span.start >= span.end {
+            continue;
+        }
+        walk(std::slice::from_ref(stmt), span, false, interner, &mut best);
+    }
+
+    for (name, (_, sym, span, role)) in best {
+        builder.record_var(&name, sym, span, role);
+    }
 }
 
 /// Phase 32/38: Generate a function definition.
@@ -720,6 +1223,7 @@ fn codegen_function_def(
     generics: &[Symbol],
     params: &[(Symbol, &TypeExpr)],
     body: &[Stmt],
+    all_stmts: &[Stmt],
     return_type: Option<&TypeExpr>,
     is_native: bool,
     native_path: Option<Symbol>,
@@ -735,16 +1239,25 @@ fn codegen_function_def(
     type_env: &crate::analysis::types::TypeEnv,
     borrow_params_map: &HashMap<Symbol, HashSet<usize>>,
     mut_borrow_params_map: &HashMap<Symbol, HashSet<usize>>,
+    value_mutable_params_map: &HashMap<Symbol, HashSet<usize>>,
     liveness: &LivenessResult,
     opt_flags: &OptimizationConfig,
     fn_returns_map: &HashMap<Symbol, String>,
     vec_return_fns: &HashSet<Symbol>,
+    array_return_fns: &HashMap<Symbol, super::affine_array::ArrayReturnInfo>,
+    fixed_array_param_map: &HashMap<(Symbol, usize), usize>,
     oracle: Option<&std::rc::Rc<crate::optimize::OracleFacts>>,
+    bigint_fns: &HashSet<Symbol>,
 ) -> String {
     let mut output = String::new();
+    // Overflow-promoting return: this `Int`-returning function's value can exceed i64, so it is
+    // typed `-> LogosInt` and its return value is not narrowed.
+    let returns_bigint = bigint_fns.contains(&name);
     // De-Rc Phase 4: this function returns an owned `Vec<T>` (every Return is a
     // uniquely-owned fresh Seq) instead of `LogosSeq<T>`.
     let returns_vec = vec_return_fns.contains(&name);
+    // Step 3b: this function returns a fixed-size stack array `[T; N]` by value.
+    let array_return = array_return_fns.get(&name);
     let names = RustNames::new(interner);
     let raw_name = names.raw(name);
     let func_name = names.ident(name);
@@ -836,13 +1349,25 @@ fn codegen_function_def(
         .map(|(i, (param_name, param_type))| {
             let pname = names.ident(*param_name);
             let ty = codegen_type_expr(param_type, interner);
-            // Phase 54: If param is used as a pipe sender, wrap type in Sender<T>
-            if pipe_sender_params.contains(param_name) {
+            // `mutable` collection param (value semantics) → shared `&LogosSeq`/
+            // `&LogosMap`: push/set take &self, so mutations reach the caller's
+            // allocation in place (the by-reference escape hatch).
+            if crate::semantics::collections::value_semantics_enabled()
+                && matches!(param_type, crate::ast::stmt::TypeExpr::Mutable { .. })
+            {
+                format!("{}: &{}", pname, ty)
+            } else if pipe_sender_params.contains(param_name) {
                 format!("{}: tokio::sync::mpsc::Sender<{}>", pname, ty)
             } else if borrow_indices.contains(&i) {
-                // Read-only Vec param → borrow as &[T]
+                // Read-only Vec param → borrow as `&[T]`, or `&[T; N]` when every caller passes a fixed
+                // `[T; N]` array (LLVM then elides the constant-index bounds checks).
                 let slice_ty = vec_to_slice_type(&ty);
-                format!("{}: {}", pname, slice_ty)
+                let final_ty = match fixed_array_param_map.get(&(name, i)) {
+                    Some(n) => slice_ty.strip_prefix("&[").and_then(|s| s.strip_suffix(']'))
+                        .map(|elem| format!("&[{}; {}]", elem, n)).unwrap_or(slice_ty),
+                    None => slice_ty,
+                };
+                format!("{}: {}", pname, final_ty)
             } else if mut_borrow_indices.contains(&i) {
                 // Element-only mutation Vec param → borrow as &mut [T]
                 let slice_ty = vec_to_mut_slice_type(&ty);
@@ -859,8 +1384,14 @@ fn codegen_function_def(
     // If this function has &mut borrow params and returns one of them,
     // suppress the return type since the mutation happens in-place.
     let has_mut_borrow = !mut_borrow_indices.is_empty();
-    let return_type_str = if has_mut_borrow {
+    let return_type_str = if returns_bigint {
+        // Overflow-promoting: an `Int` return whose value can exceed i64 is a `LogosInt`.
+        Some("logicaffeine_data::LogosInt".to_string())
+    } else if has_mut_borrow {
         None // No return type — mutation is in-place via &mut [T]
+    } else if let Some(info) = array_return {
+        // Step 3b: `LogosSeq<T>` → a fixed-size stack array `[T; N]` returned by value.
+        Some(format!("[{}; {}]", info.elem_ty, info.len))
     } else if returns_vec {
         // Phase 4: `LogosSeq<T>` → owned `Vec<T>`. Replace the `LogosSeq<` head
         // of the codegen'd type (`LogosSeq<i64>` → `Vec<i64>`).
@@ -869,7 +1400,7 @@ fn codegen_function_def(
     } else {
         return_type
             .map(|t| codegen_type_expr(t, interner))
-            .or_else(|| infer_return_type_from_body(body, interner))
+            .or_else(|| infer_return_type_from_body(body, params, interner))
     };
 
     // Phase 51/54: Check if function is async (includes transitive async detection)
@@ -1004,8 +1535,12 @@ fn codegen_function_def(
         // drops the per-access bounds checks across the hot partition loop.
         // Gated on `lo < hi` (the indexing path) so it never fires for the
         // base-case range; only emitted for pure (no-I/O) functions, so the
-        // abort is equivalent to the out-of-range access it pre-empts.
-        if !is_tce && !is_acc {
+        // abort is equivalent to the out-of-range access it pre-empts. Emitted
+        // even for a tail-call-eliminated partition (value semantics makes the
+        // `Set result to qs(...)` threading TCE-able): the assert runs on the
+        // INITIAL params before the loop (sound), and every in-loop access keeps
+        // its own oracle `assert_unchecked` hint.
+        if !is_acc {
             if let Some(g) = super::entry_guard::detect_entry_guard(params, body, interner) {
                 let arr = names.ident(g.arr);
                 let lo = names.ident(g.lo);
@@ -1033,6 +1568,10 @@ fn codegen_function_def(
         // Local Vec optimization: detect which collection vars escape this function
         let func_escaping = collect_escaping_collection_vars(body, interner);
         func_ctx.set_escaping_vars(func_escaping);
+        // Overflow-promoting Int bindings in this function body (a call to a bignum function counts
+        // as a bignum-producing RHS). A promoted variable that is RETURNED makes this function
+        // `-> LogosInt` (`returns_bigint`, computed by the whole-program fixpoint).
+        func_ctx.set_promotable_candidates(crate::codegen::bigint_promote::promotable_int_vars(body, bigint_fns));
         // O2 de-Rc: function-LOCAL Seqs that never need reference semantics →
         // plain Vec<T>. The use-scan disqualifies any returned/escaping/aliased
         // handle, so only genuinely-local buffers (sieve flags, scratch arrays)
@@ -1041,13 +1580,32 @@ fn codegen_function_def(
         let func_worklists = super::worklist::detect_worklists(body, &func_de_rc, interner);
         let mut func_affine = super::affine_array::detect_affine_arrays(body, &func_de_rc, interner);
         func_affine.retain(|sym, _| !func_worklists.contains_key(sym));
+        // Constant-table locals → stack arrays `[T; N]` (zero heap, direct index). Detected while
+        // `func_de_rc` is still borrowable; excluded from affine/narrow so no other pass re-claims them,
+        // and registered with the `[T; N]` type so the Index codegen emits a direct array read.
+        let func_const_tables = super::affine_array::detect_const_tables(body, all_stmts, &func_de_rc, borrow_params_map, interner);
+        // Fixed-size, non-escaping scratch buffers → in-place `[T; N]` via from_fn (disjoint from constant
+        // tables: those have constant values and hoist; these have per-iteration values and stay in place).
+        let mut func_scratch = super::affine_array::detect_scratch_buffers(body, &func_de_rc, borrow_params_map, interner);
+        func_scratch.retain(|sym, _| !func_const_tables.contains_key(sym));
+        // Zero-init + indexed-write fixed-size buffers → `[T; N]` stack arrays. Disjoint from scratch/const
+        // (those are push-built read-only; these are indexed-written).
+        let mut func_indexed = super::affine_array::detect_indexed_buffers(body, &func_de_rc, interner);
+        func_indexed.retain(|sym, _| !func_const_tables.contains_key(sym) && !func_scratch.contains_key(sym));
+        func_scratch.retain(|sym, _| !func_indexed.contains_key(sym));
+        // Straight-line-push fixed buffers → `[T; K]` (borrow-aware; the O3 `Let`/`Push` handlers emit the
+        // stack array + `buf[k]=expr` fills). Disjoint from the fixed-size passes above.
+        let mut func_sl = super::affine_array::detect_straightline_buffers(body, &func_de_rc, borrow_params_map, interner);
+        func_sl.retain(|sym, _| !func_const_tables.contains_key(sym) && !func_scratch.contains_key(sym) && !func_indexed.contains_key(sym));
+        func_affine.retain(|sym, _| !func_const_tables.contains_key(sym) && !func_scratch.contains_key(sym));
         for (sym, info) in &func_affine {
             func_ctx.register_variable_type(
                 *sym,
                 format!("__affine_array:{}:{}:{}", info.coeff, info.offset, info.trip),
             );
         }
-        let func_narrowed = narrow_seqs(body, &func_de_rc, &func_affine, &func_worklists, interner);
+        let mut func_narrowed = narrow_seqs(body, &func_de_rc, &func_affine, &func_worklists, interner);
+        func_narrowed.retain(|sym, _| !func_const_tables.contains_key(sym) && !func_scratch.contains_key(sym) && !func_indexed.contains_key(sym) && !func_sl.contains_key(sym));
         for sym in func_narrowed.keys() {
             func_ctx.register_variable_type(*sym, "Vec<i32>".to_string());
         }
@@ -1065,10 +1623,11 @@ fn codegen_function_def(
         func_ctx.set_i64_sets(func_i64.sets);
         func_ctx.set_i64_maps(func_i64.maps);
         let mut func_presize = super::peephole::detect_vec_presize(body, interner);
-        func_presize.retain(|sym, _| func_ctx.affine_array(*sym).is_none());
+        func_presize.retain(|sym, _| func_ctx.affine_array(*sym).is_none() && !func_const_tables.contains_key(sym) && !func_scratch.contains_key(sym) && !func_indexed.contains_key(sym) && !func_sl.contains_key(sym));
         func_ctx.set_vec_presize(func_presize);
         func_ctx.set_fast_div(super::fast_div::detect_fast_div(body, oracle.map(|o| o.as_ref()), interner));
         func_ctx.set_returns_vec(returns_vec);
+        func_ctx.set_returns_bigint(returns_bigint);
         // OPT: Detect single-char text vars in function body
         let func_single_char_vars = collect_single_char_text_vars(body, interner);
         for sym in &func_single_char_vars {
@@ -1080,26 +1639,34 @@ fn codegen_function_def(
 
         // Phase 50: Register parameter types for capability Check resolution
         // Borrow-optimized params get &[T] or &mut [T] type so downstream codegen handles them correctly
+        let value_mutable_indices = value_mutable_params_map.get(&name).cloned().unwrap_or_default();
         for (i, (param_name, param_type)) in params.iter().enumerate() {
             let type_name = codegen_type_expr(param_type, interner);
             if borrow_indices.contains(&i) {
-                func_ctx.register_variable_type(*param_name, vec_to_slice_type(&type_name));
+                let slice_ty = vec_to_slice_type(&type_name);
+                let reg_ty = match fixed_array_param_map.get(&(name, i)) {
+                    Some(n) => slice_ty.strip_prefix("&[").and_then(|s| s.strip_suffix(']'))
+                        .map(|elem| format!("&[{}; {}]", elem, n)).unwrap_or(slice_ty),
+                    None => slice_ty,
+                };
+                func_ctx.register_variable_type(*param_name, reg_ty);
             } else if mut_borrow_indices.contains(&i) {
                 func_ctx.register_variable_type(*param_name, vec_to_mut_slice_type(&type_name));
             } else {
                 func_ctx.register_variable_type(*param_name, type_name);
             }
+            // A `mutable` collection param is a shared `&LogosSeq`/`&LogosMap`:
+            // its mutations must reach the caller in place, so it is exempt from
+            // copy-on-write (and cannot call the `&mut self` `cow()` regardless).
+            if value_mutable_indices.contains(&i) {
+                func_ctx.register_mutable_collection_param(*param_name);
+            }
         }
 
-        // Register function borrow info on func context for call-site optimization
-        for (fn_sym, indices) in borrow_params_map {
-            let indices_str = indices.iter().map(|i| i.to_string()).collect::<Vec<_>>().join(",");
-            func_ctx.register_variable_type(*fn_sym, format!("fn_borrow:{}", indices_str));
-        }
-        for (fn_sym, indices) in mut_borrow_params_map {
-            let indices_str = indices.iter().map(|i| i.to_string()).collect::<Vec<_>>().join(",");
-            func_ctx.register_variable_type(*fn_sym, format!("fn_mut_borrow:{}", indices_str));
-        }
+        // Register function param-role info on func context for call-site lowering
+        // (readonly `&[T]` / element `&mut [T]` / value-semantics `mutable`). All of
+        // a function's roles pack into one slot — see the main-context registration.
+        register_fn_roles(&mut func_ctx, borrow_params_map, mut_borrow_params_map, value_mutable_params_map);
         // Register function return types for variable type inference at call sites
         for (fn_sym, rt_str) in fn_returns_map {
             func_ctx.register_fn_return(*fn_sym, rt_str.clone());
@@ -1108,10 +1675,106 @@ fn codegen_function_def(
         // Phase 54: Functions receive pipe senders as parameters, no local pipe declarations
         let func_pipe_vars = HashSet::new();
 
+        // Emit the constant-table stack arrays once at the top of the body (before every emission path);
+        // their original heap-`Vec` `Let`/`Push` build is filtered out (`is_const_table_stmt`), and reads
+        // hit the `[T; N]` array via the registered type. Zero-alloc constant tables — MD5's shift words.
+        for (sym, info) in &func_const_tables {
+            writeln!(
+                output,
+                "    let {}: [{}; {}] = [{}];",
+                names.ident(*sym),
+                info.elem_ty,
+                info.values.len(),
+                info.values.join(", ")
+            )
+            .unwrap();
+            // Register the `[T; N]` type for EVERY body symbol resolving to this table's name — the
+            // parser mints distinct symbols for the same identifier in different positions (a bare call
+            // argument vs the `Let` binding), and `variable_types` is symbol-keyed, so a single `Let`-
+            // symbol registration would miss at a use site. Registered LAST so it also wins over any
+            // fn-return inference of the binding. (Const-table names are unique in the function body.)
+            let ty = format!("[{}; {}]", info.elem_ty, info.values.len());
+            let name = interner.resolve(*sym).to_string();
+            let mut syms: HashSet<Symbol> = HashSet::new();
+            collect_named_syms(body, &name, interner, &mut syms);
+            for s in syms {
+                func_ctx.register_variable_type(s, ty.clone());
+            }
+        }
+        func_ctx.set_const_tables(func_const_tables);
+
+        // Register the `[T; N]` type for every use-site symbol of each scratch buffer (same reason as the
+        // constant tables above: `variable_types` is symbol-keyed and the parser mints distinct symbols
+        // per occurrence). The fill loop is emitted in place as `from_fn` by the `Stmt::Repeat` handler;
+        // only the `new Seq` DECL is filtered (the from_fn becomes the binding).
+        for (sym, info) in &func_scratch {
+            let ty = format!("[{}; {}]", info.elem_ty, info.len);
+            let name = interner.resolve(*sym).to_string();
+            let mut syms: HashSet<Symbol> = HashSet::new();
+            collect_named_syms(body, &name, interner, &mut syms);
+            for s in syms {
+                func_ctx.register_variable_type(s, ty.clone());
+            }
+        }
+        func_ctx.set_scratch_buffers(func_scratch);
+
+        // Register the `[T; N]` type for every use-site symbol of each indexed buffer, so the O3 `[T; N]`
+        // path emits `let mut buf: [T; N] = [0; N]` and the SetIndex/Index codegen store/read the array.
+        for (sym, info) in &func_indexed {
+            let ty = format!("[{}; {}]", info.elem_ty, info.len);
+            let name = interner.resolve(*sym).to_string();
+            let mut syms: HashSet<Symbol> = HashSet::new();
+            collect_named_syms(body, &name, interner, &mut syms);
+            for s in syms {
+                func_ctx.register_variable_type(s, ty.clone());
+            }
+        }
+        func_ctx.set_indexed_buffers(func_indexed);
+
+        // Straight-line-push buffers: register `[T; K]` so the O3 `Let`/`Push` handlers emit the stack
+        // array and `buf[k]=expr` fills. (init_array_fill runs inside the O3 `Let` handler.)
+        for (sym, (elem_ty, len)) in &func_sl {
+            let ty = format!("[{}; {}]", elem_ty, len);
+            let name = interner.resolve(*sym).to_string();
+            let mut syms: HashSet<Symbol> = HashSet::new();
+            collect_named_syms(body, &name, interner, &mut syms);
+            for s in syms {
+                func_ctx.register_variable_type(s, ty.clone());
+            }
+        }
+
+        // Step 3b: register the `[T; N]` type for this function's own fixed-size return buffer and for every
+        // caller result variable bound to an array-return fn — for every name-matching symbol, so the O3
+        // `[T; N]` scalarization (stack decl + indexed-write fill) and the array-aware call/borrow/iterate
+        // codegen all dispatch on it. Registered here (after const-table/scratch) so nothing overwrites it.
+        for (sym, ty) in super::affine_array::array_var_types(body, array_return, array_return_fns) {
+            let name = interner.resolve(sym).to_string();
+            let mut syms: HashSet<Symbol> = HashSet::new();
+            collect_named_syms(body, &name, interner, &mut syms);
+            for s in syms {
+                func_ctx.register_variable_type(s, ty.clone());
+            }
+        }
+        // A LOOP-built return buffer (the digest) fills its `[T; N]` through a runtime cursor. Register the
+        // return buffer (the `Return out` identifier) so the `Let` declares the cursor and each `Push`
+        // becomes `out[cursor]=v; cursor+=1` instead of the compile-time O3 fill (which only counts static
+        // push sites — a loop would write slot 0 repeatedly).
+        if array_return.map_or(false, |i| i.loop_built) {
+            if let Some(Stmt::Return { value: Some(Expr::Identifier(out)) }) = body.last() {
+                let cursor = format!("__{}_fill", names.ident(*out));
+                let name = interner.resolve(*out).to_string();
+                let mut syms: HashSet<Symbol> = HashSet::new();
+                collect_named_syms(body, &name, interner, &mut syms);
+                for s in syms {
+                    func_ctx.set_loop_fill_array(s, cursor.clone());
+                }
+            }
+        }
+
         if is_tce {
             // TCE: Wrap body in loop, use TCE-aware statement emitter
             writeln!(output, "    loop {{").unwrap();
-            let stmt_refs: Vec<&Stmt> = body.iter().filter(|s| !is_affine_array_decl(s, &func_ctx)).collect();
+            let stmt_refs: Vec<&Stmt> = body.iter().filter(|s| !is_affine_array_decl(s, &func_ctx) && !is_const_table_stmt(s, &func_ctx)).collect();
             let mut si = 0;
             while si < stmt_refs.len() {
                 // Self-tail-call PAIR: `Set/Let x = self(args); Return x` lowers to
@@ -1152,7 +1815,7 @@ fn codegen_function_def(
             // Accumulator Introduction: Wrap body in loop with accumulator variable
             writeln!(output, "    let mut __acc: i64 = {};", acc.identity).unwrap();
             writeln!(output, "    loop {{").unwrap();
-            let stmt_refs: Vec<&Stmt> = body.iter().filter(|s| !is_affine_array_decl(s, &func_ctx)).collect();
+            let stmt_refs: Vec<&Stmt> = body.iter().filter(|s| !is_affine_array_decl(s, &func_ctx) && !is_const_table_stmt(s, &func_ctx)).collect();
             let mut si = 0;
             while si < stmt_refs.len() {
                 if !no_peephole {
@@ -1210,7 +1873,7 @@ fn codegen_function_def(
             writeln!(output, "        return __v;").unwrap();
             writeln!(output, "    }}").unwrap();
             writeln!(output, "    let __memo_result = (|| -> {} {{", ret_ty).unwrap();
-            let stmt_refs: Vec<&Stmt> = body.iter().filter(|s| !is_affine_array_decl(s, &func_ctx)).collect();
+            let stmt_refs: Vec<&Stmt> = body.iter().filter(|s| !is_affine_array_decl(s, &func_ctx) && !is_const_table_stmt(s, &func_ctx)).collect();
             let mut si = 0;
             while si < stmt_refs.len() {
                 if !no_peephole {
@@ -1227,7 +1890,7 @@ fn codegen_function_def(
             writeln!(output, "    {}.with(|c| c.borrow_mut().insert({}, __memo_result));", memo_name, key_expr).unwrap();
             writeln!(output, "    __memo_result").unwrap();
         } else {
-            let stmt_refs: Vec<&Stmt> = body.iter().filter(|s| !is_affine_array_decl(s, &func_ctx)).collect();
+            let stmt_refs: Vec<&Stmt> = body.iter().filter(|s| !is_affine_array_decl(s, &func_ctx) && !is_const_table_stmt(s, &func_ctx)).collect();
             let mut si = 0;
             while si < stmt_refs.len() {
                 if !no_peephole {
@@ -1284,6 +1947,57 @@ fn map_native_function(name: &str) -> Option<(&'static str, &'static str)> {
         "parseFloat" => Some(("text", "parseFloat")),
         "chr" => Some(("text", "chr")),
         "format" => Some(("fmt", "format")),
+        // ML-KEM (Kyber) forward + inverse NTT — the verified scalar+AVX2 i16 kernels.
+        "mlkemNtt" => Some(("ntt", "mlkem_ntt")),
+        // ── Word16-carrier ML-KEM (coefficients as Word16, no i64↔i16 round-trip; bytes stay Int).
+        // mlkemNttW16/mlkemInvNttW16 are now pure-Logos lane NTTs in crypto.lg (the native kernels
+        // `mlkem_ntt_w16`/`mlkem_inv_ntt_w16` are retired to dev/test oracles, proven byte-equal).
+        "mlkemBaseMulW16" => Some(("ntt", "mlkem_base_mul_w16_seq")),
+        "toMontW16" => Some(("ntt", "mlkem_to_mont_w16_seq")),
+        "cbd2W16" => Some(("ntt", "mlkem_cbd2_w16_from_int")),
+        "compressW16" => Some(("ntt", "mlkem_compress_w16_seq")),
+        "decompressW16" => Some(("ntt", "mlkem_decompress_w16_seq")),
+        "byteEncodeW16" => Some(("ntt", "mlkem_byte_encode_w16_to_int")),
+        "byteDecodeW16" => Some(("ntt", "mlkem_byte_decode_w16_from_int")),
+        "sampleAW16" => Some(("ntt", "mlkem_sample_a_w16_from_int")),
+        "sampleMatrixW16" => Some(("ntt", "mlkem_sample_matrix_w16_from_int")),
+        // 4-way-batched CBD noise (count polys per call, one 4-way SHAKE256 per four PRF streams) —
+        // the Logos ML-KEM keygen/encrypt call this once instead of `count` scalar `mlkemPrfNoise`s.
+        "mlkemNoiseBatch" => Some(("mlkem", "mlkem_noise_batch_from_int")),
+        // High-level PQC primitives the Logos handshake orchestrates (ML-KEM-768 + ML-DSA-65).
+        "mlkemKeypair" => Some(("mlkem", "mlkem_keypair_seq")),
+        "mlkemEncapsKem" => Some(("mlkem", "mlkem_encaps_seq")),
+        "mlkemDecapsKem" => Some(("mlkem", "mlkem_decaps_seq")),
+        "mldsaKeypair" => Some(("mldsa", "mldsa_keypair_seq")),
+        "mldsaSign" => Some(("mldsa", "mldsa_sign_seq")),
+        "mldsaVerify" => Some(("mldsa", "mldsa_verify_seq")),
+        // `chacha20Encrypt` is no longer native — it is the Logos lane cipher in crypto.lg (the
+        // 8-way `laneChaCha20Block` + serialize + XOR), compiling to AVX2 and proven == RFC.
+        // `poly1305Mac` is no longer native — it is the Logos lane MAC in crypto.lg (clamp + the
+        // 4-way `poly1305Group` over `Lanes4Word64` → `vpmuludq` + scalar tail + finalize).
+        "addModQW16" => Some(("ntt", "mlkem_add_mod_q_w16")),
+        "subModQW16" => Some(("ntt", "mlkem_sub_mod_q_w16")),
+        "zerosW16" => Some(("ntt", "mlkem_zeros_w16")),
+        "mlkemInvNtt" => Some(("ntt", "mlkem_inv_ntt")),
+        "mlkemBaseMul" => Some(("ntt", "mlkem_base_mul")),
+        // ML-KEM CBD noise sampling (η=2 from 128 bytes, η=3 from 192 bytes).
+        "cbd2" => Some(("ntt", "mlkem_cbd2")),
+        "cbd3" => Some(("ntt", "mlkem_cbd3")),
+        // ML-KEM serialization: Compress/Decompress + ByteEncode/ByteDecode (FIPS 203 §4.2.1).
+        "compress" => Some(("ntt", "mlkem_compress")),
+        "decompress" => Some(("ntt", "mlkem_decompress")),
+        "byteEncode" => Some(("ntt", "mlkem_byte_encode")),
+        "byteDecode" => Some(("ntt", "mlkem_byte_decode")),
+        // ML-KEM uniform sampling: SampleNTT + matrix-entry expansion Â[i][j].
+        "sampleNtt" => Some(("ntt", "mlkem_sample_ntt")),
+        "sampleA" => Some(("ntt", "mlkem_sample_a")),
+        // poly_tomont — the Montgomery rescale after basemul-accumulation.
+        "toMont" => Some(("ntt", "mlkem_to_mont")),
+        // SHA-3 / SHAKE (FIPS-202) — the symmetric/hash layer.
+        "sha3_256" => Some(("keccak", "sha3_256")),
+        "sha3_512" => Some(("keccak", "sha3_512")),
+        "shake128" => Some(("keccak", "shake128")),
+        "shake256" => Some(("keccak", "shake256")),
         _ => None,
     }
 }

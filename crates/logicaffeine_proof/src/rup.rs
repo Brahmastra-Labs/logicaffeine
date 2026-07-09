@@ -121,9 +121,11 @@ pub(crate) fn propagate(db: &[Vec<Lit>], assign: &mut [Option<bool>]) -> bool {
     loop {
         let mut changed = false;
         for clause in db {
+            // Evaluate the clause robustly to DUPLICATE literals (`x ∨ x` is the unit `x`) and
+            // TAUTOLOGIES (`x ∨ ¬x` is always satisfied) — both are legal CNF, and a trusted checker
+            // must count *distinct* unset literals or it will miss real unit propagations.
             let mut satisfied = false;
-            let mut n_unset = 0usize;
-            let mut last_unset: Option<Lit> = None;
+            let mut unset: Vec<Lit> = Vec::new();
             for &l in clause {
                 match lit_val(assign, l) {
                     Some(true) => {
@@ -132,19 +134,24 @@ pub(crate) fn propagate(db: &[Vec<Lit>], assign: &mut [Option<bool>]) -> bool {
                     }
                     Some(false) => {}
                     None => {
-                        n_unset += 1;
-                        last_unset = Some(l);
+                        if unset.contains(&l.negated()) {
+                            satisfied = true; // tautology — never propagates, never conflicts
+                            break;
+                        }
+                        if !unset.contains(&l) {
+                            unset.push(l);
+                        }
                     }
                 }
             }
             if satisfied {
                 continue;
             }
-            if n_unset == 0 {
+            if unset.is_empty() {
                 return true; // every literal false ⇒ conflict
             }
-            if n_unset == 1 {
-                set_true(assign, last_unset.unwrap());
+            if unset.len() == 1 {
+                set_true(assign, unset[0]);
                 changed = true;
             }
         }

@@ -3,7 +3,7 @@
 //! On a two's-complement i64 the truncated remainder `x % 2^k` equals the
 //! masked low bits `x & (2^k-1)` ONLY when `x` is non-negative (for `x < 0`
 //! the remainder is negative, the mask is not). The run path therefore lowers
-//! `Modulo` by a literal power of two to the register-form `AndEager` (a 1-cycle
+//! `Modulo` by a literal power of two to the register-form `BitAnd` (a 1-cycle
 //! AND, which the JIT lowers to a `BitAnd` stencil instead of a `Mod` idiv)
 //! ONLY when the Oracle proves the dividend non-negative — exactly the gate the
 //! AOT e-graph's `mod-pow2-and` rule already uses.
@@ -63,7 +63,7 @@ fn assert_runpath_matches_raw(src: &str, argv: &[String], expected: &str) {
     assert_eq!(norm(&out), expected, "wrong answer on:\n{src}");
 }
 
-/// Counts of `Mod` and `AndEager` ops across the WHOLE compiled program (every
+/// Counts of `Mod` and `BitAnd` ops across the WHOLE compiled program (every
 /// function body is emitted into the single `program.code` array, indexed by
 /// `entry_pc`), compiled through the exact run path: `optimize_for_run` residual
 /// → `oracle_analyze_with` on that residual → `compile_with_oracle`. This is
@@ -86,7 +86,7 @@ fn tally_ops(src: &str) -> OpTally {
         for op in &program.code {
             match op {
                 Op::Mod { .. } => mods += 1,
-                Op::AndEager { .. } => ands += 1,
+                Op::BitAnd { .. } => ands += 1,
                 Op::MagicDivU { .. } => magics += 1,
                 _ => {}
             }
@@ -152,24 +152,24 @@ fn modpow2_histogram_lcg_matches_oracle() {
 }
 
 /// Structural: the run path must turn histogram's two power-of-two `%` (`% 2^31`
-/// and `% 2^15`) into `AndEager`, while the non-pow2 `% 1000` (proven
+/// and `% 2^15`) into `BitAnd`, while the non-pow2 `% 1000` (proven
 /// non-negative) lowers to the W24 magic reciprocal `MagicDivU`. So NO `Mod`
-/// survives, at least two `AndEager` appear (the pow2 rewrite), and at least one
+/// survives, at least two `BitAnd` appear (the pow2 rewrite), and at least one
 /// `MagicDivU` appears (the non-pow2 magic rewrite).
 #[test]
 fn modpow2_histogram_lcg_rewrite_fires() {
     let t = tally_ops(HISTOGRAM_LCG);
     assert_eq!(
         t.mods, 0,
-        "histogram: both `% 2^k` become AndEager and the non-pow2 `% 1000` \
-         becomes MagicDivU, so NO Mod should survive (found {} Mod, {} AndEager, \
+        "histogram: both `% 2^k` become BitAnd and the non-pow2 `% 1000` \
+         becomes MagicDivU, so NO Mod should survive (found {} Mod, {} BitAnd, \
          {} MagicDivU)",
         t.mods, t.ands, t.magics
     );
     assert!(
         t.ands >= 2,
-        "histogram: the two power-of-two `%` should each become an AndEager \
-         (found {} AndEager, {} Mod)",
+        "histogram: the two power-of-two `%` should each become a BitAnd \
+         (found {} BitAnd, {} Mod)",
         t.ands, t.mods
     );
     assert!(
@@ -181,7 +181,7 @@ fn modpow2_histogram_lcg_rewrite_fires() {
 }
 
 /// A minimal proven-non-negative dividend: a literal modulus on a value the
-/// Oracle bounds non-negative. The single `% 8` must become an AndEager, no Mod
+/// Oracle bounds non-negative. The single `% 8` must become a BitAnd, no Mod
 /// left, and the answer is exact.
 const SIMPLE_NONNEG: &str = "\
 ## Main
@@ -211,7 +211,7 @@ fn modpow2_simple_nonneg_matches_oracle() {
 fn modpow2_simple_nonneg_rewrite_fires() {
     let t = tally_ops(SIMPLE_NONNEG);
     assert_eq!(t.mods, 0, "the proven-non-negative `% 8` must NOT stay a Mod");
-    assert!(t.ands >= 1, "the proven-non-negative `% 8` must become an AndEager");
+    assert!(t.ands >= 1, "the proven-non-negative `% 8` must become a BitAnd");
 }
 
 // ---------------------------------------------------------------------------
@@ -253,15 +253,15 @@ fn modpow2_possibly_negative_does_not_fire() {
     assert_eq!(
         t.mods, 1,
         "a possibly-negative dividend's `% 8` MUST stay a Mod (rewrite is \
-         UNSOUND for negative x): found {} Mod, {} AndEager",
+         UNSOUND for negative x): found {} Mod, {} BitAnd",
         t.mods, t.ands
     );
 }
 
 /// A non-power-of-two modulus is NOT eligible for the pow2 AND identity, but on
 /// a proven non-negative dividend the W24 magic-reciprocal lever DOES lower it
-/// to `MagicDivU` (the pow2 `AndEager` rewrite must still leave it alone — the
-/// AND identity holds for powers of two only). So no `AndEager` and no `Mod`,
+/// to `MagicDivU` (the pow2 `BitAnd` rewrite must still leave it alone — the
+/// AND identity holds for powers of two only). So no `BitAnd` and no `Mod`,
 /// exactly one `MagicDivU`, and the answer stays exact.
 const NONNEG_NON_POW2: &str = "\
 ## Main

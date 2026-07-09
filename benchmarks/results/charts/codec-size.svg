@@ -1,0 +1,47 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="880" height="404" viewBox="0 0 880 404" role="img" aria-label="LOGOS wire size vs the field">
+<title>LOGOS wire size vs the field</title>
+<defs><linearGradient id="g0" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#0a1224"/><stop offset="1" stop-color="#05070e"/></linearGradient><linearGradient id="g1" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="#00d4ff"/><stop offset="1" stop-color="#05070e"/></linearGradient><linearGradient id="g2" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="#6be6ff"/><stop offset="1" stop-color="#00d4ff"/></linearGradient><linearGradient id="g3" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="#c4cbd5"/><stop offset="1" stop-color="#9aa6b8"/></linearGradient></defs>
+<rect x="0" y="0" width="880" height="404" rx="16" fill="url(#g0)"/>
+<rect x="1" y="1" width="878" height="402" rx="16" fill="none" stroke="rgba(255,255,255,0.05)"/>
+<rect x="0" y="0" width="880" height="3.5" fill="url(#g1)"/>
+<text x="40.0" y="20.0" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="10" fill="#00d4ff" text-anchor="start" font-weight="700" letter-spacing="2">SMALLEST PAYLOAD</text>
+<rect x="24.0" y="30.0" width="6.0" height="19.0" rx="3.0" fill="url(#g2)"/>
+<text x="40.0" y="45.0" font-family="ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, sans-serif" font-size="19" fill="#eef2f8" text-anchor="start" font-weight="800">Wire codec — encoded size vs the field</text>
+<text x="40.0" y="64.0" font-family="ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, sans-serif" font-size="12.5" fill="#93a4bd" text-anchor="start">Smallest wire on 6/6 fair workloads · geomean 1.46× smaller than the best of each.</text>
+<text x="40.0" y="75.0" font-family="ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, sans-serif" font-size="11" fill="#5b6b86" text-anchor="start">vs Cap’n Proto, Protobuf, MessagePack, bincode, postcard, CBOR, Arrow, JSON.</text>
+<rect x="470.0" y="12.0" width="11.0" height="11.0" rx="3.0" fill="url(#g2)"/>
+<text x="486.0" y="21.0" font-family="ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, sans-serif" font-size="11" fill="#eef2f8" text-anchor="start">LOGOS</text>
+<rect x="555.0" y="12.0" width="11.0" height="11.0" rx="3.0" fill="url(#g3)"/>
+<text x="571.0" y="21.0" font-family="ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, sans-serif" font-size="11" fill="#eef2f8" text-anchor="start">best of the rest</text>
+<text x="140.0" y="115.0" font-family="ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, sans-serif" font-size="13" fill="#eef2f8" text-anchor="end" font-weight="700">Int array</text>
+<rect x="150.0" y="100.0" width="456.8" height="13.0" rx="3.0" fill="url(#g2)"/>
+<text x="613.8" y="111.0" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="10.5" fill="#00d4ff" text-anchor="start" font-weight="600">3.0 KB  — 1.04× smaller</text>
+<rect x="150.0" y="116.0" width="474.1" height="13.0" rx="3.0" fill="url(#g3)"/>
+<text x="631.1" y="127.0" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="10.5" fill="#93a4bd" text-anchor="start">3.2 KB  (protobuf)</text>
+<text x="140.0" y="161.0" font-family="ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, sans-serif" font-size="13" fill="#eef2f8" text-anchor="end" font-weight="700">Float array</text>
+<rect x="150.0" y="146.0" width="282.9" height="13.0" rx="3.0" fill="url(#g2)"/>
+<text x="439.9" y="157.0" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="10.5" fill="#00d4ff" text-anchor="start" font-weight="600">4.7 KB  — 1.68× smaller</text>
+<rect x="150.0" y="162.0" width="474.1" height="13.0" rx="3.0" fill="url(#g3)"/>
+<text x="631.1" y="173.0" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="10.5" fill="#93a4bd" text-anchor="start">7.8 KB  (postcard)</text>
+<text x="140.0" y="207.0" font-family="ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, sans-serif" font-size="13" fill="#eef2f8" text-anchor="end" font-weight="700">Timeseries</text>
+<rect x="150.0" y="192.0" width="211.3" height="13.0" rx="3.0" fill="url(#g2)"/>
+<text x="368.3" y="203.0" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="10.5" fill="#00d4ff" text-anchor="start" font-weight="600">3.0 KB  — 2.24× smaller</text>
+<rect x="150.0" y="208.0" width="474.1" height="13.0" rx="3.0" fill="url(#g3)"/>
+<text x="631.1" y="219.0" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="10.5" fill="#93a4bd" text-anchor="start">6.7 KB  (json)</text>
+<text x="140.0" y="253.0" font-family="ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, sans-serif" font-size="13" fill="#eef2f8" text-anchor="end" font-weight="700">Point cloud</text>
+<rect x="150.0" y="238.0" width="368.2" height="13.0" rx="3.0" fill="url(#g2)"/>
+<text x="525.2" y="249.0" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="10.5" fill="#00d4ff" text-anchor="start" font-weight="600">4.4 KB  — 1.29× smaller</text>
+<rect x="150.0" y="254.0" width="474.1" height="13.0" rx="3.0" fill="url(#g3)"/>
+<text x="631.1" y="265.0" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="10.5" fill="#93a4bd" text-anchor="start">5.7 KB  (postcard)</text>
+<text x="140.0" y="299.0" font-family="ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, sans-serif" font-size="13" fill="#eef2f8" text-anchor="end" font-weight="700">Records</text>
+<rect x="150.0" y="284.0" width="374.5" height="13.0" rx="3.0" fill="url(#g2)"/>
+<text x="531.5" y="295.0" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="10.5" fill="#00d4ff" text-anchor="start" font-weight="600">2.0 KB  — 1.27× smaller</text>
+<rect x="150.0" y="300.0" width="474.1" height="13.0" rx="3.0" fill="url(#g3)"/>
+<text x="631.1" y="311.0" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="10.5" fill="#93a4bd" text-anchor="start">2.6 KB  (postcard)</text>
+<text x="140.0" y="345.0" font-family="ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, sans-serif" font-size="13" fill="#eef2f8" text-anchor="end" font-weight="700">Strings</text>
+<rect x="150.0" y="330.0" width="306.9" height="13.0" rx="3.0" fill="url(#g2)"/>
+<text x="463.9" y="341.0" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="10.5" fill="#00d4ff" text-anchor="start" font-weight="600">2.1 KB  — 1.55× smaller</text>
+<rect x="150.0" y="346.0" width="474.1" height="13.0" rx="3.0" fill="url(#g3)"/>
+<text x="631.1" y="357.0" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="10.5" fill="#93a4bd" text-anchor="start">3.3 KB  (postcard)</text>
+<text x="24.0" y="393.0" font-family="ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, sans-serif" font-size="9.5" fill="#5b6b86" text-anchor="start">Random data per workload · encoded payload bytes (lower = smaller), normalized per row · LOGOS at its smallest dial vs each rival’s smallest.</text>
+</svg>

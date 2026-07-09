@@ -2,11 +2,11 @@
 
 `tv` = **translation validation**: per compile, prove the Rust the logicaffeine compiler emits is *observationally equivalent* to its LOGOS source by symbolically executing into the shared `logicaffeine-verify` semantic domain (bitvectors / booleans) and discharging the equivalence with Z3.
 
-Part of the [Logicaffeine](../../NEW_README.md) workspace. Excluded from default-members (Z3-backed); depends on `logicaffeine_compile` and `logicaffeine_verify`.
+Part of the [Logicaffeine](https://github.com/Brahmastra-Labs/logicaffeine/blob/main/README.md) workspace. Excluded from default-members (Z3-backed); depends on `logicaffeine_compile` and `logicaffeine_verify`.
 
 ## Role in the workspace
 
-This is **rung 3–4 (translation validation), not rung 5 (machine-checked proof)** — the trust boundary is the encoders + Z3 + rustc, not a mechanized meta-theorem. See [proof-and-verification.md](../../new_docs/proof-and-verification.md) for how the verification rungs fit together.
+This is **rung 3–4 (translation validation), not rung 5 (machine-checked proof)** — the trust boundary is the encoders + Z3 + rustc, not a mechanized meta-theorem. See [proof-and-verification.md](https://github.com/Brahmastra-Labs/logicaffeine/blob/main/docs/proof-and-verification.md) for how the verification rungs fit together.
 
 Today only the **LOGOS source side** has a symbolic executor; there is no Rust-emitter-side executor yet, so the full source↔emitted-Rust equivalence is not closed in code. What runs is the source encoder plus its **meta-soundness oracle**: `check_encoder_sound` runs a program through the tree-walking interpreter (`interpret_program`, the independent ground truth) *and* the symbolic encoder, then proves with Z3 that they agree on the full observable behavior — the ordered `Show` outputs (each slot equality validated) and whether an error was raised. A buggy encoder is caught here, not masked by a downstream equivalence that "proves" two wrong things equal. Out-of-fragment programs are *soundly excluded* (`Unsupported`), never reported as agreement.
 
@@ -24,7 +24,7 @@ Straight-line `Int`/`Bool` programs; anything outside yields `Unsupported(reason
 
 ## Public API
 
-```rust
+```text
 // crate root
 pub fn summarize_logos(source: &str) -> Result<SymSummary, TvError>;
 pub fn check_encoder_sound(source: &str) -> SoundnessReport;
@@ -37,9 +37,9 @@ pub use verdict::{SoundnessReport, TvError};
 - `SymSummary { outputs: Vec<SymValue>, errored: VerifyExpr }`; `SymValue` is `Int(VerifyExpr)` (width-64 bitvector) or `Bool(VerifyExpr)`.
 - `SoundnessReport` = `Agrees | Disagrees { detail } | Unsupported { reason } | ParseFailed { detail }`; `TvError` = `Parse(ParseError) | Unsupported(String)`.
 
-Public submodules:
+Public submodules — `symexec` (big-step symbolic execution of the Verifiable Core into `VerifyExpr`), `parse` (arena-lifetime-safe parsing via a callback), `equiv` (Z3 validity), and `verdict` (the `SoundnessReport` / `TvError` result types):
 
-```rust
+```text
 // symexec — big-step symbolic execution of the Verifiable Core into VerifyExpr
 pub const INT_WIDTH: u32 = 64;
 pub fn execute(stmts: &[Stmt], interner: &Interner) -> Result<SymSummary, Unsupported>;
@@ -57,7 +57,7 @@ pub fn is_valid(pred: &VerifyExpr) -> bool;
 
 ### Example
 
-```rust
+```rust,no_run
 use logicaffeine_tv::{check_encoder_sound, summarize_logos, SoundnessReport};
 
 let src = "## Main\nLet x be 2 + 3 * 4.\nShow x.";
@@ -80,7 +80,7 @@ cargo test -p logicaffeine-tests --features verification phase_tv_encoder_sound
 
 ## License
 
-Business Source License 1.1 — see [LICENSE.md](../../LICENSE.md).
+Business Source License 1.1 — see [LICENSE.md](https://github.com/Brahmastra-Labs/logicaffeine/blob/main/LICENSE.md).
 
 ---
-[Docs index](../../new_docs/README.md) · [Root README](../../NEW_README.md) · [Changelog](../../CHANGELOG.md)
+[Docs index](https://github.com/Brahmastra-Labs/logicaffeine/blob/main/docs/README.md) · [Root README](https://github.com/Brahmastra-Labs/logicaffeine/blob/main/README.md) · [Changelog](https://github.com/Brahmastra-Labs/logicaffeine/blob/main/CHANGELOG.md)

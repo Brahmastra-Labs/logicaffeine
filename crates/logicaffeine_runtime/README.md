@@ -2,11 +2,13 @@
 
 The deterministic, replayable concurrency runtime for the Logicaffeine interpreter and VM: the task scheduler, FIFO channels, `Select`, a logical-clock timer wheel, and the seed/trace machinery that give Logos concurrency its operational semantics. A run is a deterministic function of `(program, seed)` and replays bit-for-bit from `(program, trace)`.
 
-Part of the [Logicaffeine](../../NEW_README.md) workspace. Tier 0 — deliberately dependency-free (pure std, tokio-free, WASM-safe). Used by the interpreter/VM tiers; NOT linked into AOT binaries (which lower to host primitives via `logicaffeine_system`).
+Part of the [Logicaffeine](https://github.com/Brahmastra-Labs/logicaffeine/blob/main/README.md) workspace. Tier 0 — deliberately dependency-free (pure std, tokio-free, WASM-safe). Used by the interpreter/VM tiers; NOT linked into AOT binaries (which lower to host primitives via `logicaffeine_system`).
+
+The crate is a handful of focused modules: `scheduler` (the M:1 cooperative driver + `process_step` core), `executor` (the native M:N work-stealing driver), `task` (the `Task`/`TaskStep`/`TaskCtx` interface the tiers implement), `channel` (`ChanId` + the FIFO/rendezvous/unbounded channel semantics), `seed` (the `Chooser`/`SeededRng`/`SchedTrace` determinism contract), `payload` (`RtPayload`, the `Send` value that crosses task and OS-thread boundaries), and `config` (`SchedulerConfig`/`SchedulePolicy`/`ClockMode`).
 
 ## Role in the workspace
 
-This crate *is* the interpreter/VM concurrency model, not the AOT one. By charter it is never linked into AOT-compiled binaries (invariant I6 of `FINISH_INTERPRETER.md`) — the compiled path uses `logicaffeine-system`'s platform services. Keeping the crate zero-dependency (empty `[dependencies]`, pure `std`) is what enforces that boundary at the dependency level. Marshalling between interpreter `RuntimeValue` / VM `Value` and the wire payload lives in `logicaffeine-compile`; this crate defines only the wire shape (`RtPayload`) and the scheduling engine. The user-facing, language-level concurrency story is in [`new_docs/concurrency.md`](../../new_docs/concurrency.md).
+This crate *is* the interpreter/VM concurrency model, not the AOT one. By charter it is never linked into AOT-compiled binaries (invariant I6 of `work/FINISH_INTERPRETER.md`) — the compiled path uses `logicaffeine-system`'s platform services. Keeping the crate zero-dependency (empty `[dependencies]`, pure `std`) is what enforces that boundary at the dependency level. Marshalling between interpreter `RuntimeValue` / VM `Value` and the wire payload lives in `logicaffeine-compile`; this crate defines only the wire shape (`RtPayload`) and the scheduling engine. The user-facing, language-level concurrency story is in [`docs/concurrency.md`](https://github.com/Brahmastra-Labs/logicaffeine/blob/main/docs/concurrency.md).
 
 **Determinism contract.** Every nondeterministic scheduling decision flows through one choke point, `Chooser::decide(kind, options) -> chosen`; nothing else draws entropy. In *record* mode it draws from a seeded SplitMix64 RNG (`SeededRng` — tiny, allocation-free, identical on native and WASM) and logs a `ChoicePoint { kind, options, chosen }`; in *replay* mode it re-issues the recorded choice and asserts the decision *shape* (kind + option count) still matches, panicking on divergence. The trace is id-agnostic (no `TaskId`/`ChanId`), so it never depends on identity allocation. `ChoiceKind` covers `TaskPick`, `SelectWinner`, `ChanWaiterWake`, `TimerTieBreak`, `WorkerPlacement`.
 
@@ -21,7 +23,7 @@ Determinism holds under every `SchedulePolicy`: `Fifo`/`Lifo`/`RoundRobin`/`Prio
 
 Re-exported from the crate root (see `src/lib.rs`):
 
-```rust
+```text
 // Entry points — record once, replay forever.
 pub fn run_with_seed<'t, F: FnOnce(&mut Scheduler<'t>)>(
     config: SchedulerConfig, seed: SchedSeed, setup: F,
@@ -93,7 +95,7 @@ pub enum RtPayload {
 
 Native-only (`#[cfg(not(target_arch = "wasm32"))]`), the work-stealing driver:
 
-```rust
+```text
 pub fn run_workstealing_seeded<'env, B>(
     config: SchedulerConfig, seed: SchedSeed, main: SpawnDesc, build: B,
 ) -> WsOutcome
@@ -116,7 +118,7 @@ There is **no `work_stealing` feature**. The native M:N work-stealing driver (`e
 
 ## License
 
-Business Source License 1.1 — see [LICENSE.md](../../LICENSE.md).
+Business Source License 1.1 — see [LICENSE.md](https://github.com/Brahmastra-Labs/logicaffeine/blob/main/LICENSE.md).
 
 ---
-[Docs index](../../new_docs/README.md) · [Root README](../../NEW_README.md) · [Changelog](../../CHANGELOG.md)
+[Docs index](https://github.com/Brahmastra-Labs/logicaffeine/blob/main/docs/README.md) · [Root README](https://github.com/Brahmastra-Labs/logicaffeine/blob/main/README.md) · [Changelog](https://github.com/Brahmastra-Labs/logicaffeine/blob/main/CHANGELOG.md)

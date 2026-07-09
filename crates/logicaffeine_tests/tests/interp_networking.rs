@@ -404,6 +404,102 @@ async fn send_and_capture(send_clause: &str, body_expr: &str) -> Vec<u8> {
     data
 }
 
+/// Build a table whose rows all reference ONE shared `row`, then send it under `send_clause`
+/// Run a program that builds a `table` from `table_def` and ships it with `send_clause` to a peer,
+/// returning the wire bytes the peer received. `table_def` is the indented Logos line(s) that bind
+/// `table` (so the same harness drives the shared-row and the distinct-rows cases).
+async fn capture_table_send(table_def: &str, send_clause: &str) -> Vec<u8> {
+    let relay = serve("127.0.0.1:0").await.expect("relay binds");
+    let url = relay.url();
+    let mut bob = RelayClient::connect(&url).await.expect("bob dials");
+    bob.subscribe("bob").await.expect("bob subscribe acked");
+    let program = format!(
+        "## Main\n\
+         \x20   Connect to \"{url}\".\n\
+         \x20   Listen on \"alice\".\n\
+         \x20   Let remote be a PeerAgent at \"bob\".\n\
+         {table_def}\
+         \x20   {send_clause} table to remote.\n"
+    );
+    let result = interpret_for_ui(&program).await;
+    assert!(result.error.is_none(), "`{send_clause}` ran: {:?}", result.error);
+    let (topic, data) = tokio::time::timeout(Duration::from_secs(5), bob.next_event())
+        .await
+        .expect("event arrives in time")
+        .expect("event present");
+    assert_eq!(topic, "bob");
+    data
+}
+
+/// One row aliased six times — the codec's Rc-dedup target.
+const SHARED_TABLE: &str = concat!(
+    "    Let row be [\"a fairly long shared string that makes the dedup saving obvious\", 7].\n",
+    "    Let table be [row, row, row, row, row, row].\n",
+);
+/// Six DISTINCT rows (high-entropy, no shared prefix) — nothing for dedup or compression to crush.
+const DISTINCT_TABLE: &str = concat!(
+    "    Let table be [",
+    "[\"the quick brown fox jumps over the lazy dog near a riverbank\", 1], ",
+    "[\"a wizards job is to vex chumps quickly in fog by the wide moor\", 2], ",
+    "[\"pack my box with five dozen liquor jugs and ship them all east\", 3], ",
+    "[\"how vexingly quick daft zebras jump when prompted at early dawn\", 4], ",
+    "[\"sphinx of black quartz judge my vow and weigh the final verdict\", 5], ",
+    "[\"five boxing wizards jump quickly while the band plays loud jazz\", 6]",
+    "].\n",
+);
+
+#[tokio::test]
+async fn interp_send_auto_dedups_a_shared_table_and_deduped_matches_it() {
+    // The "fold dedup into best/Auto" no-brainer, proven end-to-end over the relay: plain `Send`
+    // ALREADY auto-dedups a value that aliases a subtree — a row referenced six times ships ONCE +
+    // backrefs, far below a six-DISTINCT-row table that nothing can crush. The explicit `Send deduped`
+    // knob (the default's full bake-off subsumes it) lands on the exact same size, and BOTH rebuild the
+    // identical six-row table with the sharing intact (one Rc re-aliased, not six heap copies).
+    use logicaffeine_compile::concurrency::marshal::{message_from_wire, message_to_wire};
+    use logicaffeine_compile::interpreter::{ListRepr, RuntimeValue};
+    use std::rc::Rc;
+
+    let distinct = capture_table_send(DISTINCT_TABLE, "Send").await;
+    let plain = capture_table_send(SHARED_TABLE, "Send").await;
+    let deduped = capture_table_send(SHARED_TABLE, "Send deduped").await;
+
+    assert!(
+        plain.len() < distinct.len(),
+        "plain `Send` auto-dedups the shared table ({} B) below the no-sharing baseline ({} B)",
+        plain.len(),
+        distinct.len()
+    );
+    assert_eq!(
+        plain.len(),
+        deduped.len(),
+        "the default already crushes the shared row as hard as the explicit `deduped` knob: {} vs {}",
+        plain.len(),
+        deduped.len()
+    );
+
+    // Both reconstruct the EXACT same table (value-identical: re-encoding under default dials matches).
+    let (_f1, a) = message_from_wire(&plain).expect("plain send decodes");
+    let (_f2, b) = message_from_wire(&deduped).expect("deduped send decodes");
+    assert_eq!(
+        message_to_wire("x", &a).unwrap(),
+        message_to_wire("x", &b).unwrap(),
+        "plain and deduped reconstruct the identical shared table"
+    );
+
+    // The explicitly-deduped decode rebuilt the SHARING: the six rows re-alias ONE Rc, not six copies —
+    // proving the full language path (`[row, row, …]` shares the Rc → `Send deduped` → decode rebuilds it).
+    let RuntimeValue::List(l) = &b else { panic!("expected a list") };
+    let rows = match &*l.borrow() {
+        ListRepr::Boxed(v) => v.clone(),
+        other => panic!("expected Boxed rows, got {other:?}"),
+    };
+    assert_eq!(rows.len(), 6, "all six rows survive");
+    let (RuntimeValue::List(r0), RuntimeValue::List(r5)) = (&rows[0], &rows[5]) else {
+        panic!("expected list rows");
+    };
+    assert!(Rc::ptr_eq(r0, r5), "the six rows re-alias ONE Rc — the sharing survived the wire");
+}
+
 #[tokio::test]
 async fn interp_send_cached_references_schema_on_repeat() {
     // `Send cached <struct list>` sends the schema once; a repeat references it by id
@@ -530,6 +626,101 @@ async fn interp_send_smallest_picks_the_compression_menu() {
         message_to_wire("x", &b).unwrap(),
         "the compression menu carries the same logical list"
     );
+}
+
+#[tokio::test]
+async fn interp_send_indexed_picks_the_random_access_view_and_composes() {
+    // `Send indexed <record list>` encodes the random-access struct-view layout (row + field
+    // offset tables), so the receiver reaches any (row, field) in O(1) — Cap'n Proto's turf.
+    // It is a different wire layout than the default, reads exactly, and COMPOSES with
+    // `compressed` (the knob wraps every path), proving "all options always".
+    use logicaffeine_compile::concurrency::marshal::{message_from_wire, message_to_wire, view_message};
+    let relay = serve("127.0.0.1:0").await.expect("relay binds");
+    let url = relay.url();
+    let mut bob = RelayClient::connect(&url).await.expect("bob dials");
+    bob.subscribe("bob").await.expect("bob subscribe acked");
+    let program = format!(
+        "## A Point has:\n\
+         \x20   An x: Int.\n\
+         \x20   A y: Int.\n\
+         \n\
+         ## Main\n\
+         \x20   Connect to \"{url}\".\n\
+         \x20   Listen on \"alice\".\n\
+         \x20   Let remote be a PeerAgent at \"bob\".\n\
+         \x20   Let pts be [a new Point with x 10 and y 20, a new Point with x 30 and y 40, a new Point with x 50 and y 60].\n\
+         \x20   Send pts to remote.\n\
+         \x20   Send indexed pts to remote.\n\
+         \x20   Send indexed compressed pts to remote.\n"
+    );
+    let result = interpret_for_ui(&program).await;
+    assert!(result.error.is_none(), "`Send indexed` ran: {:?}", result.error);
+
+    let plain = tokio::time::timeout(Duration::from_secs(5), bob.next_event()).await.expect("1st arrives").expect("present").1;
+    let indexed = tokio::time::timeout(Duration::from_secs(5), bob.next_event()).await.expect("2nd arrives").expect("present").1;
+    let indexed_compressed =
+        tokio::time::timeout(Duration::from_secs(5), bob.next_event()).await.expect("3rd arrives").expect("present").1;
+
+    // The indexed message opens as a random-access view and reads any (row, field) in O(1).
+    let v = view_message(&indexed).expect("indexed message opens as a struct-view");
+    assert_eq!(v.structs_row_field(1, "x").and_then(|c| c.as_int()), Some(30), "O(1) random (row 1, x)");
+    assert_eq!(v.structs_row_field(2, "y").and_then(|c| c.as_int()), Some(60), "O(1) random (row 2, y)");
+
+    // The knob reached the wire: the indexed layout differs from the default columnar one.
+    assert_ne!(indexed, plain, "indexed must pick a different (view) layout than the default");
+
+    // Every form carries the SAME logical list (canonicalize through a re-encode).
+    let canon = |b: &[u8]| message_to_wire("x", &message_from_wire(b).expect("decodes").1).unwrap();
+    assert_eq!(canon(&plain), canon(&indexed), "indexed view carries the same logical data");
+    assert_eq!(canon(&plain), canon(&indexed_compressed), "indexed+compressed composes and round-trips");
+}
+
+#[tokio::test]
+async fn interp_send_indexed_fast_uses_the_fixed_stride_view() {
+    // `Send indexed fast <recs>` composes the random-access struct-view with the fixed numeric
+    // dial → the FIXED-stride view (no offset tables, arithmetic O(1)). It is a different layout
+    // than plain `indexed` (the variable offset-table view) and round-trips to the same list.
+    use logicaffeine_compile::concurrency::marshal::{message_from_wire, message_to_wire, view_message};
+    let relay = serve("127.0.0.1:0").await.expect("relay binds");
+    let url = relay.url();
+    let mut bob = RelayClient::connect(&url).await.expect("bob dials");
+    bob.subscribe("bob").await.expect("bob subscribe acked");
+    let program = format!(
+        "## A Point has:\n\
+         \x20   An x: Int.\n\
+         \x20   A y: Int.\n\
+         \n\
+         ## Main\n\
+         \x20   Connect to \"{url}\".\n\
+         \x20   Listen on \"alice\".\n\
+         \x20   Let remote be a PeerAgent at \"bob\".\n\
+         \x20   Let pts be [a new Point with x 111 and y 222, a new Point with x 333 and y 444, a new Point with x 555 and y 666].\n\
+         \x20   Send indexed pts to remote.\n\
+         \x20   Send indexed fast pts to remote.\n"
+    );
+    let result = interpret_for_ui(&program).await;
+    assert!(result.error.is_none(), "`Send indexed fast` ran: {:?}", result.error);
+
+    let variable = tokio::time::timeout(Duration::from_secs(5), bob.next_event()).await.expect("1st").expect("present").1;
+    let fixed = tokio::time::timeout(Duration::from_secs(5), bob.next_event()).await.expect("2nd").expect("present").1;
+
+    // The plain `indexed` message is the variable offset-table view: `structs_row_field` works.
+    let vv = view_message(&variable).expect("variable view opens");
+    assert!(vv.structs_row_field(0, "x").is_some(), "plain indexed is the variable offset-table view");
+
+    // `indexed fast` is the FIXED-stride view: the variable-only `structs_row_field` REFUSES it,
+    // but the unified arithmetic reader serves it — proving the fixed layout reached the wire.
+    let fv = view_message(&fixed).expect("fixed view opens");
+    assert!(fv.structs_row_field(0, "x").is_none(), "fixed view is not the offset-table layout");
+    assert_eq!(
+        fv.structs_row_field_value(1, "y").and_then(|c| if let logicaffeine_compile::interpreter::RuntimeValue::Int(n) = c { Some(n) } else { None }),
+        Some(444),
+        "fixed view reads (row 1, y) in O(1)"
+    );
+
+    // Both layouts carry the same logical list.
+    let canon = |b: &[u8]| message_to_wire("x", &message_from_wire(b).expect("decodes").1).unwrap();
+    assert_eq!(canon(&variable), canon(&fixed), "indexed and indexed-fast carry the same data");
 }
 
 #[tokio::test]
@@ -858,13 +1049,31 @@ async fn interp_send_compressed_with_zstd_keyword() {
 }
 
 #[tokio::test]
-async fn interp_send_without_connect_errors_cleanly() {
+async fn interp_send_without_connect_is_a_clean_offline_delivery() {
+    // OFFLINE (no relay): `Send` is a single-node LOCAL delivery, not an error — the deterministic
+    // oracle output is transport-independent (a `Send`/`Await` round-trip needs no wire). A send to a
+    // peer we do not host locally is a harmless fire-and-forget; it must not error.
     let program = "## Main\n\
         \x20   Let bob be a PeerAgent at \"bob\".\n\
         \x20   Send \"hi\" to bob.\n";
     let result = interpret_for_ui(program).await;
-    let err = result.error.expect("Send without Connect must error");
-    assert!(err.contains("Connect"), "error should name the missing Connect, got: {err}");
+    assert!(result.error.is_none(), "offline Send is a clean local delivery, got: {:?}", result.error);
+}
+
+#[tokio::test]
+async fn interp_offline_send_await_loops_back_to_self() {
+    // OFFLINE (no relay): a single-node `Send … to <self>` delivers into our OWN inbox and a matching
+    // `Await` reads it back — the "turned-on" offline networking, byte-faithful through the real wire
+    // codec, no relay required. This is what makes `Send`/`Await` deterministic on the VM + wasm-AOT.
+    let program = "## Main\n\
+        \x20   Listen on \"me\".\n\
+        \x20   Let me be a PeerAgent at \"me\".\n\
+        \x20   Send \"hi\" to me.\n\
+        \x20   Await response from me into reply.\n\
+        \x20   Show reply.\n";
+    let result = interpret_for_ui(program).await;
+    assert!(result.error.is_none(), "offline loopback ran without error, got: {:?}", result.error);
+    assert_eq!(result.lines, vec!["hi".to_string()], "the looped-back message is delivered");
 }
 
 #[tokio::test]
@@ -884,12 +1093,12 @@ async fn interp_await_without_listen_errors_cleanly() {
 }
 
 #[tokio::test]
-async fn interp_sync_without_connect_errors_cleanly() {
-    // `Sync` before any `Connect` is a clean error, not a panic.
+async fn interp_sync_without_connect_is_a_clean_offline_noop() {
+    // OFFLINE (no relay): `Sync` is a single-node no-op (nothing to merge from — the local CRDT value
+    // stands), not an error. Deterministic + transport-independent, matching the shipped offline mode.
     let program = "## Main\n\
         \x20   Let counter be 1.\n\
         \x20   Sync counter on \"t\".\n";
     let result = interpret_for_ui(program).await;
-    let err = result.error.expect("Sync without Connect must error");
-    assert!(err.contains("Connect"), "error should name the missing Connect, got: {err}");
+    assert!(result.error.is_none(), "offline Sync is a clean no-op, got: {:?}", result.error);
 }

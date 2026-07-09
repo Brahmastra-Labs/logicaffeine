@@ -1,4 +1,4 @@
-//! Phase 5c (FINISH_INTERPRETER.md) — cross-tier concurrency differential.
+//! Phase 5c (work/FINISH_INTERPRETER.md) — cross-tier concurrency differential.
 //!
 //! The tree-walker and the bytecode VM share ONE deterministic scheduler
 //! (`logicaffeine_runtime`) under the same seed, so a determinate concurrency
@@ -314,4 +314,22 @@ fn workstealing_is_seed_and_worker_reproducible() {
             "work-stealing output changed with {workers} workers (must be worker-count-invariant)",
         );
     }
+}
+
+#[test]
+fn diff_stream_into_pipe_is_cross_tier() {
+    // The `Stream … into <pipe>` knob lowers to the cross-tier channel send (`SendPipe`), so
+    // streaming a batch through an in-process pipe runs IDENTICALLY on the tree-walker and the
+    // bytecode VM — the cross-tier pro of the streaming surface (the `to <peer>` knob is the
+    // network pro, on the async tree-walker tier).
+    assert_tiers_agree(
+        "## To produce (ch: List of Int):\n\
+        \x20   Stream [1, 2, 3] into ch.\n\
+        \n\
+        ## Main\n\
+        \x20   Let jobs be a Pipe of List of Int.\n\
+        \x20   Launch a task to produce with jobs.\n\
+        \x20   Receive batch from jobs.\n\
+        \x20   Show batch.\n",
+    );
 }

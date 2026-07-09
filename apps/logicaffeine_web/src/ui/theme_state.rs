@@ -29,6 +29,7 @@
 
 use dioxus::prelude::*;
 use serde::{Deserialize, Serialize};
+#[cfg(target_arch = "wasm32")]
 use gloo_storage::{LocalStorage, Storage};
 
 const THEME_STORAGE_KEY: &str = "logicaffeine-theme";
@@ -199,9 +200,13 @@ pub struct ThemeState {
 
 impl ThemeState {
     /// Creates a new ThemeState, loading from localStorage if available.
+    /// Server renders always use the default theme; the client repaints with the
+    /// stored choice as soon as it takes over.
     pub fn new() -> Self {
-        let stored_theme = LocalStorage::get::<Theme>(THEME_STORAGE_KEY).ok();
-        let initial = stored_theme.unwrap_or_default();
+        #[cfg(target_arch = "wasm32")]
+        let initial = LocalStorage::get::<Theme>(THEME_STORAGE_KEY).ok().unwrap_or_default();
+        #[cfg(not(target_arch = "wasm32"))]
+        let initial = Theme::default();
 
         Self {
             current: Signal::new(initial),
@@ -216,6 +221,7 @@ impl ThemeState {
     /// Sets the theme and persists to localStorage.
     pub fn set_theme(&mut self, theme: Theme) {
         self.current.set(theme);
+        #[cfg(target_arch = "wasm32")]
         let _ = LocalStorage::set(THEME_STORAGE_KEY, theme);
     }
 

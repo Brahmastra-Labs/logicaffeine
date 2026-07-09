@@ -3,7 +3,7 @@
 //! Registers are per-frame `u16` indices (the compiler assigns locals to
 //! registers at compile time; frames are capped at `MAX_REGISTERS_PER_FRAME`).
 //! Jump targets are absolute instruction indices. This is the growing core of
-//! VM_PLAN.md's 87-opcode set.
+//! work/VM_PLAN.md's 87-opcode set.
 
 use std::collections::HashMap;
 
@@ -60,12 +60,49 @@ pub enum Constant {
 /// A bytecode instruction. Every field is a small `Copy` scalar (registers,
 /// constant-pool indices, interned symbols), so the dispatch loop reads each
 /// op by value instead of `clone()`-ing through the `Clone` machinery.
+/// The declared element type of a `Pipe of T`, carried on [`Op::ChanNew`] so a consumer that
+/// models a channel as a typed FIFO queue (the direct-WASM AOT) can type a `Receive`/`select`
+/// arm's bound variable even when the pipe is never sent to (an empty `Pipe of Text` in a
+/// timeout-only `select`). A `Copy` tag — the scalar element types cover every pipe the corpus
+/// declares; a struct/enum element resolves to [`ChanElem::Unknown`] (falls back to the untyped
+/// queue, exactly as before).
+#[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq, Eq)]
+pub enum ChanElem {
+    Unknown,
+    Int,
+    Float,
+    Bool,
+    Text,
+}
+
+impl ChanElem {
+    /// Resolve a pipe's declared element type name (`Pipe of <name>`) to its tag.
+    pub fn from_type_name(name: &str) -> ChanElem {
+        match name {
+            "Int" | "Nat" => ChanElem::Int,
+            "Float" => ChanElem::Float,
+            "Bool" => ChanElem::Bool,
+            "Text" => ChanElem::Text,
+            _ => ChanElem::Unknown,
+        }
+    }
+}
+
 #[derive(Clone, Copy, Debug, Serialize, Deserialize)]
 pub enum Op {
     /// `R[dst] = constants[idx]`
     LoadConst { dst: Reg, idx: ConstIdx },
     /// `R[dst] = R[src]` (shallow clone)
     Move { dst: Reg, src: Reg },
+    /// Copy-on-write barrier: if `R[reg]`'s collection is shared (`Rc` strong > 1),
+    /// deep-clone it in place so `R[reg]` becomes the sole owner. Emitted before an
+    /// argument is passed to a function whose corresponding parameter is an inferred
+    /// MUTABLE BORROW (mutated in place and returned): the callee's element writes
+    /// then land on a buffer no OTHER live handle can observe, so an aliasing caller
+    /// (`Let y be arr; Set arr to f(arr)`) still sees value semantics. A no-op when
+    /// already uniquely owned (the common `Set x to f(x)` consume-reassign), so the
+    /// hot path pays only a strong-count check. Mirrors the AOT's call-site `.cow()`.
+    EnsureOwned { reg: Reg },
 
     Add { dst: Reg, lhs: Reg, rhs: Reg },
     /// `R[dst] = R[dst] + R[src]` — the `Set x to x + …` shape. Semantically
@@ -79,6 +116,9 @@ pub enum Op {
     /// EXACT division (`7 / 2 → 7/2`, a Rational), the type-directed sibling of
     /// [`Op::Div`] — emitted for `BinaryOpKind::ExactDivide`.
     ExactDiv { dst: Reg, lhs: Reg, rhs: Reg },
+    /// FLOOR division (`-7 // 2 → -4`, toward negative infinity) — emitted for
+    /// `BinaryOpKind::FloorDivide`, distinct from the truncating [`Op::Div`].
+    FloorDiv { dst: Reg, lhs: Reg, rhs: Reg },
     Mod { dst: Reg, lhs: Reg, rhs: Reg },
     /// `dst = lhs / 2^k` (signed, round toward zero) — emitted only when the
     /// divisor is a literal power of two AND the Oracle proved `lhs` is `Int`.
@@ -106,18 +146,25 @@ pub enum Op {
     LtEq { dst: Reg, lhs: Reg, rhs: Reg },
     GtEq { dst: Reg, lhs: Reg, rhs: Reg },
     Eq { dst: Reg, lhs: Reg, rhs: Reg },
+    /// Tolerant float comparison (`a is approximately b`) — the shared
+    /// isclose semantics (`logicaffeine_data::ops::logos_approx_eq`);
+    /// `==`/`Eq` stays IEEE bit-exact.
+    ApproxEq { dst: Reg, lhs: Reg, rhs: Reg },
     NotEq { dst: Reg, lhs: Reg, rhs: Reg },
 
     Not { dst: Reg, src: Reg },
 
-    /// Eager `and`: bitwise for Int×Int, truthiness otherwise. The compiler
-    /// arranges short-circuit evaluation with jumps; this op only fires when
-    /// the right operand must be evaluated.
-    AndEager { dst: Reg, lhs: Reg, rhs: Reg },
-    /// Eager `or` (see `AndEager`).
-    OrEager { dst: Reg, lhs: Reg, rhs: Reg },
     Concat { dst: Reg, lhs: Reg, rhs: Reg },
+    /// `a followed by b` — merge two sequences into one.
+    SeqConcat { dst: Reg, lhs: Reg, rhs: Reg },
+    /// `a ** b` — exponentiation. Integer power is exact (promotes to BigInt on
+    /// overflow); a Float operand uses `powf`; a negative Int exponent errors.
+    Pow { dst: Reg, lhs: Reg, rhs: Reg },
     BitXor { dst: Reg, lhs: Reg, rhs: Reg },
+    /// `a & b` — bitwise AND on Int, logical on Bool, intersection on Sets.
+    BitAnd { dst: Reg, lhs: Reg, rhs: Reg },
+    /// `a | b` (see `BitAnd`) — union on Sets.
+    BitOr { dst: Reg, lhs: Reg, rhs: Reg },
     Shl { dst: Reg, lhs: Reg, rhs: Reg },
     Shr { dst: Reg, lhs: Reg, rhs: Reg },
 
@@ -127,9 +174,6 @@ pub enum Op {
     JumpIfFalse { cond: Reg, target: usize },
     /// Jump if `R[cond]` is truthy.
     JumpIfTrue { cond: Reg, target: usize },
-    /// Jump if `R[cond]` is an Int (drives the `and`/`or` eager-vs-short-circuit
-    /// split: Int operands always evaluate both sides, bitwise).
-    JumpIfInt { cond: Reg, target: usize },
 
     /// Call a user function. The caller has placed `arg_count` arguments in
     /// consecutive registers starting at `args_start` (relative to the caller's
@@ -201,7 +245,7 @@ pub enum Op {
     RemoveFrom { collection: Reg, value: Reg },
     /// `R[collection][R[index]] = R[value]` (1-based list set, or map insert).
     SetIndex { collection: Reg, index: Reg, value: Reg },
-    /// Like [`SetIndex`] but the Oracle PROVED the index in `[1, length]`
+    /// Like `SetIndex` but the Oracle PROVED the index in `[1, length]`
     /// (range analysis, M9) — bounds-check elimination for the STORE. The
     /// interpreter still checks (free defense-in-depth); the JIT lowers it to
     /// an UNCHECKED array store (no bounds branch). Only listy collections
@@ -209,7 +253,7 @@ pub enum Op {
     SetIndexUnchecked { collection: Reg, index: Reg, value: Reg },
     /// `R[dst] = R[collection][R[index]]` (1-based for ordered collections).
     Index { dst: Reg, collection: Reg, index: Reg },
-    /// Like [`Index`] but the Oracle (range analysis, M9) PROVED the index
+    /// Like `Index` but the Oracle (range analysis, M9) PROVED the index
     /// in `[1, length]` at this point — bounds-check elimination, the V8/LLVM
     /// way. The bytecode interpreter still checks (a sound proof makes the
     /// check never fire; keeping it is free defense-in-depth), but the JIT
@@ -318,8 +362,9 @@ pub enum Op {
     // can block suspends the resumable VM (`run_until_block`) and is serviced by
     // the deterministic scheduler, exactly as the tree-walker's `yield_request`.
 
-    /// `R[dst] = a new channel`; `cap < 0` ⇒ the scheduler's default capacity.
-    ChanNew { dst: Reg, cap: i32 },
+    /// `R[dst] = a new channel`; `cap < 0` ⇒ the scheduler's default capacity. `elem` is the
+    /// declared `Pipe of T` element type (a hint for a typed-queue consumer; the scheduler ignores it).
+    ChanNew { dst: Reg, cap: i32, elem: ChanElem },
     /// Send `R[val]` into channel `R[chan]` (blocks if the channel is full).
     ChanSend { chan: Reg, val: Reg },
     /// `R[dst] = receive from channel R[chan]` (blocks if the channel is empty).
@@ -346,6 +391,25 @@ pub enum Op {
     /// (a recv arm's received value is already in its `var` register).
     SelectWait { dst_arm: Reg },
 
+    // ─── peer networking over the relay (async-tier). Each suspends the resumable VM via a
+    // `VmBlock::Net*` request the async VM driver services with the shared `NetInbox` — the same
+    // inbox the tree-walker uses, so a `Send`/`Await` runs byte-identically on both tiers. ───
+    /// Dial the relay at `R[url]` (async); resume when connected.
+    NetConnect { url: Reg },
+    /// Subscribe this node's inbox to `R[topic]` (async); resume when subscribed.
+    NetListen { topic: Reg },
+    /// Encode `R[msg]` and publish it to peer `R[to]`.
+    NetSend { to: Reg, msg: Reg },
+    /// Batch-stream the list `R[values]` to peer `R[to]`.
+    NetStream { to: Reg, values: Reg },
+    /// `R[dst] = await a message (or a batch stream, if `stream`) from peer `R\[from\]`` (blocks).
+    NetAwait { dst: Reg, from: Reg, stream: bool },
+    /// `R[dst] = a PeerAgent handle for address `R\[addr\]`` (its canonical relay topic). Pure.
+    NetMakePeer { dst: Reg, addr: Reg },
+    /// CRDT sync point on topic `R[topic]`: publish `R[dst]`'s counter, merge what has arrived,
+    /// and write the merged value back to `R[dst]`.
+    NetSync { dst: Reg, topic: Reg },
+
     /// Fail with the Text constant at `msg` — used for constructs whose
     /// tree-walker semantics are "error WHEN EXECUTED" (an unbound `Set`, an
     /// unsupported statement). Never fails at compile time: dead branches must
@@ -353,6 +417,73 @@ pub enum Op {
     FailWith { msg: ConstIdx },
     /// Stop execution.
     Halt,
+}
+
+/// A parameter's (or struct field's) declared type, RESOLVED at compile time into a self-contained
+/// form a STATICALLY-typed consumer can use without the AST or the interner. The dynamically-typed
+/// tree-walker/VM and the scalar-only native JIT never needed static types, so they were not put in
+/// the bytecode before; they are now a first-class part of the compiled program (a struct is
+/// referenced by name, its layout living in [`CompiledProgram::struct_types`]).
+#[derive(Clone, Debug, PartialEq)]
+pub enum BoundaryType {
+    Int,
+    Float,
+    Bool,
+    Text,
+    Date,
+    Moment,
+    /// A `Word32`/`Word64` wrapping-integer (ℤ/2ⁿ) — a native `i32`/`i64` scalar, so a `Seq of Word32`
+    /// parameter (a crypto state array) resolves its element kind cross-region.
+    Word32,
+    Word64,
+    /// `Seq of <elem>`.
+    Seq(Box<BoundaryType>),
+    /// A user struct, by name — its field layout is in [`CompiledProgram::struct_types`].
+    Struct(String),
+    /// A user enum (sum type), by name. Carried as one i32 handle whose word 0 is the constructor
+    /// tag; `Inspect`/`TestArm` read the tag directly, so no separate layout is needed.
+    Enum(String),
+    /// `Map of <key> to <value>` — one i32 handle. The key kind is recovered at each access from the
+    /// key expression's own kind (no map metadata needed); the VALUE kind is carried here so a
+    /// parameter map's `item k of m` resolves its result kind cross-region.
+    Map(Box<BoundaryType>, Box<BoundaryType>),
+    /// A HETEROGENEOUS tuple (`Pair`/`Triple` of mixed element types) — one i32 handle to a buffer of
+    /// 8-byte slots, each holding its element at its own kind. The per-position element types are
+    /// carried so a `item N of t` (constant `N`) resolves its result kind cross-region. (A homogeneous
+    /// tuple resolves to [`BoundaryType::Seq`] instead — it shares the list buffer layout.)
+    Tuple(Vec<BoundaryType>),
+    /// A first-class BUILTIN value type by name (`Uuid`, `Duration`, `Time`, `Span`, `Money`,
+    /// `Quantity`, `Rational`, `Complex`, `Decimal`, `Modular`) — a scalar/handle type whose wasm
+    /// register kind is fixed by its name, not by a user-defined layout. Carried by name (like
+    /// [`BoundaryType::Struct`]/[`BoundaryType::Enum`]) so a cross-region parameter/return of one of
+    /// these types (`uuidV5(namespace: Uuid) -> Uuid`) seeds the correct handle kind; a name with no
+    /// wasm kind resolves to `None` and is left soundly unmodeled.
+    Builtin(String),
+}
+
+/// A struct type's resolved field layout (fields in declaration / slot order), carried in the
+/// bytecode so any consumer can address a struct's fields without re-deriving them from the AST.
+#[derive(Clone, Debug)]
+pub struct StructTypeDef {
+    pub name: String,
+    pub fields: Vec<(String, BoundaryType)>,
+}
+
+/// One variant of an enum: its constructor name and the resolved types of its payload fields, in
+/// position order (empty for a nullary variant). A `BindArm` extracts payload position `index`.
+#[derive(Clone, Debug)]
+pub struct EnumVariantDef {
+    pub name: String,
+    pub field_types: Vec<BoundaryType>,
+}
+
+/// An enum type's resolved per-variant payload layout, carried in the bytecode so a consumer can
+/// type a `When V (binds)` payload extraction on a value whose construction isn't visible (an enum
+/// PARAMETER) — the sum-type analog of [`StructTypeDef`].
+#[derive(Clone, Debug)]
+pub struct EnumTypeDef {
+    pub name: String,
+    pub variants: Vec<EnumVariantDef>,
 }
 
 /// A compiled user function (or closure body). All bodies share the program's
@@ -381,6 +512,21 @@ pub struct CompiledFunction {
     /// Declared return kind; `None` falls back to the adapter's Int/Bool
     /// return inference.
     pub ret_kind: Option<super::native_tier::SlotKind>,
+    /// Each parameter's FULL declared type, resolved at compile time (`None` for a closure body —
+    /// no declarations — or a type the resolver does not model). Unlike `param_kinds` (a scalar/list
+    /// performance hint for the native tier), this carries struct/Text/etc. so a statically-typed
+    /// consumer can type a `f(p: Point)` / `f(s: Text)` parameter from the bytecode alone.
+    pub param_types: Vec<Option<BoundaryType>>,
+    /// The function's FULL declared RETURN type, resolved at compile time (`None` if undeclared or
+    /// unmodeled). Carries struct/map/enum/etc. so a caller can type the inline use of a returned
+    /// composite (`item k of f()`, `Inspect f()`) the same way a parameter of that type is typed.
+    pub return_type: Option<BoundaryType>,
+    /// Frame registers (parameter positions) of `mutable` parameters. A `mutable`
+    /// parameter passes BY REFERENCE under value semantics, so mutating it in
+    /// place must propagate to the caller — copy-on-write is suppressed for these
+    /// registers (mirrors the tree-walker's `is_mutable_param` skip). Empty for
+    /// closures and functions with no `mutable` parameters.
+    pub mutable_param_regs: Vec<Reg>,
 }
 
 /// A compiled program: the constant pool, the linear bytecode (Main first, then
@@ -413,6 +559,18 @@ pub struct CompiledProgram {
     /// Empty on every production build, so the runtime pays nothing; it just lets the
     /// Studio debug drawer show `x` instead of `R0`.
     pub reg_names: Vec<(u16, String)>,
+    /// The program's struct type definitions (name → field layout), resolved at compile time. The
+    /// bytecode's static type registry — the dynamically-typed tree-walker/VM never needed it, but a
+    /// statically-typed consumer (the AOT backend) addresses a struct's fields through it.
+    pub struct_types: Vec<StructTypeDef>,
+    /// The program's enum type definitions (name → per-variant payload layout), resolved at compile
+    /// time — the sum-type companion to `struct_types`. Lets the AOT backend type a `When V (binds)`
+    /// payload extraction on an enum whose construction isn't in scope (an enum PARAMETER).
+    pub enum_types: Vec<EnumTypeDef>,
+    /// Each promoted GLOBAL's resolved composite type (by global index; `None` for scalar /
+    /// self-describing / unmodeled). Lets the AOT type a closure that CAPTURES a composite global with
+    /// the value's shape — the capture analog of a parameter's declared type.
+    pub global_types: Vec<Option<BoundaryType>>,
 }
 
 #[cfg(test)]
@@ -426,8 +584,8 @@ mod concurrency_op_tests {
     #[test]
     fn concurrency_ops_serde_roundtrip() {
         let ops = [
-            Op::ChanNew { dst: 1, cap: -1 },
-            Op::ChanNew { dst: 2, cap: 8 },
+            Op::ChanNew { dst: 1, cap: -1, elem: ChanElem::Int },
+            Op::ChanNew { dst: 2, cap: 8, elem: ChanElem::Text },
             Op::ChanSend { chan: 3, val: 4 },
             Op::ChanRecv { dst: 5, chan: 6 },
             Op::ChanTrySend { dst: 7, chan: 8, val: 9 },

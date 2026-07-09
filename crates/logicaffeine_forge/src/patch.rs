@@ -82,8 +82,8 @@ pub fn patch_aarch64_branch26(
     Ok(())
 }
 
-/// aarch64 `adrp` hi21: the PAGE delta (4 KiB pages), split immlo[30:29] /
-/// immhi[23:5]. Range ±4 GiB.
+/// aarch64 `adrp` hi21: the PAGE delta (4 KiB pages), split immlo\[30:29\] /
+/// immhi\[23:5\]. Range ±4 GiB.
 pub fn patch_aarch64_page21(
     buf: &mut [u8],
     off: usize,

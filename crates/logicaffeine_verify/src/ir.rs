@@ -68,8 +68,13 @@ pub enum VerifyOp {
     Sub,
     /// Multiplication.
     Mul,
-    /// Integer division.
+    /// Integer division (Euclidean, matching Z3's `div`).
     Div,
+    /// Floor division (`a // b`) — the quotient rounded toward negative infinity, exactly.
+    /// Encoded as `to_int(to_real(a) / to_real(b))` (Z3's `to_int` is the floor function),
+    /// which is precise across every sign combination — unlike [`VerifyOp::Div`], whose
+    /// Euclidean rounding only coincides with floor when the divisor is positive.
+    FloorDiv,
 
     // ---- Comparison (Int × Int → Bool) ----
 
@@ -207,7 +212,7 @@ pub enum VerifyExpr {
         right: Box<VerifyExpr>,
     },
 
-    /// Bitvector bit extraction: operand[high:low].
+    /// Bitvector bit extraction: operand\[high:low\].
     BitVecExtract {
         high: u32,
         low: u32,
@@ -233,13 +238,13 @@ pub enum VerifyExpr {
 
     // ---- Array theory ----
 
-    /// Array select: array[index].
+    /// Array select: array\[index\].
     Select {
         array: Box<VerifyExpr>,
         index: Box<VerifyExpr>,
     },
 
-    /// Array store: array[index] := value.
+    /// Array store: array\[index\] := value.
     Store {
         array: Box<VerifyExpr>,
         index: Box<VerifyExpr>,

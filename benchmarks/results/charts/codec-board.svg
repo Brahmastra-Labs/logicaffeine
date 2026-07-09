@@ -1,0 +1,96 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="880" height="433" viewBox="0 0 880 433" role="img" aria-label="Wire codec full leaderboard">
+<title>Wire codec full leaderboard</title>
+<defs><linearGradient id="g0" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#0a1224"/><stop offset="1" stop-color="#05070e"/></linearGradient><linearGradient id="g1" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="#00d4ff"/><stop offset="1" stop-color="#05070e"/></linearGradient><linearGradient id="g2" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="#6be6ff"/><stop offset="1" stop-color="#00d4ff"/></linearGradient><linearGradient id="g3" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="#89e5c3"/><stop offset="1" stop-color="#34d399"/></linearGradient><linearGradient id="g4" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="#c4cbd5"/><stop offset="1" stop-color="#9aa6b8"/></linearGradient></defs>
+<rect x="0" y="0" width="880" height="433" rx="16" fill="url(#g0)"/>
+<rect x="1" y="1" width="878" height="431" rx="16" fill="none" stroke="rgba(255,255,255,0.05)"/>
+<rect x="0" y="0" width="880" height="3.5" fill="url(#g1)"/>
+<text x="40.0" y="20.0" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="10" fill="#00d4ff" text-anchor="start" font-weight="700" letter-spacing="2">ALL CODECS · SIZE · ENCODE · DECODE</text>
+<rect x="24.0" y="30.0" width="6.0" height="19.0" rx="3.0" fill="url(#g2)"/>
+<text x="40.0" y="45.0" font-family="ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, sans-serif" font-size="19" fill="#eef2f8" text-anchor="start" font-weight="800">Wire codec — full leaderboard (one workload, every codec)</text>
+<text x="40.0" y="64.0" font-family="ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, sans-serif" font-size="12.5" fill="#93a4bd" text-anchor="start">Every codec on the same data, all three metrics together. Lower = better in every column.</text>
+<text x="40.0" y="80.0" font-family="ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, sans-serif" font-size="11" fill="#5b6b86" text-anchor="start">200 random records {id, name, active}.</text>
+<text x="212.0" y="115.0" font-family="ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, sans-serif" font-size="10.5" fill="#93a4bd" text-anchor="start" font-weight="600">Size (B) — lower better</text>
+<text x="442.0" y="115.0" font-family="ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, sans-serif" font-size="10.5" fill="#93a4bd" text-anchor="start" font-weight="600">Encode (ns) — lower better</text>
+<text x="672.0" y="115.0" font-family="ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, sans-serif" font-size="10.5" fill="#93a4bd" text-anchor="start" font-weight="600">Decode (ns) — lower better</text>
+<rect x="12.0" y="125.0" width="856.0" height="21.0" rx="5.0" fill="#00d4ff" opacity="0.06"/>
+<text x="196.0" y="140.0" font-family="ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, sans-serif" font-size="12" fill="#00d4ff" text-anchor="end" font-weight="700">LOGOS · all knobs</text>
+<rect x="212.0" y="129.0" width="9.5" height="12.0" rx="3.0" fill="url(#g3)"/>
+<text x="227.5" y="139.0" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="9.5" fill="#34d399" text-anchor="start" font-weight="700">2,085 ★</text>
+<rect x="442.0" y="129.0" width="101.4" height="12.0" rx="3.0" fill="url(#g2)"/>
+<text x="549.4" y="139.0" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="9.5" fill="#00d4ff" text-anchor="start" font-weight="600">22.7µs</text>
+<rect x="672.0" y="129.0" width="68.4" height="12.0" rx="3.0" fill="url(#g2)"/>
+<text x="746.4" y="139.0" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="9.5" fill="#00d4ff" text-anchor="start" font-weight="600">7.0µs</text>
+<rect x="12.0" y="148.0" width="856.0" height="21.0" rx="5.0" fill="#00d4ff" opacity="0.06"/>
+<text x="196.0" y="163.0" font-family="ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, sans-serif" font-size="12" fill="#00d4ff" text-anchor="end" font-weight="700">LOGOS · varint</text>
+<rect x="212.0" y="152.0" width="19.8" height="12.0" rx="3.0" fill="url(#g2)"/>
+<text x="237.8" y="162.0" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="9.5" fill="#00d4ff" text-anchor="start" font-weight="600">2,484</text>
+<rect x="442.0" y="152.0" width="18.1" height="12.0" rx="3.0" fill="url(#g2)"/>
+<text x="466.1" y="162.0" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="9.5" fill="#00d4ff" text-anchor="start" font-weight="600">598ns</text>
+<rect x="672.0" y="152.0" width="18.1" height="12.0" rx="3.0" fill="url(#g2)"/>
+<text x="696.1" y="162.0" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="9.5" fill="#00d4ff" text-anchor="start" font-weight="600">977ns</text>
+<text x="196.0" y="186.0" font-family="ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, sans-serif" font-size="12" fill="#eef2f8" text-anchor="end">postcard</text>
+<rect x="212.0" y="175.0" width="23.4" height="12.0" rx="3.0" fill="url(#g4)"/>
+<text x="241.4" y="185.0" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="9.5" fill="#9aa6b8" text-anchor="start" font-weight="600">2,640</text>
+<rect x="442.0" y="175.0" width="39.2" height="12.0" rx="3.0" fill="url(#g4)"/>
+<text x="487.2" y="185.0" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="9.5" fill="#9aa6b8" text-anchor="start" font-weight="600">1.5µs</text>
+<rect x="672.0" y="175.0" width="59.7" height="12.0" rx="3.0" fill="url(#g4)"/>
+<text x="737.7" y="185.0" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="9.5" fill="#9aa6b8" text-anchor="start" font-weight="600">5.0µs</text>
+<text x="196.0" y="209.0" font-family="ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, sans-serif" font-size="12" fill="#eef2f8" text-anchor="end">msgpack</text>
+<rect x="212.0" y="198.0" width="31.8" height="12.0" rx="3.0" fill="url(#g4)"/>
+<text x="249.8" y="208.0" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="9.5" fill="#9aa6b8" text-anchor="start" font-weight="600">3,044</text>
+<rect x="442.0" y="198.0" width="50.8" height="12.0" rx="3.0" fill="url(#g4)"/>
+<text x="498.8" y="208.0" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="9.5" fill="#9aa6b8" text-anchor="start" font-weight="600">2.5µs</text>
+<rect x="672.0" y="198.0" width="64.9" height="12.0" rx="3.0" fill="url(#g4)"/>
+<text x="742.9" y="208.0" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="9.5" fill="#9aa6b8" text-anchor="start" font-weight="600">6.1µs</text>
+<text x="196.0" y="232.0" font-family="ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, sans-serif" font-size="12" fill="#eef2f8" text-anchor="end">protobuf</text>
+<rect x="212.0" y="221.0" width="38.6" height="12.0" rx="3.0" fill="url(#g4)"/>
+<text x="256.6" y="231.0" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="9.5" fill="#9aa6b8" text-anchor="start" font-weight="600">3,420</text>
+<rect x="442.0" y="221.0" width="38.3" height="12.0" rx="3.0" fill="url(#g4)"/>
+<text x="486.3" y="231.0" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="9.5" fill="#9aa6b8" text-anchor="start" font-weight="600">1.4µs</text>
+<rect x="672.0" y="221.0" width="64.0" height="12.0" rx="3.0" fill="url(#g4)"/>
+<text x="742.0" y="231.0" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="9.5" fill="#9aa6b8" text-anchor="start" font-weight="600">5.9µs</text>
+<rect x="12.0" y="240.0" width="856.0" height="21.0" rx="5.0" fill="#00d4ff" opacity="0.06"/>
+<text x="196.0" y="255.0" font-family="ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, sans-serif" font-size="12" fill="#00d4ff" text-anchor="end" font-weight="700">LOGOS · fixed</text>
+<rect x="212.0" y="244.0" width="39.1" height="12.0" rx="3.0" fill="url(#g2)"/>
+<text x="257.1" y="254.0" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="9.5" fill="#00d4ff" text-anchor="start" font-weight="600">3,448</text>
+<rect x="442.0" y="244.0" width="5.2" height="12.0" rx="3.0" fill="url(#g3)"/>
+<text x="453.2" y="254.0" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="9.5" fill="#34d399" text-anchor="start" font-weight="700">320ns ★</text>
+<rect x="672.0" y="244.0" width="5.2" height="12.0" rx="3.0" fill="url(#g3)"/>
+<text x="683.2" y="254.0" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="9.5" fill="#34d399" text-anchor="start" font-weight="700">566ns ★</text>
+<text x="196.0" y="278.0" font-family="ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, sans-serif" font-size="12" fill="#eef2f8" text-anchor="end">arrow</text>
+<rect x="212.0" y="267.0" width="58.6" height="12.0" rx="3.0" fill="url(#g4)"/>
+<text x="276.6" y="277.0" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="9.5" fill="#9aa6b8" text-anchor="start" font-weight="600">4,808</text>
+<rect x="442.0" y="267.0" width="36.6" height="12.0" rx="3.0" fill="url(#g4)"/>
+<text x="484.6" y="277.0" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="9.5" fill="#9aa6b8" text-anchor="start" font-weight="600">1.3µs</text>
+<rect x="672.0" y="267.0" width="31.0" height="12.0" rx="3.0" fill="url(#g4)"/>
+<text x="709.0" y="277.0" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="9.5" fill="#9aa6b8" text-anchor="start" font-weight="600">1.6µs</text>
+<text x="196.0" y="301.0" font-family="ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, sans-serif" font-size="12" fill="#eef2f8" text-anchor="end">bincode</text>
+<rect x="212.0" y="290.0" width="60.8" height="12.0" rx="3.0" fill="url(#g4)"/>
+<text x="278.8" y="300.0" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="9.5" fill="#9aa6b8" text-anchor="start" font-weight="600">4,994</text>
+<rect x="442.0" y="290.0" width="14.0" height="12.0" rx="3.0" fill="url(#g4)"/>
+<text x="462.0" y="300.0" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="9.5" fill="#9aa6b8" text-anchor="start" font-weight="600">502ns</text>
+<rect x="672.0" y="290.0" width="59.2" height="12.0" rx="3.0" fill="url(#g4)"/>
+<text x="737.2" y="300.0" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="9.5" fill="#9aa6b8" text-anchor="start" font-weight="600">4.9µs</text>
+<text x="196.0" y="324.0" font-family="ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, sans-serif" font-size="12" fill="#eef2f8" text-anchor="end">cbor</text>
+<rect x="212.0" y="313.0" width="72.2" height="12.0" rx="3.0" fill="url(#g4)"/>
+<text x="290.2" y="323.0" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="9.5" fill="#9aa6b8" text-anchor="start" font-weight="600">6,061</text>
+<rect x="442.0" y="313.0" width="67.6" height="12.0" rx="3.0" fill="url(#g4)"/>
+<text x="515.6" y="323.0" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="9.5" fill="#9aa6b8" text-anchor="start" font-weight="600">5.2µs</text>
+<rect x="672.0" y="313.0" width="101.1" height="12.0" rx="3.0" fill="url(#g4)"/>
+<text x="779.1" y="323.0" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="9.5" fill="#9aa6b8" text-anchor="start" font-weight="600">25.0µs</text>
+<text x="196.0" y="347.0" font-family="ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, sans-serif" font-size="12" fill="#eef2f8" text-anchor="end">capnp</text>
+<rect x="212.0" y="336.0" width="83.2" height="12.0" rx="3.0" fill="url(#g4)"/>
+<text x="301.2" y="346.0" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="9.5" fill="#9aa6b8" text-anchor="start" font-weight="600">7,312</text>
+<rect x="442.0" y="336.0" width="33.2" height="12.0" rx="3.0" fill="url(#g4)"/>
+<text x="481.2" y="346.0" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="9.5" fill="#9aa6b8" text-anchor="start" font-weight="600">1.2µs</text>
+<rect x="672.0" y="336.0" width="24.6" height="12.0" rx="3.0" fill="url(#g4)"/>
+<text x="702.6" y="346.0" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="9.5" fill="#9aa6b8" text-anchor="start" font-weight="600">1.3µs</text>
+<text x="196.0" y="370.0" font-family="ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, sans-serif" font-size="12" fill="#eef2f8" text-anchor="end">json</text>
+<rect x="212.0" y="359.0" width="97.3" height="12.0" rx="3.0" fill="url(#g4)"/>
+<text x="315.3" y="369.0" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="9.5" fill="#9aa6b8" text-anchor="start" font-weight="600">9,304</text>
+<rect x="442.0" y="359.0" width="62.8" height="12.0" rx="3.0" fill="url(#g4)"/>
+<text x="510.8" y="369.0" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="9.5" fill="#9aa6b8" text-anchor="start" font-weight="600">4.2µs</text>
+<rect x="672.0" y="359.0" width="82.9" height="12.0" rx="3.0" fill="url(#g4)"/>
+<text x="760.9" y="369.0" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="9.5" fill="#9aa6b8" text-anchor="start" font-weight="600">12.3µs</text>
+<text x="24.0" y="420.0" font-family="ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, sans-serif" font-size="9.5" fill="#5b6b86" text-anchor="start">★ = best in column · random data · 20,000 iterations · ns/op. LOGOS dials trade size vs speed: ‘fixed/varint’ are fast, ‘all knobs’ is smallest. i9-14900K.</text>
+</svg>

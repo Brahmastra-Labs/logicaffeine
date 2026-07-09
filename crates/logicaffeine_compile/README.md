@@ -5,7 +5,7 @@ and optimization passes over it, then executes it across four tiers — the
 tree-walking interpreter, the register-bytecode VM (with a native AOT tier),
 Rust source generation, and the experimental C / hardware-SVA backends.
 
-Part of the [Logicaffeine](../../NEW_README.md) workspace. Tier 3 — the apex
+Part of the [Logicaffeine](https://github.com/Brahmastra-Labs/logicaffeine/blob/main/README.md) workspace. Tier 3 — the apex
 compiler crate; depends on base, language, kernel, data, system, proof, runtime
 (and verify under the `verification` feature).
 
@@ -26,8 +26,8 @@ AST ──▶ Analysis (escape, ownership, type/unify, liveness, call-graph)
     ──▶ { Interpreter | Bytecode VM (+ AOT) | Rust codegen | C / SVA codegen }
 ```
 
-See [imperative-mode.md](../../new_docs/imperative-mode.md) for the language the
-pipeline compiles and [execution-and-performance.md](../../new_docs/execution-and-performance.md)
+See [imperative-mode.md](https://github.com/Brahmastra-Labs/logicaffeine/blob/main/docs/imperative-mode.md) for the language the
+pipeline compiles and [execution-and-performance.md](https://github.com/Brahmastra-Labs/logicaffeine/blob/main/docs/execution-and-performance.md)
 for how the tiers relate.
 
 ## Public API
@@ -35,7 +35,7 @@ for how the tiers relate.
 The crate root re-exports the entry points; the rest live under `compile::` and
 `ui_bridge::`.
 
-```rust
+```text
 // AST → generated Rust source.
 pub fn compile_to_rust(source: &str) -> Result<String, ParseError>;
 pub fn compile_to_rust_deterministic(source: &str) -> Result<String, ParseError>;
@@ -54,6 +54,27 @@ pub fn classify_source(source: &str) -> Result<concurrency::Determinacy, ParseEr
 pub fn send_check_source(source: &str) -> Result<Vec<concurrency::SendDiagnostic>, ParseError>;
 ```
 
+### Module map
+
+The pipeline is spread across focused modules under the crate root. `intern`,
+`arena`, `arena_ctx`, `registry`, and `style` re-export the corresponding
+`logicaffeine-base` / `logicaffeine-language` items so downstream code depends on
+this crate alone.
+
+| Module | Role |
+|--------|------|
+| `loader` | multi-file LOGOS project loader |
+| `analysis` | compile-time analysis passes (escape, ownership, type/unify, liveness, call-graph) |
+| `optimize` | the optimizer (oracle facts, GVN, LICM, DCE, inlining, scalarization, e-graph, supercompilation) behind one `OptimizationConfig` |
+| `interpreter`, `vm`, `semantics` | the execution tiers (see below) and the shared value-semantics kernel |
+| `codegen`, `codegen_c`, `codegen_sva` | Rust / C / hardware-SVA source emission |
+| `extraction` | program extraction from kernel proof terms to Rust |
+| `concurrency` | the determinacy model + `Send`/classification analysis |
+| `diagnostic`, `sourcemap` | translating generated-Rust errors back to LOGOS source positions |
+| `ui_bridge`, `debug` | the Studio surface and the one-op-at-a-time bytecode debugger bridge |
+| `repl` | `ReplSession`, the replay-based interactive session behind `largo repl` (accumulated source re-run through the real engine, output high-water mark, error rollback) |
+| `defeasible`, `verification` | defeasible reasoning + Z3 static verification (`verification` feature) |
+
 `compile_to_rust("## Main\nReturn 42.")` emits a module whose `fn main` launches
 a large-stack (64 MiB) worker thread running `_logos_main`, whose body is
 `return 42;`. Other reachable functions in `compile::` include
@@ -70,6 +91,7 @@ surface: `compile_for_ui`, `verify_theorem`, `prove_theorem_trace`,
 |------|--------|-------|
 | Interpreter | `interpreter.rs` | Tree-walking async interpreter over `RuntimeValue`. |
 | Bytecode VM | `vm/` | Register VM — the browser/WASM engine and the JIT substrate; `aot_tier.rs` dlopens an off-thread `rustc`-built cdylib (`bg_aot`/`bg_compile`), cached via `tier_cache`. |
+| Direct WASM | `vm/wasm/` | The direct Logos→`.wasm` backend: emits a WebAssembly module with no `rustc` (`largo build --emit wasm`). Byte emission is feature-independent; only *running* JIT'd regions in-browser needs the `wasm-jit` feature. |
 | Rust codegen | `codegen/` | AST → Rust source (the AOT path); plus C / Python ctypes / TypeScript FFI bindings. |
 | C codegen | `codegen_c/` | Experimental benchmark-only C backend. |
 | SVA codegen | `codegen_sva/` | SVA/PSL + Rust runtime monitors for hardware verification. |
@@ -87,6 +109,7 @@ definition shared by all tiers. The copy-and-patch JIT itself lives in the
 | `interpreter-only` | No | Marker for a minimal build that drops the codegen path and runs interpretation/VM only. |
 | `narrow-value` | No | Makes the VM register cell wrap the 8-byte NaN-boxed `Narrow` (`vm/nanbox.rs`) instead of the default 16-byte `RuntimeValue`. Off by default. |
 | `verification` | No | Pulls in `logicaffeine-verify` and `logicaffeine-proof/verification`; enables the `verification` + `defeasible` modules, `VerificationPass`, `compile_to_rust_verified`, and the `check_theorem_*` re-exports (Z3 static verification + defeasible reasoning). |
+| `wasm-jit` | No | Pulls in `wasmi` and enables *running* JIT'd hot regions from the direct WASM backend (`vm/wasm/region_jit.rs`) inside the browser. Byte emission works without it; keep this pass scoped to its own test run. |
 
 ## Dependencies
 
@@ -103,7 +126,7 @@ External: `async-recursion` / `futures` (async interpreter), `rustc-hash`,
 
 ## License
 
-Business Source License 1.1 — see [LICENSE.md](../../LICENSE.md).
+Business Source License 1.1 — see [LICENSE.md](https://github.com/Brahmastra-Labs/logicaffeine/blob/main/LICENSE.md).
 
 ---
-[Docs index](../../new_docs/README.md) · [Root README](../../NEW_README.md) · [Changelog](../../CHANGELOG.md)
+[Docs index](https://github.com/Brahmastra-Labs/logicaffeine/blob/main/docs/README.md) · [Root README](https://github.com/Brahmastra-Labs/logicaffeine/blob/main/README.md) · [Changelog](https://github.com/Brahmastra-Labs/logicaffeine/blob/main/CHANGELOG.md)

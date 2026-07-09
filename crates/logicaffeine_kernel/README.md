@@ -2,17 +2,17 @@
 
 A pure Calculus of Constructions type checker (CIC-flavoured: inductive types, fixpoints, pattern matching) plus a set of decision procedures — the small, trusted logical base everything else in the workspace must re-check against.
 
-Part of the [Logicaffeine](../../NEW_README.md) workspace. Tier 1 — depends only on logicaffeine_base. **Milner invariant**: the kernel has no path to the lexicon, so it never sees English words. Adding vocabulary never recompiles the type checker.
+Part of the [Logicaffeine](https://github.com/Brahmastra-Labs/logicaffeine/blob/main/README.md) workspace. Tier 1 — depends only on logicaffeine_base. **Milner invariant**: the kernel has no path to the lexicon, so it never sees English words. Adding vocabulary never recompiles the type checker.
 
 ## Role in the workspace
 
-The bottom of the proof stack. It is depended on by `logicaffeine_compile`, `logicaffeine_proof`, and the web/CLI apps; everything above it (parser, proof search, SMT oracles) is **untrusted** — it only proposes proof terms the kernel re-checks. See [proof and verification](../../new_docs/proof-and-verification.md) for how proposals flow down to this trusted core.
+The bottom of the proof stack. It is depended on by `logicaffeine_compile`, `logicaffeine_proof`, and the web/CLI apps; everything above it (parser, proof search, SMT oracles) is **untrusted** — it only proposes proof terms the kernel re-checks. See [proof and verification](https://github.com/Brahmastra-Labs/logicaffeine/blob/main/docs/proof-and-verification.md) for how proposals flow down to this trusted core.
 
 The core insight is that terms, types, and proofs share one syntactic category. Everything is a `Term`: types (`Nat : Type 0`), values (`zero : Nat`), functions (`λx:Nat. x`), and proofs (`refl : a = a`).
 
 ## Public API
 
-```rust
+```text
 use logicaffeine_kernel::{Context, Term, infer_type, is_subtype, normalize};
 
 let ctx = Context::new();
@@ -50,6 +50,12 @@ Each is a `pub mod` with a Rust entry point on `Term` (distinct from the prelude
 
 `bitvector` exhaustively machine-checks the bit-permutation identities for `n = 1..=PROOF_WIDTH` (16); edge-distance uniformity of the per-bit transport makes that a proof for all `n` (memoised via `reflection_certificate`).
 
+Two algebraic-substrate modules build on `ring`: `field_algebra` proves identities over the prime field 𝔽_q of ML-KEM / ML-DSA, and `word_ring` proves them over the word ring ℤ/2ⁿ (`Word8`/`Word16`/`Word32`/`Word64`) — both discharged by the kernel's own decision procedures, so the certified-crypto arithmetic never trusts an external algebra system. `eval` is the call-by-value evaluator for the computational fragment (the engine behind `native_decide`), distinct from `normalize`'s substitution-based reduction.
+
+### Elaboration and recursors
+
+Two modules sit between the surface language and the trusted core: `elaborate` (R4) is the elaborator — metavariables, unification, and implicit-argument inference, so `id 0` elaborates to `id Nat 0` before the kernel ever sees it; `recursor` (R2) auto-derives the dependent eliminator `I.rec` for an inductive type, the way Lean/Coq generate recursors instead of making the user hand-write `match`/`fix`. Both propose terms the trusted checker still re-verifies.
+
 ### Soundness gates
 
 - `positivity::check_positivity` — strict positivity of inductives; rejects negative occurrences that would encode Russell's paradox.
@@ -58,7 +64,7 @@ Each is a `pub mod` with a Rust entry point on `Term` (distinct from the prelude
 ### Standard library (`prelude`)
 
 ```rust
-use logicaffeine_kernel::prelude::StandardLibrary;
+use logicaffeine_kernel::{prelude::StandardLibrary, Context};
 let mut ctx = Context::new();
 StandardLibrary::register(&mut ctx);
 ```
@@ -85,6 +91,14 @@ cargo run -p logicaffeine-kernel --example recheck --features serde -- cert.json
 
 The trusted core stays dependency-free unless certificates are being (de)serialized.
 
+## Inductive checkers
+
+The guards that keep user-declared inductive types sound:
+
+- **`positivity`** — strict positivity checking for inductive types (no negative self-reference).
+- **`termination`** — termination / guardedness checking for fixpoints.
+- **`inductive_compile`** — the nested-inductive compiler (K3): an UNTRUSTED front-end for inductives that recur through other inductives, kernel-rechecked on the way back.
+
 ## Dependencies
 
 - **Internal**: `logicaffeine-base` — the only dependency; supplies `UnionFind`, re-used by the `cc` congruence-closure e-graph. **No lexicon dependency** (Milner invariant).
@@ -92,7 +106,7 @@ The trusted core stays dependency-free unless certificates are being (de)seriali
 
 ## License
 
-Business Source License 1.1 — see [LICENSE.md](../../LICENSE.md).
+Business Source License 1.1 — see [LICENSE.md](https://github.com/Brahmastra-Labs/logicaffeine/blob/main/LICENSE.md).
 
 ---
-[Docs index](../../new_docs/README.md) · [Root README](../../NEW_README.md) · [Changelog](../../CHANGELOG.md)
+[Docs index](https://github.com/Brahmastra-Labs/logicaffeine/blob/main/docs/README.md) · [Root README](https://github.com/Brahmastra-Labs/logicaffeine/blob/main/README.md) · [Changelog](https://github.com/Brahmastra-Labs/logicaffeine/blob/main/CHANGELOG.md)

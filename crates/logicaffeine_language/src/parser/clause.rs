@@ -287,8 +287,8 @@ impl<'a, 'ctx, 'int> ClauseParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int> {
     /// finite verb of a relativizer-dropped clause modifying a preceding noun head,
     /// not a main-clause verb. The relative's overt subject (a ProperName or
     /// Pronoun) sits at `vp - 1`, and the relativized head is the determiner-headed
-    /// common noun that immediately precedes that subject ("the friend [Simon] went",
-    /// "the waterfall [Derrick] photographed"). The determiner requirement is what
+    /// common noun that immediately precedes that subject ("the friend \[Simon\] went",
+    /// "the waterfall \[Derrick\] photographed"). The determiner requirement is what
     /// distinguishes this from a true main clause whose initial word is a subject
     /// ("Set A has …" — "A" has no determiner-headed noun before it).
     fn is_reduced_relative_verb(&self, vp: usize) -> bool {
@@ -1686,9 +1686,32 @@ impl<'a, 'ctx, 'int> ClauseParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int> {
                 // Check if this NP should introduce a DRS referent
                 // Both indefinites ("a dog") and definites ("the dog") introduce referents
                 // For definites without antecedent, this implements "global accommodation"
-                if np.definiteness == Some(Definiteness::Indefinite)
-                    || np.definiteness == Some(Definiteness::Definite)
+                if np.definiteness == Some(Definiteness::Definite)
                     || np.definiteness == Some(Definiteness::Distal) {
+                    // A definite description ("the butler") denotes a UNIQUE
+                    // individual: like a proper name it is a RIGID constant, and
+                    // every co-referring pronoun ("…he…") must resolve to that
+                    // SAME constant. Register the referent as rigid (so anaphora
+                    // binds to the constant, not a fresh variable) but emit NO
+                    // type predicate and NO variable subject — a `Variable` here
+                    // would take universal force in the antecedent and diverge
+                    // from the constant its pronoun and the goal resolve to,
+                    // which the kernel certifier cannot reconcile.
+                    let gender = Self::infer_noun_gender(self.interner.resolve(np.noun));
+                    let number = if Self::is_plural_noun(self.interner.resolve(np.noun)) {
+                        Number::Plural
+                    } else {
+                        Number::Singular
+                    };
+                    self.drs.introduce_referent_with_source(
+                        np.noun,
+                        np.noun,
+                        gender,
+                        number,
+                        crate::drs::ReferentSource::ProperName,
+                    );
+                    (np.noun, None)
+                } else if np.definiteness == Some(Definiteness::Indefinite) {
                     let gender = Self::infer_noun_gender(self.interner.resolve(np.noun));
                     let number = if Self::is_plural_noun(self.interner.resolve(np.noun)) {
                         Number::Plural
@@ -1697,14 +1720,8 @@ impl<'a, 'ctx, 'int> ClauseParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int> {
                     };
 
                     // Register in DRS using noun as variable (for pronoun resolution)
-                    // For DEFINITES ("the X"), use MainClause source to avoid universal force
-                    // This ensures "the butler" in conditionals is treated as a constant
-                    // For INDEFINITES ("a X"), use default source (gets universal force in antecedent)
-                    if np.definiteness == Some(Definiteness::Definite) || np.definiteness == Some(Definiteness::Distal) {
-                        self.drs.introduce_referent_with_source(np.noun, np.noun, gender, number, crate::drs::ReferentSource::MainClause);
-                    } else {
-                        self.drs.introduce_referent(np.noun, np.noun, gender, number);
-                    }
+                    // INDEFINITES ("a X") use default source (universal force in antecedent)
+                    self.drs.introduce_referent(np.noun, np.noun, gender, number);
 
                     // Create type predicate: Farmer(noun)
                     let type_pred = self.ctx.exprs.alloc(LogicExpr::Predicate {

@@ -1,0 +1,119 @@
+{
+  "schema_version": 1,
+  "metadata": {
+    "date": "2026-06-17T09:18:29Z",
+    "commit": "4d31c18",
+    "logos_version": "0.9.17",
+    "cpu": "Intel(R) Core(TM) i9-14900K",
+    "os": "Ubuntu 24.04.2 LTS x86_64",
+    "warmup": 2,
+    "runs": 10,
+    "versions": {
+      "c": "gcc (Ubuntu 13.3.0-6ubuntu2~24.04.1) 13.3.0"
+    }
+  },
+  "languages": [
+    {
+      "id": "c",
+      "label": "C",
+      "color": "#555555",
+      "tier": "systems"
+    },
+    {
+      "id": "logos_release",
+      "label": "LOGOS",
+      "color": "#00d4ff",
+      "tier": "systems"
+    }
+  ],
+  "benchmarks": [
+    {
+      "id": "two_sum",
+      "name": "Two Sum",
+      "description": "Interleaved hash insert+lookup. Measures hash table under mixed workload.",
+      "reference_size": "39825181",
+      "sizes": [
+        "1000000",
+        "10000000",
+        "60000000"
+      ],
+      "logos_source": "## To native args () -> Seq of Text\n## To native parseInt (s: Text) -> Int\n\n## Main\nLet arguments be args().\nLet n be parseInt(item 2 of arguments).\nLet target be n.\nLet mutable arr be a new Seq of Int.\nLet mutable seed be 42.\nLet mutable i be 0.\nWhile i is less than n:\n    Set seed to (seed * 1103515245 + 12345) % 2147483648.\n    Push ((seed / 65536) % 32768) % n to arr.\n    Set i to i + 1.\nLet mutable seen be a new Map of Int to Int.\nLet mutable count be 0.\nSet i to 1.\nWhile i is at most n:\n    Let x be item i of arr.\n    Let complement be target - x.\n    If complement is at least 0:\n        If seen contains complement:\n            Set count to count + 1.\n    Set seen at x to 1.\n    Set i to i + 1.\nShow count.",
+      "generated_rust": "#[allow(unused_imports)]\nuse std::fmt::Write as _;\nuse logicaffeine_data::*;\nuse logicaffeine_system::*;\n\nfn args() -> LogosSeq<String> {\n    logicaffeine_system::env::args()\n}\n\nfn parseInt(s: String) -> i64 {\n    logicaffeine_system::text::parseInt(s)\n}\n\nfn main() {\n    std::thread::Builder::new()\n        .stack_size(67_108_864)\n        .spawn(_logos_main)\n        .unwrap().join().unwrap();\n}\nfn _logos_main() {\n    let arguments = args();\n    let n = parseInt(arguments.borrow()[1].clone());\n    let target = n;\n    let mut arr: Vec<i64> = Vec::with_capacity((n as usize) as usize);\n    let mut seed = 42;\n    {\n        let mut arr = &mut arr;\n    for i in 0..n {\n        seed = (((seed * 1103515245) + 12345) % 2147483648_i64);\n        arr.push((((seed / 65536) % 32768) % n));\n    }\n    }\n    let mut i = (0_i64).max(n);\n    let mut seen: LogosI64Set = LogosI64Set::with_capacity(n as usize);\n    let mut count = 0;\n    let __arr_bhl = arr.len() as i64;\n    {\n        let arr = &arr[..];\n    for i in 0..n {\n        debug_assert!(n <= __arr_bhl, \"LOGOS bounds hint violated: loop indexes `arr` past its length\");\n        unsafe { std::hint::assert_unchecked(n <= __arr_bhl); }\n        debug_assert!((i) >= 0 && (i) < (arr.len() as i64), \"LOGOS oracle bounds hint violated: indexing `arr` out of range\");\n        unsafe { std::hint::assert_unchecked((i) >= 0 && (i) < (arr.len() as i64)); }\n        let x = arr[i as usize];\n        let complement = (target - x);\n        if (complement >= 0) {\n            if seen.logos_contains(&complement) {\n                count = (count + 1);\n            }\n        }\n        seen.insert(x, 1);\n    }\n    }\n    show(&count);\n}",
+      "scaling": {
+        "39825181": {
+          "c": {
+            "mean_ms": 499.9837938200001000,
+            "median_ms": 497.55555672000007000,
+            "stddev_ms": 7.179779018995889000,
+            "min_ms": 490.8937957200001000,
+            "max_ms": 513.24883572000,
+            "cv": 0.01436002348024242519,
+            "runs": 10,
+            "user_ms": 381.91287999999995000,
+            "system_ms": 117.9123000
+          },
+          "logos_release": {
+            "mean_ms": 1935.0164095000,
+            "median_ms": 1882.979492000,
+            "stddev_ms": 905.2206333622798000,
+            "min_ms": 808.245485000,
+            "max_ms": 3122.928168000,
+            "cv": 0.46781031360668665171,
+            "runs": 10,
+            "user_ms": 1518.52696000,
+            "system_ms": 388.24823999999997000
+          }
+        }
+      },
+      "compilation": {},
+      "timeouts": {}
+    },
+    {
+      "id": "collect",
+      "name": "Collection Operations",
+      "description": "Hash map insert and lookup. Measures hash computation and cache behavior.",
+      "reference_size": "11903710",
+      "sizes": [
+        "500000",
+        "5000000",
+        "30000000"
+      ],
+      "logos_source": "## To native args () -> Seq of Text\n## To native parseInt (s: Text) -> Int\n\n## Main\nLet arguments be args().\nLet n be parseInt(item 2 of arguments).\nLet mutable m be a new Map of Int to Int with capacity n.\nLet mutable i be 1.\nWhile i is less than n + 1:\n    Set item i of m to i * 2.\n    Set i to i + 1.\nLet mutable found be 0.\nSet i to 1.\nWhile i is less than n + 1:\n    If item i of m equals i * 2:\n        Set found to found + 1.\n    Set i to i + 1.\nShow found.",
+      "generated_rust": "#[allow(unused_imports)]\nuse std::fmt::Write as _;\nuse logicaffeine_data::*;\nuse logicaffeine_system::*;\n\nfn args() -> LogosSeq<String> {\n    logicaffeine_system::env::args()\n}\n\nfn parseInt(s: String) -> i64 {\n    logicaffeine_system::text::parseInt(s)\n}\n\nfn main() {\n    std::thread::Builder::new()\n        .stack_size(67_108_864)\n        .spawn(_logos_main)\n        .unwrap().join().unwrap();\n}\nfn _logos_main() {\n    let arguments = args();\n    let n = parseInt(arguments.borrow()[1].clone());\n    let mut m = LogosI64Map::with_capacity((n) as usize);\n    for i in 1..(n + 1) {\n        m.insert(i, (i << 1));\n    }\n    let mut i = (1_i64).max((n + 1));\n    let mut found = 0;\n    for i in 1..(n + 1) {\n        if (m.get(&(i)) == Some((i << 1))) {\n            found = (found + 1);\n        }\n    }\n    show(&found);\n}",
+      "scaling": {
+        "11903710": {
+          "c": {
+            "mean_ms": 513.16575174000,
+            "median_ms": 512.69205424000,
+            "stddev_ms": 7.1982946729404395000,
+            "min_ms": 499.14833074000003000,
+            "max_ms": 523.11753374000,
+            "cv": 0.01402723125721671236,
+            "runs": 10,
+            "user_ms": 393.61942000,
+            "system_ms": 119.2947000
+          },
+          "logos_release": {
+            "mean_ms": 1198.9886964000003000,
+            "median_ms": 1167.6742676000003000,
+            "stddev_ms": 143.72801262593454000,
+            "min_ms": 1004.1364051000001000,
+            "max_ms": 1481.9762131000003000,
+            "cv": 0.11987436833848578394,
+            "runs": 10,
+            "user_ms": 1115.58786000,
+            "system_ms": 82.28096000
+          }
+        }
+      },
+      "compilation": {},
+      "timeouts": {}
+    }
+  ],
+  "summary": {
+    "geometric_mean_speedup_vs_c": {
+      "c": 1.000,
+      "logos_release": 0.333
+    }
+  }
+}

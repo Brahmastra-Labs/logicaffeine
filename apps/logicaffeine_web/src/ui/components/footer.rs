@@ -9,9 +9,7 @@
 use dioxus::prelude::*;
 use crate::ui::components::icon::{Icon, IconVariant, IconSize};
 use crate::ui::components::theme_picker::ThemePicker;
-
-/// Embedded logo SVG
-const LOGO_SVG: &str = include_str!("../../../assets/logo.svg");
+use crate::ui::components::main_nav::LOGO_SVG;
 
 const FOOTER_STYLES: &str = r#"
 .site-footer {

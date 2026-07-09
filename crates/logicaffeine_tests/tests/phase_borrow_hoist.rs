@@ -93,6 +93,9 @@ Show total.
 
 #[test]
 fn hoist_knapsack_inner_loop() {
+    // Borrow-hoisting is a reference-mode RefCell-traffic opt; the value-semantics
+    // liveness gate disables it. Pin it flag-off (nextest isolates per process).
+    std::env::set_var("LOGOS_VALUE_SEMANTICS", "0");
     // The headline shape: fresh `curr` per outer iteration, inner loop reads
     // prev and writes curr, handles swapped by rebinding at iteration end.
     // `prev`/`curr` are Seqs OF Seq (singleton inner rows): the inner-handle
@@ -161,6 +164,7 @@ Show total.
 
 #[test]
 fn hoist_two_reads_one_write_distinct() {
+    std::env::set_var("LOGOS_VALUE_SEMANTICS", "0"); // reference-mode borrow opt (see hoist_knapsack_inner_loop)
     // dot-product-with-output shape: two read handles, one write handle, all
     // fresh allocations — all three hoisted. Each is a Seq OF Seq (singleton
     // inner rows), so de-Rc leaves the outer handles reference-semantics
@@ -322,6 +326,7 @@ Show total.
 
 #[test]
 fn no_hoist_write_aliased_handles() {
+    std::env::set_var("LOGOS_VALUE_SEMANTICS", "0"); // reference-mode borrow opt + aliasing soundness (see hoist_knapsack_inner_loop)
     // `Let b be arr.` then the loop WRITES b and reads arr: a long-lived
     // borrow_mut on b plus any arr access would panic. Must stay per-access.
     let source = r#"## To native parseInt (s: Text) -> Int
@@ -358,6 +363,7 @@ Show total.
 
 #[test]
 fn no_hoist_conditionally_aliased_handles() {
+    std::env::set_var("LOGOS_VALUE_SEMANTICS", "0"); // reference-mode borrow opt + aliasing soundness (see hoist_knapsack_inner_loop)
     let source = r#"## To native parseInt (s: Text) -> Int
 
 ## Main
@@ -876,6 +882,7 @@ Inside a new zone called "Scratch":
 
 #[test]
 fn no_hoist_aliased_handles_inside_zone() {
+    std::env::set_var("LOGOS_VALUE_SEMANTICS", "0"); // reference-mode borrow opt + aliasing soundness (see hoist_knapsack_inner_loop)
     // `Let b be arr.` inside a zone aliases; a write loop through b reading
     // arr must NOT mut-hoist b (the runtime would panic `already borrowed`).
     let source = r#"## To native parseInt (s: Text) -> Int
@@ -917,6 +924,7 @@ Inside a new zone called "Scratch":
 
 #[test]
 fn hoist_inside_tiled_matmul() {
+    std::env::set_var("LOGOS_VALUE_SEMANTICS", "0"); // reference-mode borrow opt (see hoist_knapsack_inner_loop)
     // a/b/c are Seqs OF Seq (each flat matrix cell is a singleton inner row),
     // so the outer handles survive de-Rc as reference-semantics `LogosSeq`s and
     // hoist once around the whole 32-tile nest exactly as before.

@@ -47,11 +47,16 @@ default-members = [
 ]
 
 [workspace.package]
+# The single lockstep version for every member except the out-of-band 0.0.0
+# tools (wirebench, wiki_trace). Members inherit it via `version.workspace = true`;
+# a release bump edits this line and the [workspace.dependencies] internal
+# entries below (scripts/bump-version.sh does both).
+version = "0.10.0"
 authors = ["Tristen Harr <tristen@brahmastra-labs.com>"]
 license = "BUSL-1.1"
 repository = "https://github.com/Brahmastra-Labs/logicaffeine"
 homepage = "https://logicaffeine.com"
-documentation = "https://docs.rs/logicaffeine"
+documentation = "https://docs.logicaffeine.com"
 keywords = ["logic", "proof-assistant", "theorem-prover", "first-order-logic", "formal-methods"]
 categories = ["mathematics", "compilers", "science"]
 edition = "2021"
@@ -68,6 +73,24 @@ bare_urls = "warn"
 bumpalo = "3.19"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
+
+# Internal crates — members depend on these via `{ workspace = true }` so the
+# version+path pair lives in exactly one place.
+logicaffeine-base = { version = "0.10.0", path = "crates/logicaffeine_base" }
+logicaffeine-lexicon = { version = "0.10.0", path = "crates/logicaffeine_lexicon" }
+logicaffeine-kernel = { version = "0.10.0", path = "crates/logicaffeine_kernel" }
+logicaffeine-data = { version = "0.10.0", path = "crates/logicaffeine_data" }
+logicaffeine-system = { version = "0.10.0", path = "crates/logicaffeine_system" }
+logicaffeine-language = { version = "0.10.0", path = "crates/logicaffeine_language" }
+logicaffeine-proof = { version = "0.10.0", path = "crates/logicaffeine_proof" }
+logicaffeine-compile = { version = "0.10.0", path = "crates/logicaffeine_compile" }
+logicaffeine-runtime = { version = "0.10.0", path = "crates/logicaffeine_runtime" }
+logicaffeine-verify = { version = "0.10.0", path = "crates/logicaffeine_verify" }
+logicaffeine-forge = { version = "0.10.0", path = "crates/logicaffeine_forge" }
+logicaffeine-jit = { version = "0.10.0", path = "crates/logicaffeine_jit" }
+logicaffeine-tv = { version = "0.10.0", path = "crates/logicaffeine_tv" }
+logicaffeine-synth = { version = "0.10.0", path = "crates/logicaffeine_synth" }
+logicaffeine-web = { version = "0.10.0", path = "apps/logicaffeine_web" }
 
 # KNUTH DOCUMENTATION STANDARD (Section 1.8)
 [workspace.metadata.docs.rs]
@@ -120,14 +143,15 @@ opt-level = 2
 inherits = "dev"
 opt-level = 1
 
-# Web release build (dx `--release`). Debug info OFF so the wasm carries no DWARF
-# sections — binaryen's wasm-opt aborts (SIGABRT) on the DWARF version rustc now
-# emits, which silently leaves the served binary un-optimized (12 MB). With no
-# DWARF, wasm-opt runs and the size levers below shrink the served binary further;
-# opt-level stays at release's 3 so the in-wasm LOGOS interpreter keeps its speed.
+# Web release build (dx `--release`). opt-level stays at release's 3 so the in-wasm
+# LOGOS interpreter keeps its speed. debug=true is required by dx's wasm-split pass
+# (the splitter reads the DWARF symbol table to slice the call graph); wasm-opt
+# strips the DWARF afterward per Dioxus.toml [web.wasm_opt] debug=false, so the
+# served binary carries no debug sections and binaryen never hits the DWARF-version
+# SIGABRT.
 [profile.wasm-release]
 inherits = "release"
-debug = false
+debug = true
 strip = true
 lto = true
 codegen-units = 1
@@ -138,3 +162,43 @@ inherits = "dev"
 
 [profile.android-dev]
 inherits = "dev"
+
+# dioxus family pinned to our fork (v0.7.9 + the wasm-split fixes we upstreamed).
+# Unpin once the fixes land in a released dioxus. See Brahmastra-Labs/dioxus.
+[patch.crates-io]
+dioxus = { git = "https://github.com/Brahmastra-Labs/dioxus", rev = "fde227fac7f9974fc61a3d126053b462a122136f" }
+dioxus-asset-resolver = { git = "https://github.com/Brahmastra-Labs/dioxus", rev = "fde227fac7f9974fc61a3d126053b462a122136f" }
+dioxus-cli-config = { git = "https://github.com/Brahmastra-Labs/dioxus", rev = "fde227fac7f9974fc61a3d126053b462a122136f" }
+dioxus-config-macro = { git = "https://github.com/Brahmastra-Labs/dioxus", rev = "fde227fac7f9974fc61a3d126053b462a122136f" }
+dioxus-config-macros = { git = "https://github.com/Brahmastra-Labs/dioxus", rev = "fde227fac7f9974fc61a3d126053b462a122136f" }
+dioxus-core = { git = "https://github.com/Brahmastra-Labs/dioxus", rev = "fde227fac7f9974fc61a3d126053b462a122136f" }
+dioxus-core-macro = { git = "https://github.com/Brahmastra-Labs/dioxus", rev = "fde227fac7f9974fc61a3d126053b462a122136f" }
+dioxus-core-types = { git = "https://github.com/Brahmastra-Labs/dioxus", rev = "fde227fac7f9974fc61a3d126053b462a122136f" }
+dioxus-devtools = { git = "https://github.com/Brahmastra-Labs/dioxus", rev = "fde227fac7f9974fc61a3d126053b462a122136f" }
+dioxus-devtools-types = { git = "https://github.com/Brahmastra-Labs/dioxus", rev = "fde227fac7f9974fc61a3d126053b462a122136f" }
+dioxus-document = { git = "https://github.com/Brahmastra-Labs/dioxus", rev = "fde227fac7f9974fc61a3d126053b462a122136f" }
+dioxus-fullstack = { git = "https://github.com/Brahmastra-Labs/dioxus", rev = "fde227fac7f9974fc61a3d126053b462a122136f" }
+dioxus-fullstack-core = { git = "https://github.com/Brahmastra-Labs/dioxus", rev = "fde227fac7f9974fc61a3d126053b462a122136f" }
+dioxus-fullstack-macro = { git = "https://github.com/Brahmastra-Labs/dioxus", rev = "fde227fac7f9974fc61a3d126053b462a122136f" }
+dioxus-history = { git = "https://github.com/Brahmastra-Labs/dioxus", rev = "fde227fac7f9974fc61a3d126053b462a122136f" }
+dioxus-hooks = { git = "https://github.com/Brahmastra-Labs/dioxus", rev = "fde227fac7f9974fc61a3d126053b462a122136f" }
+dioxus-html = { git = "https://github.com/Brahmastra-Labs/dioxus", rev = "fde227fac7f9974fc61a3d126053b462a122136f" }
+dioxus-html-internal-macro = { git = "https://github.com/Brahmastra-Labs/dioxus", rev = "fde227fac7f9974fc61a3d126053b462a122136f" }
+dioxus-interpreter-js = { git = "https://github.com/Brahmastra-Labs/dioxus", rev = "fde227fac7f9974fc61a3d126053b462a122136f" }
+dioxus-liveview = { git = "https://github.com/Brahmastra-Labs/dioxus", rev = "fde227fac7f9974fc61a3d126053b462a122136f" }
+dioxus-logger = { git = "https://github.com/Brahmastra-Labs/dioxus", rev = "fde227fac7f9974fc61a3d126053b462a122136f" }
+dioxus-router = { git = "https://github.com/Brahmastra-Labs/dioxus", rev = "fde227fac7f9974fc61a3d126053b462a122136f" }
+dioxus-router-macro = { git = "https://github.com/Brahmastra-Labs/dioxus", rev = "fde227fac7f9974fc61a3d126053b462a122136f" }
+dioxus-rsx = { git = "https://github.com/Brahmastra-Labs/dioxus", rev = "fde227fac7f9974fc61a3d126053b462a122136f" }
+dioxus-server = { git = "https://github.com/Brahmastra-Labs/dioxus", rev = "fde227fac7f9974fc61a3d126053b462a122136f" }
+dioxus-signals = { git = "https://github.com/Brahmastra-Labs/dioxus", rev = "fde227fac7f9974fc61a3d126053b462a122136f" }
+dioxus-ssr = { git = "https://github.com/Brahmastra-Labs/dioxus", rev = "fde227fac7f9974fc61a3d126053b462a122136f" }
+dioxus-stores = { git = "https://github.com/Brahmastra-Labs/dioxus", rev = "fde227fac7f9974fc61a3d126053b462a122136f" }
+dioxus-stores-macro = { git = "https://github.com/Brahmastra-Labs/dioxus", rev = "fde227fac7f9974fc61a3d126053b462a122136f" }
+dioxus-web = { git = "https://github.com/Brahmastra-Labs/dioxus", rev = "fde227fac7f9974fc61a3d126053b462a122136f" }
+generational-box = { git = "https://github.com/Brahmastra-Labs/dioxus", rev = "fde227fac7f9974fc61a3d126053b462a122136f" }
+manganis = { git = "https://github.com/Brahmastra-Labs/dioxus", rev = "fde227fac7f9974fc61a3d126053b462a122136f" }
+manganis-core = { git = "https://github.com/Brahmastra-Labs/dioxus", rev = "fde227fac7f9974fc61a3d126053b462a122136f" }
+manganis-macro = { git = "https://github.com/Brahmastra-Labs/dioxus", rev = "fde227fac7f9974fc61a3d126053b462a122136f" }
+wasm-split-macro = { git = "https://github.com/Brahmastra-Labs/dioxus", rev = "fde227fac7f9974fc61a3d126053b462a122136f" }
+wasm-splitter = { git = "https://github.com/Brahmastra-Labs/dioxus", rev = "fde227fac7f9974fc61a3d126053b462a122136f" }

@@ -194,6 +194,8 @@ const STD_ENV: &str = include_str!("../assets/std/env.lg");
 const STD_FILE: &str = include_str!("../assets/std/file.lg");
 const STD_RANDOM: &str = include_str!("../assets/std/random.lg");
 const STD_TIME: &str = include_str!("../assets/std/time.lg");
+const STD_CRYPTO: &str = include_str!("../assets/std/crypto.lg");
+const STD_UUID: &str = include_str!("../assets/std/uuid.lg");
 
 /// Every stdlib module that auto-imports, in stable embedding order. The trigger
 /// identifiers and collision keys are not hand-maintained — they are *derived* from
@@ -210,6 +212,8 @@ const PRELUDE_MODULES: &[&str] = &[
     STD_FILE,
     STD_RANDOM,
     STD_TIME,
+    STD_CRYPTO,
+    STD_UUID,
 ];
 
 fn is_ident_byte(b: u8) -> bool {
@@ -258,9 +262,10 @@ fn defined_names(code: &str) -> Vec<String> {
     names
 }
 
-/// The names a prelude module owns (derived from its CODE).
+/// The names a prelude module owns (derived from its CODE, notes stripped —
+/// documentation prose must never mint a trigger name).
 fn module_names(src: &str) -> Vec<String> {
-    defined_names(module_code(src))
+    defined_names(&strip_note_blocks(module_code(src)))
 }
 
 /// Does the user `source` itself define `name`? If so, the user's definition wins and the
@@ -286,15 +291,46 @@ fn module_code(md: &str) -> &str {
     }
 }
 
+/// A module's code with `## Note` documentation blocks removed — what the
+/// prelude actually prepends. Notes are the IDE's per-definition doc carrier
+/// (see `prelude_module_sources`); the runtime prelude stays lean, note-free,
+/// and byte-identical to the pre-documentation join.
+fn strip_note_blocks(code: &str) -> String {
+    let mut out = String::with_capacity(code.len());
+    let mut in_note = false;
+    for line in code.split_inclusive('\n') {
+        let trimmed = line.trim();
+        if in_note {
+            if trimmed.starts_with("## ") && trimmed != "## Note" {
+                in_note = false;
+                out.push_str(line);
+            }
+            continue;
+        }
+        if trimmed == "## Note" {
+            in_note = true;
+            continue;
+        }
+        out.push_str(line);
+    }
+    out
+}
+
 /// The full embedded prelude — every module's CODE concatenated (what
-/// [`apply_prelude`] prepends). Identical bytes on every target (`include_str!`
-/// is compile-time).
+/// [`apply_prelude`] prepends), documentation notes stripped. Identical bytes
+/// on every target (`include_str!` is compile-time).
 pub fn prelude() -> String {
     PRELUDE_MODULES
         .iter()
-        .map(|src| module_code(src))
+        .map(|src| strip_note_blocks(module_code(src)))
         .collect::<Vec<_>>()
         .join("\n\n")
+}
+
+/// The RAW embedded stdlib module sources, `## Note` documentation included —
+/// the seam the LSP reads literate docs from (`teach::extract_literate_docs`).
+pub fn prelude_module_sources() -> &'static [&'static str] {
+    PRELUDE_MODULES
 }
 
 /// Every identifier the prelude defines (across all modules) — derived from the modules.
@@ -357,19 +393,19 @@ pub fn apply_prelude(source: &str) -> std::borrow::Cow<'_, str> {
     // idempotent (a source already carrying a module's definitions is left untouched, so
     // the AOT hot path stays byte-identical).
     let user_defined = defined_names(source);
-    let mut needed: Vec<&str> = Vec::new();
+    let mut needed: Vec<String> = Vec::new();
     for src in PRELUDE_MODULES {
         let names = module_names(src);
         let referenced = names.iter().any(|n| references(source, n));
         let defined = names.iter().any(|n| user_defined.contains(n));
         if referenced && !defined {
-            needed.push(module_code(src));
+            needed.push(strip_note_blocks(module_code(src)));
         }
     }
     if needed.is_empty() {
         std::borrow::Cow::Borrowed(source)
     } else {
-        needed.push(source);
+        needed.push(source.to_string());
         std::borrow::Cow::Owned(needed.join("\n\n"))
     }
 }
@@ -454,6 +490,33 @@ mod tests {
     }
 
     // ─── Prelude auto-import internals ──────────────────────────────────────
+
+    #[test]
+    fn prelude_contains_no_note_blocks() {
+        // `## Note` documentation lives in the module SOURCES (the IDE reads
+        // it from `prelude_module_sources`); the runtime prelude must stay
+        // lean and note-free, byte-identical to the pre-documentation join.
+        assert!(
+            !prelude().contains("## Note"),
+            "prelude() must strip documentation notes before prepending"
+        );
+        for src in prelude_module_sources() {
+            for name in defined_names(&strip_note_blocks(module_code(src))) {
+                assert!(!name.is_empty());
+            }
+        }
+    }
+
+    #[test]
+    fn note_stripping_is_byte_exact_around_headers() {
+        let documented = "## Note\nDoes a thing.\n\n## To f (n: Int) -> Int:\n    Return n.\n";
+        let bare = "## To f (n: Int) -> Int:\n    Return n.\n";
+        assert_eq!(strip_note_blocks(documented), bare);
+
+        let between = "## To a:\n    Show 1.\n\n## Note\nDoc.\n\n## To b:\n    Show 2.\n";
+        let bare_between = "## To a:\n    Show 1.\n\n## To b:\n    Show 2.\n";
+        assert_eq!(strip_note_blocks(between), bare_between);
+    }
 
     #[test]
     fn derives_defined_names_per_module() {

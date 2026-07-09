@@ -23,6 +23,11 @@ pub struct Definition {
     pub span: Span,
     pub detail: Option<String>,
     pub scope: ScopeInfo,
+    /// `Some(false)` = an immutable `Let` (readonly); only Variables carry this.
+    pub mutable: Option<bool>,
+    /// Literate documentation: the `## Note` block directly above this
+    /// definition's `##` header (functions, types, theorems).
+    pub doc: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -46,6 +51,18 @@ pub struct Reference {
     pub definition_idx: Option<usize>,
 }
 
+/// One function call site, for the call hierarchy.
+#[derive(Debug, Clone)]
+pub struct CallSite {
+    /// Definition index of the ENCLOSING function — `None` for calls from
+    /// `## Main` or other non-function blocks (no hierarchy item to hang
+    /// them on).
+    pub caller: Option<usize>,
+    /// Definition index of the called function.
+    pub callee: usize,
+    pub span: Span,
+}
+
 /// The symbol index for a single document.
 #[derive(Debug, Clone, Default)]
 pub struct SymbolIndex {
@@ -56,15 +73,19 @@ pub struct SymbolIndex {
     pub block_spans: Vec<(String, BlockType, Span)>,
     /// Statement spans inferred from keyword..period token ranges.
     pub statement_spans: Vec<(String, Span)>,
+    /// Function call sites (`f(…)` and `Call f …`), caller-resolved.
+    pub call_sites: Vec<CallSite>,
 }
 
 impl SymbolIndex {
-    /// Build the symbol index from parsed statements, tokens, and the type registry.
+    /// Build the symbol index from parsed statements, tokens, the type
+    /// registry, and the source text (literate docs read the prose).
     pub fn build(
         stmts: &[OwnedStmt],
         tokens: &[Token],
         type_registry: &TypeRegistry,
         interner: &Interner,
+        source: &str,
     ) -> Self {
         let mut index = SymbolIndex::default();
 
@@ -77,13 +98,73 @@ impl SymbolIndex {
         // Phase 3: Extract block headers and statement spans from tokens
         index.index_tokens(tokens, interner);
 
+        // Phase 3.5: Attach literate documentation (`## Note` above a header)
+        index.index_docs(source);
+
         // Phase 4: Index identifier references (scope-aware)
         index.index_references(tokens, interner);
 
         // Phase 5: Compute scope info for each definition
         index.compute_scopes();
 
+        // Phase 6: Function call sites for the call hierarchy
+        index.index_call_sites(tokens, interner);
+
         index
+    }
+
+    /// Attach each function/type/theorem definition's literate documentation:
+    /// the `## Note` block sitting directly above its `##` header line.
+    fn index_docs(&mut self, source: &str) {
+        for def in &mut self.definitions {
+            if !matches!(
+                def.kind,
+                DefinitionKind::Function
+                    | DefinitionKind::Struct
+                    | DefinitionKind::Enum
+                    | DefinitionKind::Theorem
+            ) {
+                continue;
+            }
+            let anchor = def.span.start.min(source.len());
+            let line_start = source[..anchor].rfind('\n').map(|i| i + 1).unwrap_or(0);
+            let is_header_line = source[line_start..]
+                .lines()
+                .next()
+                .is_some_and(|l| l.trim_start().starts_with("## "));
+            if is_header_line {
+                def.doc =
+                    logicaffeine_language::teach::doc_for_header_at(source, line_start);
+            }
+        }
+    }
+
+    /// The binding token of the NEXT unconsumed `Let <name>` /
+    /// `Let mutable <name>` in the stream — each Let statement claims its own
+    /// binding site exactly once.
+    fn claim_let_binding(
+        tokens: &[Token],
+        name: &str,
+        interner: &Interner,
+        taken: &mut std::collections::HashSet<usize>,
+    ) -> Option<Span> {
+        for (i, token) in tokens.iter().enumerate() {
+            if !matches!(token.kind, TokenType::Let) || taken.contains(&i) {
+                continue;
+            }
+            // The binding name sits within the next couple of tokens
+            // (`Let x`, `Let mutable x`).
+            for candidate in tokens.iter().skip(i + 1).take(3) {
+                if matches!(candidate.kind, TokenType::Be | TokenType::Colon) {
+                    break;
+                }
+                if resolve_token_name(candidate, interner).map(|n| n == name).unwrap_or(false) {
+                    taken.insert(i);
+                    return Some(candidate.span);
+                }
+            }
+        }
+        None
     }
 
     fn add_definition(&mut self, def: Definition) -> usize {
@@ -97,6 +178,7 @@ impl SymbolIndex {
     }
 
     fn index_statements(&mut self, stmts: &[OwnedStmt], tokens: &[Token], interner: &Interner) {
+        let mut taken_lets: std::collections::HashSet<usize> = std::collections::HashSet::new();
         for stmt in stmts {
             match stmt {
                 OwnedStmt::FunctionDef { name, params, return_type } => {
@@ -116,6 +198,8 @@ impl SymbolIndex {
                         span,
                         detail,
                         scope: ScopeInfo::default(),
+                        mutable: None,
+                        doc: None,
                     });
 
                     // Add parameters as definitions, each with its own span
@@ -133,6 +217,8 @@ impl SymbolIndex {
                             span: param_span,
                             detail: Some(format!("{}: {}", param_name, param_type)),
                             scope: ScopeInfo::default(),
+                            mutable: None,
+                            doc: None,
                         });
                     }
                 }
@@ -145,6 +231,8 @@ impl SymbolIndex {
                         span,
                         detail: Some(format!("{} (struct)", name)),
                         scope: ScopeInfo::default(),
+                        mutable: None,
+                        doc: None,
                     });
                     let mut field_search_after = span.end;
                     for (field_name, field_type) in fields {
@@ -160,11 +248,18 @@ impl SymbolIndex {
                             span: field_span,
                             detail: Some(format!("{}: {}", field_name, field_type)),
                             scope: ScopeInfo::default(),
+                            mutable: None,
+                            doc: None,
                         });
                     }
                 }
                 OwnedStmt::Let { name, ty, inferred_type, mutable } => {
-                    let span = find_token_span_for_name(tokens, name, interner)
+                    // Each re-Let of the same name anchors on its OWN
+                    // binding token (the name right after its `Let`), never
+                    // the first occurrence — shadow warnings and renames
+                    // depend on the distinction.
+                    let span = Self::claim_let_binding(tokens, name, interner, &mut taken_lets)
+                        .or_else(|| find_token_span_for_name(tokens, name, interner))
                         .unwrap_or(Span::default());
                     let prefix = if *mutable { "mut " } else { "" };
                     let detail = if let Some(explicit_ty) = ty {
@@ -180,6 +275,8 @@ impl SymbolIndex {
                         span,
                         detail: Some(detail),
                         scope: ScopeInfo::default(),
+                        mutable: Some(*mutable),
+                        doc: None,
                     });
                 }
                 OwnedStmt::Theorem { name } => {
@@ -191,6 +288,8 @@ impl SymbolIndex {
                         span,
                         detail: Some(format!("Theorem {}", name)),
                         scope: ScopeInfo::default(),
+                        mutable: None,
+                        doc: None,
                     });
                 }
                 OwnedStmt::Block { name, kind } => {
@@ -200,6 +299,8 @@ impl SymbolIndex {
                         span: Span::default(),
                         detail: Some(format!("{} {}", kind, name)),
                         scope: ScopeInfo::default(),
+                        mutable: None,
+                        doc: None,
                     });
                 }
                 OwnedStmt::Other => {}
@@ -235,15 +336,30 @@ impl SymbolIndex {
                         span,
                         detail: Some(format!("{} (struct)", name)),
                         scope: ScopeInfo::default(),
+                        mutable: None,
+                        doc: None,
                     });
+                    let mut field_search_after = span.end;
                     for field in fields {
                         let field_name = interner.resolve(field.name).to_string();
+                        // The field's OWN token span — reusing the struct
+                        // header's span would collide in every span-keyed
+                        // map (highlighting painted struct names as fields).
+                        let field_span = find_token_span_for_name_after(
+                            tokens, &field_name, interner, field_search_after,
+                        )
+                        .unwrap_or(span);
+                        if field_span != span {
+                            field_search_after = field_span.end;
+                        }
                         self.add_definition(Definition {
                             name: field_name.clone(),
                             kind: DefinitionKind::Field,
-                            span,
+                            span: field_span,
                             detail: Some(format!("{}.{}", name, field_name)),
                             scope: ScopeInfo::default(),
+                            mutable: None,
+                            doc: None,
                         });
                     }
                 }
@@ -254,15 +370,21 @@ impl SymbolIndex {
                         span,
                         detail: Some(format!("{} (enum)", name)),
                         scope: ScopeInfo::default(),
+                        mutable: None,
+                        doc: None,
                     });
                     for variant in variants {
                         let variant_name = interner.resolve(variant.name).to_string();
+                        let variant_span = find_token_span_for_name(tokens, &variant_name, interner)
+                            .unwrap_or(span);
                         self.add_definition(Definition {
                             name: variant_name.clone(),
                             kind: DefinitionKind::Variant,
-                            span,
+                            span: variant_span,
                             detail: Some(format!("{}::{}", name, variant_name)),
                             scope: ScopeInfo::default(),
+                            mutable: None,
+                            doc: None,
                         });
                     }
                 }
@@ -377,6 +499,65 @@ impl SymbolIndex {
                 });
             }
         }
+    }
+
+    /// Record every `f(…)` and `Call f …` site whose name resolves to a
+    /// function definition. The definition's own header (`## To f (…)`) also
+    /// puts the name before a paren — excluded by span identity.
+    fn index_call_sites(&mut self, tokens: &[Token], interner: &Interner) {
+        for (i, token) in tokens.iter().enumerate() {
+            let Some(name) = resolve_token_name(token, interner) else { continue };
+
+            let is_call_form = matches!(
+                tokens.get(i + 1).map(|t| &t.kind),
+                Some(TokenType::LParen)
+            ) || matches!(
+                i.checked_sub(1).and_then(|p| tokens.get(p)).map(|t| &t.kind),
+                Some(TokenType::Call)
+            );
+            if !is_call_form {
+                continue;
+            }
+
+            let Some(callee) = self
+                .name_to_defs
+                .get(name)
+                .and_then(|indices| {
+                    indices
+                        .iter()
+                        .copied()
+                        .find(|&ix| self.definitions[ix].kind == DefinitionKind::Function)
+                })
+            else {
+                continue;
+            };
+            if self.definitions[callee].span == token.span {
+                continue; // the definition's own signature, not a call
+            }
+
+            self.call_sites.push(CallSite {
+                caller: self.enclosing_function(token.span.start),
+                callee,
+                span: token.span,
+            });
+        }
+    }
+
+    /// The function definition whose block contains `offset`, if any.
+    pub fn enclosing_function(&self, offset: usize) -> Option<usize> {
+        let block = self
+            .block_spans
+            .iter()
+            .filter(|(_, block_type, span)| {
+                *block_type == BlockType::Function && span.start <= offset && offset < span.end
+            })
+            .min_by_key(|(_, _, span)| span.end - span.start)?;
+        let block_span = block.2;
+        self.definitions.iter().position(|d| {
+            d.kind == DefinitionKind::Function
+                && block_span.start <= d.span.start
+                && d.span.start < block_span.end
+        })
     }
 
     /// Compute scope info for each definition by matching its span against block_spans.
@@ -693,7 +874,13 @@ pub fn resolve_token_name<'a>(token: &Token, interner: &'a Interner) -> Option<&
         TokenType::Noun(sym) => Some(interner.resolve(*sym)),
         TokenType::Adjective(sym) => Some(interner.resolve(*sym)),
         TokenType::BlockHeader { .. } => Some(interner.resolve(token.lexeme)),
-        TokenType::Verb { lemma, .. } => Some(interner.resolve(*lemma)),
+        // Definitions are named by their SURFACE form ("greet"), not the
+        // lexicon's normalized lemma ("Greet") — an English word used as an
+        // identifier must resolve by what the author wrote.
+        TokenType::Verb { .. } => Some(interner.resolve(token.lexeme)),
+        // A lexically ambiguous word ("name": verb or noun) is still an
+        // identifier at the surface level.
+        TokenType::Ambiguous { .. } => Some(interner.resolve(token.lexeme)),
         _ => None,
     }
 }
@@ -707,6 +894,24 @@ fn find_token_span_for_name(tokens: &[Token], name: &str, interner: &Interner) -
 /// Public version of `find_token_span_for_name` for use by other LSP modules.
 pub fn find_token_span_for_name_pub(tokens: &[Token], name: &str, interner: &Interner) -> Option<Span> {
     find_token_span_for_name(tokens, name, interner)
+}
+
+/// The LAST occurrence of a name — the use-site approximation for
+/// use-after-move/escape diagnostics when no statement span is known (the
+/// complaint is always about a later use, never the binding itself).
+pub fn find_last_token_span_for_name(
+    tokens: &[Token],
+    name: &str,
+    interner: &Interner,
+) -> Option<Span> {
+    tokens
+        .iter()
+        .rev()
+        .find(|t| {
+            !matches!(t.kind, TokenType::BlockHeader { .. })
+                && resolve_token_name(t, interner).map(|n| n == name).unwrap_or(false)
+        })
+        .map(|t| t.span)
 }
 
 /// Find the first token span where a name appears after `after_offset`.
@@ -729,26 +934,48 @@ fn find_token_span_for_name_after(
     None
 }
 
-/// Find the span of a keyword token (Give, Zone, etc.) that precedes a named
-/// variable in the token stream. Used for diagnostic related-information.
+/// Find the span of the keyword statement (Give, Zone, …) that CAUSED an
+/// error on `variable_name`. Used for diagnostic related-information.
+///
+/// The variable must sit in OBJECT position — the token immediately after
+/// the keyword — so `Give y to x` never counts as the Give that moved `x`
+/// (there, `x` is the recipient). When `before_offset` is given, the LAST
+/// matching statement before that use site wins: the most recent move is
+/// the cause, not the first one in the file.
 pub fn find_keyword_span_before_name(
     tokens: &[Token],
     keyword: TokenType,
     variable_name: &str,
     interner: &Interner,
 ) -> Option<Span> {
+    find_cause_keyword_span(tokens, keyword, variable_name, interner, usize::MAX)
+}
+
+/// [`find_keyword_span_before_name`] bounded to causes before a use site.
+pub fn find_cause_keyword_span(
+    tokens: &[Token],
+    keyword: TokenType,
+    variable_name: &str,
+    interner: &Interner,
+    before_offset: usize,
+) -> Option<Span> {
     let discriminant = std::mem::discriminant(&keyword);
+    let mut best: Option<Span> = None;
     for (i, token) in tokens.iter().enumerate() {
-        if std::mem::discriminant(&token.kind) == discriminant {
-            // Check if the variable name appears in subsequent tokens (within 3)
-            for j in (i + 1)..tokens.len().min(i + 4) {
-                if let Some(resolved) = resolve_token_name(&tokens[j], interner) {
-                    if resolved == variable_name {
-                        return Some(token.span);
-                    }
-                }
-            }
+        if std::mem::discriminant(&token.kind) != discriminant {
+            continue;
+        }
+        if token.span.start >= before_offset {
+            break;
+        }
+        let object_matches = tokens
+            .get(i + 1)
+            .and_then(|t| resolve_token_name(t, interner))
+            .map(|resolved| resolved == variable_name)
+            .unwrap_or(false);
+        if object_matches {
+            best = Some(token.span);
         }
     }
-    None
+    best
 }

@@ -570,6 +570,12 @@ struct ParsedTheorem {
     goal: ProofExpr,
     goal_string: String,
     is_auto: bool,
+    /// An explicit `Proof:` tactic script (English-esque vernacular), if the block
+    /// gave one instead of `Auto`. Run by the tactic framework, kernel-certified.
+    script: Option<String>,
+    /// Optional names for the premises (`Given (h): …`), parallel to `premises`, so a
+    /// script can refer to a premise as `h` rather than `hp0`.
+    premise_names: Vec<Option<String>>,
 }
 
 fn parse_theorem(input: &str) -> Result<ParsedTheorem, String> {
@@ -625,13 +631,157 @@ fn parse_theorem(input: &str) -> Result<ParsedTheorem, String> {
     let mut registry = SymbolRegistry::new();
     let goal_string = theorem.goal.transpile(&mut registry, &interner, OutputFormat::SimpleFOL);
 
+    let script = match &theorem.strategy {
+        ast::theorem::ProofStrategy::Script(s) => Some(s.clone()),
+        _ => None,
+    };
+
     Ok(ParsedTheorem {
         name: theorem.name.clone(),
         premises,
         goal,
         goal_string,
         is_auto: matches!(theorem.strategy, ast::theorem::ProofStrategy::Auto),
+        script,
+        premise_names: theorem.premise_names.clone(),
     })
+}
+
+/// A single theorem's verdict within a compiled formal development.
+#[derive(Debug, Clone)]
+pub struct TheoryTheoremResult {
+    pub name: String,
+    pub verified: bool,
+    pub error: Option<String>,
+}
+
+/// The result of compiling a program's formal development — its `## Axiom` declarations
+/// (a shared premise base) plus the theorems of its `## Theory` block, each discharged in
+/// citation order and kernel-certified by the multi-theorem driver.
+#[derive(Debug, Clone)]
+pub struct TheoryCompileResult {
+    pub theory_name: Option<String>,
+    pub axiom_count: usize,
+    pub theorems: Vec<TheoryTheoremResult>,
+    pub parse_error: Option<String>,
+}
+
+impl TheoryCompileResult {
+    /// Whether every theorem in the development was kernel-certified (and it parsed).
+    pub fn all_verified(&self) -> bool {
+        self.parse_error.is_none()
+            && !self.theorems.is_empty()
+            && self.theorems.iter().all(|t| t.verified)
+    }
+}
+
+/// Compile a program's formal development end to end: collect every `## Axiom` (a shared
+/// premise base) and every `## Theory` block's `Axiom`/`Theorem` declarations, then prove
+/// the theorems in citation order, each kernel-certified by the multi-theorem driver. This
+/// is the seam that turns a Tarski-style source file into a verified development.
+pub fn compile_theory_for_ui(input: &str) -> TheoryCompileResult {
+    use logicaffeine_proof::development::parse_development;
+    use logicaffeine_proof::formula::parse_formula;
+    use logicaffeine_proof::verify::{prove_library_with_axioms, LibraryTheorem};
+
+    // Parse the program with the same wiring as `parse_theorem`.
+    let mut interner = Interner::new();
+    let mut lexer = Lexer::new(input, &mut interner);
+    let tokens = lexer.tokenize();
+    let mwe_trie = mwe::build_mwe_trie();
+    let tokens = mwe::apply_mwe_pipeline(tokens, &mwe_trie, &mut interner);
+    let type_registry = {
+        let mut discovery = DiscoveryPass::new(&tokens, &mut interner);
+        discovery.run()
+    };
+    let expr_arena = Arena::new();
+    let term_arena = Arena::new();
+    let np_arena = Arena::new();
+    let sym_arena = Arena::new();
+    let role_arena = Arena::new();
+    let pp_arena = Arena::new();
+    let ctx = AstContext::new(
+        &expr_arena,
+        &term_arena,
+        &np_arena,
+        &sym_arena,
+        &role_arena,
+        &pp_arena,
+    );
+    let mut world_state = drs::WorldState::new();
+    let mut parser = Parser::new(tokens, &mut world_state, &mut interner, ctx, type_registry);
+    let statements = match parser.parse_program() {
+        Ok(s) => s,
+        Err(e) => {
+            return TheoryCompileResult {
+                theory_name: None,
+                axiom_count: 0,
+                theorems: Vec::new(),
+                parse_error: Some(format!("Parse error: {:?}", e)),
+            }
+        }
+    };
+
+    // Collect the development: standalone `## Axiom` blocks + `## Theory` bodies.
+    let mut axioms: Vec<ProofExpr> = Vec::new();
+    let mut theorems: Vec<LibraryTheorem> = Vec::new();
+    let mut theory_name: Option<String> = None;
+
+    for stmt in &statements {
+        match stmt {
+            ast::Stmt::Axiom(a) => match parse_formula(&a.formula) {
+                Ok(expr) => axioms.push(expr),
+                Err(e) => {
+                    return TheoryCompileResult {
+                        theory_name,
+                        axiom_count: axioms.len(),
+                        theorems: Vec::new(),
+                        parse_error: Some(format!("Axiom '{}': {}", a.name, e)),
+                    }
+                }
+            },
+            ast::Stmt::Theory(t) => {
+                if theory_name.is_none() {
+                    theory_name = Some(t.name.clone());
+                }
+                if !t.body.trim().is_empty() {
+                    match parse_development(&t.body) {
+                        Ok(dev) => {
+                            axioms.extend(dev.axiom_exprs());
+                            theorems.extend(dev.theorems);
+                        }
+                        Err(e) => {
+                            return TheoryCompileResult {
+                                theory_name,
+                                axiom_count: axioms.len(),
+                                theorems: Vec::new(),
+                                parse_error: Some(format!("Theory '{}': {}", t.name, e)),
+                            }
+                        }
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+
+    let results = prove_library_with_axioms(&axioms, &theorems);
+    let theorem_results = theorems
+        .iter()
+        .zip(results)
+        .map(|(t, r)| TheoryTheoremResult {
+            name: t.name.clone(),
+            verified: r.verified,
+            error: r.verification_error,
+        })
+        .collect();
+
+    TheoryCompileResult {
+        theory_name,
+        axiom_count: axioms.len(),
+        theorems: theorem_results,
+        parse_error: None,
+    }
 }
 
 /// The GROUNDED, quantifier-free grid problem `(solver_input, goal)` for an `Auto` grid
@@ -667,7 +817,8 @@ pub fn compile_theorem_for_ui(input: &str) -> TheoremCompileResult {
             };
         }
     };
-    let ParsedTheorem { name, premises, goal, goal_string, is_auto } = parsed;
+    let ParsedTheorem { name, premises, goal, goal_string, is_auto, script, premise_names } =
+        parsed;
 
     // The easter egg: when the premises take the grid form (declared bijection +
     // disjunctive closures), fill every cell the certified prover can force — no flag,
@@ -772,6 +923,33 @@ pub fn compile_theorem_for_ui(input: &str) -> TheoremCompileResult {
             };
             (outcome.derivation, outcome.verified, outcome.verification_error, None)
             }
+        } else if let Some(src) = &script {
+            // An explicit `Proof:` tactic script (English-esque vernacular): run it
+            // through the tactic framework on a generous stack, kernel-certified.
+            use logicaffeine_proof::tactic::ProofState;
+            let run = || {
+                let mut st =
+                    ProofState::start_with_names(premises.clone(), &premise_names, goal.clone());
+                match st.run_script(src) {
+                    Ok(_) => match st.qed() {
+                        Ok(vp) => (vp.derivation, vp.verified, vp.verification_error),
+                        Err(e) => (None, false, Some(format!("{e:?}"))),
+                    },
+                    Err(e) => (None, false, Some(e.to_string())),
+                }
+            };
+            #[cfg(not(target_arch = "wasm32"))]
+            let (derivation, verified, verr) = std::thread::scope(|s| {
+                std::thread::Builder::new()
+                    .stack_size(256 * 1024 * 1024)
+                    .spawn_scoped(s, run)
+                    .expect("spawn proof-script thread")
+                    .join()
+                    .expect("proof-script thread panicked")
+            });
+            #[cfg(target_arch = "wasm32")]
+            let (derivation, verified, verr) = run();
+            (derivation, verified, verr, None)
         } else {
             (None, false, None, None)
         };
@@ -879,6 +1057,19 @@ fn send_escape_rejection(stmts: &[logicaffeine_language::ast::stmt::Stmt]) -> Op
     crate::concurrency::check_send_escape(stmts)
         .first()
         .map(|d| InterpreterResult { lines: Vec::new(), error: Some(d.message.clone()) })
+}
+
+/// Reject a dimension-incoherent program (`2 meters + 1 gram`) BEFORE it runs, so the interpreter
+/// tier matches the AOT compiler: a dimension mismatch is an analysis error on every tier, surfaced
+/// before any output is produced — not a mid-execution failure. Mirrors `send_escape_rejection`.
+fn send_dimension_rejection(
+    stmts: &[logicaffeine_language::ast::stmt::Stmt],
+    interner: &Interner,
+) -> Option<InterpreterResult> {
+    crate::analysis::dimension_check::DimensionChecker::new(interner)
+        .check_program(stmts)
+        .err()
+        .map(|e| InterpreterResult { lines: Vec::new(), error: Some(e.message) })
 }
 
 pub async fn interpret_for_ui(input: &str) -> InterpreterResult {
@@ -1018,6 +1209,10 @@ pub fn with_parsed_program<R>(
 ) -> R {
     use logicaffeine_language::ast::stmt::{Expr, Stmt, TypeExpr};
 
+    // A bare script (no `##` headers, imperative opening) runs as `## Main`.
+    let implicit = implicit_main(input);
+    let input = implicit.as_deref().unwrap_or(input);
+
     // Phase 10: auto-prepend the stdlib modules the program references (no-op when
     // it uses no stdlib vocabulary, so such programs stay byte-identical).
     let prelude_src = crate::loader::apply_prelude(input);
@@ -1154,6 +1349,10 @@ pub fn with_optimized_program_tiered<R>(
 ) -> R {
     use logicaffeine_language::ast::stmt::{Expr, Stmt, TypeExpr};
 
+    // A bare script (no `##` headers, imperative opening) runs as `## Main`.
+    let implicit = implicit_main(input);
+    let input = implicit.as_deref().unwrap_or(input);
+
     // Phase 10: auto-prepend the stdlib modules the program references (no-op when
     // it uses no stdlib vocabulary, so such programs stay byte-identical).
     let prelude_src = crate::loader::apply_prelude(input);
@@ -1277,6 +1476,10 @@ pub fn with_v2_optimized_program<R>(
     ) -> R,
 ) -> R {
     use logicaffeine_language::ast::stmt::{Expr, Stmt, TypeExpr};
+
+    // A bare script (no `##` headers, imperative opening) runs as `## Main`.
+    let implicit = implicit_main(input);
+    let input = implicit.as_deref().unwrap_or(input);
 
     // Phase 10: auto-prepend the stdlib modules the program references (no-op when
     // it uses no stdlib vocabulary, so such programs stay byte-identical).
@@ -1419,6 +1622,9 @@ pub fn interpret_for_ui_sync_with_args(input: &str, program_args: &[String]) -> 
             if let Some(rejection) = send_escape_rejection(stmts) {
                 return rejection;
             }
+            if let Some(rejection) = send_dimension_rejection(stmts, interner) {
+                return rejection;
+            }
             if crate::interpreter::needs_async(stmts) || crate::concurrency::uses_scheduler(stmts) {
                 trace("treewalker (async)");
                 return run_treewalker(stmts, type_registry, policies, interner, true, program_args);
@@ -1531,6 +1737,9 @@ pub fn interpret_for_ui_baseline_sync_with_args(
     with_parsed_program(input, |parsed, interner| match parsed {
         Ok((stmts, type_registry, policies)) => {
             if let Some(rejection) = send_escape_rejection(stmts) {
+                return rejection;
+            }
+            if let Some(rejection) = send_dimension_rejection(stmts, interner) {
                 return rejection;
             }
             if crate::interpreter::needs_async(stmts) || crate::concurrency::uses_scheduler(stmts) {
@@ -1812,7 +2021,7 @@ pub fn run_treewalker_concurrent_seeded(input: &str, seed: u64) -> InterpreterRe
 }
 
 /// Run a concurrent program on the **bytecode VM** under the deterministic
-/// scheduler (T11): compile to opcodes, then drive the main [`Vm`] (and any
+/// scheduler (T11): compile to opcodes, then drive the main `Vm` (and any
 /// spawned per-task VMs) through `run_until_block` via a `VmTask`. This is the
 /// VM analog of [`run_program_concurrent`]; the default routing still sends
 /// concurrent programs to the tree-walker, so this is the explicit VM entry used
@@ -1869,6 +2078,275 @@ pub fn run_vm_concurrent_seeded(input: &str, seed: u64) -> InterpreterResult {
     })
 }
 
+/// One cooperative poll interval for the VM net runner — a short async sleep so the relay delivers
+/// (and, in the browser, the event loop runs) between `Await` polls. Mirrors the tree-walker's.
+async fn vm_net_poll_tick() {
+    #[cfg(not(target_arch = "wasm32"))]
+    logicaffeine_system::tokio::time::sleep(std::time::Duration::from_millis(2)).await;
+    #[cfg(target_arch = "wasm32")]
+    gloo_timers::future::TimeoutFuture::new(2).await;
+}
+
+/// A peer value → its relay topic (mirrors the tree-walker's `Interpreter::peer_topic_of`).
+fn vm_peer_topic_of(value: &crate::interpreter::RuntimeValue) -> Result<String, String> {
+    use crate::interpreter::RuntimeValue;
+    match value {
+        RuntimeValue::Peer(topic) => Ok((**topic).clone()),
+        RuntimeValue::Text(s) => Ok(logicaffeine_system::addr::canonical_topic(s)),
+        other => Err(format!(
+            "Send/Await expects a PeerAgent or address string, got {}",
+            other.type_name()
+        )),
+    }
+}
+
+/// Service one suspended VM networking request through the shared [`NetInbox`] — the SAME inbox the
+/// tree-walker uses, so the wire encode/decode is identical and a `Send`/`Await` produces the same
+/// value on both tiers. `Connect`/`Listen` do the async relay I/O; `Send`/`Stream` encode + publish;
+/// `Await` drains-and-takes (yielding between polls) until the peer's message arrives.
+async fn service_vm_net_block(
+    vm: &mut crate::vm::Vm<'_>,
+    netbox: &mut crate::concurrency::net_inbox::NetInbox,
+    req: crate::vm::VmBlock,
+) -> Result<(), String> {
+    use crate::concurrency::marshal::{self};
+    use crate::interpreter::RuntimeValue;
+    use crate::vm::{Value, VmBlock};
+    match req {
+        VmBlock::NetConnect(url_payload) => {
+            let raw = marshal::rebuild(url_payload).to_display_string();
+            let url = logicaffeine_system::addr::multiaddr_to_ws_url(&raw).map_err(|e| {
+                format!("Connect address '{raw}' is not a ws:// URL or supported multiaddr: {e}")
+            })?;
+            // OFFLINE mode: `Connect` is a single-node local no-op (mirrors the tree-walker's offline
+            // `Connect`), so the VM net oracle agrees with it. A relay-connected driver dials for real.
+            if !crate::concurrency::net_inbox::net_is_offline() {
+                let net = logicaffeine_system::net::Net::connect(&url)
+                    .await
+                    .map_err(|e| format!("Connect to relay '{url}' failed: {e}"))?;
+                netbox.net = Some(net);
+            }
+            vm.deliver_resume(Value::nothing());
+            Ok(())
+        }
+        VmBlock::NetListen(topic_payload) => {
+            let raw = marshal::rebuild(topic_payload).to_display_string();
+            let topic = logicaffeine_system::addr::canonical_topic(&raw);
+            let hs_topic = crate::concurrency::net_inbox::handshake_topic_for(&topic);
+            // LOCAL/OFFLINE mode (no relay): declare the inbox identity locally, skip the relay
+            // subscribe — mirrors the tree-walker's offline `Listen` so both tiers agree.
+            if let Some(net) = netbox.net.as_mut() {
+                net.subscribe(&topic).await?;
+                // Also receive peers' capability handshakes on our dedicated handshake topic (kept off
+                // the data topic so they never interleave with messages).
+                net.subscribe(&hs_topic).await?;
+            }
+            netbox.inbox = Some(std::rc::Rc::new(topic));
+            vm.deliver_resume(Value::nothing());
+            Ok(())
+        }
+        VmBlock::NetSend(to_payload, msg_payload) => {
+            let topic = vm_peer_topic_of(&marshal::rebuild(to_payload))?;
+            // Advertise our surface to this peer on first contact — on its HANDSHAKE topic, never the
+            // data topic — so it can negotiate back. Absorbed by the peer's drain, invisible to data.
+            if let Some(hs) = netbox.first_contact_handshake(&topic) {
+                netbox.publish(&crate::concurrency::net_inbox::handshake_topic_for(&topic), hs)?;
+            }
+            let value = marshal::rebuild(msg_payload);
+            let from = netbox.inbox.as_ref().map(|t| t.to_string()).unwrap_or_default();
+            // The negotiated maximal crush — byte-identical to the tree-walker's plain send (both call
+            // `encode_negotiated` with the same program registry). Type-id fires only on a matching
+            // peer epoch, so a raw / different-program peer still gets the plain encoding.
+            let bytes = netbox.encode_negotiated(&from, &value, &topic, netbox.my_registry.clone())?;
+            netbox.publish(&topic, bytes)?;
+            vm.deliver_resume(Value::nothing());
+            Ok(())
+        }
+        VmBlock::NetStream(to_payload, values_payload) => {
+            let topic = vm_peer_topic_of(&marshal::rebuild(to_payload))?;
+            if let Some(hs) = netbox.first_contact_handshake(&topic) {
+                netbox.publish(&crate::concurrency::net_inbox::handshake_topic_for(&topic), hs)?;
+            }
+            let list = marshal::rebuild(values_payload);
+            let items = match &list {
+                RuntimeValue::List(rc) => rc.borrow().to_values(),
+                other => vec![other.clone()],
+            };
+            let from = netbox.inbox.as_ref().map(|t| t.to_string()).unwrap_or_default();
+            let blob = marshal::frame_stream_message(&from, &items)?;
+            netbox.publish(&topic, blob)?;
+            vm.deliver_resume(Value::nothing());
+            Ok(())
+        }
+        VmBlock::NetAwait(from_payload, stream) => {
+            let want = vm_peer_topic_of(&marshal::rebuild(from_payload))?;
+            if netbox.inbox.is_none() {
+                return Err("Await requires a prior Listen to establish an inbox".to_string());
+            }
+            // OFFLINE (no relay): drain our own loopback outbox (the `Send … to <self>` delivered
+            // locally) rather than requiring a relay — the VM net oracle mirrors the tree-walker.
+            loop {
+                let got = if stream {
+                    netbox.try_take_stream(&want)
+                } else {
+                    netbox.try_take_message(&want, false)
+                };
+                if let Some(v) = got {
+                    vm.deliver_resume(Value::from_runtime(v));
+                    return Ok(());
+                }
+                // No type-id registry: the VM net runner sends self-describing (no `shared` dial),
+                // so an empty registry decodes everything correctly.
+                netbox.drain(netbox.my_registry.clone());
+                let got = if stream {
+                    netbox.try_take_stream(&want)
+                } else {
+                    netbox.try_take_message(&want, false)
+                };
+                if let Some(v) = got {
+                    vm.deliver_resume(Value::from_runtime(v));
+                    return Ok(());
+                }
+                vm_net_poll_tick().await;
+            }
+        }
+        VmBlock::NetMakePeer(addr_payload) => {
+            let raw = marshal::rebuild(addr_payload).to_display_string();
+            let topic = logicaffeine_system::addr::canonical_topic(&raw);
+            vm.deliver_resume(Value::from_runtime(RuntimeValue::Peer(std::rc::Rc::new(topic))));
+            Ok(())
+        }
+        VmBlock::NetSync(topic_payload, current_payload) => {
+            let topic = marshal::rebuild(topic_payload).to_display_string();
+            let current = marshal::rebuild(current_payload);
+            // Encode the counter (Int) or counter-struct as the relay wire form; `None` ⇒ nothing
+            // to publish yet. Then merge whatever has arrived since the last sync point.
+            let publish_bytes = crate::semantics::arith::crdt_to_wire(&current);
+            // LOCAL/OFFLINE mode: single-node sync is a no-op — the local CRDT value stands (mirrors
+            // the tree-walker's offline `Sync`). A relay-connected node publishes + merges.
+            let merged = if let Some(net) = netbox.net.as_mut() {
+                net.subscribe(&topic).await?;
+                if let Some(bytes) = publish_bytes {
+                    net.publish(&topic, bytes)?;
+                }
+                let incoming = net.drain();
+                let mut merged = current;
+                for (_t, data) in incoming {
+                    merged = crate::semantics::arith::crdt_merge_wire(merged, &data);
+                }
+                merged
+            } else {
+                current
+            };
+            vm.deliver_resume(Value::from_runtime(merged));
+            Ok(())
+        }
+        _ => Err("run_vm_net_async services only peer-networking blocks; this program mixes \
+                  channels/tasks with networking, which the VM net runner does not yet drive"
+            .to_string()),
+    }
+}
+
+/// Run a peer-networking program on the BYTECODE VM (single task, no channels): drive the resumable
+/// VM and service each `VmBlock::Net*` through the shared `NetInbox` — the SAME inbox the
+/// tree-walker uses — so `Connect`/`Listen`/`Send`/`Stream`/`Await` run byte-identically on both
+/// tiers. The VM analog of the tree-walker's networking path; the cross-tier lock proves they agree.
+pub async fn run_vm_net_async(input: &str) -> InterpreterResult {
+    use logicaffeine_language::ast::stmt::{Expr, Stmt, TypeExpr};
+
+    let mut interner = Interner::new();
+    let mut lexer = Lexer::new(input, &mut interner);
+    let tokens = lexer.tokenize();
+    let mwe_trie = mwe::build_mwe_trie();
+    let tokens = mwe::apply_mwe_pipeline(tokens, &mwe_trie, &mut interner);
+    let (type_registry, policy_registry) = {
+        let mut discovery = DiscoveryPass::new(&tokens, &mut interner);
+        let result = discovery.run_full();
+        (result.types, result.policies)
+    };
+    let expr_arena = Arena::new();
+    let term_arena = Arena::new();
+    let np_arena = Arena::new();
+    let sym_arena = Arena::new();
+    let role_arena = Arena::new();
+    let pp_arena = Arena::new();
+    let stmt_arena: Arena<Stmt> = Arena::new();
+    let imperative_expr_arena: Arena<Expr> = Arena::new();
+    let type_expr_arena: Arena<TypeExpr> = Arena::new();
+    let ctx = AstContext::with_types(
+        &expr_arena,
+        &term_arena,
+        &np_arena,
+        &sym_arena,
+        &role_arena,
+        &pp_arena,
+        &stmt_arena,
+        &imperative_expr_arena,
+        &type_expr_arena,
+    );
+    let mut world_state = drs::WorldState::new();
+    let type_registry_for_vm = type_registry.clone();
+    let mut parser = Parser::new(tokens, &mut world_state, &mut interner, ctx, type_registry);
+    let stmts = match parser.parse_program() {
+        Ok(s) => s,
+        Err(e) => return InterpreterResult { lines: vec![], error: Some(format!("{e:?}")) },
+    };
+    let program =
+        match crate::vm::Compiler::compile_with_types(&stmts, &interner, Some(&type_registry_for_vm)) {
+            Ok(p) => p,
+            Err(e) => return InterpreterResult { lines: vec![], error: Some(e) },
+        };
+    let mut vm = crate::vm::Vm::new(&program).with_policy_ctx(&policy_registry, &interner);
+    let mut netbox = crate::concurrency::net_inbox::NetInbox::new();
+    // Build the wire type registry from the analysis types — IDENTICALLY to the tree-walker's
+    // `build_wire_type_registry` (both derive from the same analysis table) — so two same-program peers
+    // advertise matching registry epochs and may elide type NAMES from the wire (type-id).
+    {
+        let mut structs: Vec<(String, Vec<String>)> = Vec::new();
+        let mut enums: Vec<(String, Vec<String>)> = Vec::new();
+        for (name_sym, type_def) in type_registry_for_vm.iter_types() {
+            let type_name = interner.resolve(*name_sym).to_string();
+            match type_def {
+                crate::analysis::registry::TypeDef::Struct { fields, .. } => {
+                    structs.push((type_name, fields.iter().map(|f| interner.resolve(f.name).to_string()).collect()));
+                }
+                crate::analysis::registry::TypeDef::Enum { variants, .. } => {
+                    enums.push((type_name, variants.iter().map(|v| interner.resolve(v.name).to_string()).collect()));
+                }
+                _ => {}
+            }
+        }
+        netbox.set_registry(
+            crate::concurrency::marshal::WireTypeRegistry::new(structs).with_enums(enums),
+        );
+    }
+    let mut lines: Vec<String> = Vec::new();
+    let mut error = None;
+    loop {
+        let step = vm.run_until_block();
+        lines.extend(vm.drain_lines());
+        match step {
+            Ok(crate::vm::VmStep::Done(_)) => break,
+            Ok(crate::vm::VmStep::Blocked) => {
+                let req = match vm.take_pending() {
+                    Some(r) => r,
+                    None => break,
+                };
+                if let Err(e) = service_vm_net_block(&mut vm, &mut netbox, req).await {
+                    error = Some(e);
+                    break;
+                }
+            }
+            Ok(crate::vm::VmStep::Paused) => break,
+            Err(e) => {
+                error = Some(e);
+                break;
+            }
+        }
+    }
+    InterpreterResult { lines, error }
+}
+
 /// [`run_vm_concurrent_seeded`] under the **work-stealing M:N driver**: `workers`
 /// OS-thread workers poll task bodies in parallel while one coordinator owns the
 /// scheduler and applies channel ops + flushes output in deterministic pick
@@ -1878,7 +2356,7 @@ pub fn run_vm_concurrent_seeded(input: &str, seed: u64) -> InterpreterResult {
 ///
 /// The executor uses scoped threads, so each worker *borrows* the one shared,
 /// immutable program (+ policies + interner) — no clone, no leak. Only a `Send`
-/// [`SpawnDesc`] crosses a worker boundary; the worker rebuilds the `!Send` task
+/// `SpawnDesc` crosses a worker boundary; the worker rebuilds the `!Send` task
 /// body locally from it.
 #[cfg(not(target_arch = "wasm32"))]
 pub fn run_vm_workstealing_seeded(input: &str, seed: u64, workers: usize) -> InterpreterResult {
@@ -1925,6 +2403,27 @@ pub fn run_vm_workstealing_seeded(input: &str, seed: u64, workers: usize) -> Int
             InterpreterResult { lines: result.output, error }
         }
         Err(advice) => InterpreterResult { lines: vec![], error: Some(advice) },
+    })
+}
+
+/// Run a program on the synchronous tree-walker and return its global
+/// bindings as sorted `(name, type, value)` rows — the REPL's `:vars`
+/// inspection. Returns `None` for programs the sync walker can't host
+/// (async/concurrent) or that fail to parse or run.
+pub fn repl_global_bindings(input: &str, program_args: &[String]) -> Option<Vec<(String, String, String)>> {
+    with_parsed_program(input, |parsed, interner| match parsed {
+        Ok((stmts, type_registry, policies)) => {
+            if crate::interpreter::needs_async(stmts) || crate::concurrency::uses_scheduler(stmts) {
+                return None;
+            }
+            let mut interp = crate::interpreter::Interpreter::new(interner)
+                .with_type_registry(type_registry)
+                .with_policies(policies)
+                .with_program_args(program_args.to_vec());
+            interp.run_sync(stmts).ok()?;
+            Some(interp.global_bindings())
+        }
+        Err(_) => None,
     })
 }
 
@@ -2566,11 +3065,12 @@ fn sample_value(ctx: &kernel::Context, ty: &kernel::Term) -> Option<kernel::Term
 /// Math "🦀 Compile" button drives, exposed as one function so it is testable.
 pub fn extract_math_rust_from_source(input: &str) -> String {
     let mut repl = kernel::interface::Repl::new();
-    for stmt in parse_math_statements(input) {
-        // Errors on individual statements (e.g. `Check`/`Eval`) are ignored — only
-        // the resulting definitions/inductives matter for extraction.
-        let _ = repl.execute(&stmt);
-    }
+    // Batch execution groups mutually-recursive inductives declared as separate
+    // statements into one mutual block (see `Repl::execute_batch`); errors on individual
+    // statements (e.g. `Check`/`Eval`) are ignored — only the resulting
+    // definitions/inductives matter for extraction.
+    let stmts = parse_math_statements(input);
+    let _ = repl.execute_batch(&stmts);
     match extract_math_rust(repl.context()) {
         Ok(rust) => rust,
         Err(e) => format!("// extraction error: {e}"),
@@ -2581,9 +3081,12 @@ pub fn extract_math_rust_from_source(input: &str) -> String {
 /// linkable artifact bundled into an imperative program's `mod proven`).
 pub fn extract_math_module_from_source(input: &str) -> String {
     let mut repl = kernel::interface::Repl::new();
-    for stmt in parse_math_statements(input) {
-        let _ = repl.execute(&stmt);
-    }
+    // Batch execution groups mutually-recursive inductives (`Tree`↔`Forest`) declared as
+    // separate statements into one mutual block, so a forward reference between them
+    // registers instead of failing its universe check. A source with no forward
+    // references behaves exactly as the per-statement loop did.
+    let stmts = parse_math_statements(input);
+    let _ = repl.execute_batch(&stmts);
     match extract_math_module(repl.context()) {
         Ok(rust) => rust,
         Err(e) => format!("// extraction error: {e}"),
@@ -2605,7 +3108,33 @@ pub fn extract_math_module_from_source(input: &str) -> String {
 ///
 /// `## To`/`## A X is one of` stay imperative (only the Coq keywords and `## Theorem:`/
 /// `## Lemma:` route to math), so this never steals an imperative function or enum.
+/// IMPLICIT MAIN: a source with no `##` headers whose first non-blank line
+/// reads as an imperative statement runs as its own `## Main` body — a bare
+/// script no longer parses as logic prose and runs to empty output.
+/// Natural-language documents (no statement-keyword opening) are untouched.
+/// Returns the wrapped source, or `None` when the input is not a bare script.
+pub fn implicit_main(source: &str) -> Option<String> {
+    if source.lines().any(|l| l.trim_start().starts_with("##")) {
+        return None;
+    }
+    let first = source.lines().find(|l| !l.trim().is_empty())?;
+    const STATEMENT_HEADS: &[&str] = &[
+        "Let ", "Show ", "Set ", "If ", "While ", "Repeat ", "Push ",
+        "Pop ", "Add ", "Remove ", "Call ", "Return ", "Increase ",
+        "Decrease ", "Break", "Inspect ", "Assert ",
+    ];
+    let t = first.trim_start();
+    if STATEMENT_HEADS.iter().any(|h| t.starts_with(h)) {
+        Some(format!("## Main\n{}", source))
+    } else {
+        None
+    }
+}
+
 pub fn partition_mixed(source: &str) -> (String, Option<String>) {
+    if let Some(wrapped) = implicit_main(source) {
+        return (wrapped, None);
+    }
     let lines: Vec<&str> = source.lines().collect();
     let mut is_math = vec![false; lines.len()];
     let mut i = 0;
@@ -2694,9 +3223,9 @@ fn is_math_block_start(trimmed: &str) -> bool {
 /// here, not in `extract_math_module` (whose output must also compile standalone, dep-free).
 pub(crate) fn mixed_proven_module(math_src: &str) -> Option<String> {
     let mut repl = kernel::interface::Repl::new();
-    for stmt in parse_math_statements(math_src) {
-        let _ = repl.execute(&stmt);
-    }
+    // Batch execution groups mutually-recursive inductives (see `Repl::execute_batch`).
+    let stmts = parse_math_statements(math_src);
+    let _ = repl.execute_batch(&stmts);
     let ctx = repl.context();
     let mut rust = match extract_math_module(ctx) {
         Ok(r) => r,
@@ -3067,7 +3596,7 @@ pub fn check_theorem_defeasible_consistent(
 
 /// Parse a `## Theorem:` block and convert its premises and goal to
 /// [`ProofExpr`]s — the shared front half of [`verify_theorem`] and
-/// [`check_theorem_smt`].
+/// `check_theorem_smt`.
 /// Parse a `## Theorem` document and convert its premises and goal to
 /// [`ProofExpr`]. Public so a puzzle solver can obtain the parsed-FOL premises
 /// (the Given clues/declarations) and feed them to the entailment oracle.

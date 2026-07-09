@@ -1,4 +1,4 @@
-//! Phase 127 — §8.5 Vagueness (MISSING_ENGLISH.md).
+//! Phase 127 — §8.5 Vagueness (work/MISSING_ENGLISH.md).
 //!
 //! Vague predicates (bald, tall, heap) have borderline cases and sorites behavior.
 //! Beyond the degree-standard form (§7.2), a vague predicate carries a PENUMBRA —

@@ -101,6 +101,16 @@ pub fn date_add_span(days_since_epoch: i32, months: i32, days: i32) -> i32 {
     result.wrapping_add(days)
 }
 
+/// Add a **calendar span** (`months` then `days`) to a SmoothUTC instant — the *civil* (wall-clock)
+/// operation: months clamp at end-of-month and respect leap years, the time-of-day rides along
+/// untouched. Distinct from adding a physical `Duration` (which is just nanosecond arithmetic).
+/// Delegates to the same `base::temporal::add_span` the AOT mirror uses, so the tiers cannot diverge.
+pub fn moment_add_span(nanos_since_epoch: i64, months: i32, days: i32) -> i64 {
+    let dt = logicaffeine_base::temporal::civil_from_unix_nanos(nanos_since_epoch);
+    let shifted = logicaffeine_base::temporal::add_span(dt, months as i64, days as i64);
+    logicaffeine_base::temporal::unix_nanos_from_civil(shifted)
+}
+
 /// The number of days in a given month (1-indexed).
 pub fn days_in_month(year: i32, month: i32) -> i32 {
     match month {

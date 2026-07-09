@@ -2,11 +2,11 @@
 
 English vocabulary types plus compile-time and runtime lexicon lookup for the Logicaffeine English-to-First-Order-Logic transpiler. It defines the linguistic type system that lexicon lookups return, and optionally embeds and parses the lexicon JSON at runtime.
 
-Part of the [Logicaffeine](../../NEW_README.md) workspace. Tier 1 — depends on logicaffeine_base. Consumed by logicaffeine_language.
+Part of the [Logicaffeine](https://github.com/Brahmastra-Labs/logicaffeine/blob/main/README.md) workspace. Tier 1 — depends on logicaffeine_base. Consumed by logicaffeine_language.
 
 ## Role in the workspace
 
-This crate is the vocabulary substrate for the Logic-mode pipeline (see [../../new_docs/logic-mode.md](../../new_docs/logic-mode.md)). In the default (compile-time) mode, `logicaffeine-language` generates Rust code from `crates/logicaffeine_language/assets/lexicon.json` at build time; the generated `lookup_verb`/`lookup_noun`/… functions hand back the `&'static` metadata structs declared here, so lookups carry zero parsing cost. The optional runtime mode parses that same JSON in-process for faster lexicon edit-compile cycles.
+This crate is the vocabulary substrate for the Logic-mode pipeline (see [logic-mode.md](https://github.com/Brahmastra-Labs/logicaffeine/blob/main/docs/logic-mode.md)). In the default (compile-time) mode, `logicaffeine-language` generates Rust code from `crates/logicaffeine_language/assets/lexicon.json` at build time; the generated `lookup_verb`/`lookup_noun`/… functions hand back the `&'static` metadata structs declared here, so lookups carry zero parsing cost. The optional runtime mode parses that same JSON in-process for faster lexicon edit-compile cycles.
 
 ## Public API
 
@@ -16,7 +16,7 @@ Grammatical enums (all `Copy`): `Time` (Past/Present/Future/None), `Aspect` (Sim
 
 `VerbClass` — Vendler's Aktionsart, 5 variants (`State`, `Activity` (`#[default]`), `Accomplishment`, `Achievement`, `Semelfactive`):
 
-```rust
+```text
 pub fn is_stative(&self) -> bool;   // State only
 pub fn is_durative(&self) -> bool;  // State | Activity | Accomplishment
 pub fn is_telic(&self) -> bool;     // Accomplishment | Achievement
@@ -24,20 +24,20 @@ pub fn is_telic(&self) -> bool;     // Accomplishment | Achievement
 
 `Sort` — a 14-member semantic hierarchy (`Entity`, `Physical`, `Animate`, `Human`, `Plant`, `Place`, `Time`, `Abstract`, `Information`, `Event`, `Celestial`, `Value`, `Signal`, `Group`):
 
-```rust
+```text
 pub fn is_compatible_with(self, other: Sort) -> bool;  // subsumption: Human/Plant ⊆ Animate ⊆ Physical ⊆ Entity; * ⊆ Entity
 pub fn is_occasion(self) -> bool;                      // soft-typed occurrences; true only for Event
 ```
 
 `Feature` — 34 lexical features spanning verb transitivity (Transitive, Intransitive, Ditransitive), control theory (SubjectControl, ObjectControl, Raising), semantics (Opaque, Factive, Performative, Collective, Mixed, Distributive, Weather, Unaccusative, IntensionalPredicate, Resultative, Perception, Relevance), nouns (Count, Mass, Proper), gender (Masculine, Feminine, Neuter), animacy (Animate, Inanimate), and adjectives (Intersective, NonIntersective, Subsective, Gradable, EventModifier, Relational, Vague, Decreasing):
 
-```rust
+```text
 pub fn from_str(s: &str) -> Option<Feature>;  // case-sensitive, by variant name
 ```
 
 Lookup payloads — zero-copy `Copy` structs holding `&'static str` lemmas and `&'static [Feature]`:
 
-```rust
+```text
 pub struct VerbMetadata { pub lemma: &'static str, pub class: VerbClass, pub time: Time, pub aspect: Aspect, pub features: &'static [Feature] }
 pub struct NounMetadata { pub lemma: &'static str, pub number: Number, pub features: &'static [Feature] }
 pub struct AdjectiveMetadata { pub lemma: &'static str, pub features: &'static [Feature] }
@@ -87,7 +87,7 @@ External (all `optional`, enabled only by `dynamic-lexicon`): `serde` (derive), 
 
 ## License
 
-Business Source License 1.1 — see [LICENSE.md](../../LICENSE.md).
+Business Source License 1.1 — see [LICENSE.md](https://github.com/Brahmastra-Labs/logicaffeine/blob/main/LICENSE.md).
 
 ---
-[Docs index](../../new_docs/README.md) · [Root README](../../NEW_README.md) · [Changelog](../../CHANGELOG.md)
+[Docs index](https://github.com/Brahmastra-Labs/logicaffeine/blob/main/docs/README.md) · [Root README](https://github.com/Brahmastra-Labs/logicaffeine/blob/main/README.md) · [Changelog](https://github.com/Brahmastra-Labs/logicaffeine/blob/main/CHANGELOG.md)

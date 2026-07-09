@@ -2,6 +2,12 @@
 
 Standard library for time operations.
 
+## Note
+The current Unix time in milliseconds.
+
 ## To native now () -> Nat
+
+## Note
+Pauses the current task for the given number of milliseconds.
 
 ## To native sleep (ms: Nat)

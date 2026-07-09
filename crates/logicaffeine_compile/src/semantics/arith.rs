@@ -2,7 +2,7 @@
 
 use std::rc::Rc;
 
-use logicaffeine_base::{BigInt, Rational};
+use logicaffeine_base::{BigInt, Complex, Decimal, Modular, Rational, WordVal};
 
 use crate::ast::stmt::BinaryOpKind;
 use crate::interpreter::RuntimeValue;
@@ -20,16 +20,243 @@ fn big_of(v: &RuntimeValue) -> Option<BigInt> {
     }
 }
 
-/// View an exact number — `Int`, `BigInt`, or `Rational` — as a `Rational`, for the
-/// exact-arithmetic path that integer division "overflows" into. `Float` is inexact
-/// by choice and returns `None`.
+/// View an exact number — `Int`, `BigInt`, `Rational`, or `Decimal` — as a `Rational`,
+/// for the exact-arithmetic path that integer division "overflows" into. `Float` is
+/// inexact by choice and returns `None`.
 fn rat_of(v: &RuntimeValue) -> Option<Rational> {
     match v {
         RuntimeValue::Int(n) => Some(Rational::from_i64(*n)),
         RuntimeValue::BigInt(b) => Some(Rational::from_bigint((**b).clone())),
         RuntimeValue::Rational(r) => Some((**r).clone()),
+        RuntimeValue::Decimal(d) => Some(d.to_rational()),
         _ => None,
     }
+}
+
+/// View an integer-or-decimal value as a `Decimal`, for the decimal-PRESERVING path:
+/// `Decimal ∘ {Decimal, Int, BigInt}` stays an exact `Decimal` (money keeps its scale).
+/// `Rational`/`Float` return `None` so those operands route to the rational/float paths.
+fn dec_of(v: &RuntimeValue) -> Option<Decimal> {
+    match v {
+        RuntimeValue::Int(n) => Some(Decimal::from_i64(*n)),
+        RuntimeValue::BigInt(b) => Some(Decimal::from_bigint((**b).clone())),
+        RuntimeValue::Decimal(d) => Some((**d).clone()),
+        _ => None,
+    }
+}
+
+/// View any number — exact or `Float` — as an `f64`, for the inexact path a `Float`
+/// operand forces. `None` for non-numbers.
+fn num_f64(v: &RuntimeValue) -> Option<f64> {
+    match v {
+        RuntimeValue::Int(n) => Some(*n as f64),
+        RuntimeValue::BigInt(b) => Some(b.to_f64()),
+        RuntimeValue::Rational(r) => Some(r.to_f64()),
+        RuntimeValue::Decimal(d) => Some(d.to_rational().to_f64()),
+        RuntimeValue::Float(f) => Some(*f),
+        _ => None,
+    }
+}
+
+/// View an exact number — `Int`, `BigInt`, `Rational`, `Decimal`, or `Complex` — as a
+/// `Complex`. `Float` is inexact and returns `None` (an exact `Complex` does not absorb a
+/// float), so `Complex ∘ Float` is a typed error rather than a silent lossy coercion.
+fn complex_of(v: &RuntimeValue) -> Option<Complex> {
+    match v {
+        RuntimeValue::Int(n) => Some(Complex::from_i64(*n)),
+        RuntimeValue::BigInt(b) => Some(Complex::from_rational(Rational::from_bigint((**b).clone()))),
+        RuntimeValue::Rational(r) => Some(Complex::from_rational((**r).clone())),
+        RuntimeValue::Decimal(d) => Some(Complex::from_rational(d.to_rational())),
+        RuntimeValue::Complex(c) => Some((**c).clone()),
+        _ => None,
+    }
+}
+
+/// Modular-operand dispatch shared by `add`/`subtract`/`multiply`: a `Modular` combines ONLY
+/// with another `Modular` of the same modulus (no auto-lift — a bare integer has no modulus).
+/// `None` when neither side is a `Modular`; `Some(Err)` on a non-Modular operand or a modulus
+/// mismatch (`f` returns `None` for a mismatch, like a Word width mismatch).
+fn modular_binop(
+    left: &RuntimeValue,
+    right: &RuntimeValue,
+    op_name: &str,
+    f: impl Fn(&Modular, &Modular) -> Option<Modular>,
+) -> Option<Result<RuntimeValue, String>> {
+    if !matches!(left, RuntimeValue::Modular(_)) && !matches!(right, RuntimeValue::Modular(_)) {
+        return None;
+    }
+    Some(match (left, right) {
+        (RuntimeValue::Modular(a), RuntimeValue::Modular(b)) => match f(a, b) {
+            Some(r) => Ok(RuntimeValue::Modular(Rc::new(r))),
+            None => Err(format!("cannot {op_name} values in different modular rings")),
+        },
+        _ => Err(format!(
+            "Cannot {} {} and {} (modular arithmetic needs two ℤ/nℤ values of the same modulus)",
+            op_name,
+            left.type_name(),
+            right.type_name()
+        )),
+    })
+}
+
+/// Complex-operand dispatch shared by `add`/`subtract`/`multiply`: when either side is a
+/// `Complex`, the result is `Complex` (a real embeds as `re + 0i`). `None` when no operand
+/// is a `Complex` (fall through); `Some(Err)` when an operand is inexact (`Float`).
+fn complex_binop(
+    left: &RuntimeValue,
+    right: &RuntimeValue,
+    op_name: &str,
+    f: impl Fn(&Complex, &Complex) -> Complex,
+) -> Option<Result<RuntimeValue, String>> {
+    if !matches!(left, RuntimeValue::Complex(_)) && !matches!(right, RuntimeValue::Complex(_)) {
+        return None;
+    }
+    Some(match (complex_of(left), complex_of(right)) {
+        (Some(a), Some(b)) => Ok(RuntimeValue::Complex(Rc::new(f(&a, &b)))),
+        _ => Err(format!(
+            "Cannot {} {} and {} (Complex combines only with exact numbers)",
+            op_name,
+            left.type_name(),
+            right.type_name()
+        )),
+    })
+}
+
+/// Decimal-operand dispatch shared by `add`/`subtract`/`multiply`: when either side is a
+/// `Decimal`, `Decimal ∘ {Decimal,Int,BigInt}` stays exact `Decimal` (via `dec`), a
+/// `Rational` operand promotes to exact `Rational`, and a `Float` operand yields `Float`.
+/// Returns `None` when no operand is a `Decimal` (fall through to the existing paths).
+fn decimal_binop(
+    left: &RuntimeValue,
+    right: &RuntimeValue,
+    dec: impl Fn(&Decimal, &Decimal) -> Decimal,
+    rat: impl Fn(&Rational, &Rational) -> Rational,
+    flt: impl Fn(f64, f64) -> f64,
+) -> Option<RuntimeValue> {
+    if !matches!(left, RuntimeValue::Decimal(_)) && !matches!(right, RuntimeValue::Decimal(_)) {
+        return None;
+    }
+    if let (Some(a), Some(b)) = (dec_of(left), dec_of(right)) {
+        return Some(RuntimeValue::Decimal(Rc::new(dec(&a, &b))));
+    }
+    if let (Some(a), Some(b)) = (rat_of(left), rat_of(right)) {
+        return Some(RuntimeValue::from_rational(rat(&a, &b)));
+    }
+    let (a, b) = (num_f64(left)?, num_f64(right)?);
+    Some(RuntimeValue::Float(flt(a, b)))
+}
+
+/// Physical-quantity arithmetic. `+ −` require equal dimensions (the result keeps the LEFT operand's
+/// display unit), `× ÷` combine dimensions (the result is shown in SI/dimension form), and a quantity
+/// may be scaled by a dimensionless number under `× ÷` (its unit preserved). Returns `None` when
+/// neither operand is a `Quantity` (so the normal numeric dispatch runs); `Some(Err)` on a dimension
+/// mismatch or division by zero. The magnitude rides the exact rational tower, so it never drifts.
+fn quantity_binop(left: &RuntimeValue, right: &RuntimeValue, op: char) -> Option<Result<RuntimeValue, String>> {
+    use crate::interpreter::QuantityValue;
+    use logicaffeine_base::{Quantity, Unit};
+    if !matches!(left, RuntimeValue::Quantity(_)) && !matches!(right, RuntimeValue::Quantity(_)) {
+        return None;
+    }
+    let mk = |q: Quantity, unit: Unit| RuntimeValue::Quantity(Rc::new(QuantityValue { q, unit }));
+    // A synthetic SI-base unit (empty symbol) for a combined dimension — `display` renders it as the
+    // magnitude plus the dimension signature until a named compound unit is chosen.
+    let si_unit = |q: &Quantity| Unit::linear("", q.dimension(), Rational::one());
+    Some(match (left, right) {
+        (RuntimeValue::Quantity(a), RuntimeValue::Quantity(b)) => match op {
+            '+' => a.q.add(&b.q).map(|q| mk(q, a.unit.clone())).ok_or_else(|| {
+                format!("cannot add quantities of different dimensions ({} vs {})", a.q.dimension(), b.q.dimension())
+            }),
+            '-' => a.q.sub(&b.q).map(|q| mk(q, a.unit.clone())).ok_or_else(|| {
+                format!("cannot subtract quantities of different dimensions ({} vs {})", a.q.dimension(), b.q.dimension())
+            }),
+            '*' => {
+                let q = a.q.mul(&b.q);
+                let u = si_unit(&q);
+                Ok(mk(q, u))
+            }
+            '/' => match a.q.div(&b.q) {
+                Some(q) => {
+                    let u = si_unit(&q);
+                    Ok(mk(q, u))
+                }
+                None => Err("cannot divide by a zero quantity".to_string()),
+            },
+            _ => unreachable!("quantity_binop only handles + - * /"),
+        },
+        // Scale a quantity by a dimensionless number, preserving its unit: `q * k`, `q / k`.
+        (RuntimeValue::Quantity(a), scalar) if matches!(op, '*' | '/') => match rat_of(scalar) {
+            Some(k) => {
+                let mag = if op == '*' {
+                    a.q.magnitude_si().mul(&k)
+                } else {
+                    match a.q.magnitude_si().div(&k) {
+                        Some(m) => m,
+                        None => return Some(Err("cannot divide a quantity by zero".to_string())),
+                    }
+                };
+                Ok(mk(Quantity::si(mag, a.q.dimension()), a.unit.clone()))
+            }
+            None => return None,
+        },
+        // `k * q` — scalar on the left (multiplication commutes).
+        (scalar, RuntimeValue::Quantity(b)) if op == '*' => match rat_of(scalar) {
+            Some(k) => Ok(mk(Quantity::si(b.q.magnitude_si().mul(&k), b.q.dimension()), b.unit.clone())),
+            None => return None,
+        },
+        _ => return None,
+    })
+}
+
+/// Money arithmetic. `+ −` require the SAME currency (a typed error otherwise, like a dimension
+/// mismatch); `×` and `÷` scale by an exact number (Int/Decimal), re-quantised to the currency's
+/// minor unit; a same-currency `Money ÷ Money` is the dimensionless ratio. Returns `None` when
+/// neither operand is Money (so the normal numeric dispatch runs); `Some(Err)` on a currency mismatch.
+fn money_binop(left: &RuntimeValue, right: &RuntimeValue, op: char) -> Option<Result<RuntimeValue, String>> {
+    use logicaffeine_base::{Decimal, Money, RoundingMode};
+    if !matches!(left, RuntimeValue::Money(_)) && !matches!(right, RuntimeValue::Money(_)) {
+        return None;
+    }
+    // An exact base-10 scalar (Int or Decimal); a Float or non-terminating Rational is refused.
+    let dec_of = |v: &RuntimeValue| -> Option<Decimal> {
+        match v {
+            RuntimeValue::Int(n) => Some(Decimal::from_i64(*n)),
+            RuntimeValue::Decimal(d) => Some((**d).clone()),
+            _ => None,
+        }
+    };
+    let mk = |m: Money| RuntimeValue::Money(Rc::new(m));
+    let mismatch = |a: &Money, b: &Money, verb: &str| {
+        format!("cannot {verb} money of different currencies ({} vs {})", a.currency.code, b.currency.code)
+    };
+    Some(match (left, right) {
+        (RuntimeValue::Money(a), RuntimeValue::Money(b)) => match op {
+            '+' => a.add(b).map(mk).ok_or_else(|| mismatch(a, b, "add")),
+            '-' => a.sub(b).map(mk).ok_or_else(|| mismatch(a, b, "subtract")),
+            '/' => match a.ratio(b) {
+                Some(r) => Ok(RuntimeValue::from_rational(r)),
+                None if a.currency != b.currency => Err(mismatch(a, b, "compare")),
+                None => Err("cannot divide money by a zero amount".to_string()),
+            },
+            '*' => Err("cannot multiply money by money — scale by a number instead".to_string()),
+            _ => unreachable!("money_binop only handles + - * /"),
+        },
+        // Scale money by an exact number (`19.99 USD × 3`, `price × 1.5`), re-quantised; `×` commutes.
+        (RuntimeValue::Money(a), scalar) | (scalar, RuntimeValue::Money(a)) if op == '*' => {
+            match dec_of(scalar) {
+                Some(s) => Ok(mk(Money::of(a.amount.mul(&s), a.currency))),
+                None => Err(format!("cannot multiply money by {}", scalar.type_name())),
+            }
+        }
+        // Divide money by an exact number (e.g. split a bill), re-quantised to the currency.
+        (RuntimeValue::Money(a), scalar) if op == '/' => match dec_of(scalar) {
+            Some(s) => match a.amount.div(&s, a.currency.scale, RoundingMode::HalfEven) {
+                Some(d) => Ok(mk(Money::of(d, a.currency))),
+                None => Err("cannot divide money by zero".to_string()),
+            },
+            None => Err(format!("cannot divide money by {}", scalar.type_name())),
+        },
+        _ => return None,
+    })
 }
 
 /// Apply a binary operator to two already-evaluated values.
@@ -39,35 +266,135 @@ fn rat_of(v: &RuntimeValue) -> Option<Rational> {
 /// evaluation order is the engine's responsibility: evaluate the left operand,
 /// and only consult the right when the left is an Int (bitwise) or when
 /// truthiness requires it.
+/// The error for combining two words of different widths — a type error, never a coercion.
+fn word_width_err(a: WordVal, b: WordVal) -> String {
+    format!("cannot combine Word{} and Word{} — width mismatch", a.width(), b.width())
+}
+
+/// Extract a shift count as `u32` from an `Int` or `Word`.
+fn shift_count(v: &RuntimeValue) -> Option<u32> {
+    match v {
+        RuntimeValue::Int(n) => Some(*n as u32),
+        RuntimeValue::Word(w) => Some(w.to_u64() as u32),
+        _ => None,
+    }
+}
+
+/// Word-operand dispatch for [`binary_op`]: `Some(result)` when handled as a ring-of-ℤ/2ᵏ op,
+/// `None` to fall through to the generic numeric/comparison path, `Err` on a width mismatch.
+/// Arithmetic/bitwise require both operands at the same width; shifts take an integer count.
+fn word_binary_op(
+    op: BinaryOpKind,
+    left: &RuntimeValue,
+    right: &RuntimeValue,
+) -> Result<Option<RuntimeValue>, String> {
+    use BinaryOpKind::*;
+    if matches!(op, Shl | Shr) {
+        if let RuntimeValue::Word(a) = left {
+            let n = shift_count(right).ok_or_else(|| "shift count must be an integer".to_string())?;
+            let r = if matches!(op, Shl) { a.shl(n) } else { a.shr(n) };
+            return Ok(Some(RuntimeValue::Word(r)));
+        }
+        return Ok(None);
+    }
+    let (RuntimeValue::Word(a), RuntimeValue::Word(b)) = (left, right) else {
+        return Ok(None);
+    };
+    let combined = match op {
+        // Add/Subtract/Multiply are handled in `add`/`subtract`/`multiply` (the VM calls those
+        // directly), so both tiers share ONE Word path; fall through to them here.
+        And => a.bitand(*b),
+        Or => a.bitor(*b),
+        BitXor => a.bitxor(*b),
+        _ => return Ok(None),
+    };
+    match combined {
+        Some(w) => Ok(Some(RuntimeValue::Word(w))),
+        None => Err(word_width_err(*a, *b)),
+    }
+}
+
+/// Lane-operand dispatch for [`binary_op`]: a SIMD lane vector op is the same operator applied to
+/// every lane (the scalar-lane spec; AOT lowers it to the matching AVX2 intrinsic). `None` falls
+/// through, `Err` on a lane-config mismatch.
+fn lanes_binary_op(
+    op: BinaryOpKind,
+    left: &RuntimeValue,
+    right: &RuntimeValue,
+) -> Result<Option<RuntimeValue>, String> {
+    let (RuntimeValue::Lanes(a), RuntimeValue::Lanes(b)) = (left, right) else {
+        return Ok(None);
+    };
+    let combined = match op {
+        BinaryOpKind::BitXor => a.bitxor(**b),
+        _ => return Ok(None),
+    };
+    match combined {
+        Some(v) => Ok(Some(RuntimeValue::Lanes(std::rc::Rc::new(v)))),
+        None => Err(format!(
+            "cannot combine {} and {} — lane-config mismatch",
+            a.type_name(),
+            b.type_name()
+        )),
+    }
+}
+
 pub fn binary_op(
     op: BinaryOpKind,
     left: RuntimeValue,
     right: RuntimeValue,
 ) -> Result<RuntimeValue, String> {
+    // Fixed-width wrapping fast path: an op on words stays in the ring ℤ/2ᵏ (wrapping, never
+    // promoting). Equality/comparison fall through to the generic path below.
+    if let Some(result) = word_binary_op(op, &left, &right)? {
+        return Ok(result);
+    }
+    // SIMD lane vectors: the op applies lane-wise (the scalar-lane spec).
+    if let Some(result) = lanes_binary_op(op, &left, &right)? {
+        return Ok(result);
+    }
     match op {
         BinaryOpKind::Add => add(left, right),
         BinaryOpKind::Subtract => subtract(left, right),
         BinaryOpKind::Multiply => multiply(left, right),
+        BinaryOpKind::Pow => power(left, right),
         BinaryOpKind::Divide => divide(left, right),
         BinaryOpKind::ExactDivide => exact_divide(left, right),
+        BinaryOpKind::FloorDivide => floor_divide(left, right),
         BinaryOpKind::Modulo => modulo(left, right),
         BinaryOpKind::Eq => Ok(RuntimeValue::Bool(values_equal(&left, &right))),
         BinaryOpKind::NotEq => Ok(RuntimeValue::Bool(!values_equal(&left, &right))),
+        BinaryOpKind::ApproxEq => approx_eq(left, right),
         BinaryOpKind::Lt | BinaryOpKind::Gt | BinaryOpKind::LtEq | BinaryOpKind::GtEq => {
             compare(op, &left, &right)
         }
-        BinaryOpKind::And => match (&left, &right) {
-            (RuntimeValue::Int(a), RuntimeValue::Int(b)) => Ok(RuntimeValue::Int(a & b)),
-            _ => Ok(RuntimeValue::Bool(left.is_truthy() && right.is_truthy())),
-        },
-        BinaryOpKind::Or => match (&left, &right) {
-            (RuntimeValue::Int(a), RuntimeValue::Int(b)) => Ok(RuntimeValue::Int(a | b)),
-            _ => Ok(RuntimeValue::Bool(left.is_truthy() || right.is_truthy())),
-        },
+        // Logical words: truthiness in, Bool out. The bitwise spellings are `&`/`|` (BitAnd/BitOr).
+        BinaryOpKind::And => Ok(RuntimeValue::Bool(left.is_truthy() && right.is_truthy())),
+        BinaryOpKind::Or => Ok(RuntimeValue::Bool(left.is_truthy() || right.is_truthy())),
         BinaryOpKind::Concat => concat(left, right),
-        BinaryOpKind::BitXor => match (left, right) {
+        BinaryOpKind::SeqConcat => seq_concat(left, right),
+        BinaryOpKind::BitXor => match (&left, &right) {
             (RuntimeValue::Int(a), RuntimeValue::Int(b)) => Ok(RuntimeValue::Int(a ^ b)),
-            _ => Err("Bitwise XOR requires integer operands".to_string()),
+            // Boolean XOR (`a ≠ b`) — matches the codegen's `a ^ b` on Rust `bool`, so the tiers
+            // agree. (Word and lane XOR are taken on the fast paths above.)
+            (RuntimeValue::Bool(a), RuntimeValue::Bool(b)) => Ok(RuntimeValue::Bool(a ^ b)),
+            // On Sets, `^` is the symmetric difference.
+            (RuntimeValue::Set(_), RuntimeValue::Set(_)) => set_binop(&left, &right, SetOp::SymmetricDifference),
+            _ => Err("Bitwise XOR requires integer, boolean, or Set operands".to_string()),
+        },
+        // `&` — bitwise AND on Int, intersection on Sets.
+        BinaryOpKind::BitAnd => match (&left, &right) {
+            (RuntimeValue::Int(a), RuntimeValue::Int(b)) => Ok(RuntimeValue::Int(a & b)),
+            (RuntimeValue::Bool(a), RuntimeValue::Bool(b)) => Ok(RuntimeValue::Bool(a & b)),
+            (RuntimeValue::Set(_), RuntimeValue::Set(_)) => set_binop(&left, &right, SetOp::Intersection),
+            _ => Err("`&` requires integer, boolean, or Set operands".to_string()),
+        },
+        // `|` — bitwise OR on Int, union on Sets.
+        BinaryOpKind::BitOr => match (&left, &right) {
+            (RuntimeValue::Int(a), RuntimeValue::Int(b)) => Ok(RuntimeValue::Int(a | b)),
+            (RuntimeValue::Bool(a), RuntimeValue::Bool(b)) => Ok(RuntimeValue::Bool(a | b)),
+            (RuntimeValue::Set(_), RuntimeValue::Set(_)) => set_binop(&left, &right, SetOp::Union),
+            _ => Err("`|` requires integer, boolean, or Set operands".to_string()),
         },
         // Shift counts are truncated to u32 and masked mod 64 (the wrapping spec).
         BinaryOpKind::Shl => match (left, right) {
@@ -86,6 +413,32 @@ pub fn binary_op(
 }
 
 pub fn add(left: RuntimeValue, right: RuntimeValue) -> Result<RuntimeValue, String> {
+    // Words add in the ring ℤ/2ᵏ (wrapping). Here as well as in `binary_op` so the VM, which
+    // calls `add` directly, stays byte-identical to the tree-walker on the Word path.
+    if let (RuntimeValue::Word(a), RuntimeValue::Word(b)) = (&left, &right) {
+        return a.add(*b).map(RuntimeValue::Word).ok_or_else(|| word_width_err(*a, *b));
+    }
+    // SIMD lane vectors add lane-wise in ℤ/2³² (the ChaCha quarter-round's `a += b`).
+    if let (RuntimeValue::Lanes(a), RuntimeValue::Lanes(b)) = (&left, &right) {
+        return a.add(**b).map(|v| RuntimeValue::Lanes(std::rc::Rc::new(v))).ok_or_else(|| {
+            format!("cannot add {} and {} — lane-config mismatch", a.type_name(), b.type_name())
+        });
+    }
+    if let Some(r) = quantity_binop(&left, &right, '+') {
+        return r;
+    }
+    if let Some(r) = money_binop(&left, &right, '+') {
+        return r;
+    }
+    if let Some(r) = modular_binop(&left, &right, "add", |a, b| a.add(b)) {
+        return r;
+    }
+    if let Some(r) = complex_binop(&left, &right, "add", |a, b| a.add(b)) {
+        return r;
+    }
+    if let Some(r) = decimal_binop(&left, &right, |a, b| a.add(b), |a, b| a.add(b), |a, b| a + b) {
+        return Ok(r);
+    }
     match (&left, &right) {
         // Integer addition is EXACT: on i64 overflow it promotes to BigInt instead of
         // wrapping (the silent `i64::MAX + 1 == i64::MIN` corruption is the bug this
@@ -135,6 +488,22 @@ pub fn add(left: RuntimeValue, right: RuntimeValue) -> Result<RuntimeValue, Stri
         (RuntimeValue::Date(days), RuntimeValue::Span { months, days: span_days }) => {
             Ok(RuntimeValue::Date(date_add_span(*days, *months, *span_days)))
         }
+        // A Moment plus a CIVIL Span is calendar arithmetic (`m + 1 month` clamps end-of-month,
+        // respects leap years, keeps the wall time); commutes. Contrast the physical Duration below.
+        (RuntimeValue::Moment(nanos), RuntimeValue::Span { months, days: span_days })
+        | (RuntimeValue::Span { months, days: span_days }, RuntimeValue::Moment(nanos)) => Ok(
+            RuntimeValue::Moment(super::temporal::moment_add_span(*nanos, *months, *span_days)),
+        ),
+        // A Moment plus a physical Duration is a later Moment (e.g. `m + 90 seconds`); commutes.
+        (RuntimeValue::Moment(nanos), RuntimeValue::Duration(d))
+        | (RuntimeValue::Duration(d), RuntimeValue::Moment(nanos)) => {
+            Ok(RuntimeValue::Moment(nanos.wrapping_add(*d)))
+        }
+        // `xs + ys` concatenates sequences — exactly `xs followed by ys`
+        // (a fresh sequence; neither operand is mutated).
+        (RuntimeValue::List(_), RuntimeValue::List(_)) => {
+            seq_concat(left.clone(), right.clone())
+        }
         _ => Err(format!("Cannot add {} and {}", left.type_name(), right.type_name())),
     }
 }
@@ -147,7 +516,129 @@ pub fn concat(left: RuntimeValue, right: RuntimeValue) -> Result<RuntimeValue, S
     ))))
 }
 
+/// The Set operations behind `| & ^ -` on Set operands. Results are FRESH
+/// sets in first-operand-then-second insertion order, deduped by
+/// `values_equal` — the same equality the language uses everywhere.
+enum SetOp {
+    Union,
+    Intersection,
+    Difference,
+    SymmetricDifference,
+}
+
+fn set_binop(left: &RuntimeValue, right: &RuntimeValue, op: SetOp) -> Result<RuntimeValue, String> {
+    let (RuntimeValue::Set(a), RuntimeValue::Set(b)) = (left, right) else {
+        return Err("set operation requires two Sets".to_string());
+    };
+    let (a, b) = (a.borrow(), b.borrow());
+    let contains = |xs: &[RuntimeValue], v: &RuntimeValue| xs.iter().any(|x| values_equal(x, v));
+    let mut out: Vec<RuntimeValue> = Vec::new();
+    match op {
+        SetOp::Union => {
+            out.extend(a.iter().cloned());
+            for v in b.iter() {
+                if !contains(&out, v) {
+                    out.push(v.clone());
+                }
+            }
+        }
+        SetOp::Intersection => {
+            for v in a.iter() {
+                if contains(&b, v) {
+                    out.push(v.clone());
+                }
+            }
+        }
+        SetOp::Difference => {
+            for v in a.iter() {
+                if !contains(&b, v) {
+                    out.push(v.clone());
+                }
+            }
+        }
+        SetOp::SymmetricDifference => {
+            for v in a.iter() {
+                if !contains(&b, v) {
+                    out.push(v.clone());
+                }
+            }
+            for v in b.iter() {
+                if !contains(&a, v) {
+                    out.push(v.clone());
+                }
+            }
+        }
+    }
+    Ok(RuntimeValue::Set(Rc::new(std::cell::RefCell::new(out))))
+}
+
+/// `a is approximately b` — the TOLERANT numeric comparison (`==` is IEEE
+/// bit-exact). Both operands coerce to f64 (approximation is inherently
+/// tolerant, so the lossy view is correct here) and compare with the ONE
+/// shared isclose definition (`logicaffeine_data::ops::logos_approx_eq`).
+pub fn approx_eq(left: RuntimeValue, right: RuntimeValue) -> Result<RuntimeValue, String> {
+    let as_f64 = |v: &RuntimeValue| -> Option<f64> {
+        match v {
+            RuntimeValue::Float(f) => Some(*f),
+            RuntimeValue::Int(n) => Some(*n as f64),
+            RuntimeValue::BigInt(b) => Some(b.to_f64()),
+            RuntimeValue::Rational(r) => Some(r.to_f64()),
+            _ => None,
+        }
+    };
+    match (as_f64(&left), as_f64(&right)) {
+        (Some(a), Some(b)) => Ok(RuntimeValue::Bool(logicaffeine_data::ops::logos_approx_eq(a, b))),
+        _ => Err(format!(
+            "`is approximately` compares numbers, got {} and {}",
+            left.type_name(),
+            right.type_name()
+        )),
+    }
+}
+
+/// `a followed by b` — merge two sequences into one fresh sequence. Element order is preserved:
+/// all of `a`, then all of `b`. Operands must both be sequences.
+pub fn seq_concat(left: RuntimeValue, right: RuntimeValue) -> Result<RuntimeValue, String> {
+    use crate::interpreter::ListRepr;
+    match (&left, &right) {
+        (RuntimeValue::List(a), RuntimeValue::List(b)) => {
+            let mut items = a.borrow().to_values();
+            items.extend(b.borrow().to_values());
+            Ok(RuntimeValue::List(Rc::new(std::cell::RefCell::new(ListRepr::from_values(items)))))
+        }
+        _ => Err("`followed by` requires two sequences (merge two sequences into one)".to_string()),
+    }
+}
+
 pub fn subtract(left: RuntimeValue, right: RuntimeValue) -> Result<RuntimeValue, String> {
+    // `a - b` on Sets is the difference (`a without b` is the English form).
+    if matches!((&left, &right), (RuntimeValue::Set(_), RuntimeValue::Set(_))) {
+        return set_binop(&left, &right, SetOp::Difference);
+    }
+    if let (RuntimeValue::Word(a), RuntimeValue::Word(b)) = (&left, &right) {
+        return a.sub(*b).map(RuntimeValue::Word).ok_or_else(|| word_width_err(*a, *b));
+    }
+    // SIMD lane vectors subtract lane-wise (the NTT butterfly's `a - t` over Word16 lanes).
+    if let (RuntimeValue::Lanes(a), RuntimeValue::Lanes(b)) = (&left, &right) {
+        return a.sub(**b).map(|v| RuntimeValue::Lanes(std::rc::Rc::new(v))).ok_or_else(|| {
+            format!("cannot subtract {} and {} — lane-config mismatch", a.type_name(), b.type_name())
+        });
+    }
+    if let Some(r) = quantity_binop(&left, &right, '-') {
+        return r;
+    }
+    if let Some(r) = money_binop(&left, &right, '-') {
+        return r;
+    }
+    if let Some(r) = modular_binop(&left, &right, "subtract", |a, b| a.sub(b)) {
+        return r;
+    }
+    if let Some(r) = complex_binop(&left, &right, "subtract", |a, b| a.sub(b)) {
+        return r;
+    }
+    if let Some(r) = decimal_binop(&left, &right, |a, b| a.sub(b), |a, b| a.sub(b), |a, b| a - b) {
+        return Ok(r);
+    }
     match (&left, &right) {
         (RuntimeValue::Int(a), RuntimeValue::Int(b)) => Ok(match a.checked_sub(*b) {
             Some(s) => RuntimeValue::Int(s),
@@ -182,6 +673,16 @@ pub fn subtract(left: RuntimeValue, right: RuntimeValue) -> Result<RuntimeValue,
         (RuntimeValue::Date(days), RuntimeValue::Span { months, days: span_days }) => {
             Ok(RuntimeValue::Date(date_add_span(*days, -*months, -*span_days)))
         }
+        // A Moment minus a CIVIL Span steps the calendar backward (`m - 1 month`), mirroring the add.
+        (RuntimeValue::Moment(nanos), RuntimeValue::Span { months, days: span_days }) => Ok(
+            RuntimeValue::Moment(super::temporal::moment_add_span(*nanos, -*months, -*span_days)),
+        ),
+        // A Moment minus a Duration is an earlier Moment. (Moment − Moment → elapsed Duration is
+        // deferred until Duration has a signed i64-nanos AOT representation, so the tiers stay in
+        // lock-step; `the seconds between a and b` already covers elapsed time naturally.)
+        (RuntimeValue::Moment(nanos), RuntimeValue::Duration(d)) => {
+            Ok(RuntimeValue::Moment(nanos.wrapping_sub(*d)))
+        }
         _ => Err(format!(
             "Cannot subtract {} from {}",
             right.type_name(),
@@ -190,7 +691,82 @@ pub fn subtract(left: RuntimeValue, right: RuntimeValue) -> Result<RuntimeValue,
     }
 }
 
+/// `base ** exp` — exponentiation. Integer power is EXACT (i64 fast path,
+/// promoting to BigInt on overflow); a Float operand takes the `f64::powf`
+/// path; a Rational base with an integer exponent stays exact; a NEGATIVE
+/// integer exponent on an integer base is a loud error (an Int can't hold the
+/// fractional result — use a Float base). ONE definition, shared by tw/VM/JIT.
+pub fn power(base: RuntimeValue, exp: RuntimeValue) -> Result<RuntimeValue, String> {
+    // Any Float operand → inexact f64 power.
+    if matches!(base, RuntimeValue::Float(_)) || matches!(exp, RuntimeValue::Float(_)) {
+        let b = num_f64(&base)
+            .ok_or_else(|| format!("cannot raise {} to a power", base.type_name()))?;
+        let e = num_f64(&exp)
+            .ok_or_else(|| format!("cannot raise to a {} power", exp.type_name()))?;
+        return Ok(RuntimeValue::Float(b.powf(e)));
+    }
+    match (&base, &exp) {
+        (RuntimeValue::Int(b), RuntimeValue::Int(e)) => int_power(*b, *e),
+        (RuntimeValue::BigInt(b), RuntimeValue::Int(e)) => {
+            let ue = u32::try_from(*e)
+                .map_err(|_| "negative or too-large exponent on an integer (use a Float base)".to_string())?;
+            Ok(RuntimeValue::from_bigint(b.pow(ue)))
+        }
+        (RuntimeValue::Rational(b), RuntimeValue::Int(e)) => {
+            let ie = i32::try_from(*e).map_err(|_| "exponent too large".to_string())?;
+            b.pow(ie)
+                .map(RuntimeValue::from_rational)
+                .ok_or_else(|| "zero raised to a negative power".to_string())
+        }
+        _ => Err(format!(
+            "cannot raise {} to the {} power",
+            base.type_name(),
+            exp.type_name()
+        )),
+    }
+}
+
+/// Exact `base^exp` for non-negative integer exponents; promotes to BigInt on
+/// i64 overflow. A negative exponent is a loud error.
+fn int_power(base: i64, exp: i64) -> Result<RuntimeValue, String> {
+    if exp < 0 {
+        return Err(
+            "negative exponent on an integer (an Int can't hold a fraction — use a Float base)"
+                .to_string(),
+        );
+    }
+    let e = u32::try_from(exp).map_err(|_| "exponent too large".to_string())?;
+    match base.checked_pow(e) {
+        Some(r) => Ok(RuntimeValue::Int(r)),
+        None => Ok(RuntimeValue::from_bigint(BigInt::from_i64(base).pow(e))),
+    }
+}
+
 pub fn multiply(left: RuntimeValue, right: RuntimeValue) -> Result<RuntimeValue, String> {
+    if let (RuntimeValue::Word(a), RuntimeValue::Word(b)) = (&left, &right) {
+        return a.mul(*b).map(RuntimeValue::Word).ok_or_else(|| word_width_err(*a, *b));
+    }
+    // SIMD lane vectors multiply lane-wise low-16 (`vpmullw`, the NTT's `*` over Word16 lanes).
+    if let (RuntimeValue::Lanes(a), RuntimeValue::Lanes(b)) = (&left, &right) {
+        return a.mullo(**b).map(|v| RuntimeValue::Lanes(std::rc::Rc::new(v))).ok_or_else(|| {
+            format!("cannot multiply {} and {} — lane op undefined", a.type_name(), b.type_name())
+        });
+    }
+    if let Some(r) = quantity_binop(&left, &right, '*') {
+        return r;
+    }
+    if let Some(r) = money_binop(&left, &right, '*') {
+        return r;
+    }
+    if let Some(r) = modular_binop(&left, &right, "multiply", |a, b| a.mul(b)) {
+        return r;
+    }
+    if let Some(r) = complex_binop(&left, &right, "multiply", |a, b| a.mul(b)) {
+        return r;
+    }
+    if let Some(r) = decimal_binop(&left, &right, |a, b| a.mul(b), |a, b| a.mul(b), |a, b| a * b) {
+        return Ok(r);
+    }
     match (&left, &right) {
         (RuntimeValue::Int(a), RuntimeValue::Int(b)) => Ok(match a.checked_mul(*b) {
             Some(p) => RuntimeValue::Int(p),
@@ -219,6 +795,21 @@ pub fn multiply(left: RuntimeValue, right: RuntimeValue) -> Result<RuntimeValue,
         }
         (RuntimeValue::Rational(r), RuntimeValue::Float(b)) => Ok(RuntimeValue::Float(r.to_f64() * b)),
         (RuntimeValue::Float(a), RuntimeValue::Rational(r)) => Ok(RuntimeValue::Float(a * r.to_f64())),
+        // `xs * n` / `n * xs` — repeat a sequence n times into a FRESH
+        // sequence. Each slot deep-copies its element (a repeated inner
+        // collection is n INDEPENDENT rows, never n aliases of one — the
+        // classic `[[0]]*3` footgun is designed out). n ≤ 0 is empty.
+        (RuntimeValue::List(items), RuntimeValue::Int(n))
+        | (RuntimeValue::Int(n), RuntimeValue::List(items)) => {
+            use crate::interpreter::ListRepr;
+            let src = items.borrow().to_values();
+            let count = (*n).max(0) as usize;
+            let mut out = Vec::with_capacity(src.len() * count);
+            for _ in 0..count {
+                out.extend(src.iter().map(|v| v.deep_clone()));
+            }
+            Ok(RuntimeValue::List(Rc::new(std::cell::RefCell::new(ListRepr::from_values(out)))))
+        }
         _ => Err(format!(
             "Cannot multiply {} and {}",
             left.type_name(),
@@ -228,6 +819,54 @@ pub fn multiply(left: RuntimeValue, right: RuntimeValue) -> Result<RuntimeValue,
 }
 
 pub fn divide(left: RuntimeValue, right: RuntimeValue) -> Result<RuntimeValue, String> {
+    if let Some(r) = quantity_binop(&left, &right, '/') {
+        return r;
+    }
+    if let Some(r) = money_binop(&left, &right, '/') {
+        return r;
+    }
+    // Modular division = multiply by the modular inverse: the operands must share a modulus
+    // and the divisor must be a unit (coprime to the modulus), else there is no inverse.
+    if matches!(left, RuntimeValue::Modular(_)) || matches!(right, RuntimeValue::Modular(_)) {
+        return match (&left, &right) {
+            (RuntimeValue::Modular(a), RuntimeValue::Modular(b)) => {
+                if a.modulus() != b.modulus() {
+                    Err("cannot divide values in different modular rings".to_string())
+                } else {
+                    a.div(b).map(|r| RuntimeValue::Modular(Rc::new(r))).ok_or_else(|| {
+                        "modular divisor has no inverse (not coprime to the modulus)".to_string()
+                    })
+                }
+            }
+            _ => Err(format!("Cannot divide {} by {}", left.type_name(), right.type_name())),
+        };
+    }
+    // Complex division stays Complex (the field is closed); `None` on a zero divisor.
+    if matches!(left, RuntimeValue::Complex(_)) || matches!(right, RuntimeValue::Complex(_)) {
+        return match (complex_of(&left), complex_of(&right)) {
+            (Some(a), Some(b)) => a
+                .div(&b)
+                .map(|c| RuntimeValue::Complex(Rc::new(c)))
+                .ok_or_else(|| "Division by zero".to_string()),
+            _ => Err(format!("Cannot divide {} by {}", left.type_name(), right.type_name())),
+        };
+    }
+    // A Decimal divides EXACTLY into the Rational tower (base-10 division need not
+    // terminate, so it does not stay a Decimal); a Float operand divides as Float.
+    if matches!(left, RuntimeValue::Decimal(_)) || matches!(right, RuntimeValue::Decimal(_)) {
+        if let (Some(a), Some(b)) = (rat_of(&left), rat_of(&right)) {
+            return a
+                .div(&b)
+                .map(RuntimeValue::from_rational)
+                .ok_or_else(|| "Division by zero".to_string());
+        }
+        if let (Some(a), Some(b)) = (num_f64(&left), num_f64(&right)) {
+            if b == 0.0 {
+                return Err("Division by zero".to_string());
+            }
+            return Ok(RuntimeValue::Float(a / b));
+        }
+    }
     match (&left, &right) {
         (RuntimeValue::Int(a), RuntimeValue::Int(b)) => {
             if *b == 0 {
@@ -307,6 +946,36 @@ pub fn divide(left: RuntimeValue, right: RuntimeValue) -> Result<RuntimeValue, S
 /// the one overflowing case, `i64::MIN / -1`.
 fn int_div(a: i64, b: i64) -> (BigInt, BigInt) {
     BigInt::from_i64(a).div_rem(&BigInt::from_i64(b)).expect("nonzero divisor")
+}
+
+/// FLOOR division — the runtime of [`BinaryOpKind::FloorDivide`] (`a // b`), the quotient
+/// rounded toward NEGATIVE INFINITY. On exact operands (Int/BigInt/Rational/Decimal) the
+/// result is the exact quotient's floor as an integer (`-7 // 2 → -4`, `10^30 // 7` exact);
+/// a Float operand floors the float quotient but stays Float (`7.5 // 2 → 3.0`, Python
+/// semantics). Distinct from [`divide`], which truncates toward zero. Zero divisor is loud.
+pub fn floor_divide(left: RuntimeValue, right: RuntimeValue) -> Result<RuntimeValue, String> {
+    // Float domain: floor the float quotient, staying inexact.
+    if matches!(left, RuntimeValue::Float(_)) || matches!(right, RuntimeValue::Float(_)) {
+        if let (Some(a), Some(b)) = (num_f64(&left), num_f64(&right)) {
+            if b == 0.0 {
+                return Err("Division by zero".to_string());
+            }
+            return Ok(RuntimeValue::Float((a / b).floor()));
+        }
+    }
+    // Exact domain: the exact rational quotient, floored to an integer (BigInt-promoting,
+    // downsized to Int when it fits). `rat_of` covers Int/BigInt/Rational/Decimal.
+    if let (Some(a), Some(b)) = (rat_of(&left), rat_of(&right)) {
+        return a
+            .div(&b)
+            .map(|q| RuntimeValue::from_bigint(q.floor()))
+            .ok_or_else(|| "Division by zero".to_string());
+    }
+    Err(format!(
+        "Cannot floor-divide {} by {}",
+        left.type_name(),
+        right.type_name()
+    ))
 }
 
 /// EXACT division — the runtime of [`BinaryOpKind::ExactDivide`], the type-directed
@@ -565,13 +1234,9 @@ pub fn crdt_merge_wire(local: RuntimeValue, bytes: &[u8]) -> RuntimeValue {
     }
 }
 
-/// `not x` — logical for Bool, bitwise for Int.
+/// `not x` — logical negation of truthiness (Bool out). The bitwise complement is `~`.
 pub fn not_value(val: RuntimeValue) -> Result<RuntimeValue, String> {
-    match val {
-        RuntimeValue::Bool(b) => Ok(RuntimeValue::Bool(!b)),
-        RuntimeValue::Int(n) => Ok(RuntimeValue::Int(!n)),
-        other => Err(format!("Cannot apply 'not' to {}", other.type_name())),
-    }
+    Ok(RuntimeValue::Bool(!val.is_truthy()))
 }
 
 #[cfg(test)]
@@ -579,6 +1244,61 @@ mod tests {
     use super::*;
     use crate::interpreter::StructValue;
     use std::collections::HashMap;
+
+    #[test]
+    fn money_arithmetic_and_comparison_are_exact_and_currency_safe() {
+        use crate::ast::stmt::BinaryOpKind;
+        use crate::semantics::builtins::{call_builtin, BuiltinId};
+        use crate::semantics::compare::compare;
+        let money = |s: &str, code: &str| {
+            call_builtin(
+                BuiltinId::Money,
+                vec![
+                    RuntimeValue::Decimal(Rc::new(logicaffeine_base::Decimal::parse(s).unwrap())),
+                    RuntimeValue::Text(Rc::new(code.to_string())),
+                ],
+            )
+            .unwrap()
+        };
+        let show = |v: &RuntimeValue| v.to_display_string();
+
+        // Construction + display at the currency's minor unit.
+        assert_eq!(show(&money("19.99", "USD")), "19.99 USD");
+        // Same-currency add/sub are EXACT (no float drift) and keep the currency.
+        assert_eq!(show(&add(money("0.10", "USD"), money("0.20", "USD")).unwrap()), "0.30 USD");
+        assert_eq!(show(&add(money("19.99", "USD"), money("5.00", "USD")).unwrap()), "24.99 USD");
+        assert_eq!(show(&subtract(money("24.99", "USD"), money("5.00", "USD")).unwrap()), "19.99 USD");
+        // Cross-currency add/sub are a typed error (no common meaning).
+        assert!(add(money("5.00", "USD"), money("1.00", "EUR")).is_err());
+        assert!(subtract(money("5.00", "USD"), money("1.00", "EUR")).is_err());
+        // Scale by a number (commutes); divide a bill by a number.
+        assert_eq!(show(&multiply(money("19.99", "USD"), RuntimeValue::Int(3)).unwrap()), "59.97 USD");
+        assert_eq!(show(&multiply(RuntimeValue::Int(3), money("19.99", "USD")).unwrap()), "59.97 USD");
+        assert_eq!(show(&divide(money("10.00", "USD"), RuntimeValue::Int(4)).unwrap()), "2.50 USD");
+        // Same-currency ratio (30/10 = 3, narrows to Int); money × money is refused.
+        assert!(matches!(
+            divide(money("30.00", "USD"), money("10.00", "USD")).unwrap(),
+            RuntimeValue::Int(3) | RuntimeValue::Rational(_)
+        ));
+        assert!(multiply(money("2.00", "USD"), money("2.00", "USD")).is_err());
+        // Ordering within a currency; ordering across currencies is a typed error.
+        assert_eq!(
+            compare(BinaryOpKind::Gt, &money("5.00", "USD"), &money("1.00", "USD")).unwrap(),
+            RuntimeValue::Bool(true)
+        );
+        assert!(compare(BinaryOpKind::Lt, &money("5.00", "USD"), &money("1.00", "EUR")).is_err());
+        // `money()` refuses an inexact amount and an unknown currency.
+        assert!(call_builtin(
+            BuiltinId::Money,
+            vec![RuntimeValue::Float(1.5), RuntimeValue::Text(Rc::new("USD".to_string()))]
+        )
+        .is_err());
+        assert!(call_builtin(
+            BuiltinId::Money,
+            vec![RuntimeValue::Int(5), RuntimeValue::Text(Rc::new("XYZ".to_string()))]
+        )
+        .is_err());
+    }
 
     #[test]
     fn crdt_wire_int_into_nothing_takes_value() {
@@ -727,8 +1447,9 @@ mod tests {
         assert_eq!(e, "Division by zero");
         let e = modulo(RuntimeValue::Int(1), RuntimeValue::Int(0)).unwrap_err();
         assert_eq!(e, "Modulo by zero");
-        let e = not_value(RuntimeValue::Nothing).unwrap_err();
-        assert_eq!(e, "Cannot apply 'not' to Nothing");
+        // `not` is total — logical negation of truthiness, never an error.
+        let r = not_value(RuntimeValue::Nothing).unwrap();
+        assert!(matches!(r, RuntimeValue::Bool(true)));
     }
 
     #[test]
@@ -763,6 +1484,189 @@ mod tests {
         )
         .unwrap();
         assert!(matches!(r, RuntimeValue::Date(19781)));
+    }
+
+    #[test]
+    fn decimal_arithmetic_stays_exact_and_promotes_correctly() {
+        let d = |s: &str| RuntimeValue::Decimal(Rc::new(Decimal::parse(s).unwrap()));
+        // +,-,* stay exact Decimal — money keeps its scale, no f64 drift.
+        assert_eq!(add(d("19.99"), d("0.01")).unwrap().to_display_string(), "20.00");
+        assert_eq!(subtract(d("20.00"), d("0.01")).unwrap().to_display_string(), "19.99");
+        assert_eq!(multiply(d("1.1"), d("1.1")).unwrap().to_display_string(), "1.21");
+        assert_eq!(add(d("0.1"), d("0.2")).unwrap().to_display_string(), "0.3");
+        // Decimal ∘ Int stays Decimal (a count scales money).
+        assert_eq!(multiply(d("19.99"), RuntimeValue::Int(3)).unwrap().to_display_string(), "59.97");
+        assert!(matches!(add(d("1.50"), RuntimeValue::Int(1)).unwrap(), RuntimeValue::Decimal(_)));
+        // Division promotes to the EXACT Rational tower (base-10 division need not terminate).
+        let q = divide(d("1"), d("3")).unwrap();
+        assert!(matches!(q, RuntimeValue::Rational(_)));
+        assert_eq!(q.to_display_string(), "1/3");
+        // A Rational operand promotes to exact Rational; a Float operand yields Float.
+        let third = RuntimeValue::from_rational(Rational::from_ratio_i64(1, 3).unwrap());
+        assert!(matches!(add(d("0.5"), third).unwrap(), RuntimeValue::Rational(_)));
+        assert!(matches!(add(d("0.5"), RuntimeValue::Float(0.25)).unwrap(), RuntimeValue::Float(_)));
+        // Cross-type ordering: 19.99 (Decimal) > 10 (Int).
+        assert!(matches!(
+            compare(BinaryOpKind::Gt, &d("19.99"), &RuntimeValue::Int(10)).unwrap(),
+            RuntimeValue::Bool(true)
+        ));
+    }
+
+    #[test]
+    fn complex_arithmetic_is_exact_closed_and_unordered() {
+        let c = |re: i64, im: i64| {
+            RuntimeValue::Complex(Rc::new(Complex::new(Rational::from_i64(re), Rational::from_i64(im))))
+        };
+        let cq = |rn: i64, rd: i64, in_: i64, id: i64| {
+            RuntimeValue::Complex(Rc::new(Complex::new(
+                Rational::from_ratio_i64(rn, rd).unwrap(),
+                Rational::from_ratio_i64(in_, id).unwrap(),
+            )))
+        };
+        let i = c(0, 1);
+        // The headline: i·i = −1, exact.
+        assert_eq!(multiply(i.clone(), i.clone()).unwrap(), c(-1, 0));
+        // Addition / subtraction.
+        assert_eq!(add(c(2, 3), c(1, -1)).unwrap(), c(3, 2));
+        assert_eq!(subtract(c(5, 2), c(1, 7)).unwrap(), c(4, -5));
+        // (1+i)(1−i) = 2.
+        assert_eq!(multiply(c(1, 1), c(1, -1)).unwrap(), c(2, 0));
+        // (2+3i)(4+5i) = −7 + 22i.
+        assert_eq!(multiply(c(2, 3), c(4, 5)).unwrap(), c(-7, 22));
+        // Division stays Complex (closed field): (3+4i)/(1+2i) = (11−2i)/5; z/z = 1.
+        assert_eq!(divide(c(3, 4), c(1, 2)).unwrap(), cq(11, 5, -2, 5));
+        assert_eq!(divide(c(2, 3), c(2, 3)).unwrap(), c(1, 0));
+        // A real embeds (re + 0i): Complex ∘ Int / BigInt / Rational stays Complex.
+        assert_eq!(add(c(2, 3), RuntimeValue::Int(5)).unwrap(), c(7, 3));
+        assert_eq!(multiply(i.clone(), RuntimeValue::Int(3)).unwrap(), c(0, 3)); // 3i
+        let half = RuntimeValue::from_rational(Rational::from_ratio_i64(1, 2).unwrap());
+        assert_eq!(add(c(1, 0), half).unwrap(), cq(3, 2, 0, 1));
+        // Equality is exact and structural; reduced parts compare equal.
+        assert!(matches!(
+            binary_op(BinaryOpKind::Eq, c(3, 4), c(3, 4)).unwrap(),
+            RuntimeValue::Bool(true)
+        ));
+        assert!(matches!(
+            binary_op(BinaryOpKind::Eq, c(3, 4), c(3, -4)).unwrap(),
+            RuntimeValue::Bool(false)
+        ));
+        // An inexact Float operand is REFUSED (an exact Complex never silently absorbs a float).
+        assert!(add(c(1, 1), RuntimeValue::Float(0.5)).is_err());
+        assert!(multiply(RuntimeValue::Float(2.0), i.clone()).is_err());
+        // Division by zero is a clean error, never a panic.
+        assert!(divide(c(1, 1), c(0, 0)).is_err());
+        // Complex has NO total order: every relational comparison is a typed error.
+        for op in [BinaryOpKind::Lt, BinaryOpKind::Gt, BinaryOpKind::LtEq, BinaryOpKind::GtEq] {
+            assert!(compare(op, &c(1, 1), &c(2, 2)).is_err(), "complex is unordered under {op:?}");
+        }
+        // Display forms.
+        assert_eq!(c(3, 4).to_display_string(), "3+4i");
+        assert_eq!(c(0, 1).to_display_string(), "i");
+        assert_eq!(c(0, -1).to_display_string(), "-i");
+        assert_eq!(c(-1, 0).to_display_string(), "-1");
+    }
+
+    /// The variant kind (NOT `type_name`, which folds BigInt into "Int").
+    fn kind(v: &RuntimeValue) -> &'static str {
+        match v {
+            RuntimeValue::Int(_) => "Int",
+            RuntimeValue::BigInt(_) => "BigInt",
+            RuntimeValue::Rational(_) => "Rational",
+            RuntimeValue::Decimal(_) => "Decimal",
+            RuntimeValue::Complex(_) => "Complex",
+            RuntimeValue::Modular(_) => "Modular",
+            RuntimeValue::Float(_) => "Float",
+            _ => "other", // the gauntlet only uses numeric values; this keeps the return 'static
+        }
+    }
+
+    /// THE GAUNTLET: every numeric type × every type × {+, −, ×, ÷}, asserting the promotion
+    /// KIND and the exact VALUE (for the exact types) or a typed ERROR for the incompatible
+    /// cells. The promotion precedence is: Float and Complex are mutually exclusive (an exact
+    /// Complex refuses a Float); otherwise Complex > Rational > Decimal > Int, and Decimal ÷
+    /// widens to Rational. Modular combines only with Modular of the same modulus.
+    #[test]
+    fn numeric_tower_cross_type_promotion_gauntlet() {
+        let int = || RuntimeValue::Int(2);
+        let rat = || RuntimeValue::from_rational(Rational::from_ratio_i64(1, 3).unwrap());
+        let dec = || RuntimeValue::Decimal(Rc::new(Decimal::parse("0.5").unwrap()));
+        let cpx = || RuntimeValue::Complex(Rc::new(Complex::new(Rational::from_i64(2), Rational::from_i64(3))));
+        let flt = || RuntimeValue::Float(2.0);
+
+        // ---- ADD: kind + exact value where the result is an exact type ----
+        let g = |a: RuntimeValue, b: RuntimeValue| add(a, b);
+        assert_eq!(kind(&g(int(), int()).unwrap()), "Int");
+        assert_eq!(g(int(), rat()).unwrap().to_display_string(), "7/3"); // 2 + 1/3
+        assert_eq!(kind(&g(int(), rat()).unwrap()), "Rational");
+        assert_eq!(g(int(), dec()).unwrap().to_display_string(), "2.5"); // 2 + 0.5
+        assert_eq!(kind(&g(int(), dec()).unwrap()), "Decimal");
+        assert_eq!(g(int(), cpx()).unwrap().to_display_string(), "4+3i"); // 2 + (2+3i)
+        assert_eq!(kind(&g(int(), cpx()).unwrap()), "Complex");
+        assert_eq!(kind(&g(int(), flt()).unwrap()), "Float");
+        assert_eq!(g(rat(), dec()).unwrap().to_display_string(), "5/6"); // 1/3 + 1/2
+        assert_eq!(kind(&g(rat(), dec()).unwrap()), "Rational"); // Rational beats Decimal
+        assert_eq!(g(rat(), cpx()).unwrap().to_display_string(), "7/3+3i"); // 1/3 + (2+3i)
+        assert_eq!(kind(&g(rat(), cpx()).unwrap()), "Complex");
+        assert_eq!(kind(&g(rat(), flt()).unwrap()), "Float");
+        assert_eq!(g(dec(), dec()).unwrap().to_display_string(), "1.0"); // 0.5 + 0.5
+        assert_eq!(kind(&g(dec(), dec()).unwrap()), "Decimal");
+        assert_eq!(g(dec(), cpx()).unwrap().to_display_string(), "5/2+3i"); // 0.5 + (2+3i)
+        assert_eq!(kind(&g(dec(), cpx()).unwrap()), "Complex");
+        assert_eq!(kind(&g(dec(), flt()).unwrap()), "Float");
+        assert_eq!(g(cpx(), cpx()).unwrap().to_display_string(), "4+6i");
+        assert_eq!(kind(&g(flt(), flt()).unwrap()), "Float");
+        // The one incompatible cell: an exact Complex refuses an inexact Float (both orders).
+        assert!(g(cpx(), flt()).is_err(), "Complex + Float must be a typed error");
+        assert!(g(flt(), cpx()).is_err(), "Float + Complex must be a typed error");
+
+        // ---- Commutativity of the PROMOTION across the matrix (a∘b kind == b∘a kind) ----
+        for a in [int(), rat(), dec(), cpx(), flt()] {
+            for b in [int(), rat(), dec(), cpx(), flt()] {
+                match (add(a.clone(), b.clone()), add(b.clone(), a.clone())) {
+                    (Ok(ab), Ok(ba)) => assert_eq!(kind(&ab), kind(&ba), "promotion commutes: {} {}", kind(&a), kind(&b)),
+                    (Err(_), Err(_)) => {} // both refuse (the Complex/Float cell)
+                    other => panic!("promotion asymmetry for {} and {}: {other:?}", kind(&a), kind(&b)),
+                }
+            }
+        }
+
+        // ---- DIVIDE: Decimal widens to Rational; Complex stays Complex ----
+        assert_eq!(divide(dec(), int()).unwrap().to_display_string(), "1/4"); // 0.5 / 2
+        assert_eq!(kind(&divide(dec(), int()).unwrap()), "Rational");
+        assert_eq!(divide(dec(), dec()).unwrap().to_display_string(), "1"); // 0.5 / 0.5 → 1 (Int)
+        assert_eq!(divide(cpx(), int()).unwrap().to_display_string(), "1+3/2i"); // (2+3i)/2
+        assert_eq!(kind(&divide(cpx(), int()).unwrap()), "Complex");
+        assert_eq!(divide(cpx(), cpx()).unwrap().to_display_string(), "1"); // z/z
+        assert_eq!(divide(rat(), int()).unwrap().to_display_string(), "1/6"); // (1/3)/2
+        // Division by zero is a clean error across the exact types.
+        assert!(divide(dec(), RuntimeValue::Int(0)).is_err());
+        assert!(divide(cpx(), RuntimeValue::from_rational(Rational::zero())).is_err());
+    }
+
+    #[test]
+    fn modular_arithmetic_wraps_and_requires_a_shared_ring() {
+        let m = |v: i64, n: i64| {
+            RuntimeValue::Modular(Rc::new(Modular::from_i64(v, n).unwrap()))
+        };
+        // Add/sub/mul wrap in ℤ/nℤ.
+        assert_eq!(add(m(5, 7), m(4, 7)).unwrap(), m(2, 7)); // 9 ≡ 2
+        assert_eq!(subtract(m(3, 7), m(5, 7)).unwrap(), m(5, 7)); // −2 ≡ 5
+        assert_eq!(multiply(m(4, 7), m(5, 7)).unwrap(), m(6, 7)); // 20 ≡ 6
+        // Division is by the modular inverse: 1/3 ≡ 5 (mod 7).
+        assert_eq!(divide(m(1, 7), m(3, 7)).unwrap(), m(5, 7));
+        // A non-invertible divisor (gcd ≠ 1) is a clean error, not a panic.
+        assert!(divide(m(1, 4), m(2, 4)).is_err());
+        // A modulus mismatch is refused on every op (no silent cross-ring math).
+        assert!(add(m(3, 7), m(3, 5)).is_err());
+        assert!(multiply(m(3, 7), m(3, 5)).is_err());
+        assert!(divide(m(3, 7), m(3, 5)).is_err());
+        // Mixing a Modular with a bare Int is refused (an Int has no modulus).
+        assert!(add(m(3, 7), RuntimeValue::Int(5)).is_err());
+        // Equality is per-ring; ℤ/nℤ is unordered so comparison is a typed error.
+        assert!(matches!(binary_op(BinaryOpKind::Eq, m(3, 7), m(10, 7)).unwrap(), RuntimeValue::Bool(true)));
+        assert!(matches!(binary_op(BinaryOpKind::Eq, m(3, 7), m(3, 5)).unwrap(), RuntimeValue::Bool(false)));
+        assert!(compare(BinaryOpKind::Lt, &m(1, 7), &m(2, 7)).is_err());
+        assert_eq!(m(3, 7).to_display_string(), "3 (mod 7)");
     }
 
     #[test]
@@ -815,15 +1719,21 @@ mod tests {
     }
 
     #[test]
-    fn eager_and_or_are_bitwise_for_ints_truthy_otherwise() {
+    fn eager_and_or_are_logical_truthiness_to_bool() {
+        // `and`/`or` are LOGICAL: truthiness in, Bool out — `&`/`|` are the
+        // bitwise spellings (BitAnd/BitOr below).
         let r = binary_op(BinaryOpKind::And, RuntimeValue::Int(6), RuntimeValue::Int(3)).unwrap();
-        assert!(matches!(r, RuntimeValue::Int(2)));
-        let r = binary_op(BinaryOpKind::Or, RuntimeValue::Int(6), RuntimeValue::Int(3)).unwrap();
-        assert!(matches!(r, RuntimeValue::Int(7)));
+        assert!(matches!(r, RuntimeValue::Bool(true)));
+        let r = binary_op(BinaryOpKind::Or, RuntimeValue::Int(0), RuntimeValue::Int(7)).unwrap();
+        assert!(matches!(r, RuntimeValue::Bool(true)));
         let r = binary_op(BinaryOpKind::And, RuntimeValue::Int(1), RuntimeValue::Bool(false)).unwrap();
         assert!(matches!(r, RuntimeValue::Bool(false)));
         let r = binary_op(BinaryOpKind::Or, RuntimeValue::Bool(false), RuntimeValue::Bool(true)).unwrap();
         assert!(matches!(r, RuntimeValue::Bool(true)));
+        let r = binary_op(BinaryOpKind::BitAnd, RuntimeValue::Int(6), RuntimeValue::Int(3)).unwrap();
+        assert!(matches!(r, RuntimeValue::Int(2)));
+        let r = binary_op(BinaryOpKind::BitOr, RuntimeValue::Int(6), RuntimeValue::Int(3)).unwrap();
+        assert!(matches!(r, RuntimeValue::Int(7)));
     }
 }
 
@@ -1317,5 +2227,45 @@ mod rational_exact_arithmetic {
             let merged = crdt_merge_wire(local.clone(), &bytes);
             assert!(crdt_eq(&merged, &expected), "wire merge must equal the in-memory merge");
         }
+    }
+}
+
+#[cfg(test)]
+mod word_tests {
+    use super::*;
+    use logicaffeine_base::{Word32, Word64, WordVal};
+
+    fn w32(n: u32) -> RuntimeValue {
+        RuntimeValue::Word(WordVal::W32(Word32(n)))
+    }
+    fn w64(n: u64) -> RuntimeValue {
+        RuntimeValue::Word(WordVal::W64(Word64(n)))
+    }
+
+    #[test]
+    fn word_arithmetic_wraps_through_binary_op() {
+        // The ring ℤ/2³²: MAX + 1 wraps to 0 and never promotes to BigInt.
+        assert_eq!(binary_op(BinaryOpKind::Add, w32(0xFFFF_FFFF), w32(1)).unwrap(), w32(0));
+        assert_eq!(binary_op(BinaryOpKind::Subtract, w32(0), w32(1)).unwrap(), w32(0xFFFF_FFFF));
+        assert_eq!(binary_op(BinaryOpKind::Multiply, w32(0x1000_0000), w32(0x10)).unwrap(), w32(0));
+        assert_eq!(binary_op(BinaryOpKind::BitXor, w32(0xFF00), w32(0x0FF0)).unwrap(), w32(0xF0F0));
+        assert_eq!(binary_op(BinaryOpKind::And, w32(0xFF00), w32(0x0FF0)).unwrap(), w32(0x0F00));
+        assert_eq!(binary_op(BinaryOpKind::Or, w32(0xFF00), w32(0x0FF0)).unwrap(), w32(0xFFF0));
+    }
+
+    #[test]
+    fn word_shift_takes_an_integer_count() {
+        assert_eq!(binary_op(BinaryOpKind::Shl, w32(1), RuntimeValue::Int(8)).unwrap(), w32(0x100));
+        assert_eq!(binary_op(BinaryOpKind::Shr, w32(0x100), RuntimeValue::Int(8)).unwrap(), w32(1));
+    }
+
+    #[test]
+    fn word_equality_and_width_mismatch_is_typed() {
+        assert!(values_equal(&w32(5), &w32(5)));
+        assert!(!values_equal(&w32(5), &w64(5)), "different widths are never equal");
+        assert!(
+            binary_op(BinaryOpKind::Add, w32(1), w64(1)).is_err(),
+            "Word32 + Word64 must error, not silently coerce"
+        );
     }
 }

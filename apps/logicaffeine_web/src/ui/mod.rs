@@ -1,4 +1,5 @@
 pub mod app;
+pub mod data_fetch;
 pub mod state;
 pub mod components;
 pub mod hooks;

@@ -1,6 +1,6 @@
 [package]
 name = "logicaffeine-data"
-version = "0.9.17"
+version.workspace = true
 edition.workspace = true
 authors.workspace = true
 repository.workspace = true
@@ -13,7 +13,13 @@ description = "WASM-safe data structures and CRDTs - NO IO"
 readme = "README.md"
 
 [dependencies]
-logicaffeine-base = { version = "0.9.17", path = "../logicaffeine_base" }
+logicaffeine-base = { workspace = true }
+# indexmap is pure + wasm-safe (insertion-ordered maps — the LOGOS Map contract).
+# DIRECT version, not `workspace = true`: staged builds (hotswap wasm bundles, AOT
+# cdylibs, e2e temp projects) copy this crate OUTSIDE the workspace, where
+# workspace-inherited third-party deps cannot resolve. Same convention as
+# rustc-hash/serde below.
+indexmap = { version = "2", features = ["serde"] }
 rustc-hash = "2"
 serde = { version = "1.0", features = ["derive"] }
 # CRITICAL: NO IO DEPENDENCIES - Lamport Invariant

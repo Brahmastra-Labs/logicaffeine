@@ -17,7 +17,7 @@
 //! - i64 wrapping arithmetic (x86 `add`/`sub`/`imul` wrap natively);
 //! - the kernel's exact shift spec (count truncates to the low 6 bits via `cl`);
 //! - `Div`/`Mod` side-EXIT on a zero divisor BEFORE any effect (a
-//!   [`ChainOutcome::Deopt`] through the shared status cell, replayed on
+//!   `ChainOutcome::Deopt` through the shared status cell, replayed on
 //!   bytecode where the kernel raises the precise error), and reproduce
 //!   `MIN / -1 = MIN` / `MIN % -1 = 0` without the `#DE` overflow trap.
 //!
@@ -4223,30 +4223,25 @@ fn emit_fcompare(g: &mut Gen, dst: Slot, lhs: Slot, rhs: Slot, cmp: FCmp) {
     g.store(dst, S0);
 }
 
-/// `dst = (|lhs - rhs| < f64::EPSILON) as i64` (when `neg` is false) or its
-/// negation (`neg` true) — the kernel's epsilon equality. Computed exactly like
-/// the reference: `d = lhs - rhs`; `|d|` by clearing the sign bit (a GP `and`
-/// with `0x7FFF…`); compare `|d|` against EPSILON via `ucomisd EPS, |d|` then
-/// `setb` (EPS > |d| ⟺ |d| < EPS). NaN `|d|` is unordered → `setb` false → 0
-/// (not equal), matching `(NaN).abs() < EPSILON == false`.
+/// `dst = (lhs == rhs) as i64` (when `neg` is false) or `(lhs != rhs)` (`neg`
+/// true) — IEEE float equality via `ucomisd`: ordered-equal ⟺ ZF=1 && PF=0
+/// (PF=1 ⟺ unordered, i.e. a NaN operand, which must yield false for `==`
+/// and true for `!=`) — bit-identical to the reference's `a == b`.
 fn emit_feq(g: &mut Gen, dst: Slot, lhs: Slot, rhs: Slot, neg: bool) {
-    // FS0 = lhs - rhs.
-    g.fload(FS0, lhs);
-    let b = g.foperand(rhs, FS1);
-    g.asm.subsd_rr(FS0, b);
-    // |d|: move bits to GP, clear sign bit, move back to FS0.
-    g.asm.movq_rx(S0, FS0);
-    g.asm.mov_ri(S1, i64::MAX); // 0x7FFF_FFFF_FFFF_FFFF
-    g.asm.and_rr(S0, S1);
-    g.asm.movq_xr(FS0, S0); // FS0 = |d|
-    // FS1 = EPSILON.
-    g.asm.mov_ri(S1, f64::EPSILON.to_bits() as i64);
-    g.asm.movq_xr(FS1, S1);
-    // ucomisd EPS, |d| ; setb gives EPS < |d|? No: CF=1 means EPS below |d|.
-    // We want |d| < EPS ⟺ EPS > |d| ⟺ (after ucomisd EPS,|d|) seta (CF=0&&ZF=0).
-    g.asm.ucomisd_rr(FS1, FS0); // compare EPS, |d|
-    let cond = if neg { Cond::BeU } else { Cond::AU }; // eq: EPS>|d| (seta); neq: !(..) (setbe)
-    g.asm.setcc_movzx(cond, S0);
+    let xa = g.foperand(lhs, FS0);
+    let xb = g.foperand(rhs, FS1);
+    g.asm.ucomisd_rr(xa, xb);
+    if neg {
+        // neq = ZF==0 || PF==1 (`setne` | `setp`).
+        g.asm.setcc_movzx(Cond::Ne, S0);
+        g.asm.setcc_movzx(Cond::ParityEven, S1);
+        g.asm.or_rr(S0, S1);
+    } else {
+        // eq = ZF==1 && PF==0 (`sete` & `setnp`).
+        g.asm.setcc_movzx(Cond::Eq, S0);
+        g.asm.setcc_movzx(Cond::ParityOdd, S1);
+        g.asm.and_rr(S0, S1);
+    }
     g.store(dst, S0);
 }
 
@@ -4275,23 +4270,23 @@ fn emit_branchf(g: &mut Gen, cmp: Cmp, lhs: Slot, rhs: Slot, target: LabelId) {
             g.asm.jcc(false_cond, target);
         }
         Cmp::Eq | Cmp::NotEq => {
-            // Compute the epsilon (in)equality into S0, then branch when FALSE.
-            // For Eq: false = (eq == 0). For NotEq: false = (neq == 0).
-            // Reuse emit_feq by writing the boolean into a dead path: inline it.
-            g.fload(FS0, lhs);
-            let b = g.foperand(rhs, FS1);
-            g.asm.subsd_rr(FS0, b);
-            g.asm.movq_rx(S0, FS0);
-            g.asm.mov_ri(S1, i64::MAX);
-            g.asm.and_rr(S0, S1);
-            g.asm.movq_xr(FS0, S0); // |d|
-            g.asm.mov_ri(S1, f64::EPSILON.to_bits() as i64);
-            g.asm.movq_xr(FS1, S1);
-            g.asm.ucomisd_rr(FS1, FS0); // EPS vs |d|
-            // truth(Eq) = |d| < EPS = seta. truth(NotEq) = !that = setbe.
-            // Branch on truth FALSE.
-            let truth_cond = if matches!(cmp, Cmp::Eq) { Cond::AU } else { Cond::BeU };
-            g.asm.setcc_movzx(truth_cond, S0);
+            // IEEE (in)equality; branch when the comparison is FALSE.
+            let xa = g.foperand(lhs, FS0);
+            let xb = g.foperand(rhs, FS1);
+            g.asm.ucomisd_rr(xa, xb);
+            if matches!(cmp, Cmp::Eq) {
+                // truth = ordered-equal; FALSE = ZF==0 || PF==1 — two direct
+                // jumps, and a NaN (PF=1) takes the false branch.
+                g.asm.jcc(Cond::Ne, target);
+                g.asm.jcc(Cond::ParityEven, target);
+                return;
+            }
+            // truth = (a != b); FALSE = ordered-equal (ZF==1 && PF==0).
+            // Materialize the IEEE neq exactly like `emit_feq`, then branch
+            // on zero.
+            g.asm.setcc_movzx(Cond::Ne, S0);
+            g.asm.setcc_movzx(Cond::ParityEven, S1);
+            g.asm.or_rr(S0, S1);
             g.asm.test_rr(S0, S0);
             g.asm.jcc(Cond::Eq, target); // truth == 0 → jump (false branch)
         }
@@ -4441,8 +4436,12 @@ fn emit_div_mod(g: &mut Gen, dst: Slot, lhs: Slot, rhs: Slot, is_div: bool, dl: 
     // divisor == -1 path.
     g.asm.bind(neg_one);
     if is_div {
-        // quotient = -lhs  (== lhs * -1; wrapping_div MIN/-1 = MIN = -MIN wrap)
+        // quotient = -lhs — EXCEPT `i64::MIN`, whose negation overflows:
+        // side-exit so the exact tier recomputes (and promotes to BigInt).
         g.load(S0, lhs);
+        g.asm.mov_ri(S1, i64::MIN);
+        g.asm.cmp_rr(S0, S1);
+        g.asm.jcc(Cond::Eq, dl);
         g.asm.neg_r(S0);
     } else {
         // remainder = 0
@@ -4634,16 +4633,21 @@ mod tests {
     }
 
     #[test]
-    fn div_min_neg_one_no_trap() {
+    fn div_min_neg_one_side_exits() {
+        // Exact arithmetic: the overflowing quotient i64::MIN / -1 side-exits
+        // in BOTH the reference and the machine code (deopt → promotion),
+        // never wraps — and it must not trap the process.
         let ops = vec![
             MicroOp::Div { dst: 2, lhs: 0, rhs: 1 },
             MicroOp::Return { src: 2 },
         ];
         let frame = vec![i64::MIN, -1, 0];
-        let expected = reference_eval(&ops, &mut frame.clone(), 1000).unwrap();
+        assert!(
+            reference_eval(&ops, &mut frame.clone(), 1000).is_none(),
+            "reference must side-exit MIN / -1"
+        );
         let (out, _) = run(&ops, &frame);
-        assert_eq!(out, ChainOutcome::Return(expected)); // MIN / -1 == MIN
-        assert_eq!(out, ChainOutcome::Return(i64::MIN));
+        assert!(out.is_deopt(), "machine code must side-exit MIN / -1, got {out:?}");
     }
 
     #[test]

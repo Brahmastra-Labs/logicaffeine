@@ -355,6 +355,48 @@ mod tests {
         );
     }
 
+    /// THE POWER, pulled out and measured to its bound. `PHP(n)` is the canonical exponential-hard SAT
+    /// instance: every resolution/CDCL refutation has size `2^Ω(n)` (Haken, 1985) — the wall that stops raw
+    /// CDCL *and* Z3 cold. We measure the **conflict count** (machine-independent search work) for plain vs
+    /// symmetry-broken CDCL as `n` grows: plain explodes, the broken count stays small, and crucially the
+    /// **collapse ratio widens with `n`** — the hallmark of an exponential-vs-polynomial separation, made
+    /// empirical. Then the matching reasoner decides the SAME family with **zero search** at a scale where
+    /// CDCL is exponentially dead — the polynomial bound, realized and certified.
+    #[test]
+    fn pigeonhole_exponential_collapses_to_polynomial_certified() {
+        use crate::cdcl::SolveResult;
+        use crate::cnf::Cnf;
+        let conflicts_of = |e: &ProofExpr| -> u64 {
+            let mut cnf = Cnf::new();
+            cnf.assert(e).expect("clausifiable");
+            let (mut solver, _) = cnf.into_solver_with_atoms();
+            assert!(matches!(solver.solve(), SolveResult::Unsat), "PHP must be UNSAT");
+            solver.conflicts()
+        };
+
+        let mut plains = Vec::new();
+        let mut ratios = Vec::new();
+        for n in 4..=8 {
+            let plain = conflicts_of(&php(n));
+            let broken = conflicts_of(&break_symmetries(&php(n)));
+            eprintln!("PHP({n}): plain conflicts={plain}  broken={broken}  collapse={:.1}x", plain as f64 / broken.max(1) as f64);
+            plains.push(plain);
+            ratios.push(plain as f64 / broken.max(1) as f64);
+        }
+
+        // Plain CDCL conflicts explode super-linearly with n — the Haken wall, empirically.
+        assert!(*plains.last().unwrap() >= plains[0].saturating_mul(plains.len() as u64), "plain CDCL conflicts must explode with n: {plains:?}");
+        // The symmetry-breaking collapse WIDENS with n: the win grows (polynomial pulling away from exponential).
+        assert!(*ratios.last().unwrap() > ratios[0] * 1.5, "the symmetry-breaking collapse must widen with n: {ratios:?}");
+
+        // The matching reasoner decides the WHOLE family in polynomial time with a re-verified Hall witness —
+        // certified UNSAT, zero search, at sizes where every CDCL/resolution refutation is astronomically large.
+        for n in [10usize, 16, 24, 32] {
+            assert!(crate::pigeonhole::decide_pigeonhole_unsat(&php(n)), "matching: PHP({n}) certified UNSAT with no search");
+        }
+        eprintln!("matching reasoner: PHP(10..32) all certified UNSAT, polynomial, zero search — CDCL is exponentially dead here");
+    }
+
     #[test]
     fn non_symmetric_formula_is_left_alone() {
         // A formula whose "rows" are NOT interchangeable (asymmetric extra clause) gets no SBP for
@@ -367,4 +409,48 @@ mod tests {
         // With no verified symmetry the formula is returned unchanged.
         assert_eq!(break_symmetries(&f), f, "asymmetric formula must be left unchanged");
     }
+
+    /// The collapse curve, charted out to `PHP(10)`. Heavy because plain CDCL grows `~×5` per pigeon, so
+    /// `PHP(10)` costs ~`10⁵` conflicts — the very point: it is the exponential wall, rendered. We measure
+    /// the conflict count plain vs symmetry-broken for `n = 4..10`, draw a `log₂` bar chart of both curves
+    /// (plain a rising staircase, broken nearly flat), and bank it. `#[ignore]` by default; run on demand.
+    #[test]
+    #[ignore = "heavy (~seconds): plain CDCL on PHP(9..10) is exponential — that's the point. Charts the curve."]
+    fn pigeonhole_collapse_curve_to_php10() {
+        use crate::cdcl::SolveResult;
+        use crate::cnf::Cnf;
+        let conflicts_of = |e: &ProofExpr| -> u64 {
+            let mut cnf = Cnf::new();
+            cnf.assert(e).expect("clausifiable");
+            let (mut solver, _) = cnf.into_solver_with_atoms();
+            assert!(matches!(solver.solve(), SolveResult::Unsat));
+            solver.conflicts()
+        };
+        let bar = |v: u64| "█".repeat((64.0 * (v.max(1) as f64).log2() / (200000f64).log2()) as usize);
+        let mut rows = Vec::new();
+        rows.push("  n |   plain |  broken |  collapse | log₂ plain (█) vs broken (░)".to_string());
+        rows.push("----+---------+---------+-----------+-----------------------------".to_string());
+        for n in 4..=10 {
+            let plain = conflicts_of(&php(n));
+            let broken = conflicts_of(&break_symmetries(&php(n)));
+            rows.push(format!(
+                "{n:3} | {plain:7} | {broken:7} | {:7.1}× | {}\n    |         |         |           | {}",
+                plain as f64 / broken.max(1) as f64,
+                bar(plain),
+                "░".repeat(bar(broken).chars().count())
+            ));
+        }
+        let chart = rows.join("\n");
+        eprintln!("\nPIGEONHOLE COLLAPSE — exponential plain vs polynomial broken\n{chart}\n");
+        let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../logs/derived_facts");
+        if std::fs::create_dir_all(&dir).is_ok() {
+            let _ = std::fs::write(dir.join("pigeonhole_collapse_curve.txt"), format!("PIGEONHOLE COLLAPSE — exponential plain CDCL vs polynomial certified symmetry breaking\n\n{chart}\n"));
+        }
+        // The wall is real: PHP(10) plain conflicts dwarf PHP(4), while broken barely moved.
+        let p10 = conflicts_of(&php(10));
+        let b10 = conflicts_of(&break_symmetries(&php(10)));
+        assert!(p10 > 50_000, "PHP(10) plain CDCL hits the exponential wall: {p10} conflicts");
+        assert!(b10 < 100, "broken PHP(10) stays polynomial: {b10} conflicts");
+    }
 }
+

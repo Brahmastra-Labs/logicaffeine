@@ -1,6 +1,6 @@
 [package]
 name = "logicaffeine-synth"
-version = "0.9.17"
+version.workspace = true
 edition.workspace = true
 authors.workspace = true
 repository.workspace = true
@@ -10,7 +10,11 @@ categories.workspace = true
 rust-version.workspace = true
 license = "BUSL-1.1"
 description = "EXODIA Forge: Z3 stencil specifications, witness verification and template synthesis (offline tooling — never in the runtime path)"
+readme = "README.md"
+# Offline dev tooling consumed only by the (unpublished) test harness; kept off
+# crates.io so the published surface stays intentional.
+publish = false
 
 [dependencies]
 z3 = "0.12"
-logicaffeine-forge = { version = "0.9.17", path = "../logicaffeine_forge" }
+logicaffeine-forge = { workspace = true }

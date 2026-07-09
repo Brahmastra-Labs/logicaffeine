@@ -6,7 +6,7 @@ each spec against the real machine code. Here "synth" means *stencil spec /
 template synthesis*; it is unrelated to `logicaffeine_verify`'s hardware SVA
 synthesis.
 
-Part of the [Logicaffeine](../../NEW_README.md) workspace. Excluded from
+Part of the [Logicaffeine](https://github.com/Brahmastra-Labs/logicaffeine/blob/main/README.md) workspace. Excluded from
 default-members (Z3-backed, offline tooling); depends on `logicaffeine_forge`
 and the `z3` solver crate. Everything runs at development / CI time and is
 **never** linked into the runtime path.
@@ -22,8 +22,8 @@ from `logicaffeine_forge::jit`; it is invoked only by the test crate's
 `phase_exodia_forge`, behind that crate's `verification` feature. Library only —
 no binaries, no feature flags of its own.
 
-See [proof-and-verification](../../new_docs/proof-and-verification.md) for the
-verification stack and [execution-and-performance](../../new_docs/execution-and-performance.md)
+See [proof-and-verification](https://github.com/Brahmastra-Labs/logicaffeine/blob/main/docs/proof-and-verification.md) for the
+verification stack and [execution-and-performance](https://github.com/Brahmastra-Labs/logicaffeine/blob/main/docs/execution-and-performance.md)
 for the Forge JIT it validates.
 
 ### Why BV64
@@ -45,7 +45,7 @@ Re-exported at the crate root: `all_specs`, `OpSpec`, `SpecKind`,
 
 ### `spec`
 
-```rust
+```text
 pub enum SpecKind { Binop, Checked }
 
 pub struct OpSpec {
@@ -78,7 +78,7 @@ pub fn deliberately_wrong_spec_for_canary() -> OpSpec;
 
 ### `witness`
 
-```rust
+```text
 pub struct WitnessReport { pub spec: &'static str, pub inputs_checked: usize }
 
 pub fn check_spec_with_witnesses(spec: &OpSpec, solver_models: usize)
@@ -105,7 +105,7 @@ a fresh one) plus an adversarial 12-value corner battery — `i64::MIN`, `MIN+1`
 
 ## License
 
-Business Source License 1.1 — see [LICENSE.md](../../LICENSE.md).
+Business Source License 1.1 — see [LICENSE.md](https://github.com/Brahmastra-Labs/logicaffeine/blob/main/LICENSE.md).
 
 ---
-[Docs index](../../new_docs/README.md) · [Root README](../../NEW_README.md) · [Changelog](../../CHANGELOG.md)
+[Docs index](https://github.com/Brahmastra-Labs/logicaffeine/blob/main/docs/README.md) · [Root README](https://github.com/Brahmastra-Labs/logicaffeine/blob/main/README.md) · [Changelog](https://github.com/Brahmastra-Labs/logicaffeine/blob/main/CHANGELOG.md)

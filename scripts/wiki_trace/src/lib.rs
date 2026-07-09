@@ -1,11 +1,4 @@
-//! Shared library for the wiki trace + triage harnesses.
-//!
-//! `wiki-trace` dumps verbose per-sentence traces. `wiki-triage` classifies each
-//! sentence into the kind of work it implies (lexicon gap / parser gap / semantic
-//! bug / design decision / isolate-as-noise), localizes it, and — where an
-//! equivalent paraphrase already parses — derives the expected FOL ("the spec
-//! writes itself"). The triage harness is READ-ONLY: it proposes, it never edits
-//! source, lexicon, or tests.
+#![doc = include_str!("../README.md")]
 
 use logicaffeine_compile::ui_bridge::{compile_for_ui, AstNode, CompileResult, TokenCategory};
 use logicaffeine_language::lexicon;

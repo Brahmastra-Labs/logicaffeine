@@ -5,7 +5,7 @@ AST-independent verification IR into Z3 and decides validity, equivalence,
 consistency, and temporal/safety/liveness properties — from refinement-type
 checks up to a full hardware model checker.
 
-Part of the [Logicaffeine](../../NEW_README.md) workspace. Excluded from
+Part of the [Logicaffeine](https://github.com/Brahmastra-Labs/logicaffeine/blob/main/README.md) workspace. Excluded from
 default-members (requires a Z3 toolchain); reached via the `verification`
 feature in dependent crates. **Tarski invariant**: the verification IR
 (`VerifyExpr` / `VerifyType`) is decoupled from the main AST, so verification is
@@ -15,7 +15,7 @@ front-end-agnostic. License-gated (Pro+).
 
 This crate is the Z3 oracle behind the project's third trust layer (kernel →
 proof engine → SMT/model-checking); see
-[proof-and-verification.md](../../new_docs/proof-and-verification.md). It is a
+[proof-and-verification.md](https://github.com/Brahmastra-Labs/logicaffeine/blob/main/docs/proof-and-verification.md). It is a
 workspace member but **not in `default-members`**, so a plain
 `cargo build`/`cargo test` skips it and needs no Z3. It compiles only when a
 consumer turns on its `verification` feature:
@@ -72,7 +72,7 @@ The IR (`ir`):
 
 Solvers (`solver`):
 
-```rust
+```text
 let mut session = VerificationSession::new();
 session.declare("x", VerifyType::Int);                                   // (&mut self, &str, VerifyType)
 session.assume(&VerifyExpr::eq(VerifyExpr::var("x"), VerifyExpr::int(10)));
@@ -91,7 +91,7 @@ session.verify_temporal(initial, transition, property, bound)?;  // BMC
 
 Top-level entry points:
 
-```rust
+```text
 check_equivalence(fol: &VerifyExpr, sva: &VerifyExpr, signals: &[String], bound: usize) -> EquivalenceResult
 check_consistency(props: &[VerifyExpr], signals: &[String], bound: usize) -> ConsistencyResult
 check_spec_consistency(formulas: &[LabeledFormula], config: &ConsistencyConfig) -> ConsistencyReport
@@ -104,7 +104,7 @@ Errors (`error`): `VerificationError`, `VerificationErrorKind`
 
 Licensing (`license`):
 
-```rust
+```text
 let validator = LicenseValidator::new();
 let plan: LicensePlan = validator.validate("sub_…")?;   // -> VerificationResult<LicensePlan>
 if plan.can_verify() { /* Pro, Premium, Lifetime, Enterprise */ }
@@ -136,6 +136,12 @@ cached result (< 24 h) when available, (3) otherwise POSTs
 `{cache_dir}/logos/verification_license.json`. Only `Pro`, `Premium`,
 `Lifetime`, and `Enterprise` return `can_verify() == true`.
 
+## Feature flags
+
+| Feature | Effect |
+|---------|--------|
+| `static-link-z3` | Build Z3 from the source vendored in z3-sys and link it statically — the substrate of the release `largo-full` binaries (needs cmake + a C++ toolchain + libclang). Default stays dynamic against the system libz3. |
+
 ## Dependencies
 
 - `z3` 0.12 — the SMT solver bindings (the only heavyweight dependency, and the
@@ -145,11 +151,11 @@ cached result (< 24 h) when available, (3) otherwise POSTs
 - `dirs` — locating the system cache directory.
 
 No internal workspace dependencies — the Tarski invariant keeps this crate
-standalone. Shared across the workspace: version `0.9.17` (lockstep).
+standalone. The version is lockstep with the workspace.
 
 ## License
 
-Business Source License 1.1 — see [LICENSE.md](../../LICENSE.md).
+Business Source License 1.1 — see [LICENSE.md](https://github.com/Brahmastra-Labs/logicaffeine/blob/main/LICENSE.md).
 
 ---
-[Docs index](../../new_docs/README.md) · [Root README](../../NEW_README.md) · [Changelog](../../CHANGELOG.md)
+[Docs index](https://github.com/Brahmastra-Labs/logicaffeine/blob/main/docs/README.md) · [Root README](https://github.com/Brahmastra-Labs/logicaffeine/blob/main/README.md) · [Changelog](https://github.com/Brahmastra-Labs/logicaffeine/blob/main/CHANGELOG.md)

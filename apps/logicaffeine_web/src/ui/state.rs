@@ -207,40 +207,51 @@ async fn validate_license_async(license_key: &str) -> Result<(bool, LicensePlan)
 }
 
 fn load_license_from_storage() -> (Option<String>, LicensePlan, Option<f64>) {
-    if let Some(window) = web_sys::window() {
-        if let Ok(Some(storage)) = window.local_storage() {
-            let key = storage.get_item("logos_license_key").ok().flatten();
-            let plan_str = storage.get_item("logos_license_plan").ok().flatten().unwrap_or_default();
-            let validated_at = storage
-                .get_item("logos_license_validated_at")
-                .ok()
-                .flatten()
-                .and_then(|s| s.parse::<f64>().ok());
+    #[cfg(target_arch = "wasm32")]
+    {
+        if let Some(window) = web_sys::window() {
+            if let Ok(Some(storage)) = window.local_storage() {
+                let key = storage.get_item("logos_license_key").ok().flatten();
+                let plan_str = storage.get_item("logos_license_plan").ok().flatten().unwrap_or_default();
+                let validated_at = storage
+                    .get_item("logos_license_validated_at")
+                    .ok()
+                    .flatten()
+                    .and_then(|s| s.parse::<f64>().ok());
 
-            let plan = LicensePlan::from_str(&plan_str);
-            return (key, plan, validated_at);
+                let plan = LicensePlan::from_str(&plan_str);
+                return (key, plan, validated_at);
+            }
         }
     }
     (None, LicensePlan::None, None)
 }
 
 fn save_license_to_storage(key: &str, plan: &LicensePlan, validated_at: f64) {
-    if let Some(window) = web_sys::window() {
-        if let Ok(Some(storage)) = window.local_storage() {
-            let _ = storage.set_item("logos_license_key", key);
-            let plan_str = format!("{:?}", plan).to_lowercase();
-            let _ = storage.set_item("logos_license_plan", &plan_str);
-            let _ = storage.set_item("logos_license_validated_at", &validated_at.to_string());
+    #[cfg(target_arch = "wasm32")]
+    {
+        if let Some(window) = web_sys::window() {
+            if let Ok(Some(storage)) = window.local_storage() {
+                let _ = storage.set_item("logos_license_key", key);
+                let plan_str = format!("{:?}", plan).to_lowercase();
+                let _ = storage.set_item("logos_license_plan", &plan_str);
+                let _ = storage.set_item("logos_license_validated_at", &validated_at.to_string());
+            }
         }
     }
+    #[cfg(not(target_arch = "wasm32"))]
+    let _ = (key, plan, validated_at);
 }
 
 fn clear_license_from_storage() {
-    if let Some(window) = web_sys::window() {
-        if let Ok(Some(storage)) = window.local_storage() {
-            let _ = storage.remove_item("logos_license_key");
-            let _ = storage.remove_item("logos_license_plan");
-            let _ = storage.remove_item("logos_license_validated_at");
+    #[cfg(target_arch = "wasm32")]
+    {
+        if let Some(window) = web_sys::window() {
+            if let Ok(Some(storage)) = window.local_storage() {
+                let _ = storage.remove_item("logos_license_key");
+                let _ = storage.remove_item("logos_license_plan");
+                let _ = storage.remove_item("logos_license_validated_at");
+            }
         }
     }
 }

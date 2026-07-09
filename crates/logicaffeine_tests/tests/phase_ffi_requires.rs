@@ -553,7 +553,13 @@ fn exported_function_has_body() {
 Show 42.
 "#;
     let rust = compile_to_rust(source).expect("Should compile");
-    assert!(rust.contains("return (a + b);"), "Exported function should have body. Generated:\n{}", rust);
+    // Exact arithmetic (overflow ruling v2): `a + b` in the body emits the
+    // promoting checked helper narrowed to the exported i64.
+    assert!(
+        rust.contains("return logos_add_i64(a, b);")
+            || rust.contains("return logos_add_exact(a, b).expect_i64(\"Int\");"),
+        "Exported function should have body. Generated:\n{}", rust
+    );
 }
 
 #[cfg(feature = "ffi-link-tests")]

@@ -1,5 +1,5 @@
-//! Doc-example coverage harness — every code example in `NEW_README.md` and
-//! `new_docs/*.md` is extracted and verified here, so the documentation set
+//! Doc-example coverage harness — every code example in `README.md` and
+//! `docs/*.md` is extracted and verified here, so the documentation set
 //! cannot silently rot.
 //!
 //! - Every ```logos block must compile (`compile_to_rust` → `Ok`). Complete
@@ -25,12 +25,12 @@ fn repo_root() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("..").join("..")
 }
 
-/// The documentation set under test: the staged root README plus every guide.
+/// The documentation set under test: the root README plus every guide.
 fn doc_files() -> Vec<PathBuf> {
     let root = repo_root();
-    let mut files = vec![root.join("NEW_README.md")];
-    let mut guides: Vec<PathBuf> = fs::read_dir(root.join("new_docs"))
-        .expect("new_docs/ should exist")
+    let mut files = vec![root.join("README.md")];
+    let mut guides: Vec<PathBuf> = fs::read_dir(root.join("docs"))
+        .expect("docs/ should exist")
         .filter_map(|e| e.ok())
         .map(|e| e.path())
         .filter(|p| p.extension().and_then(|x| x.to_str()) == Some("md"))

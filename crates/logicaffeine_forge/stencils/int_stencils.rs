@@ -315,18 +315,19 @@ pub unsafe extern "C" fn logos_stencil_ne3(base: *mut i64, sp: *mut i64, r0: i64
     logos_hole_cont_0(base, sp, r0, r1, r2, r3, f0, f1, f2, f3, f4, f5)
 }
 
-/// `frame[D] = frame[L] / frame[R]` (wrapping); zero divisor exits to
-/// continuation 1 before any effect.
+/// `frame[D] = frame[L] / frame[R]`; a zero divisor AND the `i64::MIN / -1`
+/// overflow both exit to continuation 1 before any effect — the exact tier
+/// (VM) recomputes and promotes, so native division never wraps.
 ///
 /// # Safety
 /// `base` must point at a frame larger than every patched index.
 #[no_mangle]
 pub unsafe extern "C" fn logos_stencil_div3c(base: *mut i64, sp: *mut i64, r0: i64, r1: i64, r2: i64, r3: i64, f0: f64, f1: f64, f2: f64, f3: f64, f4: f64, f5: f64) -> i64 {
     let b = *base.add(LOGOS_HOLE_I64_1 as usize);
-    if b == 0 {
+    let a = *base.add(LOGOS_HOLE_I64_0 as usize);
+    if b == 0 || (b == -1 && a == i64::MIN) {
         return logos_hole_cont_1(base, sp, r0, r1, r2, r3, f0, f1, f2, f3, f4, f5);
     }
-    let a = *base.add(LOGOS_HOLE_I64_0 as usize);
     *base.add(LOGOS_HOLE_I64_2 as usize) = a.wrapping_div(b);
     logos_hole_cont_0(base, sp, r0, r1, r2, r3, f0, f1, f2, f3, f4, f5)
 }

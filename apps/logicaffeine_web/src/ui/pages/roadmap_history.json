@@ -1,8 +1,8 @@
 [
   {
-    "version": "0.9.17",
-    "date": "2026-06-11",
-    "title": "EXODIA native execution tier",
+    "version": "0.10.0",
+    "date": "2026-07-08",
+    "title": "Prebuilt largo binaries + one-line installers",
     "tagged": false,
     "maintenance": false
   },

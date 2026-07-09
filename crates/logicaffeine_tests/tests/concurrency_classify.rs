@@ -1,4 +1,4 @@
-//! Phase 0 (FINISH_INTERPRETER.md) — determinacy classifier tests.
+//! Phase 0 (work/FINISH_INTERPRETER.md) — determinacy classifier tests.
 //!
 //! The classifier labels a LOGOS program as belonging to the determinate
 //! (Kahn-deterministic) or nondeterminate fragment. Determinate = spawn + FIFO

@@ -6,9 +6,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
-## [0.9.17] - 2026-06-11
+### Fixed
+- Query parameters survive router boot: `/studio?file=`, `/success?session_id=`, `/registry?token=&login=`, and `/news?tag=` are now typed query segments on their routes (received as props), so the router's startup URL normalization can no longer destroy them. Studio share links and refreshes open the linked file; Stripe license activation and the registry OAuth callback work again. Locked by route round-trip tests, a source ratchet forbidding query-string scraping, and sitemap perfection locks (enum-completeness, URL hygiene, robots.txt agreement, `lastmod` freshness).
 
-Synced to workspace version 0.9.17. See the root CHANGELOG for the cross-crate history.
+## [0.10.0] - 2026-07-08
+
+Synced to workspace version 0.10.0. See root CHANGELOG for full history.
 
 ## [0.8.12] - 2026-02-14
 

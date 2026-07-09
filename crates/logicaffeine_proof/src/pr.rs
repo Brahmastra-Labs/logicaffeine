@@ -50,9 +50,24 @@ pub fn check_pr_refutation(num_vars: usize, original: &[Vec<Lit>], steps: &[Proo
                 }
                 db.push(clause.clone());
             }
+            ProofStep::Delete(clause) => {
+                // A deletion is unchecked (always sound); remove the first matching clause.
+                let key = canon_clause(clause);
+                if let Some(pos) = db.iter().position(|d| canon_clause(d) == key) {
+                    db.swap_remove(pos);
+                }
+            }
         }
     }
     rup::is_rup(num_vars, &db, &[])
+}
+
+/// A clause's canonical form (sorted, deduped literal codes) for set-equality comparison.
+fn canon_clause(c: &[Lit]) -> Vec<u32> {
+    let mut k: Vec<u32> = c.iter().map(|l| l.var() * 2 + u32::from(!l.is_positive())).collect();
+    k.sort_unstable();
+    k.dedup();
+    k
 }
 
 /// Is `clause` propagation-redundant w.r.t. `db` under `witness`?
@@ -61,6 +76,66 @@ pub fn is_pr(num_vars: usize, db: &[Vec<Lit>], clause: &[Lit], witness: &Witness
         Witness::Assignment(omega) => assignment_pr(num_vars, db, clause, omega),
         Witness::Substitution(sigma) => substitution_sr(num_vars, db, clause, sigma),
     }
+}
+
+/// [`is_pr`] with the automorphism re-check served by a pre-built incremental
+/// `AutomorphismIndex` (which must hold exactly the clauses of `db`). Identical verdict to
+/// [`is_pr`] — the index is an acceleration structure — but the substitution path no longer
+/// rebuilds the membership set per call, the difference between an `O(n⁴)` and an `O(n³)`
+/// certified refutation.
+pub fn is_pr_indexed(
+    num_vars: usize,
+    db: &[Vec<Lit>],
+    index: &mut crate::symmetry_detect::AutomorphismIndex,
+    clause: &[Lit],
+    witness: &Witness,
+) -> bool {
+    match witness {
+        Witness::Assignment(omega) => assignment_pr(num_vars, db, clause, omega),
+        Witness::Substitution(sigma) => {
+            if !index.is_automorphism(sigma) {
+                return false;
+            }
+            let sigma_c = sigma.apply_clause(clause);
+            let mut assume: Vec<Lit> = clause.iter().map(|l| l.negated()).collect();
+            assume.extend(sigma_c.iter().map(|l| l.negated()));
+            // Occurrence-driven propagation over the index, not a full-database scan.
+            let _ = db;
+            index.propagate_to_conflict(num_vars, &assume)
+        }
+    }
+}
+
+/// [`check_pr_refutation`] accelerated by an incrementally-maintained `AutomorphismIndex` — the
+/// same verdict, but each substitution step's automorphism re-check costs `O(support)` rather than
+/// `O(|db|)`. Falls back to the stateless checker if the proof deletes clauses (the index is
+/// append-only, and certified symmetry refutations do not delete).
+pub fn check_pr_refutation_fast(num_vars: usize, original: &[Vec<Lit>], steps: &[ProofStep]) -> bool {
+    if steps.iter().any(|s| matches!(s, ProofStep::Delete(_))) {
+        return check_pr_refutation(num_vars, original, steps);
+    }
+    let mut db: Vec<Vec<Lit>> = original.to_vec();
+    let mut index = crate::symmetry_detect::AutomorphismIndex::with_clauses(num_vars, original);
+    for step in steps {
+        match step {
+            ProofStep::Rup(c) => {
+                if !rup::is_rup(num_vars, &db, c) {
+                    return false;
+                }
+                db.push(c.clone());
+                index.insert(c.clone());
+            }
+            ProofStep::Pr { clause, witness } => {
+                if !is_pr_indexed(num_vars, &db, &mut index, clause, witness) {
+                    return false;
+                }
+                db.push(clause.clone());
+                index.insert(clause.clone());
+            }
+            ProofStep::Delete(_) => unreachable!("deletes handled by the fallback above"),
+        }
+    }
+    rup::is_rup(num_vars, &db, &[])
 }
 
 /// The substitution-redundancy criterion for a symmetry witness `σ`: `σ` must be an
@@ -221,6 +296,33 @@ mod tests {
         assert!(check_pr_refutation(2, &f, &steps));
         // Without the resolvents it cannot close.
         assert!(!check_pr_refutation(2, &f, &[]));
+    }
+
+    #[test]
+    fn fast_checker_agrees_with_the_trusted_checker_on_php() {
+        // The accelerated checker must reach the SAME verdict as the stateless trusted checker on
+        // the real certified PHP refutations — and on a deliberately corrupted one (both reject).
+        for n in 3..=6 {
+            let cr = crate::sym_certify::heule_php_refutation(n);
+            let (cnf, _) = crate::families::php(n);
+            assert_eq!(
+                check_pr_refutation_fast(cnf.num_vars, &cnf.clauses, &cr.steps),
+                check_pr_refutation(cnf.num_vars, &cnf.clauses, &cr.steps),
+                "fast vs trusted disagree on PHP({n})"
+            );
+            assert!(check_pr_refutation_fast(cnf.num_vars, &cnf.clauses, &cr.steps), "PHP({n}) refutes");
+
+            // Corrupt the first PR witness → both checkers must reject.
+            let mut bad = cr.steps.clone();
+            if let Some(ProofStep::Pr { witness, .. }) = bad.iter_mut().find(|s| matches!(s, ProofStep::Pr { .. })) {
+                *witness = Witness::Substitution(Perm::identity(cnf.num_vars));
+            }
+            assert_eq!(
+                check_pr_refutation_fast(cnf.num_vars, &cnf.clauses, &bad),
+                check_pr_refutation(cnf.num_vars, &cnf.clauses, &bad),
+                "fast vs trusted disagree on corrupted PHP({n})"
+            );
+        }
     }
 
     #[test]

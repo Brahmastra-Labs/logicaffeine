@@ -1,4 +1,4 @@
-//! Phase 9 (FINISH_INTERPRETER.md) — the browser cooperative drive loop.
+//! Phase 9 (work/FINISH_INTERPRETER.md) — the browser cooperative drive loop.
 //!
 //! Concurrent programs in the Studio run on the deterministic scheduler driven in *slices*
 //! that yield a macrotask between them (so Dioxus repaints instead of freezing), emitting a

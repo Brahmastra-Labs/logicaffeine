@@ -1,0 +1,75 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="880" height="579" viewBox="0 0 880 579" role="img" aria-label="Interpreted LOGOS vs V8">
+<title>Interpreted LOGOS vs V8</title>
+<defs><linearGradient id="g0" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#0a1224"/><stop offset="1" stop-color="#05070e"/></linearGradient><linearGradient id="g1" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="#00d4ff"/><stop offset="1" stop-color="#05070e"/></linearGradient><linearGradient id="g2" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="#6be6ff"/><stop offset="1" stop-color="#00d4ff"/></linearGradient><linearGradient id="g3" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="#fcbf8d"/><stop offset="1" stop-color="#fb923c"/></linearGradient></defs>
+<rect x="0" y="0" width="880" height="579" rx="16" fill="url(#g0)"/>
+<rect x="1" y="1" width="878" height="577" rx="16" fill="none" stroke="rgba(255,255,255,0.05)"/>
+<rect x="0" y="0" width="880" height="3.5" fill="url(#g1)"/>
+<text x="40.0" y="20.0" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="10" fill="#00d4ff" text-anchor="start" font-weight="700" letter-spacing="2">ENGLISH, INTERPRETED, FASTER THAN V8</text>
+<rect x="24.0" y="30.0" width="6.0" height="19.0" rx="3.0" fill="url(#g2)"/>
+<text x="40.0" y="45.0" font-family="ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, sans-serif" font-size="19" fill="#eef2f8" text-anchor="start" font-weight="800">Interpreted LOGOS — vs V8 (Node)</text>
+<text x="40.0" y="64.0" font-family="ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, sans-serif" font-size="12.5" fill="#93a4bd" text-anchor="start">Eager VM 1.04× V8 (geomean) — a from-scratch bytecode interpreter, same naive program on both. Higher = faster.</text>
+<line x1="342.9" y1="94.0" x2="342.9" y2="443.0" stroke="#7d8da3" stroke-width="1.6"/>
+<text x="342.9" y="90.0" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="10" fill="#eef2f8" text-anchor="middle">1×</text>
+<line x1="485.7" y1="94.0" x2="485.7" y2="443.0" stroke="rgba(255,255,255,0.07)" stroke-width="1" stroke-dasharray="2,5"/>
+<text x="485.7" y="90.0" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="10" fill="#5b6b86" text-anchor="middle">2×</text>
+<line x1="628.6" y1="94.0" x2="628.6" y2="443.0" stroke="rgba(255,255,255,0.07)" stroke-width="1" stroke-dasharray="2,5"/>
+<text x="628.6" y="90.0" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="10" fill="#5b6b86" text-anchor="middle">3×</text>
+<text x="271.4" y="455.0" font-family="ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, sans-serif" font-size="10" fill="#5b6b86" text-anchor="middle">← slower than V8</text>
+<text x="342.9" y="455.0" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="10.5" fill="#eef2f8" text-anchor="middle" font-weight="700">V8</text>
+<text x="521.4" y="455.0" font-family="ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, sans-serif" font-size="10" fill="#5b6b86" text-anchor="middle">faster than V8 →</text>
+<text x="192.0" y="114.0" font-family="ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, sans-serif" font-size="12" fill="#eef2f8" text-anchor="end">Collatz</text>
+<rect x="200.0" y="102.0" width="498.4" height="14.0" rx="3.0" fill="url(#g2)"/>
+<text x="704.4" y="114.0" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="10.5" fill="#00d4ff" text-anchor="start" font-weight="700">3.49×</text>
+<text x="192.0" y="137.0" font-family="ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, sans-serif" font-size="12" fill="#eef2f8" text-anchor="end">Counting sort</text>
+<rect x="200.0" y="125.0" width="440.0" height="14.0" rx="3.0" fill="url(#g2)"/>
+<text x="646.0" y="137.0" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="10.5" fill="#00d4ff" text-anchor="start" font-weight="700">3.08×</text>
+<text x="192.0" y="160.0" font-family="ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, sans-serif" font-size="12" fill="#eef2f8" text-anchor="end">String assembly</text>
+<rect x="200.0" y="148.0" width="320.4" height="14.0" rx="3.0" fill="url(#g2)"/>
+<text x="526.4" y="160.0" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="10.5" fill="#00d4ff" text-anchor="start" font-weight="700">2.24×</text>
+<text x="192.0" y="183.0" font-family="ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, sans-serif" font-size="12" fill="#eef2f8" text-anchor="end">Array fill</text>
+<rect x="200.0" y="171.0" width="306.9" height="14.0" rx="3.0" fill="url(#g2)"/>
+<text x="512.9" y="183.0" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="10.5" fill="#00d4ff" text-anchor="start" font-weight="700">2.15×</text>
+<text x="192.0" y="206.0" font-family="ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, sans-serif" font-size="12" fill="#eef2f8" text-anchor="end">String search</text>
+<rect x="200.0" y="194.0" width="232.6" height="14.0" rx="3.0" fill="url(#g2)"/>
+<text x="438.6" y="206.0" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="10.5" fill="#00d4ff" text-anchor="start" font-weight="700">1.63×</text>
+<text x="192.0" y="229.0" font-family="ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, sans-serif" font-size="12" fill="#eef2f8" text-anchor="end">Prefix sum</text>
+<rect x="200.0" y="217.0" width="214.8" height="14.0" rx="3.0" fill="url(#g2)"/>
+<text x="420.8" y="229.0" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="10.5" fill="#00d4ff" text-anchor="start" font-weight="700">1.50×</text>
+<text x="192.0" y="252.0" font-family="ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, sans-serif" font-size="12" fill="#eef2f8" text-anchor="end">Two-sum</text>
+<rect x="200.0" y="240.0" width="209.1" height="14.0" rx="3.0" fill="url(#g2)"/>
+<text x="415.1" y="252.0" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="10.5" fill="#00d4ff" text-anchor="start" font-weight="700">1.46×</text>
+<text x="192.0" y="275.0" font-family="ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, sans-serif" font-size="12" fill="#eef2f8" text-anchor="end">Iterative fib</text>
+<rect x="200.0" y="263.0" width="192.2" height="14.0" rx="3.0" fill="url(#g2)"/>
+<text x="398.2" y="275.0" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="10.5" fill="#00d4ff" text-anchor="start" font-weight="700">1.35×</text>
+<text x="192.0" y="298.0" font-family="ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, sans-serif" font-size="12" fill="#eef2f8" text-anchor="end">Array reverse</text>
+<rect x="200.0" y="286.0" width="180.7" height="14.0" rx="3.0" fill="url(#g2)"/>
+<text x="386.7" y="298.0" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="10.5" fill="#00d4ff" text-anchor="start" font-weight="700">1.27×</text>
+<text x="192.0" y="321.0" font-family="ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, sans-serif" font-size="12" fill="#eef2f8" text-anchor="end">Binary trees</text>
+<rect x="200.0" y="309.0" width="161.4" height="14.0" rx="3.0" fill="url(#g2)"/>
+<text x="367.4" y="321.0" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="10.5" fill="#00d4ff" text-anchor="start" font-weight="700">1.13×</text>
+<text x="192.0" y="344.0" font-family="ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, sans-serif" font-size="12" fill="#eef2f8" text-anchor="end">Recursive fib</text>
+<rect x="200.0" y="332.0" width="158.5" height="14.0" rx="3.0" fill="url(#g2)"/>
+<text x="364.5" y="344.0" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="10.5" fill="#00d4ff" text-anchor="start" font-weight="700">1.11×</text>
+<text x="192.0" y="367.0" font-family="ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, sans-serif" font-size="12" fill="#eef2f8" text-anchor="end">Sieve</text>
+<rect x="200.0" y="355.0" width="142.7" height="14.0" rx="3.0" fill="url(#g2)"/>
+<text x="348.7" y="367.0" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="10.5" fill="#00d4ff" text-anchor="start" font-weight="700">1.00×</text>
+<text x="192.0" y="390.0" font-family="ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, sans-serif" font-size="12" fill="#eef2f8" text-anchor="end">Collection ops</text>
+<rect x="200.0" y="378.0" width="121.5" height="14.0" rx="3.0" fill="url(#g2)"/>
+<text x="327.5" y="390.0" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="10.5" fill="#00d4ff" text-anchor="start" font-weight="700">0.85×</text>
+<text x="192.0" y="413.0" font-family="ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, sans-serif" font-size="12" fill="#eef2f8" text-anchor="end">Quicksort</text>
+<rect x="200.0" y="401.0" width="108.8" height="14.0" rx="3.0" fill="url(#g2)"/>
+<text x="314.8" y="413.0" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="10.5" fill="#00d4ff" text-anchor="start" font-weight="700">0.76×</text>
+<text x="192.0" y="436.0" font-family="ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, sans-serif" font-size="12" fill="#eef2f8" text-anchor="end">N-body</text>
+<rect x="200.0" y="424.0" width="54.8" height="14.0" rx="3.0" fill="url(#g2)"/>
+<text x="260.8" y="436.0" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="10.5" fill="#00d4ff" text-anchor="start" font-weight="700">0.38×</text>
+<rect x="20.0" y="471.0" width="840.0" height="74.0" rx="10.0" fill="rgba(255,255,255,0.018)" stroke="rgba(255,255,255,0.06)" stroke-width="1"/>
+<rect x="20.0" y="471.0" width="3.5" height="74.0" rx="2.0" fill="url(#g2)"/>
+<text x="36.0" y="491.0" font-family="ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, sans-serif" font-size="13" fill="#00d4ff" text-anchor="start" font-weight="700">Cold start — first output 5.9× faster than Node</text>
+<text x="192.0" y="513.0" font-family="ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, sans-serif" font-size="12" fill="#eef2f8" text-anchor="end">LOGOS</text>
+<rect x="200.0" y="503.0" width="70.6" height="13.0" rx="3.0" fill="url(#g2)"/>
+<text x="277.6" y="513.0" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="10.5" fill="#00d4ff" text-anchor="start" font-weight="600">2.3ms</text>
+<text x="192.0" y="531.0" font-family="ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, sans-serif" font-size="12" fill="#eef2f8" text-anchor="end">Node</text>
+<rect x="200.0" y="521.0" width="416.7" height="13.0" rx="3.0" fill="url(#g3)"/>
+<text x="623.7" y="531.0" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="10.5" fill="#fb923c" text-anchor="start" font-weight="600">13.6ms</text>
+<text x="24.0" y="566.0" font-family="ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, sans-serif" font-size="9.5" fill="#5b6b86" text-anchor="start">Speed = Node time ÷ LOGOS time, off-floor geomean (Node off its ~30ms startup floor). Same naive algorithm, no manual tuning. i9-14900K, 10 runs.</text>
+</svg>

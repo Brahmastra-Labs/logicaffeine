@@ -1,6 +1,6 @@
 //! Concurrency memory model — the normative determinacy table.
 //!
-//! See `docs/CONCURRENCY_MODEL.md` and `FINISH_INTERPRETER.md` §3 for the full
+//! See `docs/CONCURRENCY_MODEL.md` and `work/FINISH_INTERPRETER.md` §3 for the full
 //! specification. The short version:
 //!
 //! - **Determinate fragment** = `LaunchTask` + FIFO `Pipe`/`Send`/`Receive` +

@@ -27,10 +27,20 @@
 //! Use omega when you need exact integer semantics. Use lia when
 //! rational arithmetic is acceptable (faster but may miss integer-specific
 //! unsatisfiability).
+//!
+//! # Exactness
+//!
+//! Coefficients are arbitrary-precision ([`BigInt`]): Fourier-Motzkin
+//! combinations multiply coefficients pairwise, and the verdict feeds trusted
+//! reflection reductions, so a wrapped product would flip satisfiable into
+//! unsatisfiable.
 
 use std::collections::{BTreeMap, HashSet};
 
-use crate::term::{Literal, Term};
+use logicaffeine_base::numeric::BigInt;
+
+use crate::reify::{extract_binary_app, extract_slit, extract_sname, extract_svar, VarInterner};
+use crate::term::Term;
 
 /// Integer linear expression of the form c + a₁x₁ + a₂x₂ + ... + aₙxₙ.
 ///
@@ -39,16 +49,16 @@ use crate::term::{Literal, Term};
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct IntExpr {
     /// The constant term c.
-    pub constant: i64,
+    pub constant: BigInt,
     /// Maps variable index to its integer coefficient (sparse representation).
-    pub coeffs: BTreeMap<i64, i64>,
+    pub coeffs: BTreeMap<i64, BigInt>,
 }
 
 impl IntExpr {
     /// Create a constant expression
-    pub fn constant(c: i64) -> Self {
+    pub fn constant(c: impl Into<BigInt>) -> Self {
         IntExpr {
-            constant: c,
+            constant: c.into(),
             coeffs: BTreeMap::new(),
         }
     }
@@ -56,9 +66,9 @@ impl IntExpr {
     /// Create a single variable expression: 1*x_idx + 0
     pub fn var(idx: i64) -> Self {
         let mut coeffs = BTreeMap::new();
-        coeffs.insert(idx, 1);
+        coeffs.insert(idx, BigInt::from_i64(1));
         IntExpr {
-            constant: 0,
+            constant: BigInt::zero(),
             coeffs,
         }
     }
@@ -66,11 +76,11 @@ impl IntExpr {
     /// Add two expressions
     pub fn add(&self, other: &Self) -> Self {
         let mut result = self.clone();
-        result.constant += other.constant;
-        for (&v, &c) in &other.coeffs {
-            let entry = result.coeffs.entry(v).or_insert(0);
-            *entry += c;
-            if *entry == 0 {
+        result.constant = result.constant.add(&other.constant);
+        for (&v, c) in &other.coeffs {
+            let entry = result.coeffs.entry(v).or_insert_with(BigInt::zero);
+            *entry = entry.add(c);
+            if entry.is_zero() {
                 result.coeffs.remove(&v);
             }
         }
@@ -80,8 +90,8 @@ impl IntExpr {
     /// Negate an expression
     pub fn neg(&self) -> Self {
         IntExpr {
-            constant: -self.constant,
-            coeffs: self.coeffs.iter().map(|(&v, &c)| (v, -c)).collect(),
+            constant: self.constant.negated(),
+            coeffs: self.coeffs.iter().map(|(&v, c)| (v, c.negated())).collect(),
         }
     }
 
@@ -91,17 +101,18 @@ impl IntExpr {
     }
 
     /// Scale by an integer constant
-    pub fn scale(&self, k: i64) -> Self {
-        if k == 0 {
+    pub fn scale(&self, k: impl Into<BigInt>) -> Self {
+        let k = k.into();
+        if k.is_zero() {
             return IntExpr::constant(0);
         }
         IntExpr {
-            constant: self.constant * k,
+            constant: self.constant.mul(&k),
             coeffs: self
                 .coeffs
                 .iter()
-                .map(|(&v, &c)| (v, c * k))
-                .filter(|(_, c)| *c != 0)
+                .map(|(&v, c)| (v, c.mul(&k)))
+                .filter(|(_, c)| !c.is_zero())
                 .collect(),
         }
     }
@@ -112,8 +123,8 @@ impl IntExpr {
     }
 
     /// Get coefficient of a variable (0 if not present)
-    pub fn get_coeff(&self, var: i64) -> i64 {
-        self.coeffs.get(&var).copied().unwrap_or(0)
+    pub fn get_coeff(&self, var: i64) -> BigInt {
+        self.coeffs.get(&var).cloned().unwrap_or_else(BigInt::zero)
     }
 }
 
@@ -136,11 +147,11 @@ impl IntConstraint {
         if !self.expr.is_constant() {
             return true; // Can't determine yet
         }
-        let c = self.expr.constant;
+        let c = &self.expr.constant;
         if self.strict {
-            c < 0 // c < 0
+            c.is_negative() // c < 0
         } else {
-            c <= 0 // c ≤ 0
+            !c.is_positive() // c ≤ 0
         }
     }
 
@@ -151,25 +162,31 @@ impl IntConstraint {
             .coeffs
             .values()
             .chain(std::iter::once(&self.expr.constant))
-            .filter(|&&x| x != 0)
-            .fold(0i64, |a, &b| gcd(a.abs(), b.abs()));
+            .filter(|x| !x.is_zero())
+            .fold(BigInt::zero(), |a, b| gcd(&a, &b.abs()));
 
-        if g > 1 {
-            self.expr.constant /= g;
+        if g > BigInt::from_i64(1) {
+            self.expr.constant = exact_div(&self.expr.constant, &g);
             for v in self.expr.coeffs.values_mut() {
-                *v /= g;
+                *v = exact_div(v, &g);
             }
         }
     }
 }
 
-/// GCD using Euclidean algorithm
-fn gcd(a: i64, b: i64) -> i64 {
-    if b == 0 {
-        a.max(1)
+/// GCD using the Euclidean algorithm (arguments non-negative).
+fn gcd(a: &BigInt, b: &BigInt) -> BigInt {
+    if b.is_zero() {
+        a.clone()
     } else {
-        gcd(b, a % b)
+        let (_, r) = a.div_rem(b).expect("gcd divisor is nonzero");
+        gcd(b, &r)
     }
+}
+
+/// Divide exactly (the divisor is a common divisor of the dividend).
+fn exact_div(a: &BigInt, g: &BigInt) -> BigInt {
+    a.div_rem(g).expect("gcd is nonzero").0
 }
 
 /// Reify a Syntax term to an integer linear expression.
@@ -181,13 +198,16 @@ fn gcd(a: i64, b: i64) -> i64 {
 ///
 /// - `SLit n` - Integer literal becomes a constant
 /// - `SVar i` - De Bruijn variable becomes a linear variable
-/// - `SName "x"` - Named global becomes a linear variable (hashed)
+/// - `SName "x"` - Named global becomes a linear variable (interned)
 /// - `add`, `sub`, `mul` - Arithmetic operations (mul only if one operand is constant)
+///
+/// Every term reified for one goal (hypotheses and conclusion alike) must
+/// share one `vars` interner, or their variable indices will not line up.
 ///
 /// # Returns
 ///
 /// `Some(expr)` on success, `None` if the term is non-linear or malformed.
-pub fn reify_int_linear(term: &Term) -> Option<IntExpr> {
+pub fn reify_int_linear(term: &Term, vars: &mut VarInterner) -> Option<IntExpr> {
     // SLit n -> constant
     if let Some(n) = extract_slit(term) {
         return Some(IntExpr::constant(n));
@@ -200,26 +220,25 @@ pub fn reify_int_linear(term: &Term) -> Option<IntExpr> {
 
     // SName "x" -> named variable (global constant treated as free variable)
     if let Some(name) = extract_sname(term) {
-        let hash = name_to_var_index(&name);
-        return Some(IntExpr::var(hash));
+        return Some(IntExpr::var(vars.intern(&name)));
     }
 
     // Binary operations
     if let Some((op, a, b)) = extract_binary_app(term) {
         match op.as_str() {
             "add" => {
-                let la = reify_int_linear(&a)?;
-                let lb = reify_int_linear(&b)?;
+                let la = reify_int_linear(&a, vars)?;
+                let lb = reify_int_linear(&b, vars)?;
                 return Some(la.add(&lb));
             }
             "sub" => {
-                let la = reify_int_linear(&a)?;
-                let lb = reify_int_linear(&b)?;
+                let la = reify_int_linear(&a, vars)?;
+                let lb = reify_int_linear(&b, vars)?;
                 return Some(la.sub(&lb));
             }
             "mul" => {
-                let la = reify_int_linear(&a)?;
-                let lb = reify_int_linear(&b)?;
+                let la = reify_int_linear(&a, vars)?;
+                let lb = reify_int_linear(&b, vars)?;
                 // Only linear if one side is constant
                 if la.is_constant() {
                     return Some(lb.scale(la.constant));
@@ -259,6 +278,7 @@ pub fn extract_comparison(term: &Term) -> Option<(String, Term, Term)> {
 pub fn goal_to_negated_constraint(rel: &str, lhs: &IntExpr, rhs: &IntExpr) -> Option<IntConstraint> {
     // diff = lhs - rhs
     let diff = lhs.sub(rhs);
+    let one = IntExpr::constant(1);
 
     match rel {
         // Lt: a < b valid iff NOT(a >= b)
@@ -275,14 +295,10 @@ pub fn goal_to_negated_constraint(rel: &str, lhs: &IntExpr, rhs: &IntExpr) -> Op
         // So negation is: a - b >= 1, i.e., a - b - 1 >= 0
         // Constraint: -(a - b - 1) <= 0, i.e., (b - a + 1) <= 0
         // Equivalently: (b - a) <= -1
-        "Le" | "le" => {
-            let mut expr = rhs.sub(lhs);
-            expr.constant += 1; // b - a + 1 <= 0
-            Some(IntConstraint {
-                expr,
-                strict: false,
-            })
-        }
+        "Le" | "le" => Some(IntConstraint {
+            expr: rhs.sub(lhs).add(&one),
+            strict: false,
+        }),
 
         // Gt: a > b valid iff NOT(a <= b)
         // For integers: a <= b means a - b <= 0
@@ -295,14 +311,10 @@ pub fn goal_to_negated_constraint(rel: &str, lhs: &IntExpr, rhs: &IntExpr) -> Op
         // Ge: a >= b valid iff NOT(a < b)
         // For integers: a < b means a - b <= -1 (strict to non-strict!)
         // Constraint: (a - b) <= -1, i.e., (a - b + 1) <= 0
-        "Ge" | "ge" => {
-            let mut expr = diff;
-            expr.constant += 1; // (a - b + 1) <= 0
-            Some(IntConstraint {
-                expr,
-                strict: false,
-            })
-        }
+        "Ge" | "ge" => Some(IntConstraint {
+            expr: diff.add(&one),
+            strict: false,
+        }),
 
         _ => None,
     }
@@ -375,20 +387,20 @@ pub fn omega_unsat(constraints: &[IntConstraint]) -> bool {
 
 /// Eliminate a variable from constraints using integer-aware Fourier-Motzkin.
 fn eliminate_variable_int(constraints: &[IntConstraint], var: i64) -> Vec<IntConstraint> {
-    let mut lower: Vec<(IntExpr, i64)> = vec![]; // (rest, |coeff|) for lower bounds
-    let mut upper: Vec<(IntExpr, i64)> = vec![]; // (rest, coeff) for upper bounds
+    let mut lower: Vec<(IntExpr, BigInt)> = vec![]; // (rest, |coeff|) for lower bounds
+    let mut upper: Vec<(IntExpr, BigInt)> = vec![]; // (rest, coeff) for upper bounds
     let mut independent: Vec<IntConstraint> = vec![];
 
     for c in constraints {
         let coeff = c.expr.get_coeff(var);
-        if coeff == 0 {
+        if coeff.is_zero() {
             independent.push(c.clone());
         } else {
             // c.expr = coeff*var + rest <= 0
             let mut rest = c.expr.clone();
             rest.coeffs.remove(&var);
 
-            if coeff > 0 {
+            if coeff.is_positive() {
                 // coeff*var + rest <= 0
                 // var <= -rest/coeff (upper bound)
                 upper.push((rest, coeff));
@@ -397,7 +409,7 @@ fn eliminate_variable_int(constraints: &[IntConstraint], var: i64) -> Vec<IntCon
                 // |coeff|*(-var) + rest <= 0
                 // -var <= -rest/|coeff|
                 // var >= rest/|coeff| (lower bound)
-                lower.push((rest, -coeff));
+                lower.push((rest, coeff.negated()));
             }
         }
     }
@@ -413,7 +425,9 @@ fn eliminate_variable_int(constraints: &[IntConstraint], var: i64) -> Vec<IntCon
             // Combined: lo_rest / lo_coeff <= -hi_rest / hi_coeff
             // => hi_coeff * lo_rest <= -lo_coeff * hi_rest
             // => hi_coeff * lo_rest + lo_coeff * hi_rest <= 0
-            let new_expr = lo_rest.scale(*hi_coeff).add(&hi_rest.scale(*lo_coeff));
+            let new_expr = lo_rest
+                .scale(hi_coeff.clone())
+                .add(&hi_rest.scale(lo_coeff.clone()));
 
             let mut new_constraint = IntConstraint {
                 expr: new_expr,
@@ -427,88 +441,6 @@ fn eliminate_variable_int(constraints: &[IntConstraint], var: i64) -> Vec<IntCon
     independent
 }
 
-// =============================================================================
-// Helper functions for extracting Syntax patterns
-// =============================================================================
-
-/// Extract integer from SLit n
-fn extract_slit(term: &Term) -> Option<i64> {
-    if let Term::App(ctor, arg) = term {
-        if let Term::Global(name) = ctor.as_ref() {
-            if name == "SLit" {
-                if let Term::Lit(Literal::Int(n)) = arg.as_ref() {
-                    return Some(*n);
-                }
-            }
-        }
-    }
-    None
-}
-
-/// Extract variable index from SVar i
-fn extract_svar(term: &Term) -> Option<i64> {
-    if let Term::App(ctor, arg) = term {
-        if let Term::Global(name) = ctor.as_ref() {
-            if name == "SVar" {
-                if let Term::Lit(Literal::Int(i)) = arg.as_ref() {
-                    return Some(*i);
-                }
-            }
-        }
-    }
-    None
-}
-
-/// Extract name from SName "x"
-fn extract_sname(term: &Term) -> Option<String> {
-    if let Term::App(ctor, arg) = term {
-        if let Term::Global(name) = ctor.as_ref() {
-            if name == "SName" {
-                if let Term::Lit(Literal::Text(s)) = arg.as_ref() {
-                    return Some(s.clone());
-                }
-            }
-        }
-    }
-    None
-}
-
-/// Extract binary application: SApp (SApp (SName "op") a) b
-fn extract_binary_app(term: &Term) -> Option<(String, Term, Term)> {
-    if let Term::App(outer, b) = term {
-        if let Term::App(sapp_outer, inner) = outer.as_ref() {
-            if let Term::Global(ctor) = sapp_outer.as_ref() {
-                if ctor == "SApp" {
-                    if let Term::App(partial, a) = inner.as_ref() {
-                        if let Term::App(sapp_inner, op_term) = partial.as_ref() {
-                            if let Term::Global(ctor2) = sapp_inner.as_ref() {
-                                if ctor2 == "SApp" {
-                                    if let Some(op) = extract_sname(op_term) {
-                                        return Some((
-                                            op,
-                                            a.as_ref().clone(),
-                                            b.as_ref().clone(),
-                                        ));
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
-    None
-}
-
-/// Convert a name to a unique negative variable index
-fn name_to_var_index(name: &str) -> i64 {
-    let hash: i64 = name
-        .bytes()
-        .fold(0i64, |acc, b| acc.wrapping_mul(31).wrapping_add(b as i64));
-    -(hash.abs() + 1_000_000)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -519,8 +451,8 @@ mod tests {
         let y = IntExpr::var(1);
         let sum = x.add(&y);
         assert!(!sum.is_constant());
-        assert_eq!(sum.get_coeff(0), 1);
-        assert_eq!(sum.get_coeff(1), 1);
+        assert_eq!(sum.get_coeff(0), BigInt::from_i64(1));
+        assert_eq!(sum.get_coeff(1), BigInt::from_i64(1));
     }
 
     #[test]
@@ -529,7 +461,7 @@ mod tests {
         let neg_x = x.neg();
         let zero = x.add(&neg_x);
         assert!(zero.is_constant());
-        assert_eq!(zero.constant, 0);
+        assert!(zero.constant.is_zero());
     }
 
     #[test]

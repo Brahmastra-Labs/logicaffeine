@@ -2,8 +2,9 @@ use include_dir::{include_dir, Dir};
 use serde::Deserialize;
 use std::collections::HashMap;
 
-// Curriculum content is directly under assets/ (01_first-steps/, 02_building-blocks/, etc.)
-static CURRICULUM_DIR: Dir = include_dir!("$CARGO_MANIFEST_DIR/assets");
+// Curriculum content lives under assets/curriculum/ (01_first-steps/, 02_building-blocks/, etc.)
+// — scoped so images and other assets never ride into the wasm binary.
+static CURRICULUM_DIR: Dir = include_dir!("$CARGO_MANIFEST_DIR/assets/curriculum");
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct EraMeta {

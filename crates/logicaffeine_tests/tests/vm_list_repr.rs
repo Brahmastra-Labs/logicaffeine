@@ -1,9 +1,11 @@
 //! M6 RED gate: unboxed homogeneous list storage (`ListRepr`) INSIDE the
-//! existing `Rc<RefCell<…>>` — promotion re-tags the payload in place, so
-//! every alias observes it (reference semantics intact, no Rc identity
-//! change, no refcount churn on hot paths). All-Int lists store `Vec<i64>`,
-//! all-Float `Vec<f64>`; anything heterogeneous boxes. Every kernel error
-//! string and display format is unchanged.
+//! existing `Rc<RefCell<…>>` — promotion re-tags the payload in place within
+//! its buffer, so every holder of that buffer observes it with no Rc identity
+//! change and no refcount churn on hot paths. Language-level value semantics
+//! (`Let b be a`) copies-on-write on top of this, so distinct bindings are
+//! isolated. All-Int lists store `Vec<i64>`, all-Float `Vec<f64>`; anything
+//! heterogeneous boxes. Every kernel error string and display format is
+//! unchanged.
 
 #![cfg(not(target_arch = "wasm32"))]
 
@@ -32,20 +34,20 @@ fn assert_both(src: &str, expected: &str) {
     assert_eq!(norm(&vm.output), expected, "wrong output for:\n{src}");
 }
 
-/// Aliases share the SAME storage: a heterogeneous push through one name
-/// promotes the payload in place and the other name sees both the promotion
-/// and the new element.
+/// A `Let b be a` binding is a value copy (copy-on-write): the heterogeneous
+/// push through `a` promotes and grows `a`'s buffer in place, while `b` — now a
+/// distinct owner — is isolated and keeps the original all-Int payload.
 #[test]
-fn alias_sees_promotion_in_place() {
+fn let_binding_is_isolated_value_copy() {
     assert_both(
         "## Main\n\
          Let mutable a be [1, 2, 3].\n\
          Let b be a.\n\
          Push 2.5 to a.\n\
          Show item 1 of b.\n\
-         Show item 4 of b.\n\
-         Show length of b.\n",
-        "1\n2.5\n4",
+         Show length of b.\n\
+         Show length of a.\n",
+        "1\n3\n4",
     );
 }
 

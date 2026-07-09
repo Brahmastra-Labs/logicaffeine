@@ -15,7 +15,7 @@
 //! data-crate CRDT bounds.
 
 use crate::interpreter::RuntimeValue;
-use logicaffeine_data::crdt::{Merge, MVRegister, ORSet, RemoveWins, ReplicaId, RGA};
+use logicaffeine_data::crdt::{DeltaCrdt, Merge, MVRegister, ORSet, RemoveWins, ReplicaId, VClock, RGA};
 use std::sync::atomic::{AtomicU64, Ordering};
 
 /// A monotonic source of replica ids for CRDTs the interpreter constructs. Each `new`
@@ -33,7 +33,7 @@ pub fn next_replica_id() -> ReplicaId {
 /// A scalar CRDT element. CRDT collections are homogeneous, so a collection only ever
 /// holds one of these variants in practice; the enum exists because the interpreter is
 /// dynamically typed and the element type is not threaded through `struct_defs`.
-#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord, serde::Serialize, serde::Deserialize)]
 pub enum CrdtScalar {
     Int(i64),
     Text(String),
@@ -247,6 +247,87 @@ impl CrdtValue {
                 Ok(())
             }
             (a, b) => Err(format!("cannot merge a {} with a {}", a.kind(), b.kind())),
+        }
+    }
+
+    /// The current causal version (vector clock) — every update this replica has observed. The
+    /// δ-CRDT `mergeable` send remembers the version it last shipped to a peer and ships only the
+    /// delta SINCE that version, so a large set/sequence syncs its few NEW entries, not its whole
+    /// state. Idempotent + commutative, so reordering or redelivering deltas still converges.
+    pub fn version(&self) -> VClock {
+        match self {
+            CrdtValue::Set(s) => s.version(),
+            CrdtValue::SetRemoveWins(s) => s.version(),
+            CrdtValue::Seq(s) => s.version(),
+            CrdtValue::Register(s) => s.version(),
+        }
+    }
+
+    /// Serialize the changes since `since` as a KIND-TAGGED delta payload — far smaller than the
+    /// full state when little changed. `None` if the variant can't produce a delta (history
+    /// truncated); the caller falls back to the full-state `crdt_to_wire`.
+    pub fn delta_since_bytes(&self, since: &VClock) -> Option<Vec<u8>> {
+        // bincode, NOT serde_json: a delta's `entries` is a map keyed by the ELEMENT (a `CrdtScalar`
+        // enum), and JSON cannot encode a non-string map key — bincode serializes maps as (key,value)
+        // sequences, so any key type round-trips.
+        fn tagged<D: serde::Serialize>(kind: u8, delta: &D) -> Option<Vec<u8>> {
+            let mut out = vec![kind];
+            out.extend(bincode::serialize(delta).ok()?);
+            Some(out)
+        }
+        match self {
+            CrdtValue::Set(s) => tagged(0, &s.delta_since(since)?),
+            CrdtValue::SetRemoveWins(s) => tagged(1, &s.delta_since(since)?),
+            CrdtValue::Seq(s) => tagged(2, &s.delta_since(since)?),
+            CrdtValue::Register(s) => tagged(3, &s.delta_since(since)?),
+        }
+    }
+
+    /// Apply a kind-tagged delta from `delta_since_bytes` of the SAME kind. Returns false on a
+    /// kind mismatch or malformed bytes, leaving self unchanged — a foreign / garbage delta never
+    /// corrupts the CRDT (the network-edge safety the `mergeable` receive needs).
+    pub fn apply_delta_bytes(&mut self, bytes: &[u8]) -> bool {
+        let Some((&kind, body)) = bytes.split_first() else {
+            return false;
+        };
+        match (self, kind) {
+            (CrdtValue::Set(s), 0) => {
+                match bincode::deserialize::<<ORSet<CrdtScalar> as DeltaCrdt>::Delta>(body) {
+                    Ok(d) => {
+                        s.apply_delta(&d);
+                        true
+                    }
+                    Err(_) => false,
+                }
+            }
+            (CrdtValue::SetRemoveWins(s), 1) => {
+                match bincode::deserialize::<<ORSet<CrdtScalar, RemoveWins> as DeltaCrdt>::Delta>(body) {
+                    Ok(d) => {
+                        s.apply_delta(&d);
+                        true
+                    }
+                    Err(_) => false,
+                }
+            }
+            (CrdtValue::Seq(s), 2) => {
+                match bincode::deserialize::<<RGA<CrdtScalar> as DeltaCrdt>::Delta>(body) {
+                    Ok(d) => {
+                        s.apply_delta(&d);
+                        true
+                    }
+                    Err(_) => false,
+                }
+            }
+            (CrdtValue::Register(s), 3) => {
+                match bincode::deserialize::<<MVRegister<CrdtScalar> as DeltaCrdt>::Delta>(body) {
+                    Ok(d) => {
+                        s.apply_delta(&d);
+                        true
+                    }
+                    Err(_) => false,
+                }
+            }
+            _ => false,
         }
     }
 

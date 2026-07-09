@@ -18,6 +18,7 @@ impl StandardLibrary {
     pub fn register(ctx: &mut Context) {
         Self::register_entity(ctx);
         Self::register_nat(ctx);
+        Self::register_monolist(ctx);
         Self::register_bool(ctx);
         Self::register_tlist(ctx);
         Self::register_true(ctx);
@@ -28,6 +29,13 @@ impl StandardLibrary {
         Self::register_and(ctx);
         Self::register_or(ctx);
         Self::register_ex(ctx);
+        Self::register_decidable(ctx);
+        Self::register_of_decide(ctx);
+        Self::register_dec_eq_bool(ctx);
+        Self::register_dec_eq_nat(ctx);
+        Self::register_native_decide(ctx);
+        Self::register_quot(ctx);
+        Self::register_acc(ctx);
         Self::register_primitives(ctx);
         Self::register_int_ring_axioms(ctx);
         Self::register_int_order_axioms(ctx);
@@ -279,6 +287,56 @@ impl StandardLibrary {
                 ),
             ),
         );
+
+        // lt_prop a b = Eq Bool (lt a b) true  — the shallow `a < b`.
+        let lt_prop = |a: Term, b: Term| {
+            Term::App(
+                Box::new(Term::App(
+                    Box::new(Term::App(Box::new(g("Eq")), Box::new(g("Bool")))),
+                    Box::new(bin("lt", a, b)),
+                )),
+                Box::new(g("true")),
+            )
+        };
+        // lt_succ_le : Π a b. a < b → (a + 1) ≤ b.  Integer DISCRETENESS — the fact
+        // rational Fourier-Motzkin lacks: over ℤ a strict `<` is a `≤` shifted by one,
+        // so nothing lives strictly between `a` and `a+1`. This single axiom is what
+        // lets `omega` refute strict systems the rational solver reports satisfiable
+        // (`x < y ∧ y < x+1`), and it is discharged by ordinary Farkas afterward.
+        ctx.add_declaration(
+            "lt_succ_le",
+            forall_ints(
+                &["a", "b"],
+                arrow(lt_prop(v("a"), v("b")), le_prop(bin("add", v("a"), lit(1)), v("b"))),
+            ),
+        );
+        // lt_add1_le : Π a b. a < (b + 1) → a ≤ b.  The upper-side companion of
+        // `lt_succ_le` (`a < b+1 ⟺ a ≤ b` over ℤ): when the strict bound already has
+        // the shape `b + 1`, this yields the CANCELLED `a ≤ b` directly instead of the
+        // constant-laden `a + 1 ≤ b + 1`, keeping the reconstructed Farkas terms small.
+        ctx.add_declaration(
+            "lt_add1_le",
+            forall_ints(
+                &["a", "b"],
+                arrow(lt_prop(v("a"), bin("add", v("b"), lit(1))), le_prop(v("a"), v("b"))),
+            ),
+        );
+        // le_total : Π a b. (a ≤ b) ∨ (b ≤ a).  Linear order totality — the case-split
+        // seam for disequality (`a ≠ b` ⟹ split `a < b ∨ b < a`) and for reducing a
+        // positive `≤` goal to a refutation of its negation.
+        let or = |p: Term, q: Term| {
+            Term::App(
+                Box::new(Term::App(Box::new(g("Or")), Box::new(p))),
+                Box::new(q),
+            )
+        };
+        ctx.add_declaration(
+            "le_total",
+            forall_ints(
+                &["a", "b"],
+                or(le_prop(v("a"), v("b")), le_prop(v("b"), v("a"))),
+            ),
+        );
     }
 
     /// Primitive types and operations.
@@ -489,6 +547,46 @@ impl StandardLibrary {
         );
     }
 
+    /// Monomorphic `EList` (a list of `Entity`) — the concrete inductive that
+    /// structural induction runs over. The kernel's parametric `TList A` carries a
+    /// type argument, so its constructors are `Π(A:Type)…`; the generic
+    /// `InductionScheme` eliminator builds a `match` over a *bare* `Global(ind_type)`,
+    /// which needs a non-parametric type. `EList = μX. ENil | ECons Entity X` is that
+    /// target: it gives the `induction` tactic an `ENil`/`ECons` recursor that
+    /// certifies — `fix rec. λl:EList. match l { ENil => …, ECons h t => … }`. The
+    /// `E`-prefixed names deliberately avoid the user-space `List`/`Nil`/`Cons` a REPL
+    /// program defines (typically a parametric `List A`), so registering this in the
+    /// prelude never shadows a user inductive.
+    ///
+    /// `EList : Type 0`
+    /// `ENil  : EList`
+    /// `ECons : Entity → EList → EList`
+    fn register_monolist(ctx: &mut Context) {
+        let list = Term::Global("EList".to_string());
+        let entity = Term::Global("Entity".to_string());
+
+        // EList : Type 0
+        ctx.add_inductive("EList", Term::Sort(Universe::Type(0)));
+
+        // ENil : EList
+        ctx.add_constructor("ENil", "EList", list.clone());
+
+        // ECons : Entity → EList → EList
+        ctx.add_constructor(
+            "ECons",
+            "EList",
+            Term::Pi {
+                param: "_".to_string(),
+                param_type: Box::new(entity),
+                body_type: Box::new(Term::Pi {
+                    param: "_".to_string(),
+                    param_type: Box::new(list.clone()),
+                    body_type: Box::new(list),
+                }),
+            },
+        );
+    }
+
     /// Bool : Type 0
     /// true : Bool
     /// false : Bool
@@ -656,8 +754,671 @@ impl StandardLibrary {
         ctx.add_definition("Not".to_string(), not_type, not_body);
     }
 
+    /// `Decidable (p:Prop) : Type` — the data of a decision procedure for `p`, with
+    /// `isTrue : p → Decidable p` and `isFalse : ¬p → Decidable p`. Type-valued (so it may
+    /// be eliminated into `Type` to compute a `Bool`), auto-derives its recursor, and
+    /// defines `decide : Π(p). Decidable p → Bool` (isTrue ↝ true, isFalse ↝ false).
+    fn register_decidable(ctx: &mut Context) {
+        let prop = || Term::Sort(Universe::Prop);
+        let type0 = || Term::Sort(Universe::Type(0));
+        let g = |s: &str| Term::Global(s.to_string());
+        let v = |s: &str| Term::Var(s.to_string());
+        let ap = |f: Term, x: Term| Term::App(Box::new(f), Box::new(x));
+        let lm = |p: &str, t: Term, b: Term| Term::Lambda {
+            param: p.to_string(),
+            param_type: Box::new(t),
+            body: Box::new(b),
+        };
+        let pi = |p: &str, t: Term, b: Term| Term::Pi {
+            param: p.to_string(),
+            param_type: Box::new(t),
+            body_type: Box::new(b),
+        };
+        let dec = |p: Term| ap(g("Decidable"), p);
+        let not = |p: Term| ap(g("Not"), p);
+
+        // Decidable : Π(p:Prop). Type 0   (one uniform parameter, Type-valued)
+        ctx.add_indexed_inductive("Decidable", pi("p", prop(), type0()), 1);
+        // isTrue  : Π(p:Prop). p → Decidable p
+        ctx.add_constructor("isTrue", "Decidable", pi("p", prop(), pi("_", v("p"), dec(v("p")))));
+        // isFalse : Π(p:Prop). Not p → Decidable p
+        ctx.add_constructor(
+            "isFalse",
+            "Decidable",
+            pi("p", prop(), pi("_", not(v("p")), dec(v("p")))),
+        );
+
+        // Decidable_rec — auto-derived dependent eliminator, kernel-checked (not an axiom).
+        let (rec_ty, rec_body) = crate::recursor::derive_recursor(ctx, "Decidable")
+            .expect("Decidable's eliminator must derive");
+        ctx.add_definition("Decidable_rec".to_string(), rec_ty, rec_body);
+
+        // decide : Π(p:Prop). Decidable p → Bool
+        //   := λp inst. Decidable_rec p (λ_. Bool) (λh. true) (λh. false) inst
+        let decide_ty = pi("p", prop(), pi("_", dec(v("p")), g("Bool")));
+        let decide_body = lm(
+            "p",
+            prop(),
+            lm(
+                "inst",
+                dec(v("p")),
+                ap(
+                    ap(
+                        ap(
+                            ap(ap(g("Decidable_rec"), v("p")), lm("_", dec(v("p")), g("Bool"))),
+                            lm("_", v("p"), g("true")),
+                        ),
+                        lm("_", not(v("p")), g("false")),
+                    ),
+                    v("inst"),
+                ),
+            ),
+        );
+        ctx.add_definition("decide".to_string(), decide_ty, decide_body);
+    }
+
+    /// `of_decide_eq_true : Π(p:Prop). Π(inst:Decidable p). Eq Bool (decide p inst) true → p`
+    /// — the bridge that turns a computed `decide` into a proof, PROVEN from `Decidable_rec`
+    /// and Bool no-confusion (via `Eq_rec_dep`), NOT axiomatized. This is what makes the
+    /// `decide` tactic sound with zero additions to the trusted base.
+    fn register_of_decide(ctx: &mut Context) {
+        let prop = || Term::Sort(Universe::Prop);
+        let g = |s: &str| Term::Global(s.to_string());
+        let v = |s: &str| Term::Var(s.to_string());
+        let ap = |f: Term, x: Term| Term::App(Box::new(f), Box::new(x));
+        let lm = |p: &str, t: Term, b: Term| Term::Lambda {
+            param: p.to_string(),
+            param_type: Box::new(t),
+            body: Box::new(b),
+        };
+        let pi = |p: &str, t: Term, b: Term| Term::Pi {
+            param: p.to_string(),
+            param_type: Box::new(t),
+            body_type: Box::new(b),
+        };
+        let dec = |p: Term| ap(g("Decidable"), p);
+        let not = |p: Term| ap(g("Not"), p);
+        // Eq Bool x y
+        let eqb = |x: Term, y: Term| ap(ap(ap(g("Eq"), g("Bool")), x), y);
+        // decide p inst
+        let decide = |p: Term, inst: Term| ap(ap(g("decide"), p), inst);
+        let is_true = |p: Term, h: Term| ap(ap(g("isTrue"), p), h);
+        let is_false = |p: Term, h: Term| ap(ap(g("isFalse"), p), h);
+
+        // of_decide_eq_true : Π(p:Prop). Π(inst:Decidable p). Eq Bool (decide p inst) true → p
+        let ty = pi(
+            "p",
+            prop(),
+            pi(
+                "inst",
+                dec(v("p")),
+                pi("_", eqb(decide(v("p"), v("inst")), g("true")), v("p")),
+            ),
+        );
+
+        // Motive for the recursion on `inst`: λinst. Eq Bool (decide p inst) true → p.
+        let motive = lm(
+            "inst",
+            dec(v("p")),
+            pi("_", eqb(decide(v("p"), v("inst")), g("true")), v("p")),
+        );
+        // isTrue branch: `decide p (isTrue p hp) ≡ true`, so just return the witness `hp`.
+        let f_istrue = lm(
+            "hp",
+            v("p"),
+            lm(
+                "_",
+                eqb(decide(v("p"), is_true(v("p"), v("hp"))), g("true")),
+                v("hp"),
+            ),
+        );
+        // isFalse branch: `decide p (isFalse p hnp) ≡ false`, so the hypothesis is
+        // `false = true`; Bool no-confusion turns it into `p`. Transport `discr` along the
+        // equality, where `discr b := match b with true => p | false => True`, taking the
+        // inhabitant `I : True` at `false` to a proof of `p` at `true`.
+        let discr = Term::Match {
+            discriminant: Box::new(v("b")),
+            motive: Box::new(lm("_", g("Bool"), prop())),
+            cases: vec![v("p"), g("True")], // Bool constructor order: [true, false]
+        };
+        let bool_motive = lm("b", g("Bool"), lm("_", eqb(g("false"), v("b")), discr));
+        // Eq_rec_dep Bool false bool_motive I true h  :  p
+        let noconf = ap(
+            ap(
+                ap(ap(ap(ap(g("Eq_rec_dep"), g("Bool")), g("false")), bool_motive), g("I")),
+                g("true"),
+            ),
+            v("h"),
+        );
+        let f_isfalse = lm(
+            "hnp",
+            not(v("p")),
+            lm(
+                "h",
+                eqb(decide(v("p"), is_false(v("p"), v("hnp"))), g("true")),
+                noconf,
+            ),
+        );
+
+        // λp inst h. Decidable_rec p motive f_istrue f_isfalse inst h
+        let rec_app = ap(
+            ap(
+                ap(ap(ap(ap(g("Decidable_rec"), v("p")), motive), f_istrue), f_isfalse),
+                v("inst"),
+            ),
+            v("h"),
+        );
+        let body = lm(
+            "p",
+            prop(),
+            lm(
+                "inst",
+                dec(v("p")),
+                lm("h", eqb(decide(v("p"), v("inst")), g("true")), rec_app),
+            ),
+        );
+        ctx.add_definition("of_decide_eq_true".to_string(), ty, body);
+    }
+
+    /// Decidable equality of `Bool` (`decEqBool : Π(a b:Bool). Decidable (Eq Bool a b)`),
+    /// with the two Bool no-confusion lemmas it needs — all derived. This is a concrete
+    /// `Decidable` INSTANCE, so `decide` can actually discharge `Eq Bool _ _` goals.
+    fn register_dec_eq_bool(ctx: &mut Context) {
+        let prop = || Term::Sort(Universe::Prop);
+        let g = |s: &str| Term::Global(s.to_string());
+        let v = |s: &str| Term::Var(s.to_string());
+        let ap = |f: Term, x: Term| Term::App(Box::new(f), Box::new(x));
+        let lm = |p: &str, t: Term, b: Term| Term::Lambda {
+            param: p.to_string(),
+            param_type: Box::new(t),
+            body: Box::new(b),
+        };
+        let eqb = |x: Term, y: Term| ap(ap(ap(g("Eq"), g("Bool")), x), y);
+        let dec = |p: Term| ap(g("Decidable"), p);
+        let is_true = |p: Term, h: Term| ap(ap(g("isTrue"), p), h);
+        let is_false = |p: Term, h: Term| ap(ap(g("isFalse"), p), h);
+        let refl = |x: Term| ap(ap(g("refl"), g("Bool")), x);
+        // `match b return (λ_:Bool. Prop) with { <true-case>, <false-case> }`.
+        let bool_match = |t_case: Term, f_case: Term| Term::Match {
+            discriminant: Box::new(v("b")),
+            motive: Box::new(lm("_", g("Bool"), prop())),
+            cases: vec![t_case, f_case],
+        };
+
+        // bool_tf_ne : Not (Eq Bool true false)  — transport True@true along h to False@false.
+        let tf_discr = bool_match(g("True"), g("False"));
+        let tf_motive = lm("b", g("Bool"), lm("_", eqb(g("true"), v("b")), tf_discr));
+        let bool_tf_ne = lm(
+            "h",
+            eqb(g("true"), g("false")),
+            ap(
+                ap(ap(ap(ap(ap(g("Eq_rec_dep"), g("Bool")), g("true")), tf_motive), g("I")), g("false")),
+                v("h"),
+            ),
+        );
+        // bool_ft_ne : Not (Eq Bool false true)  — transport True@false along h to False@true.
+        let ft_discr = bool_match(g("False"), g("True"));
+        let ft_motive = lm("b", g("Bool"), lm("_", eqb(g("false"), v("b")), ft_discr));
+        let bool_ft_ne = lm(
+            "h",
+            eqb(g("false"), g("true")),
+            ap(
+                ap(ap(ap(ap(ap(g("Eq_rec_dep"), g("Bool")), g("false")), ft_motive), g("I")), g("true")),
+                v("h"),
+            ),
+        );
+
+        // decEqBool : Π(a b:Bool). Decidable (Eq Bool a b)
+        let de_ty = Term::Pi {
+            param: "a".to_string(),
+            param_type: Box::new(g("Bool")),
+            body_type: Box::new(Term::Pi {
+                param: "b".to_string(),
+                param_type: Box::new(g("Bool")),
+                body_type: Box::new(dec(eqb(v("a"), v("b")))),
+            }),
+        };
+        // Inner match on `b`, with the outer `a` fixed to a constructor `af`.
+        let inner = |af: Term, both_same: Term, ne_proof: Term, same_first: bool| {
+            let motive = lm("b'", g("Bool"), dec(eqb(af.clone(), v("b'"))));
+            // cases in Bool order [true, false]; `same` is when b matches af.
+            let (t_case, f_case) = if same_first {
+                // af == true
+                (
+                    is_true(eqb(af.clone(), g("true")), both_same),
+                    is_false(eqb(af.clone(), g("false")), ne_proof),
+                )
+            } else {
+                // af == false
+                (
+                    is_false(eqb(af.clone(), g("true")), ne_proof),
+                    is_true(eqb(af.clone(), g("false")), both_same),
+                )
+            };
+            Term::Match {
+                discriminant: Box::new(v("b")),
+                motive: Box::new(motive),
+                cases: vec![t_case, f_case],
+            }
+        };
+        let a_true = inner(g("true"), refl(g("true")), bool_tf_ne, true);
+        let a_false = inner(g("false"), refl(g("false")), bool_ft_ne, false);
+        let outer_motive = lm("a'", g("Bool"), dec(eqb(v("a'"), v("b"))));
+        let de_body = lm(
+            "a",
+            g("Bool"),
+            lm(
+                "b",
+                g("Bool"),
+                Term::Match {
+                    discriminant: Box::new(v("a")),
+                    motive: Box::new(outer_motive),
+                    cases: vec![a_true, a_false],
+                },
+            ),
+        );
+        ctx.add_definition("decEqBool".to_string(), de_ty, de_body);
+    }
+
+    /// Decidable equality of `Nat` (`decEqNat : Π(a b:Nat). Decidable (Eq Nat a b)`) — the
+    /// flagship: it lets `decide` discharge arithmetic (in)equalities. Built by structural
+    /// recursion on `a`, using derived Nat no-confusion (`Zero ≠ Succ`), `Succ` congruence
+    /// (via J), and `Succ` injectivity (via a `pred` congruence). All derived — no axioms.
+    fn register_dec_eq_nat(ctx: &mut Context) {
+        let prop = || Term::Sort(Universe::Prop);
+        let nat = || Term::Global("Nat".to_string());
+        let g = |s: &str| Term::Global(s.to_string());
+        let v = |s: &str| Term::Var(s.to_string());
+        let ap = |f: Term, x: Term| Term::App(Box::new(f), Box::new(x));
+        let lm = |p: &str, t: Term, b: Term| Term::Lambda {
+            param: p.to_string(),
+            param_type: Box::new(t),
+            body: Box::new(b),
+        };
+        let pi = |p: &str, t: Term, b: Term| Term::Pi {
+            param: p.to_string(),
+            param_type: Box::new(t),
+            body_type: Box::new(b),
+        };
+        let succ = |n: Term| ap(g("Succ"), n);
+        let eqn = |x: Term, y: Term| ap(ap(ap(g("Eq"), nat()), x), y);
+        let not = |p: Term| ap(g("Not"), p);
+        let dec = |p: Term| ap(g("Decidable"), p);
+        let is_true = |p: Term, h: Term| ap(ap(g("isTrue"), p), h);
+        let is_false = |p: Term, h: Term| ap(ap(g("isFalse"), p), h);
+        let refln = |x: Term| ap(ap(g("refl"), nat()), x);
+        // `match k return (λ_:Nat. R) with { <Zero-case>, <Succ-case> }` (Nat order Zero,Succ).
+        let nat_match = |ret: Term, zero_case: Term, succ_case: Term| Term::Match {
+            discriminant: Box::new(v("k")),
+            motive: Box::new(lm("_", nat(), ret)),
+            cases: vec![zero_case, succ_case],
+        };
+        // Transport `Eq_rec_dep Nat x (λk.λ_:Eq Nat x k. discr) base y h`.
+        let transport = |x: Term, discr_motive: Term, base: Term, y: Term, h: Term| {
+            ap(ap(ap(ap(ap(ap(g("Eq_rec_dep"), nat()), x), discr_motive), base), y), h)
+        };
+
+        // nat_zs_ne : Π(n:Nat). Not (Eq Nat Zero (Succ n))  — Zero ≠ Succ n.
+        let d_zs = nat_match(prop(), g("True"), lm("_", nat(), g("False")));
+        let zs_motive = lm("k", nat(), lm("_", eqn(g("Zero"), v("k")), d_zs));
+        let nat_zs_ne = lm(
+            "n",
+            nat(),
+            lm(
+                "h",
+                eqn(g("Zero"), succ(v("n"))),
+                transport(g("Zero"), zs_motive, g("I"), succ(v("n")), v("h")),
+            ),
+        );
+        ctx.add_definition("nat_zs_ne".to_string(), pi("n", nat(), not(eqn(g("Zero"), succ(v("n"))))), nat_zs_ne);
+
+        // nat_sz_ne : Π(n:Nat). Not (Eq Nat (Succ n) Zero)  — Succ n ≠ Zero.
+        let d_sz = nat_match(prop(), g("False"), lm("_", nat(), g("True")));
+        let sz_motive = lm("k", nat(), lm("_", eqn(succ(v("n")), v("k")), d_sz));
+        let nat_sz_ne = lm(
+            "n",
+            nat(),
+            lm(
+                "h",
+                eqn(succ(v("n")), g("Zero")),
+                transport(succ(v("n")), sz_motive, g("I"), g("Zero"), v("h")),
+            ),
+        );
+        ctx.add_definition("nat_sz_ne".to_string(), pi("n", nat(), not(eqn(succ(v("n")), g("Zero")))), nat_sz_ne);
+
+        // succ_cong : Π(a b:Nat). Eq Nat a b → Eq Nat (Succ a) (Succ b).
+        let sc_motive = lm("b'", nat(), lm("_", eqn(v("a"), v("b'")), eqn(succ(v("a")), succ(v("b'")))));
+        let succ_cong_body = lm(
+            "a",
+            nat(),
+            lm(
+                "b",
+                nat(),
+                lm(
+                    "h",
+                    eqn(v("a"), v("b")),
+                    ap(ap(ap(ap(ap(ap(g("Eq_rec_dep"), nat()), v("a")), sc_motive), refln(succ(v("a")))), v("b")), v("h")),
+                ),
+            ),
+        );
+        let succ_cong_ty = pi("a", nat(), pi("b", nat(), pi("_", eqn(v("a"), v("b")), eqn(succ(v("a")), succ(v("b"))))));
+        ctx.add_definition("succ_cong".to_string(), succ_cong_ty, succ_cong_body);
+
+        // succ_inj : Π(a b:Nat). Eq Nat (Succ a) (Succ b) → Eq Nat a b.
+        // `pred y := match y with Zero => Zero | Succ p => p`; transport `Eq Nat a (pred y)`
+        // along `h`, base `refl Nat a` (since `pred (Succ a) ≡ a`), result `Eq Nat a b`.
+        let pred_y = Term::Match {
+            discriminant: Box::new(v("y'")),
+            motive: Box::new(lm("_", nat(), nat())),
+            cases: vec![g("Zero"), lm("p", nat(), v("p"))],
+        };
+        let si_motive = lm("y'", nat(), lm("_", eqn(succ(v("a")), v("y'")), eqn(v("a"), pred_y)));
+        let succ_inj_body = lm(
+            "a",
+            nat(),
+            lm(
+                "b",
+                nat(),
+                lm(
+                    "h",
+                    eqn(succ(v("a")), succ(v("b"))),
+                    ap(ap(ap(ap(ap(ap(g("Eq_rec_dep"), nat()), succ(v("a"))), si_motive), refln(v("a"))), succ(v("b"))), v("h")),
+                ),
+            ),
+        );
+        let succ_inj_ty = pi("a", nat(), pi("b", nat(), pi("_", eqn(succ(v("a")), succ(v("b"))), eqn(v("a"), v("b")))));
+        ctx.add_definition("succ_inj".to_string(), succ_inj_ty, succ_inj_body);
+
+        // decEqNat : Π(a b:Nat). Decidable (Eq Nat a b)  — structural recursion on `a`.
+        // Inner match on the recursive result `rec a' b'`.
+        let rec_call = ap(ap(v("rec"), v("a'")), v("b'"));
+        let true_case = lm(
+            "hp",
+            eqn(v("a'"), v("b'")),
+            is_true(eqn(succ(v("a'")), succ(v("b'"))), ap(ap(ap(g("succ_cong"), v("a'")), v("b'")), v("hp"))),
+        );
+        let false_case = lm(
+            "hnp",
+            not(eqn(v("a'"), v("b'"))),
+            is_false(
+                eqn(succ(v("a'")), succ(v("b'"))),
+                lm(
+                    "hs",
+                    eqn(succ(v("a'")), succ(v("b'"))),
+                    ap(v("hnp"), ap(ap(ap(g("succ_inj"), v("a'")), v("b'")), v("hs"))),
+                ),
+            ),
+        );
+        let inner_rec_match = Term::Match {
+            discriminant: Box::new(rec_call),
+            motive: Box::new(lm("_", dec(eqn(v("a'"), v("b'"))), dec(eqn(succ(v("a'")), succ(v("b'")))))),
+            cases: vec![true_case, false_case],
+        };
+        // b-match in the `Succ a'` branch: motive λb'. Decidable (Eq Nat (Succ a') b').
+        let succ_b_match = Term::Match {
+            discriminant: Box::new(v("b")),
+            motive: Box::new(lm("b'", nat(), dec(eqn(succ(v("a'")), v("b'"))))),
+            cases: vec![
+                is_false(eqn(succ(v("a'")), g("Zero")), ap(g("nat_sz_ne"), v("a'"))),
+                lm("b'", nat(), inner_rec_match),
+            ],
+        };
+        // b-match in the `Zero` branch: motive λb'. Decidable (Eq Nat Zero b').
+        let zero_b_match = Term::Match {
+            discriminant: Box::new(v("b")),
+            motive: Box::new(lm("b'", nat(), dec(eqn(g("Zero"), v("b'"))))),
+            cases: vec![
+                is_true(eqn(g("Zero"), g("Zero")), refln(g("Zero"))),
+                lm("b'", nat(), is_false(eqn(g("Zero"), succ(v("b'"))), ap(g("nat_zs_ne"), v("b'")))),
+            ],
+        };
+        // Outer match on `a`: motive λa'. Decidable (Eq Nat a' b).
+        let a_match = Term::Match {
+            discriminant: Box::new(v("a")),
+            motive: Box::new(lm("a'", nat(), dec(eqn(v("a'"), v("b"))))),
+            cases: vec![zero_b_match, lm("a'", nat(), succ_b_match)],
+        };
+        let deceqnat_body = Term::Fix {
+            name: "rec".to_string(),
+            body: Box::new(lm("a", nat(), lm("b", nat(), a_match))),
+        };
+        let deceqnat_ty = pi("a", nat(), pi("b", nat(), dec(eqn(v("a"), v("b")))));
+        ctx.add_definition("decEqNat".to_string(), deceqnat_ty, deceqnat_body);
+    }
+
+    /// The `native_decide` trust boundary (TCB additions, exactly as Lean's `native_decide`
+    /// adds `ofReduceBool` + its compiler): `reduceBool : Bool → Bool` is the identity, but
+    /// the KERNEL reduces `reduceBool t` by running the fast [`crate::eval`] evaluator (a
+    /// reduction hook), and `ofReduceBool` turns `reduceBool a = b` into `a = b`. So a
+    /// `native_decide` proof discharges `decide p inst = true` by native evaluation instead
+    /// of the kernel re-normalizing the decision procedure.
+    fn register_native_decide(ctx: &mut Context) {
+        let g = |s: &str| Term::Global(s.to_string());
+        let v = |s: &str| Term::Var(s.to_string());
+        let ap = |f: Term, x: Term| Term::App(Box::new(f), Box::new(x));
+        let pi = |p: &str, t: Term, b: Term| Term::Pi {
+            param: p.to_string(),
+            param_type: Box::new(t),
+            body_type: Box::new(b),
+        };
+        let eqb = |x: Term, y: Term| ap(ap(ap(g("Eq"), g("Bool")), x), y);
+        // reduceBool : Bool → Bool
+        ctx.add_declaration("reduceBool", pi("_", g("Bool"), g("Bool")));
+        // ofReduceBool : Π(a:Bool). Π(b:Bool). Eq Bool (reduceBool a) b → Eq Bool a b
+        ctx.add_declaration(
+            "ofReduceBool",
+            pi(
+                "a",
+                g("Bool"),
+                pi(
+                    "b",
+                    g("Bool"),
+                    pi("_", eqb(ap(g("reduceBool"), v("a")), v("b")), eqb(v("a"), v("b"))),
+                ),
+            ),
+        );
+    }
+
+    /// QUOTIENT TYPES — CIC primitives (as in Lean). `Quot A r` is the quotient of `A` by
+    /// the relation `r`; `Quot_mk` forms classes; `Quot_lift` lifts a relation-respecting
+    /// function (with the definitional computation rule `Quot_lift … (Quot_mk a) ≡ f a`
+    /// implemented in `reduction.rs`); `Quot_ind` is the induction principle; and the
+    /// `Quot_sound` AXIOM identifies related representatives — the propositional content that
+    /// makes `Quot` a genuine quotient. `Quot A r` is OPAQUE (not an inductive), so it cannot
+    /// be pattern-matched — only `Quot_lift`/`Quot_ind` eliminate it, which is what keeps the
+    /// identification consistent. Unblocks ℤ/ℚ/ℝ, `Multiset`, setoids.
+    fn register_quot(ctx: &mut Context) {
+        let type0 = || Term::Sort(Universe::Type(0));
+        let prop = || Term::Sort(Universe::Prop);
+        let g = |s: &str| Term::Global(s.to_string());
+        let v = |s: &str| Term::Var(s.to_string());
+        let ap = |f: Term, x: Term| Term::App(Box::new(f), Box::new(x));
+        let pi = |p: &str, t: Term, b: Term| Term::Pi {
+            param: p.to_string(),
+            param_type: Box::new(t),
+            body_type: Box::new(b),
+        };
+        let arrow = |t: Term, b: Term| pi("_", t, b);
+        // r : A → A → Prop
+        let rel = || arrow(v("A"), arrow(v("A"), prop()));
+        let quot = |a: Term, r: Term| ap(ap(g("Quot"), a), r);
+        let mk = |a: Term, r: Term, x: Term| ap(ap(ap(g("Quot_mk"), a), r), x);
+        let eq3 = |t: Term, x: Term, y: Term| ap(ap(ap(g("Eq"), t), x), y);
+
+        // Quot : Π(A:Type). (A → A → Prop) → Type
+        ctx.add_declaration("Quot", pi("A", type0(), arrow(rel(), type0())));
+        // Quot_mk : Π(A:Type). Π(r:A→A→Prop). A → Quot A r
+        ctx.add_declaration(
+            "Quot_mk",
+            pi("A", type0(), pi("r", rel(), arrow(v("A"), quot(v("A"), v("r"))))),
+        );
+        // Quot_lift : Π(A). Π(r). Π(B:Type). Π(f:A→B).
+        //   Π(h: Π(a b:A). r a b → Eq B (f a) (f b)). Quot A r → B
+        let resp = pi(
+            "a",
+            v("A"),
+            pi(
+                "b",
+                v("A"),
+                arrow(
+                    ap(ap(v("r"), v("a")), v("b")),
+                    eq3(v("B"), ap(v("f"), v("a")), ap(v("f"), v("b"))),
+                ),
+            ),
+        );
+        ctx.add_declaration(
+            "Quot_lift",
+            pi(
+                "A",
+                type0(),
+                pi(
+                    "r",
+                    rel(),
+                    pi(
+                        "B",
+                        type0(),
+                        pi(
+                            "f",
+                            arrow(v("A"), v("B")),
+                            pi("h", resp, arrow(quot(v("A"), v("r")), v("B"))),
+                        ),
+                    ),
+                ),
+            ),
+        );
+        // Quot_sound : Π(A). Π(r). Π(a b:A). r a b → Eq (Quot A r) (Quot_mk A r a) (Quot_mk A r b)
+        ctx.add_declaration(
+            "Quot_sound",
+            pi(
+                "A",
+                type0(),
+                pi(
+                    "r",
+                    rel(),
+                    pi(
+                        "a",
+                        v("A"),
+                        pi(
+                            "b",
+                            v("A"),
+                            arrow(
+                                ap(ap(v("r"), v("a")), v("b")),
+                                eq3(
+                                    quot(v("A"), v("r")),
+                                    mk(v("A"), v("r"), v("a")),
+                                    mk(v("A"), v("r"), v("b")),
+                                ),
+                            ),
+                        ),
+                    ),
+                ),
+            ),
+        );
+        // Quot_ind : Π(A). Π(r). Π(P: Quot A r → Prop).
+        //   (Π(a:A). P (Quot_mk A r a)) → Π(q: Quot A r). P q
+        ctx.add_declaration(
+            "Quot_ind",
+            pi(
+                "A",
+                type0(),
+                pi(
+                    "r",
+                    rel(),
+                    pi(
+                        "P",
+                        arrow(quot(v("A"), v("r")), prop()),
+                        arrow(
+                            pi("a", v("A"), ap(v("P"), mk(v("A"), v("r"), v("a")))),
+                            pi("q", quot(v("A"), v("r")), ap(v("P"), v("q"))),
+                        ),
+                    ),
+                ),
+            ),
+        );
+    }
+
     /// Eq : Π(A : Type 0). A → A → Prop
     /// refl : Π(A : Type 0). Π(x : A). Eq A x x
+    /// Well-founded recursion. `Acc (A)(R) : A → Prop` is the accessibility
+    /// predicate — `x` is accessible under `R` when every `R`-predecessor of `x` is
+    /// accessible — with the single constructor
+    /// `Acc_intro : Π(A)(R)(x). (Π(y:A). R y x → Acc A R y) → Acc A R x`. Its
+    /// recursive field is FUNCTIONAL (the accessibility of all predecessors), a
+    /// strictly-positive occurrence under a `Π`; the auto-derived eliminator
+    /// `Acc_rec` carries the matching functional induction hypothesis, and recursion
+    /// over an `Acc` proof terminates by the applied-smaller guard. `WellFounded A R`
+    /// abbreviates `Π(x:A). Acc A R x`. Together these are the substrate for
+    /// definitions by well-founded recursion (gcd, division, strong induction) that
+    /// structural recursion cannot express — the parity item Lean's kernel has and
+    /// ours did not.
+    fn register_acc(ctx: &mut Context) {
+        fn pi(p: &str, t: Term, b: Term) -> Term {
+            Term::Pi { param: p.to_string(), param_type: Box::new(t), body_type: Box::new(b) }
+        }
+        fn arrow(a: Term, b: Term) -> Term {
+            pi("_", a, b)
+        }
+        fn v(n: &str) -> Term {
+            Term::Var(n.to_string())
+        }
+        fn g(n: &str) -> Term {
+            Term::Global(n.to_string())
+        }
+        fn apps(f: Term, xs: &[Term]) -> Term {
+            xs.iter().fold(f, |a, x| Term::App(Box::new(a), Box::new(x.clone())))
+        }
+        let type0 = || Term::Sort(Universe::Type(0));
+        let prop = || Term::Sort(Universe::Prop);
+        // R : A → A → Prop
+        let rel = || arrow(v("A"), arrow(v("A"), prop()));
+        // Acc A R x
+        let acc = |x: Term| apps(g("Acc"), &[v("A"), v("R"), x]);
+
+        // Acc : Π(A:Type). Π(R:A→A→Prop). A → Prop  — two params (A, R), one index (x).
+        let acc_ty = pi("A", type0(), pi("R", rel(), arrow(v("A"), prop())));
+        ctx.add_indexed_inductive("Acc", acc_ty, 2);
+
+        // Acc_intro : Π(A)(R)(x). (Π(y:A). R y x → Acc A R y) → Acc A R x
+        let intro_ty = pi(
+            "A",
+            type0(),
+            pi(
+                "R",
+                rel(),
+                pi(
+                    "x",
+                    v("A"),
+                    arrow(
+                        pi("y", v("A"), arrow(apps(v("R"), &[v("y"), v("x")]), acc(v("y")))),
+                        acc(v("x")),
+                    ),
+                ),
+            ),
+        );
+        ctx.add_constructor("Acc_intro", "Acc", intro_ty);
+
+        // Acc_rec — the AUTO-DERIVED dependent eliminator carrying the functional
+        // induction hypothesis (two-kernel verified in tests/well_founded.rs). A
+        // kernel-checked definition, not an axiom.
+        let (rec_ty, rec_body) = crate::recursor::derive_recursor(ctx, "Acc")
+            .expect("Acc's dependent eliminator must derive");
+        ctx.add_definition("Acc_rec".to_string(), rec_ty, rec_body);
+
+        // WellFounded A R := Π(x:A). Acc A R x  — `R` is well-founded iff every
+        // element is accessible. A plain definition (abbreviation), no new inductive.
+        let wf_ty = pi("A", type0(), arrow(rel(), prop()));
+        let wf_body = Term::Lambda {
+            param: "A".to_string(),
+            param_type: Box::new(type0()),
+            body: Box::new(Term::Lambda {
+                param: "R".to_string(),
+                param_type: Box::new(rel()),
+                body: Box::new(pi("x", v("A"), acc(v("x")))),
+            }),
+        };
+        ctx.add_definition("WellFounded".to_string(), wf_ty, wf_body);
+    }
+
     fn register_eq(ctx: &mut Context) {
         // Eq : Π(A : Type 0). A → A → Prop
         let eq_type = Term::Pi {
@@ -673,7 +1434,9 @@ impl StandardLibrary {
                 }),
             }),
         };
-        ctx.add_inductive("Eq", eq_type);
+        // `Eq (A) (x) : A → Prop` — the leading `A` and `x` are uniform parameters
+        // (`refl`'s result `Eq A x x` repeats them), the trailing slot is the index.
+        ctx.add_indexed_inductive("Eq", eq_type, 2);
 
         // refl : Π(A : Type 0). Π(x : A). Eq A x x
         let refl_type = Term::Pi {
@@ -696,15 +1459,29 @@ impl StandardLibrary {
         };
         ctx.add_constructor("refl", "Eq", refl_type);
 
+        // `Eq_rec_dep` — the AUTO-DERIVED full dependent eliminator (Paulin-Mohring J):
+        // `Π(A). Π(x:A). Π(P:Π(y:A). Eq A x y → Type). P x (refl A x) → Π(y). Π(h:Eq A x y).
+        // P y h`. A kernel-CHECKED definition (two-kernel verified), not an axiom — so the
+        // equality eliminator and its lemmas below leave the trusted base.
+        Self::register_eq_recursor(ctx);
+
         // Eq_rec : Π(A:Type). Π(x:A). Π(P:A→Prop). P x → Π(y:A). Eq A x y → P y
-        // The eliminator for equality - Leibniz's Law
+        // The (proof-irrelevant) substitution eliminator — now DERIVED from J.
         Self::register_eq_rec(ctx);
 
-        // Eq_sym : Π(A:Type). Π(x:A). Π(y:A). Eq A x y → Eq A y x
+        // Eq_sym : Π(A:Type). Π(x:A). Π(y:A). Eq A x y → Eq A y x — DERIVED from J.
         Self::register_eq_sym(ctx);
 
-        // Eq_trans : Π(A:Type). Π(x:A). Π(y:A). Π(z:A). Eq A x y → Eq A y z → Eq A x z
+        // Eq_trans : Π(A:Type). Π(x:A). Π(y:A). Π(z:A). Eq A x y → Eq A y z → Eq A x z — DERIVED.
         Self::register_eq_trans(ctx);
+    }
+
+    /// Register the auto-derived dependent equality eliminator `Eq_rec_dep` (full J) as a
+    /// kernel-checked definition. `Eq` and `refl` must already be registered.
+    fn register_eq_recursor(ctx: &mut Context) {
+        let (ty, body) = crate::recursor::derive_recursor(ctx, "Eq")
+            .expect("Eq's dependent eliminator (J) must derive");
+        ctx.add_definition("Eq_rec_dep".to_string(), ty, body);
     }
 
     /// Eq_rec : Π(A:Type). Π(x:A). Π(P:A→Prop). P x → Π(y:A). Eq A x y → P y
@@ -755,7 +1532,7 @@ impl StandardLibrary {
                         param_type: Box::new(p_x),
                         body_type: Box::new(Term::Pi {
                             param: "y".to_string(),
-                            param_type: Box::new(a),
+                            param_type: Box::new(a.clone()),
                             body_type: Box::new(Term::Pi {
                                 param: "_".to_string(),
                                 param_type: Box::new(eq_a_x_y),
@@ -767,7 +1544,52 @@ impl StandardLibrary {
             }),
         };
 
-        ctx.add_declaration("Eq_rec", eq_rec_type);
+        // Body — the substitution eliminator DERIVED from J by discarding the proof in the
+        // motive: `λA x P base y h. Eq_rec_dep A x (λy'. λ_:Eq A x y'. P y') base y h`.
+        let gl = |s: &str| Term::Global(s.to_string());
+        let vr = |s: &str| Term::Var(s.to_string());
+        let ap = |f: Term, x: Term| Term::App(Box::new(f), Box::new(x));
+        let lm = |p: &str, t: Term, b: Term| Term::Lambda {
+            param: p.to_string(),
+            param_type: Box::new(t),
+            body: Box::new(b),
+        };
+        let eq3 = |a: Term, x: Term, y: Term| ap(ap(ap(gl("Eq"), a), x), y);
+        let dep_motive = lm(
+            "y'",
+            vr("A"),
+            lm("_", eq3(vr("A"), vr("x"), vr("y'")), ap(vr("P"), vr("y'"))),
+        );
+        let call = ap(
+            ap(
+                ap(ap(ap(ap(gl("Eq_rec_dep"), vr("A")), vr("x")), dep_motive), vr("base")),
+                vr("y"),
+            ),
+            vr("h"),
+        );
+        let eq_rec_body = lm(
+            "A",
+            Term::Sort(Universe::Type(0)),
+            lm(
+                "x",
+                vr("A"),
+                lm(
+                    "P",
+                    Term::Pi {
+                        param: "_".to_string(),
+                        param_type: Box::new(vr("A")),
+                        body_type: Box::new(Term::Sort(Universe::Prop)),
+                    },
+                    lm(
+                        "base",
+                        ap(vr("P"), vr("x")),
+                        lm("y", vr("A"), lm("h", eq3(vr("A"), vr("x"), vr("y")), call)),
+                    ),
+                ),
+            ),
+        );
+
+        ctx.add_definition("Eq_rec".to_string(), eq_rec_type, eq_rec_body);
     }
 
     /// Eq_sym : Π(A:Type). Π(x:A). Π(y:A). Eq A x y → Eq A y x
@@ -820,7 +1642,41 @@ impl StandardLibrary {
             }),
         };
 
-        ctx.add_declaration("Eq_sym", eq_sym_type);
+        // Body — symmetry DERIVED from J: transport `Eq A x _` along `h` with base `refl`.
+        // `λA x y h. Eq_rec_dep A x (λy'. λ_:Eq A x y'. Eq A y' x) (refl A x) y h`.
+        let gl = |s: &str| Term::Global(s.to_string());
+        let vr = |s: &str| Term::Var(s.to_string());
+        let ap = |f: Term, x: Term| Term::App(Box::new(f), Box::new(x));
+        let lm = |p: &str, t: Term, b: Term| Term::Lambda {
+            param: p.to_string(),
+            param_type: Box::new(t),
+            body: Box::new(b),
+        };
+        let eq3 = |a: Term, x: Term, y: Term| ap(ap(ap(gl("Eq"), a), x), y);
+        let motive = lm(
+            "y'",
+            vr("A"),
+            lm("_", eq3(vr("A"), vr("x"), vr("y'")), eq3(vr("A"), vr("y'"), vr("x"))),
+        );
+        let refl_a_x = ap(ap(gl("refl"), vr("A")), vr("x"));
+        let call = ap(
+            ap(
+                ap(ap(ap(ap(gl("Eq_rec_dep"), vr("A")), vr("x")), motive), refl_a_x),
+                vr("y"),
+            ),
+            vr("h"),
+        );
+        let eq_sym_body = lm(
+            "A",
+            Term::Sort(Universe::Type(0)),
+            lm(
+                "x",
+                vr("A"),
+                lm("y", vr("A"), lm("h", eq3(vr("A"), vr("x"), vr("y")), call)),
+            ),
+        );
+
+        ctx.add_definition("Eq_sym".to_string(), eq_sym_type, eq_sym_body);
     }
 
     /// Eq_trans : Π(A:Type). Π(x:A). Π(y:A). Π(z:A). Eq A x y → Eq A y z → Eq A x z
@@ -894,7 +1750,53 @@ impl StandardLibrary {
             }),
         };
 
-        ctx.add_declaration("Eq_trans", eq_trans_type);
+        // Body — transitivity DERIVED from J: transport `Eq A x _` along `hyz` (relating
+        // `y` and `z`) with base `hxy`.
+        // `λA x y z hxy hyz. Eq_rec_dep A y (λz'. λ_:Eq A y z'. Eq A x z') hxy z hyz`.
+        let gl = |s: &str| Term::Global(s.to_string());
+        let vr = |s: &str| Term::Var(s.to_string());
+        let ap = |f: Term, x: Term| Term::App(Box::new(f), Box::new(x));
+        let lm = |p: &str, t: Term, b: Term| Term::Lambda {
+            param: p.to_string(),
+            param_type: Box::new(t),
+            body: Box::new(b),
+        };
+        let eq3 = |a: Term, x: Term, y: Term| ap(ap(ap(gl("Eq"), a), x), y);
+        let motive = lm(
+            "z'",
+            vr("A"),
+            lm("_", eq3(vr("A"), vr("y"), vr("z'")), eq3(vr("A"), vr("x"), vr("z'"))),
+        );
+        let call = ap(
+            ap(
+                ap(ap(ap(ap(gl("Eq_rec_dep"), vr("A")), vr("y")), motive), vr("hxy")),
+                vr("z"),
+            ),
+            vr("hyz"),
+        );
+        let eq_trans_body = lm(
+            "A",
+            Term::Sort(Universe::Type(0)),
+            lm(
+                "x",
+                vr("A"),
+                lm(
+                    "y",
+                    vr("A"),
+                    lm(
+                        "z",
+                        vr("A"),
+                        lm(
+                            "hxy",
+                            eq3(vr("A"), vr("x"), vr("y")),
+                            lm("hyz", eq3(vr("A"), vr("y"), vr("z")), call),
+                        ),
+                    ),
+                ),
+            ),
+        );
+
+        ctx.add_definition("Eq_trans".to_string(), eq_trans_type, eq_trans_body);
     }
 
     /// And : Prop → Prop → Prop

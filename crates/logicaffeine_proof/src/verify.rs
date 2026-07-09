@@ -15,9 +15,12 @@
 
 use std::collections::{HashMap, HashSet};
 
-use logicaffeine_kernel::{infer_type, is_subtype, prelude::StandardLibrary, Context, Term, Universe};
+use logicaffeine_kernel::{
+    double_check, infer_type, is_subtype, prelude::StandardLibrary, Context, DoubleCheck, Term,
+    Universe,
+};
 
-use crate::certifier::{certify, proof_expr_to_type, CertificationContext};
+use crate::certifier::{certify, proof_expr_to_type, proof_expr_to_type_ctx, CertificationContext};
 use crate::{BackwardChainer, DerivationTree, ProofExpr, ProofTerm};
 
 /// Outcome of running a goal through prove → certify → kernel type-check.
@@ -71,6 +74,7 @@ pub fn prove_certify_check(premises: &[ProofExpr], goal: &ProofExpr) -> Verified
 /// One theorem in a dependency-ordered library: proved from its own `premises` plus
 /// the conclusions of the theorems it `cites`. This is the unit the multi-theorem
 /// driver discharges in citation order (the Euclid-graph engine).
+#[derive(Debug, Clone, PartialEq)]
 pub struct LibraryTheorem {
     pub name: String,
     pub premises: Vec<ProofExpr>,
@@ -91,7 +95,7 @@ pub struct LibraryResult {
 /// already ordered. Any theorems left in a citation cycle are appended last (they
 /// will simply fail to find their cyclic lemma). Stable: independent theorems keep
 /// their input order.
-fn citation_order(theorems: &[LibraryTheorem]) -> Vec<usize> {
+pub(crate) fn citation_order(theorems: &[LibraryTheorem]) -> Vec<usize> {
     use std::collections::HashSet;
     let known: HashSet<&str> = theorems.iter().map(|t| t.name.as_str()).collect();
     let mut placed: HashSet<usize> = HashSet::new();
@@ -208,6 +212,20 @@ pub fn prove_certify_check_bounded_with_defs(
     definitions: &[Definition],
     max_depth: usize,
 ) -> VerifiedProof {
+    // The entire search + certify + kernel-check pipeline runs on ONE large-stack
+    // thread, so a legitimately deep proof never overflows the native stack and the
+    // common (shallow) case pays a single thread spawn.
+    on_big_stack(|| {
+        prove_certify_check_bounded_with_defs_inner(premises, goal, definitions, max_depth)
+    })
+}
+
+fn prove_certify_check_bounded_with_defs_inner(
+    premises: &[ProofExpr],
+    goal: &ProofExpr,
+    definitions: &[Definition],
+    max_depth: usize,
+) -> VerifiedProof {
     let abstracted = abstract_definitions(definitions);
     let definitions = &abstracted[..];
     if let Err(e) = validate_definitions(definitions) {
@@ -301,6 +319,15 @@ pub fn check_derivation_with_defs(
     definitions: &[Definition],
     derivation: DerivationTree,
 ) -> VerifiedProof {
+    on_big_stack(|| check_derivation_with_defs_inner(premises, goal, definitions, derivation))
+}
+
+fn check_derivation_with_defs_inner(
+    premises: &[ProofExpr],
+    goal: &ProofExpr,
+    definitions: &[Definition],
+    derivation: DerivationTree,
+) -> VerifiedProof {
     let abstracted = abstract_definitions(definitions);
     let definitions = &abstracted[..];
     if let Err(e) = validate_definitions(definitions) {
@@ -372,11 +399,31 @@ fn prepare_ctx_with_defs(
     for def in definitions {
         collector.collect(&def.definiens);
     }
+    // Inductive-domain predicates first (the induction motive needs `P : Ind → Prop`,
+    // e.g. `Nat → Prop` or `List → Prop`); the generic `Entity` registration below is
+    // idempotent and skips them.
+    for (name, ind) in collector.inductive_predicates() {
+        if kernel_ctx.get_global(name).is_none() {
+            kernel_ctx.add_declaration(
+                name,
+                Term::Pi {
+                    param: "_".to_string(),
+                    param_type: Box::new(Term::Global(ind.to_string())),
+                    body_type: Box::new(Term::Sort(Universe::Prop)),
+                },
+            );
+        }
+    }
     for (name, arity) in collector.predicates() {
         register_predicate(&mut kernel_ctx, name, arity);
     }
     for (name, arity) in collector.functions() {
         register_function(&mut kernel_ctx, name, arity);
+    }
+    // Temporal modalities `Op : Prop → Prop` (`Past`, `Future`, …), so a tensed
+    // proposition `Past(P)` type-checks as a distinct proposition from `P`.
+    for name in collector.modalities() {
+        register_modality(&mut kernel_ctx, name);
     }
     // Atoms in arithmetic/comparison positions are `Int`, declared before the
     // generic `Entity` constants so `register_constant` skips them.
@@ -399,9 +446,22 @@ fn prepare_ctx_with_defs(
     }
 
     for (i, premise) in flat_premises.iter().enumerate() {
-        if let Ok(hyp_type) = proof_expr_to_type(premise) {
+        if let Ok(hyp_type) = proof_expr_to_type_ctx(premise, &kernel_ctx) {
             let hyp_name = format!("h{}", i + 1);
             kernel_ctx.add_declaration(&hyp_name, hyp_type);
+        }
+    }
+
+    // Also register each original CONJUNCTIVE premise as a WHOLE hypothesis, in
+    // addition to its split conjuncts. A derivation that references the conjunction
+    // itself — e.g. a tactic `cases`/`ConjunctionElim` projecting `A` out of `A ∧ B`
+    // — then resolves, while the search keeps using the flat conjuncts it prefers.
+    for (i, premise) in premises.iter().enumerate() {
+        let whole = expand_iff(&engine_for_abstraction.abstract_all_events(premise));
+        if matches!(whole, ProofExpr::And(_, _)) {
+            if let Ok(hyp_type) = proof_expr_to_type(&whole) {
+                kernel_ctx.add_declaration(&format!("hw{}", i + 1), hyp_type);
+            }
         }
     }
 
@@ -410,6 +470,34 @@ fn prepare_ctx_with_defs(
 
 /// Certify `derivation` and require its inferred kernel type to be the goal type —
 /// the trust core shared by the prove and check entries.
+/// Run `f` on a thread with a large stack. Proof search AND certification both
+/// recurse to a depth proportional to the proof: a long chain re-derived from the
+/// axioms is legitimately deep, so the default ~8 MB native stack is not enough.
+/// The `max_depth` bound still terminates search and the loop detector still prunes
+/// regress — this only removes the *native*-stack ceiling so a deep, finite proof
+/// completes instead of aborting (the standard recursive-descent remedy).
+pub(crate) fn on_big_stack<T: Send>(f: impl FnOnce() -> T + Send) -> T {
+    // wasm has no threads, so `spawn_scoped` would return `Unsupported` and abort every in-browser
+    // proof. Run inline there — the `max_depth` bound and loop detector still terminate search; only
+    // the *native* ~8 MB stack ceiling needs the worker thread, and wasm sizes its stack at build
+    // time instead. The browser links this crate, so this path must never spawn.
+    #[cfg(target_arch = "wasm32")]
+    {
+        f()
+    }
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        std::thread::scope(|s| {
+            std::thread::Builder::new()
+                .stack_size(32 * 1024 * 1024)
+                .spawn_scoped(s, f)
+                .expect("spawn proof thread")
+                .join()
+                .expect("proof thread panicked")
+        })
+    }
+}
+
 fn finish_check(
     kernel_ctx: Context,
     abstracted_goal: &ProofExpr,
@@ -463,7 +551,7 @@ fn finish_check(
         eprintln!("[cert] infer_type(check) {:.2?}", t_infer.elapsed());
     }
 
-    let goal_type = match proof_expr_to_type(abstracted_goal) {
+    let goal_type = match proof_expr_to_type_ctx(abstracted_goal, &kernel_ctx) {
         Ok(t) => t,
         Err(e) => {
             return VerifiedProof {
@@ -489,6 +577,23 @@ fn finish_check(
                 "Proof term proves a different proposition: inferred {:?}, goal {:?}",
                 inferred, goal_type
             )),
+        };
+    }
+
+    // === Independent re-check (R1, the de Bruijn criterion) ===
+    // A second, independently-written kernel (a de Bruijn checker, distinct from
+    // `infer_type` above) must concur. `Agreed` is two-kernel verification; an honest
+    // `Incomplete` (a fragment the re-checker does not cover, e.g. a δ-conversion it keeps
+    // opaque) leaves the main kernel authoritative. Only a genuine `Disagree` — one kernel
+    // accepts, the other rejects, or they infer different types — rejects the proof: that
+    // is exactly the soundness alarm a second kernel exists to raise.
+    if let DoubleCheck::Disagree(why) = double_check(&kernel_ctx, &proof_term) {
+        return VerifiedProof {
+            derivation: Some(derivation),
+            proof_term: None,
+            kernel_ctx,
+            verified: false,
+            verification_error: Some(format!("Independent re-checker disagreement: {}", why)),
         };
     }
 
@@ -589,9 +694,28 @@ struct SymbolCollector {
     predicates: HashMap<String, usize>,
     functions: HashMap<String, usize>,
     constants: HashSet<String>,
+    /// Lowercase `Constant` names — candidate individual constants. The pipeline
+    /// capitalizes proper names, but a definite description ("the butler") yields
+    /// a lowercase `Constant("butler")`. Such a name IS an individual constant
+    /// unless the SAME name is also used as a genuine variable (a quantifier
+    /// binder or a `Variable` occurrence), in which case the lowercase `Constant`
+    /// is a stray variable spelling and must stay unregistered.
+    weak_constants: HashSet<String>,
+    /// Names that occur as a genuine variable — a quantifier binder or a
+    /// `ProofTerm::Variable`. A `weak_constants` candidate colliding with one of
+    /// these is NOT registered as a constant.
+    variables: HashSet<String>,
     /// Atoms that occur in an arithmetic/comparison argument position, so must be
     /// typed `Int` (not the `Entity` default) — `le`/`lt`/… need `Int` operands.
     int_atoms: HashSet<String>,
+    /// Unary predicates applied to an inductive-type constructor (`Zero`/`Succ` →
+    /// `Nat`, `Nil`/`Cons` → `List`), mapped to that inductive type's name, so they
+    /// are typed `<Ind> → Prop` (not the `Entity` default) — the motive of a
+    /// structural-`induction` proof is `λx:Ind. P(x)`, so `P` must accept `Ind`.
+    inductive_predicates: HashMap<String, &'static str>,
+    /// Temporal modality operators (`Past`, `Future`, …) seen wrapping a
+    /// proposition, each registered as an opaque `Op : Prop → Prop`.
+    modalities: HashSet<String>,
 }
 
 impl SymbolCollector {
@@ -600,7 +724,11 @@ impl SymbolCollector {
             predicates: HashMap::new(),
             functions: HashMap::new(),
             constants: HashSet::new(),
+            weak_constants: HashSet::new(),
+            variables: HashSet::new(),
             int_atoms: HashSet::new(),
+            inductive_predicates: HashMap::new(),
+            modalities: HashSet::new(),
         }
     }
 
@@ -646,6 +774,13 @@ impl SymbolCollector {
         match expr {
             ProofExpr::Predicate { name, args, .. } => {
                 self.note_predicate(name, args.len());
+                // A unary predicate applied to an inductive-type constructor is
+                // `<Ind> → Prop`, so it can be the motive of a structural induction.
+                if args.len() == 1 {
+                    if let Some(ind) = constructor_domain(&args[0]) {
+                        self.inductive_predicates.insert(name.clone(), ind);
+                    }
+                }
                 for arg in args {
                     self.collect_term(arg);
                 }
@@ -658,7 +793,16 @@ impl SymbolCollector {
                 self.collect(r);
             }
             ProofExpr::Not(inner) => self.collect(inner),
-            ProofExpr::ForAll { body, .. } | ProofExpr::Exists { body, .. } => self.collect(body),
+            ProofExpr::ForAll { variable, body } | ProofExpr::Exists { variable, body } => {
+                self.variables.insert(variable.clone());
+                self.collect(body);
+            }
+            // A temporal modality `Op(P)`: note the operator (registered as
+            // `Op : Prop → Prop`) and recurse so `P`'s own predicates register.
+            ProofExpr::Temporal { operator, body } => {
+                self.modalities.insert(operator.clone());
+                self.collect(body);
+            }
             ProofExpr::Identity(l, r) => {
                 self.collect_term(l);
                 self.collect_term(r);
@@ -671,9 +815,12 @@ impl SymbolCollector {
     fn collect_term(&mut self, term: &ProofTerm) {
         match term {
             ProofTerm::Constant(name) => {
-                // Proper names (capitalized) and numeric labels (a year like `2004`) are
-                // Entity constants; a bare lowercase name is treated as a variable and
-                // left unregistered.
+                // Proper names (capitalized) and numeric labels (a year like `2004`)
+                // are unambiguously Entity constants. A lowercase name — a definite
+                // description's referent ("the butler" → `Constant("butler")`) — is a
+                // constant TOO, but only if it is never used as a genuine variable
+                // (a binder or `Variable` occurrence); that collision is resolved in
+                // `constants()`, once every symbol has been seen.
                 if name
                     .chars()
                     .next()
@@ -681,7 +828,12 @@ impl SymbolCollector {
                     .unwrap_or(false)
                 {
                     self.constants.insert(name.clone());
+                } else {
+                    self.weak_constants.insert(name.clone());
                 }
+            }
+            ProofTerm::Variable(name) | ProofTerm::BoundVarRef(name) => {
+                self.variables.insert(name.clone());
             }
             ProofTerm::Function(name, args) => {
                 // Arithmetic / comparison builtins are prelude globals (typed
@@ -717,8 +869,44 @@ impl SymbolCollector {
         self.int_atoms.iter()
     }
 
-    fn constants(&self) -> impl Iterator<Item = &String> {
-        self.constants.iter()
+    fn inductive_predicates(&self) -> impl Iterator<Item = (&String, &'static str)> {
+        self.inductive_predicates.iter().map(|(n, d)| (n, *d))
+    }
+
+    fn constants(&self) -> Vec<&String> {
+        // Capitalized/numeric constants always register; a lowercase candidate
+        // registers only when the name is never a genuine variable.
+        self.constants
+            .iter()
+            .chain(
+                self.weak_constants
+                    .iter()
+                    .filter(|n| !self.variables.contains(*n)),
+            )
+            .collect()
+    }
+
+    fn modalities(&self) -> impl Iterator<Item = &String> {
+        self.modalities.iter()
+    }
+}
+
+/// The inductive type whose constructor `t` is — `Zero`/`Succ` ⇒ `Nat`,
+/// `ENil`/`ECons` ⇒ `EList` — or `None` if `t` is not a recognized prelude
+/// constructor. The signal that a unary predicate applied to `t` ranges over that
+/// inductive type, not `Entity`, so it can serve as a structural-induction motive
+/// `λx:Ind. P(x)`. (The `E`-prefixed list names are the prelude's monomorphic
+/// `EList`, distinct from a user program's parametric `List`/`Nil`/`Cons`.)
+fn constructor_domain(t: &ProofTerm) -> Option<&'static str> {
+    let name = match t {
+        ProofTerm::Constant(s) => s.as_str(),
+        ProofTerm::Function(n, _) => n.as_str(),
+        _ => return None,
+    };
+    match name {
+        "Zero" | "Succ" => Some("Nat"),
+        "ENil" | "ECons" => Some("EList"),
+        _ => None,
     }
 }
 
@@ -778,6 +966,23 @@ fn register_constant(ctx: &mut Context, name: &str) {
         return;
     }
     ctx.add_declaration(name, Term::Global("Entity".to_string()));
+}
+
+/// Register a temporal modality `Op : Prop → Prop` (idempotent). A tensed
+/// proposition `Past(P)` lowers to `(Op P)`, distinct from `P`, so a modus-tollens
+/// chain over tensed premises certifies.
+fn register_modality(ctx: &mut Context, name: &str) {
+    if ctx.get_global(name).is_some() {
+        return;
+    }
+    ctx.add_declaration(
+        name,
+        Term::Pi {
+            param: "_".to_string(),
+            param_type: Box::new(Term::Sort(Universe::Prop)),
+            body_type: Box::new(Term::Sort(Universe::Prop)),
+        },
+    );
 }
 
 /// A failed-verification result carrying a definition-level error message.

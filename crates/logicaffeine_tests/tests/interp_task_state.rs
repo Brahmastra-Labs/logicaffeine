@@ -1,4 +1,4 @@
-//! Phase 1a (FINISH_INTERPRETER.md) — `TaskState` split canary.
+//! Phase 1a (work/FINISH_INTERPRETER.md) — `TaskState` split canary.
 //!
 //! Extracting the per-task execution state (env, call depth, TCO scratch) into a
 //! `TaskState` sub-struct is a structural refactor that must not change any

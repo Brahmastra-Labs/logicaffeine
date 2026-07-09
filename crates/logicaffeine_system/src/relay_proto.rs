@@ -1,5 +1,5 @@
 //! The relay wire protocol — shared verbatim by the native server/client
-//! ([`super::relay`]) and the browser client ([`super::relay_browser`]). Both
+//! (`super::relay`) and the browser client (`super::relay_browser`). Both
 //! targets serialize the SAME [`RelayFrame`] with `bincode`, so a browser tab and
 //! a native node speak an identical language across the WebSocket.
 //!

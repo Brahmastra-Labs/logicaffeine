@@ -1,4 +1,4 @@
-//! Phase 3c (FINISH_INTERPRETER.md) — VFS threaded into the interpreter.
+//! Phase 3c (work/FINISH_INTERPRETER.md) — VFS threaded into the interpreter.
 //!
 //! The browser Studio holds a `WebVfs`; the interpreter must route file I/O
 //! (`Write`/`Read`/`Mount`) to whatever VFS it is handed. This proves the native

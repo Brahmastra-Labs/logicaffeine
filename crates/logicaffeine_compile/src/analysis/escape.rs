@@ -108,6 +108,16 @@ impl<'a> EscapeChecker<'a> {
         self.check_block(stmts)
     }
 
+    /// Collect every escape finding with its top-level statement index
+    /// (mapping onto `Parser::stmt_spans()`), continuing past failures.
+    pub fn check_program_collect(&mut self, stmts: &[Stmt<'_>]) -> Vec<(usize, EscapeError)> {
+        stmts
+            .iter()
+            .enumerate()
+            .filter_map(|(index, stmt)| self.check_stmt(stmt).err().map(|e| (index, e)))
+            .collect()
+    }
+
     /// Check a block of statements
     fn check_block(&mut self, stmts: &[Stmt<'_>]) -> Result<(), EscapeError> {
         for stmt in stmts {

@@ -1,0 +1,139 @@
+{
+  "Main block": {
+    "prefix": "main",
+    "body": ["## Main", "${1:Let x be 5.}", "Show ${2:x}.", ""],
+    "description": "Program entry point"
+  },
+  "Function": {
+    "prefix": "to",
+    "body": [
+      "## To ${1:name} (${2:param}: ${3:Int}) -> ${4:Int}:",
+      "    ${5:Return $2.}",
+      ""
+    ],
+    "description": "Function definition (## To)"
+  },
+  "Procedure": {
+    "prefix": "toproc",
+    "body": ["## To ${1:name} (${2:param}: ${3:Text}):", "    ${4:Show $2.}", ""],
+    "description": "Procedure — a function with no return"
+  },
+  "Native import": {
+    "prefix": "tonative",
+    "body": ["## To native ${1:name} (${2:s}: ${3:Text}) -> ${4:Int}", ""],
+    "description": "FFI declaration (## To native)"
+  },
+  "Struct": {
+    "prefix": "struct",
+    "body": ["## A ${1:Point} has:", "    An ${2:x}: ${3:Int}.", "    A ${4:y}: ${5:Int}.", ""],
+    "description": "Struct definition (## A … has:)"
+  },
+  "Enum": {
+    "prefix": "enum",
+    "body": [
+      "## A ${1:Shape} is one of:",
+      "    A ${2:Circle} with ${3:radius} ${4:Int}.",
+      "    A ${5:Square} with ${6:side} ${7:Int}.",
+      ""
+    ],
+    "description": "Sum type (## A … is one of:)"
+  },
+  "Theorem": {
+    "prefix": "theorem",
+    "body": [
+      "## Theorem: ${1:Socrates}",
+      "",
+      "Given: ${2:All men are mortal. Socrates is a man.}",
+      "Prove: ${3:Socrates is mortal.}",
+      "Proof: Auto.",
+      ""
+    ],
+    "description": "Theorem with Given/Prove/Proof"
+  },
+  "Let binding": {
+    "prefix": "let",
+    "body": ["Let ${1:name} be ${2:value}."],
+    "description": "Immutable binding"
+  },
+  "Mutable binding": {
+    "prefix": "letmut",
+    "body": ["Let mutable ${1:name} be ${2:value}."],
+    "description": "Mutable binding"
+  },
+  "Refined binding": {
+    "prefix": "letwhere",
+    "body": ["Let ${1:x}: ${2:Int} where ${3:$1 > 0} be ${4:5}."],
+    "description": "Binding with a refinement constraint"
+  },
+  "If / Otherwise": {
+    "prefix": "if",
+    "body": ["If ${1:condition}:", "    ${2:Show \"then\".}", "Otherwise:", "    ${3:Show \"else\".}"],
+    "description": "Conditional"
+  },
+  "While loop": {
+    "prefix": "while",
+    "body": ["While ${1:i is less than n}:", "    ${2:Set i to i + 1.}"],
+    "description": "While loop"
+  },
+  "While with termination proof": {
+    "prefix": "whiledec",
+    "body": ["While ${1:n > 0} (decreasing ${2:n}):", "    ${3:Set n to n - 1.}"],
+    "description": "While with a decreasing variant"
+  },
+  "For each": {
+    "prefix": "for",
+    "body": ["Repeat for ${1:item} in ${2:items}:", "    ${3:Show $1.}"],
+    "description": "Iterate a collection"
+  },
+  "Counted for": {
+    "prefix": "forrange",
+    "body": ["for ${1:i} from ${2:1} to ${3:n}:", "    ${4:Show $1.}"],
+    "description": "Counted loop (inclusive)"
+  },
+  "Pattern match": {
+    "prefix": "inspect",
+    "body": [
+      "Inspect ${1:value}:",
+      "    When ${2:Circle} (${3:r}):",
+      "        ${4:Show $3.}",
+      "    Otherwise:",
+      "        ${5:Show \"other\".}"
+    ],
+    "description": "Pattern matching (Inspect / When)"
+  },
+  "New sequence": {
+    "prefix": "seq",
+    "body": ["Let ${1:items} be a new Seq of ${2:Int}."],
+    "description": "Empty sequence"
+  },
+  "New map": {
+    "prefix": "map",
+    "body": ["Let ${1:table} be a new Map of ${2:Text} to ${3:Int}."],
+    "description": "Empty map"
+  },
+  "Assert": {
+    "prefix": "assert",
+    "body": ["Assert that ${1:x} is equal to ${2:42}."],
+    "description": "Debug assertion"
+  },
+  "Trust with reason": {
+    "prefix": "trust",
+    "body": ["Trust that ${1:x is greater than 0} because \"${2:set above}\"."],
+    "description": "Justified assertion"
+  },
+  "Check (security gate)": {
+    "prefix": "check",
+    "body": ["Check that ${1:balance is at least amount}."],
+    "description": "Mandatory runtime guard"
+  },
+  "Shared CRDT struct": {
+    "prefix": "shared",
+    "body": ["## A ${1:Counter} is Shared and has:", "    ${2:points}: ${3:ConvergentCount}.", ""],
+    "description": "CRDT struct (conflict-free replication)"
+  },
+  "Zone (arena)": {
+    "prefix": "zone",
+    "body": ["Inside a zone called \"${1:Scratch}\":", "    ${2:Let t be 1.}"],
+    "description": "Scoped arena allocation"
+  }
+}

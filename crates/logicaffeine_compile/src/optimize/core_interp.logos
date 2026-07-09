@@ -1,0 +1,1258 @@
+
+## To isNothing (v: CVal) -> Bool:
+    Inspect v:
+        When VNothing:
+            Return true.
+        Otherwise:
+            Return false.
+
+## To valToText (v: CVal) -> Text:
+    Inspect v:
+        When VInt (n):
+            Return "{n}".
+        When VFloat (f):
+            Return "{f}".
+        When VBool (b):
+            If b:
+                Return "true".
+            Otherwise:
+                Return "false".
+        When VText (s):
+            Return s.
+        When VSeq (items):
+            Return "[seq]".
+        When VMap (m):
+            Return "[map]".
+        When VSet (setItems):
+            Return "[set]".
+        When VOption (optInner, optPresent):
+            If optPresent:
+                Let innerText be valToText(optInner).
+                Return "Some({innerText})".
+            Otherwise:
+                Return "None".
+        When VTuple (tupItems):
+            Let tupParts be a new Seq of Text.
+            Repeat for ti in tupItems:
+                Push valToText(ti) to tupParts.
+            Let mutable tupResult be "(".
+            Let mutable tupIdx be 1.
+            Let tupLen be length of tupParts.
+            Repeat for tp in tupParts:
+                Set tupResult to "{tupResult}{tp}".
+                If tupIdx is less than tupLen:
+                    Set tupResult to "{tupResult}, ".
+                Set tupIdx to tupIdx + 1.
+            Set tupResult to "{tupResult})".
+            Return tupResult.
+        When VStruct (sTypeName, sFields):
+            Return "{sTypeName}(...)".
+        When VVariant (vTypeName, vVarName, vFields):
+            Return "{vVarName}".
+        When VClosure (clParams, clBody, clEnv):
+            Return "<closure>".
+        When VDuration (durMs):
+            If durMs is less than 1000:
+                Return "{durMs}ms".
+            Let durSec be durMs / 1000.
+            If durSec is less than 60:
+                Return "{durSec}s".
+            Let durMin be durSec / 60.
+            Return "{durMin}m".
+        When VDate (dYear, dMonth, dDay):
+            Return "{dYear}-{dMonth}-{dDay}".
+        When VMoment (mMs):
+            Return "moment({mMs})".
+        When VSpan (spanStart, spanEnd):
+            Return "span({spanStart}..{spanEnd})".
+        When VTime (tHour, tMin, tSec):
+            Return "{tHour}:{tMin}:{tSec}".
+        When VCrdt (crdtKind, crdtState):
+            Return "<crdt:{crdtKind}>".
+        When VError (msg):
+            Return "Error: {msg}".
+        When VNothing:
+            Return "nothing".
+
+## To applyBinOp (op: Text) and (lv: CVal) and (rv: CVal) -> CVal:
+    Inspect lv:
+        When VError (msg):
+            Return a new VError with msg msg.
+        When VInt (a):
+            Inspect rv:
+                When VError (msg):
+                    Return a new VError with msg msg.
+                When VInt (b):
+                    If op equals "+":
+                        Return a new VInt with value (a + b).
+                    If op equals "-":
+                        Return a new VInt with value (a - b).
+                    If op equals "*":
+                        Return a new VInt with value (a * b).
+                    If op equals "/":
+                        If b equals 0:
+                            Return a new VError with msg "division by zero".
+                        Return a new VInt with value (a / b).
+                    If op equals "%":
+                        If b equals 0:
+                            Return a new VError with msg "modulo by zero".
+                        Return a new VInt with value (a % b).
+                    If op equals "<":
+                        Return a new VBool with value (a is less than b).
+                    If op equals ">":
+                        Return a new VBool with value (a is greater than b).
+                    If op equals "<=":
+                        Return a new VBool with value (a is at most b).
+                    If op equals ">=":
+                        Return a new VBool with value (a is at least b).
+                    If op equals "==":
+                        Return a new VBool with value (a equals b).
+                    If op equals "!=":
+                        Return a new VBool with value (a is not b).
+                    If op equals "^":
+                        Return a new VInt with value (a xor b).
+                    If op equals "<<":
+                        Return a new VInt with value (a shifted left by b).
+                    If op equals ">>":
+                        Return a new VInt with value (a shifted right by b).
+                    Return a new VNothing.
+                When VFloat (b):
+                    If op equals "+":
+                        Return a new VFloat with value (a + b).
+                    If op equals "-":
+                        Return a new VFloat with value (a - b).
+                    If op equals "*":
+                        Return a new VFloat with value (a * b).
+                    If op equals "/":
+                        If b equals 0.0:
+                            Return a new VError with msg "division by zero".
+                        Return a new VFloat with value (a / b).
+                    If op equals "<":
+                        Return a new VBool with value (a is less than b).
+                    If op equals ">":
+                        Return a new VBool with value (a is greater than b).
+                    If op equals "<=":
+                        Return a new VBool with value (a is at most b).
+                    If op equals ">=":
+                        Return a new VBool with value (a is at least b).
+                    If op equals "==":
+                        Return a new VBool with value (a equals b).
+                    If op equals "!=":
+                        Return a new VBool with value (a is not b).
+                    Return a new VNothing.
+                Otherwise:
+                    Return a new VNothing.
+        When VFloat (a):
+            Inspect rv:
+                When VError (msg):
+                    Return a new VError with msg msg.
+                When VFloat (b):
+                    If op equals "+":
+                        Return a new VFloat with value (a + b).
+                    If op equals "-":
+                        Return a new VFloat with value (a - b).
+                    If op equals "*":
+                        Return a new VFloat with value (a * b).
+                    If op equals "/":
+                        If b equals 0.0:
+                            Return a new VError with msg "division by zero".
+                        Return a new VFloat with value (a / b).
+                    If op equals "<":
+                        Return a new VBool with value (a is less than b).
+                    If op equals ">":
+                        Return a new VBool with value (a is greater than b).
+                    If op equals "<=":
+                        Return a new VBool with value (a is at most b).
+                    If op equals ">=":
+                        Return a new VBool with value (a is at least b).
+                    If op equals "==":
+                        Return a new VBool with value (a equals b).
+                    If op equals "!=":
+                        Return a new VBool with value (a is not b).
+                    Return a new VNothing.
+                When VInt (b):
+                    If op equals "+":
+                        Return a new VFloat with value (a + b).
+                    If op equals "-":
+                        Return a new VFloat with value (a - b).
+                    If op equals "*":
+                        Return a new VFloat with value (a * b).
+                    If op equals "/":
+                        If b equals 0:
+                            Return a new VError with msg "division by zero".
+                        Return a new VFloat with value (a / b).
+                    If op equals "<":
+                        Return a new VBool with value (a is less than b).
+                    If op equals ">":
+                        Return a new VBool with value (a is greater than b).
+                    If op equals "<=":
+                        Return a new VBool with value (a is at most b).
+                    If op equals ">=":
+                        Return a new VBool with value (a is at least b).
+                    If op equals "==":
+                        Return a new VBool with value (a equals b).
+                    If op equals "!=":
+                        Return a new VBool with value (a is not b).
+                    Return a new VNothing.
+                Otherwise:
+                    Return a new VNothing.
+        When VBool (a):
+            Inspect rv:
+                When VError (msg):
+                    Return a new VError with msg msg.
+                When VBool (b):
+                    If op equals "&&":
+                        Return a new VBool with value (a and b).
+                    If op equals "||":
+                        Return a new VBool with value (a or b).
+                    If op equals "==":
+                        Return a new VBool with value (a equals b).
+                    If op equals "!=":
+                        Return a new VBool with value (a is not b).
+                    Return a new VNothing.
+                Otherwise:
+                    Return a new VNothing.
+        When VText (a):
+            Inspect rv:
+                When VError (msg):
+                    Return a new VError with msg msg.
+                When VText (b):
+                    If op equals "+":
+                        Let joined be "{a}{b}".
+                        Return a new VText with value joined.
+                    If op equals "==":
+                        Return a new VBool with value (a equals b).
+                    If op equals "!=":
+                        Return a new VBool with value (a is not b).
+                    Return a new VNothing.
+                When VInt (b):
+                    If op equals "+":
+                        Let joined be "{a}{b}".
+                        Return a new VText with value joined.
+                    Return a new VNothing.
+                When VBool (b):
+                    If op equals "+":
+                        If b:
+                            Let joined be "{a}true".
+                            Return a new VText with value joined.
+                        Otherwise:
+                            Let joined be "{a}false".
+                            Return a new VText with value joined.
+                    Return a new VNothing.
+                Otherwise:
+                    Return a new VNothing.
+        When VDuration (durA):
+            Inspect rv:
+                When VDuration (durB):
+                    If op equals "+":
+                        Return a new VDuration with millis (durA + durB).
+                    If op equals "-":
+                        Return a new VDuration with millis (durA - durB).
+                    If op equals "==":
+                        Return a new VBool with value (durA equals durB).
+                    If op equals "!=":
+                        Return a new VBool with value (durA is not durB).
+                    If op equals "<":
+                        Return a new VBool with value (durA is less than durB).
+                    If op equals ">":
+                        Return a new VBool with value (durA is greater than durB).
+                    Return a new VNothing.
+                When VInt (durB):
+                    If op equals "*":
+                        Return a new VDuration with millis (durA * durB).
+                    Return a new VNothing.
+                Otherwise:
+                    Return a new VNothing.
+        When VDate (dateYA, dateMA, dateDA):
+            Inspect rv:
+                When VDuration (durB):
+                    If op equals "+":
+                        Let shiftedDay be dateDA + (durB / 86400000).
+                        Return a new VDate with year dateYA and month dateMA and day shiftedDay.
+                    Return a new VNothing.
+                When VDate (dateYB, dateMB, dateDB):
+                    If op equals "-":
+                        Let dayDiff be dateDA - dateDB.
+                        Return a new VDuration with millis (dayDiff * 86400000).
+                    If op equals "==":
+                        Let yEq be dateYA equals dateYB.
+                        Let mEq be dateMA equals dateMB.
+                        Let dEq be dateDA equals dateDB.
+                        Return a new VBool with value (yEq and mEq and dEq).
+                    If op equals "<":
+                        If dateYA is less than dateYB:
+                            Return a new VBool with value true.
+                        If dateYA is greater than dateYB:
+                            Return a new VBool with value false.
+                        If dateMA is less than dateMB:
+                            Return a new VBool with value true.
+                        If dateMA is greater than dateMB:
+                            Return a new VBool with value false.
+                        Return a new VBool with value (dateDA is less than dateDB).
+                    Return a new VNothing.
+                Otherwise:
+                    Return a new VNothing.
+        When VMoment (momA):
+            Inspect rv:
+                When VMoment (momB):
+                    If op equals "<":
+                        Return a new VBool with value (momA is less than momB).
+                    If op equals ">":
+                        Return a new VBool with value (momA is greater than momB).
+                    If op equals "==":
+                        Return a new VBool with value (momA equals momB).
+                    If op equals "<=":
+                        Return a new VBool with value (momA is at most momB).
+                    If op equals ">=":
+                        Return a new VBool with value (momA is at least momB).
+                    Return a new VNothing.
+                Otherwise:
+                    Return a new VNothing.
+        Otherwise:
+            Return a new VNothing.
+
+## To valEquals (a: CVal) and (b: CVal) -> Bool:
+    Let ta be valToText(a).
+    Let tb be valToText(b).
+    Return ta equals tb.
+
+## To coreEval (expr: CExpr) and (env: Map of Text to CVal) and (funcs: Map of Text to CFunc) -> CVal:
+    Inspect expr:
+        When CInt (n):
+            Return a new VInt with value n.
+        When CFloat (f):
+            Return a new VFloat with value f.
+        When CBool (b):
+            Return a new VBool with value b.
+        When CText (s):
+            Return a new VText with value s.
+        When CVar (name):
+            Return item name of env.
+        When CBinOp (op, left, right):
+            Let lv be coreEval(left, env, funcs).
+            Let rv be coreEval(right, env, funcs).
+            Return applyBinOp(op, lv, rv).
+        When CNot (inner):
+            Let v be coreEval(inner, env, funcs).
+            Inspect v:
+                When VBool (b):
+                    Return a new VBool with value (not b).
+                Otherwise:
+                    Return a new VNothing.
+        When CCall (name, argExprs):
+            Let argVals be a new Seq of CVal.
+            Repeat for a in argExprs:
+                Push coreEval(a, env, funcs) to argVals.
+            Let callInFuncs be (funcs contains name).
+            If callInFuncs:
+                Let func be item name of funcs.
+                Inspect func:
+                    When CFuncDef (fname, params, fnParamTypes, fnReturnType, body):
+                        Let callEnv be a new Map of Text to CVal.
+                        Let mutable idx be 1.
+                        Repeat for p in params:
+                            Set item p of callEnv to item idx of argVals.
+                            Set idx to idx + 1.
+                        Let callBodyOut be coreExecBlock(body, callEnv, funcs).
+                        Return coreOutResult(callBodyOut).
+                    Otherwise:
+                        Return a new VNothing.
+            Otherwise:
+                Let callInEnv be (env contains name).
+                If callInEnv:
+                    Let envVal be item name of env.
+                    Inspect envVal:
+                        When VClosure (ceParams, ceBody, ceCapturedEnv):
+                            Let mutable ceCallEnv be ceCapturedEnv.
+                            Let mutable ceCopyIdx be 1.
+                            While ceCopyIdx is at most (length of ceParams):
+                                If ceCopyIdx is at most (length of argVals):
+                                    Set item (item ceCopyIdx of ceParams) of ceCallEnv to item ceCopyIdx of argVals.
+                                Set ceCopyIdx to ceCopyIdx + 1.
+                            Let ceBodyOut be coreExecBlock(ceBody, ceCallEnv, funcs).
+                            Return coreOutResult(ceBodyOut).
+                        Otherwise:
+                            Return a new VNothing.
+                Otherwise:
+                    Return a new VNothing.
+        When CIndex (collExpr, idxExpr):
+            Let cv be coreEval(collExpr, env, funcs).
+            Let iv be coreEval(idxExpr, env, funcs).
+            Inspect cv:
+                When VError (msg):
+                    Return a new VError with msg msg.
+                When VSeq (items):
+                    Inspect iv:
+                        When VError (msg):
+                            Return a new VError with msg msg.
+                        When VInt (i):
+                            If i is less than 1:
+                                Return a new VError with msg "index out of bounds".
+                            If i is greater than (length of items):
+                                Return a new VError with msg "index out of bounds".
+                            Return item i of items.
+                        Otherwise:
+                            Return a new VNothing.
+                When VTuple (tupItems):
+                    Inspect iv:
+                        When VInt (i):
+                            If i is less than 1:
+                                Return a new VError with msg "index out of bounds".
+                            If i is greater than (length of tupItems):
+                                Return a new VError with msg "index out of bounds".
+                            Return item i of tupItems.
+                        Otherwise:
+                            Return a new VNothing.
+                When VMap (mapData):
+                    Inspect iv:
+                        When VText (mapKey):
+                            Return item mapKey of mapData.
+                        Otherwise:
+                            Return a new VNothing.
+                Otherwise:
+                    Return a new VNothing.
+        When CLen (collExpr):
+            Let cv be coreEval(collExpr, env, funcs).
+            Inspect cv:
+                When VSeq (items):
+                    Return a new VInt with value (length of items).
+                When VSet (setItems):
+                    Return a new VInt with value (length of setItems).
+                When VTuple (tupItems):
+                    Return a new VInt with value (length of tupItems).
+                When VText (textVal):
+                    Return a new VInt with value (length of textVal).
+                Otherwise:
+                    Return a new VNothing.
+        When CMapGet (mapExpr, keyExpr):
+            Let mv be coreEval(mapExpr, env, funcs).
+            Let kv be coreEval(keyExpr, env, funcs).
+            Inspect mv:
+                When VMap (mapData):
+                    Inspect kv:
+                        When VText (key):
+                            Return item key of mapData.
+                        Otherwise:
+                            Return a new VNothing.
+                Otherwise:
+                    Return a new VNothing.
+        When CNewSeq:
+            Return a new VSeq with items a new Seq of CVal.
+        When CNewVariant (nvTag, nvNames, nvVals):
+            Let nvMap be a new Map of Text to CVal.
+            Set item "__tag" of nvMap to a new VText with value nvTag.
+            Let nvFnSeq be a new Seq of CVal.
+            Let mutable nvi be 1.
+            While nvi is at most (length of nvNames):
+                Let nvn be item nvi of nvNames.
+                Let nvv be coreEval(item nvi of nvVals, env, funcs).
+                Set item nvn of nvMap to nvv.
+                Let nvn2 be item nvi of nvNames.
+                Push a new VText with value nvn2 to nvFnSeq.
+                Set nvi to nvi + 1.
+            Set item "__fnames__" of nvMap to a new VSeq with items nvFnSeq.
+            Return a new VMap with entries nvMap.
+        When CList (listItems):
+            Let result be a new Seq of CVal.
+            Repeat for listItem in listItems:
+                Push coreEval(listItem, env, funcs) to result.
+            Return a new VSeq with items result.
+        When CRange (rangeStart, rangeEnd):
+            Let sv be coreEval(rangeStart, env, funcs).
+            Let ev be coreEval(rangeEnd, env, funcs).
+            Let result be a new Seq of CVal.
+            Inspect sv:
+                When VInt (s):
+                    Inspect ev:
+                        When VInt (e):
+                            Let mutable ri be s.
+                            While ri is at most e:
+                                Push a new VInt with value ri to result.
+                                Set ri to ri + 1.
+                        Otherwise:
+                            Let skip be true.
+                Otherwise:
+                    Let skip be true.
+            Return a new VSeq with items result.
+        When CSlice (sliceColl, sliceStart, sliceEnd):
+            Let cv be coreEval(sliceColl, env, funcs).
+            Let siv be coreEval(sliceStart, env, funcs).
+            Let eiv be coreEval(sliceEnd, env, funcs).
+            Inspect cv:
+                When VSeq (srcItems):
+                    Inspect siv:
+                        When VInt (si):
+                            Inspect eiv:
+                                When VInt (ei):
+                                    Let sliceResult be a new Seq of CVal.
+                                    Let mutable sIdx be si.
+                                    While sIdx is at most ei:
+                                        If sIdx is at least 1:
+                                            If sIdx is at most (length of srcItems):
+                                                Push item sIdx of srcItems to sliceResult.
+                                        Set sIdx to sIdx + 1.
+                                    Return a new VSeq with items sliceResult.
+                                Otherwise:
+                                    Return a new VNothing.
+                        Otherwise:
+                            Return a new VNothing.
+                Otherwise:
+                    Return a new VNothing.
+        When CCopy (copyTarget):
+            Let cv be coreEval(copyTarget, env, funcs).
+            Inspect cv:
+                When VSeq (srcItems):
+                    Let copiedItems be a new Seq of CVal.
+                    Repeat for ci in srcItems:
+                        Push ci to copiedItems.
+                    Return a new VSeq with items copiedItems.
+                When VMap (mapData):
+                    Let copiedMap be copy of mapData.
+                    Return a new VMap with entries copiedMap.
+                When VStruct (stn, stf):
+                    Let copiedFields be copy of stf.
+                    Return a new VStruct with typeName stn and fields copiedFields.
+                Otherwise:
+                    Return cv.
+        When CNewSet:
+            Return a new VSet with items a new Seq of CVal.
+        When CContains (containsColl, containsElem):
+            Let ccv be coreEval(containsColl, env, funcs).
+            Let cev be coreEval(containsElem, env, funcs).
+            Let cevText be valToText(cev).
+            Inspect ccv:
+                When VSet (setItems):
+                    Repeat for si in setItems:
+                        Let siText be valToText(si).
+                        If siText equals cevText:
+                            Return a new VBool with value true.
+                    Return a new VBool with value false.
+                When VSeq (seqItems):
+                    Repeat for si in seqItems:
+                        Let siText be valToText(si).
+                        If siText equals cevText:
+                            Return a new VBool with value true.
+                    Return a new VBool with value false.
+                When VText (haystack):
+                    Inspect cev:
+                        When VText (needle):
+                            If haystack contains needle:
+                                Return a new VBool with value true.
+                            Otherwise:
+                                Return a new VBool with value false.
+                        Otherwise:
+                            Return a new VBool with value false.
+                Otherwise:
+                    Return a new VBool with value false.
+        When CUnion (unionLeft, unionRight):
+            Let ulv be coreEval(unionLeft, env, funcs).
+            Let urv be coreEval(unionRight, env, funcs).
+            Inspect ulv:
+                When VSet (leftItems):
+                    Inspect urv:
+                        When VSet (rightItems):
+                            Let unionResult be a new Seq of CVal.
+                            Let unionTexts be a new Seq of Text.
+                            Let mutable uliIdx be 1.
+                            While uliIdx is at most (length of leftItems):
+                                Push item uliIdx of leftItems to unionResult.
+                                Push valToText(item uliIdx of leftItems) to unionTexts.
+                                Set uliIdx to uliIdx + 1.
+                            Let mutable uriIdx be 1.
+                            While uriIdx is at most (length of rightItems):
+                                Let uriTxt be valToText(item uriIdx of rightItems).
+                                Let mutable uriFound be false.
+                                Repeat for ut in unionTexts:
+                                    If ut equals uriTxt:
+                                        Set uriFound to true.
+                                If not uriFound:
+                                    Push item uriIdx of rightItems to unionResult.
+                                    Push uriTxt to unionTexts.
+                                Set uriIdx to uriIdx + 1.
+                            Return a new VSet with items unionResult.
+                        Otherwise:
+                            Return a new VNothing.
+                Otherwise:
+                    Return a new VNothing.
+        When CIntersection (interLeft, interRight):
+            Let ilv be coreEval(interLeft, env, funcs).
+            Let irv be coreEval(interRight, env, funcs).
+            Inspect ilv:
+                When VSet (leftItems):
+                    Inspect irv:
+                        When VSet (rightItems):
+                            Let interResult be a new Seq of CVal.
+                            Let rightTexts be a new Seq of Text.
+                            Repeat for iri in rightItems:
+                                Push valToText(iri) to rightTexts.
+                            Let mutable iliIdx be 1.
+                            While iliIdx is at most (length of leftItems):
+                                Let iliTxt be valToText(item iliIdx of leftItems).
+                                Let mutable iliFound be false.
+                                Repeat for irt in rightTexts:
+                                    If irt equals iliTxt:
+                                        Set iliFound to true.
+                                If iliFound:
+                                    Push item iliIdx of leftItems to interResult.
+                                Set iliIdx to iliIdx + 1.
+                            Return a new VSet with items interResult.
+                        Otherwise:
+                            Return a new VNothing.
+                Otherwise:
+                    Return a new VNothing.
+        When COptionSome (optInner):
+            Let optVal be coreEval(optInner, env, funcs).
+            Return a new VOption with inner optVal and present true.
+        When COptionNone:
+            Return a new VOption with inner (a new VNothing) and present false.
+        When CTuple (tupleItems):
+            Let tupleResult be a new Seq of CVal.
+            Repeat for ti in tupleItems:
+                Push coreEval(ti, env, funcs) to tupleResult.
+            Return a new VTuple with items tupleResult.
+        When CNew (newTypeName, newFieldNames, newFields):
+            If newTypeName equals "Map":
+                Return a new VMap with entries a new Map of Text to CVal.
+            Let newFieldMap be a new Map of Text to CVal.
+            Let mutable nfIdx be 1.
+            Repeat for nfn in newFieldNames:
+                If nfIdx is at most (length of newFields):
+                    Set item nfn of newFieldMap to coreEval(item nfIdx of newFields, env, funcs).
+                Set nfIdx to nfIdx + 1.
+            Return a new VStruct with typeName newTypeName and fields newFieldMap.
+        When CFieldAccess (faTarget, faField):
+            Let faVal be coreEval(faTarget, env, funcs).
+            Inspect faVal:
+                When VStruct (faTypeName, faFields):
+                    Return item faField of faFields.
+                When VMap (faMapData):
+                    Return item faField of faMapData.
+                Otherwise:
+                    Return a new VNothing.
+        When CClosure (clParams, clBody, clCaptured):
+            Let clEnv be a new Map of Text to CVal.
+            Let mutable clCapIdx be 1.
+            While clCapIdx is at most (length of clCaptured):
+                Let clCapName be item clCapIdx of clCaptured.
+                Let clCapVal be item clCapName of env.
+                Let clCapName2 be item clCapIdx of clCaptured.
+                Set item clCapName2 of clEnv to clCapVal.
+                Set clCapIdx to clCapIdx + 1.
+            Return a new VClosure with params clParams and body clBody and capturedEnv clEnv.
+        When CCallExpr (ceTarget, ceArgs):
+            Let ceVal be coreEval(ceTarget, env, funcs).
+            Inspect ceVal:
+                When VClosure (ceParams, ceBody, ceCapturedEnv):
+                    Let mutable ceCallEnv be ceCapturedEnv.
+                    Let mutable ceCopyIdx be 1.
+                    While ceCopyIdx is at most (length of ceParams):
+                        If ceCopyIdx is at most (length of ceArgs):
+                            Let ceArgVal be coreEval(item ceCopyIdx of ceArgs, env, funcs).
+                            Set item (item ceCopyIdx of ceParams) of ceCallEnv to ceArgVal.
+                        Set ceCopyIdx to ceCopyIdx + 1.
+                    Let ceOut be coreExecBlock(ceBody, ceCallEnv, funcs).
+                    Let ceResult be coreOutResult(ceOut).
+                    Return ceResult.
+                Otherwise:
+                    Return a new VNothing.
+        When CInterpolatedString (isParts):
+            Let mutable isResult be "".
+            Repeat for isPart in isParts:
+                Inspect isPart:
+                    When CLiteralPart (litVal):
+                        Set isResult to "{isResult}{litVal}".
+                    When CExprPart (epExpr):
+                        Let epVal be coreEval(epExpr, env, funcs).
+                        Let epText be valToText(epVal).
+                        Set isResult to "{isResult}{epText}".
+            Return a new VText with value isResult.
+        When CDuration (durAmountExpr, durUnit):
+            Let durAmountVal be coreEval(durAmountExpr, env, funcs).
+            Inspect durAmountVal:
+                When VInt (durAmt):
+                    If durUnit equals "seconds":
+                        Return a new VDuration with millis (durAmt * 1000).
+                    If durUnit equals "minutes":
+                        Return a new VDuration with millis (durAmt * 60000).
+                    If durUnit equals "hours":
+                        Return a new VDuration with millis (durAmt * 3600000).
+                    If durUnit equals "milliseconds":
+                        Return a new VDuration with millis durAmt.
+                    Return a new VDuration with millis (durAmt * 1000).
+                Otherwise:
+                    Return a new VNothing.
+        When CTimeNow:
+            Return a new VMoment with millis 0.
+        When CDateToday:
+            Return a new VDate with year 2026 and month 1 and day 1.
+        When CEscExpr (escCode):
+            Return a new VNothing.
+        When CManifestOf (zn):
+            Return a new VNothing.
+        When CChunkAt (idx, zn):
+            Return a new VNothing.
+
+## A CoreOut is one of:
+    A CoreOutR with result CVal and env Map of Text to CVal.
+
+## To coreOutResult (o: CoreOut) -> CVal:
+    Inspect o:
+        When CoreOutR (corR, coeR):
+            Return corR.
+
+## To coreOutEnv (o: CoreOut) -> Map of Text to CVal:
+    Inspect o:
+        When CoreOutR (corE, coeE):
+            Return coeE.
+
+## To coreExecBlock (stmts: Seq of CStmt) and (env0: Map of Text to CVal) and (funcs: Map of Text to CFunc) -> CoreOut:
+    Let mutable env be env0.
+    Repeat for s in stmts:
+        Inspect s:
+            When CLet (name, expr):
+                Set item name of env to coreEval(expr, env, funcs).
+            When CSet (name, expr):
+                Set item name of env to coreEval(expr, env, funcs).
+            When CIf (cond, thenBlock, elseBlock):
+                Let cv be coreEval(cond, env, funcs).
+                Inspect cv:
+                    When VBool (b):
+                        If b:
+                            Let ifOut be coreExecBlock(thenBlock, env, funcs).
+                            Set env to coreOutEnv(ifOut).
+                            Let ifResult be coreOutResult(ifOut).
+                            Let ifNoth be isNothing(ifResult).
+                            If not ifNoth:
+                                Return a new CoreOutR with result ifResult and env env.
+                        Otherwise:
+                            Let elseOut be coreExecBlock(elseBlock, env, funcs).
+                            Set env to coreOutEnv(elseOut).
+                            Let elseResult be coreOutResult(elseOut).
+                            Let elseNoth be isNothing(elseResult).
+                            If not elseNoth:
+                                Return a new CoreOutR with result elseResult and env env.
+                    Otherwise:
+                        Let skip be true.
+            When CWhile (whileCond, whileBody):
+                Let mutable loopDone be false.
+                While not loopDone:
+                    Let wcv be coreEval(whileCond, env, funcs).
+                    Inspect wcv:
+                        When VBool (wb):
+                            If not wb:
+                                Set loopDone to true.
+                            Otherwise:
+                                Let whileIterOut be coreExecBlock(whileBody, env, funcs).
+                                Set env to coreOutEnv(whileIterOut).
+                                Let whileIterResult be coreOutResult(whileIterOut).
+                                Let whileIterNoth be isNothing(whileIterResult).
+                                If not whileIterNoth:
+                                    Let whileIterTxt be valToText(whileIterResult).
+                                    If whileIterTxt equals "__break__":
+                                        Set loopDone to true.
+                                    Otherwise:
+                                        Return a new CoreOutR with result whileIterResult and env env.
+                        Otherwise:
+                            Set loopDone to true.
+            When CReturn (expr):
+                Let retVal be coreEval(expr, env, funcs).
+                Return a new CoreOutR with result retVal and env env.
+            When CShow (expr):
+                Let v be coreEval(expr, env, funcs).
+                Show valToText(v).
+            When CCallS (name, argExprs):
+                Let argVals be a new Seq of CVal.
+                Repeat for a in argExprs:
+                    Push coreEval(a, env, funcs) to argVals.
+                Let csInFuncs be (funcs contains name).
+                If csInFuncs:
+                    Let func be item name of funcs.
+                    Inspect func:
+                        When CFuncDef (fname, params, fnParamTypes, fnReturnType, body):
+                            Let callEnv be a new Map of Text to CVal.
+                            Let mutable cidx be 1.
+                            Repeat for p in params:
+                                Set item p of callEnv to item cidx of argVals.
+                                Set cidx to cidx + 1.
+                            Let callOut be coreExecBlock(body, callEnv, funcs).
+                            Let skip be true.
+                        Otherwise:
+                            Let skip be true.
+                Otherwise:
+                    Let csInEnv be (env contains name).
+                    If csInEnv:
+                        Let envVal be item name of env.
+                        Inspect envVal:
+                            When VClosure (csParams, csBody, csCapturedEnv):
+                                Let mutable csCallEnv be csCapturedEnv.
+                                Let mutable csCopyIdx be 1.
+                                While csCopyIdx is at most (length of csParams):
+                                    If csCopyIdx is at most (length of argVals):
+                                        Set item (item csCopyIdx of csParams) of csCallEnv to item csCopyIdx of argVals.
+                                    Set csCopyIdx to csCopyIdx + 1.
+                                Let csOut be coreExecBlock(csBody, csCallEnv, funcs).
+                                Let skip be true.
+                            Otherwise:
+                                Let skip be true.
+            When CPush (valExpr, collName):
+                Let v be coreEval(valExpr, env, funcs).
+                Let seq be item collName of env.
+                Inspect seq:
+                    When VSeq (items):
+                        Let mutable mutItems be items.
+                        Push v to mutItems.
+                        Set item collName of env to a new VSeq with items mutItems.
+                    Otherwise:
+                        Let skip be true.
+            When CSetIdx (collName, idxExpr, valExpr):
+                Let iv be coreEval(idxExpr, env, funcs).
+                Let v be coreEval(valExpr, env, funcs).
+                Let seq be item collName of env.
+                Inspect seq:
+                    When VSeq (items):
+                        Inspect iv:
+                            When VInt (i):
+                                Let mutable mutItems be items.
+                                Set item i of mutItems to v.
+                                Set item collName of env to a new VSeq with items mutItems.
+                            Otherwise:
+                                Let skip be true.
+                    When VMap (mapData):
+                        Inspect iv:
+                            When VText (key):
+                                Let mutable mutMap be mapData.
+                                Set item key of mutMap to v.
+                                Set item collName of env to a new VMap with entries mutMap.
+                            Otherwise:
+                                Let skip be true.
+                    Otherwise:
+                        Let skip be true.
+            When CMapSet (mapName, keyExpr, valExpr):
+                Let kv be coreEval(keyExpr, env, funcs).
+                Let v be coreEval(valExpr, env, funcs).
+                Let mv be item mapName of env.
+                Inspect mv:
+                    When VMap (mapData):
+                        Inspect kv:
+                            When VText (key):
+                                Let mutable mutMap be mapData.
+                                Set item key of mutMap to v.
+                                Set item mapName of env to a new VMap with entries mutMap.
+                            Otherwise:
+                                Let skip be true.
+                    Otherwise:
+                        Let skip be true.
+            When CPop (popTarget):
+                Let seq be item popTarget of env.
+                Inspect seq:
+                    When VSeq (seqItems):
+                        Let seqLen be length of seqItems.
+                        If seqLen is greater than 0:
+                            Let mutable newItems be a new Seq of CVal.
+                            Let mutable pi be 1.
+                            While pi is less than seqLen:
+                                Push item pi of seqItems to newItems.
+                                Set pi to pi + 1.
+                            Set item popTarget of env to a new VSeq with items newItems.
+                    Otherwise:
+                        Let skip be true.
+            When CAdd (addElem, addTarget):
+                Let addValHolder be a new Seq of CVal.
+                Push coreEval(addElem, env, funcs) to addValHolder.
+                Let addValText be valToText(item 1 of addValHolder).
+                Let addColl be item addTarget of env.
+                Inspect addColl:
+                    When VSet (addItems):
+                        Let mutable addFound be false.
+                        Repeat for ai in addItems:
+                            Let aiText be valToText(ai).
+                            If aiText equals addValText:
+                                Set addFound to true.
+                        If not addFound:
+                            Let mutable addNew be addItems.
+                            Push item 1 of addValHolder to addNew.
+                            Set item addTarget of env to a new VSet with items addNew.
+                    Otherwise:
+                        Let skip be true.
+            When CRemove (remElem, remTarget):
+                Let remValText be valToText(coreEval(remElem, env, funcs)).
+                Let remColl be item remTarget of env.
+                Inspect remColl:
+                    When VSet (remItems):
+                        Let mutable remNew be a new Seq of CVal.
+                        Let mutable remIdx be 1.
+                        While remIdx is at most (length of remItems):
+                            Let remItemText be valToText(item remIdx of remItems).
+                            If remItemText is not remValText:
+                                Push item remIdx of remItems to remNew.
+                            Set remIdx to remIdx + 1.
+                        Set item remTarget of env to a new VSet with items remNew.
+                    Otherwise:
+                        Let skip be true.
+            When CSetField (sfTarget, sfField, sfValExpr):
+                Let sfVal be coreEval(sfValExpr, env, funcs).
+                Let sfObj be item sfTarget of env.
+                Inspect sfObj:
+                    When VStruct (sfTypeName, sfFields):
+                        Let mutable sfMut be copy of sfFields.
+                        Set item sfField of sfMut to sfVal.
+                        Set item sfTarget of env to a new VStruct with typeName sfTypeName and fields sfMut.
+                    When VMap (sfMapData):
+                        Let mutable sfMutMap be copy of sfMapData.
+                        Set item sfField of sfMutMap to sfVal.
+                        Set item sfTarget of env to a new VMap with entries sfMutMap.
+                    Otherwise:
+                        Let skip be true.
+            When CStructDef (sdName, sdFieldNames):
+                Let skip be true.
+            When CEnumDef (edName, edVariants):
+                Let skip be true.
+            When CInspect (inspTarget, inspArms):
+                Let inspVal be coreEval(inspTarget, env, funcs).
+                Let mutable inspTag be "".
+                Let mutable inspFields be a new Seq of CVal.
+                Let mutable inspNamedFields be a new Map of Text to CVal.
+                Let mutable inspIsMap be false.
+                Inspect inspVal:
+                    When VVariant (ivt, ivn, ivf):
+                        Set inspTag to ivn.
+                        Set inspFields to ivf.
+                    When VMap (mapData):
+                        Set inspIsMap to true.
+                        Let tagEntry be item "__tag" of mapData.
+                        Inspect tagEntry:
+                            When VText (tagStr):
+                                Set inspTag to tagStr.
+                            Otherwise:
+                                Let skip be true.
+                        Set inspNamedFields to mapData.
+                    Otherwise:
+                        Let skip be true.
+                Let mutable inspMatched be false.
+                Repeat for arm in inspArms:
+                    If not inspMatched:
+                        Inspect arm:
+                            When CWhen (armName, armBindings, armBody):
+                                If armName equals inspTag:
+                                    Set inspMatched to true.
+                                    If inspIsMap:
+                                        Let fnamesEntry be item "__fnames__" of inspNamedFields.
+                                        Let mutable inspFnameSeq be a new Seq of CVal.
+                                        Inspect fnamesEntry:
+                                            When VSeq (fnameItems):
+                                                Set inspFnameSeq to fnameItems.
+                                            Otherwise:
+                                                Let skip be true.
+                                        Let mutable abiM be 1.
+                                        While abiM is at most (length of armBindings):
+                                            If abiM is at most (length of inspFnameSeq):
+                                                Let fnameVal be item abiM of inspFnameSeq.
+                                                Let mutable fnameStr be "".
+                                                Inspect fnameVal:
+                                                    When VText (fns):
+                                                        Set fnameStr to fns.
+                                                    Otherwise:
+                                                        Let skip be true.
+                                                Let abLookup be item fnameStr of inspNamedFields.
+                                                Set item (item abiM of armBindings) of env to abLookup.
+                                            Set abiM to abiM + 1.
+                                    Otherwise:
+                                        Let mutable abi2 be 1.
+                                        While abi2 is at most (length of armBindings):
+                                            If abi2 is at most (length of inspFields):
+                                                Set item (item abi2 of armBindings) of env to item abi2 of inspFields.
+                                            Set abi2 to abi2 + 1.
+                                    Let armOut be coreExecBlock(armBody, env, funcs).
+                                    Set env to coreOutEnv(armOut).
+                                    Let armResult be coreOutResult(armOut).
+                                    Let armNoth be isNothing(armResult).
+                                    If not armNoth:
+                                        Return a new CoreOutR with result armResult and env env.
+                            When COtherwise (owBody):
+                                If not inspMatched:
+                                    Set inspMatched to true.
+                                    Let owOut be coreExecBlock(owBody, env, funcs).
+                                    Set env to coreOutEnv(owOut).
+                                    Let owResult be coreOutResult(owOut).
+                                    Let owNoth be isNothing(owResult).
+                                    If not owNoth:
+                                        Return a new CoreOutR with result owResult and env env.
+            When CRepeat (repVar, repCollExpr, repBody):
+                Let repCV be coreEval(repCollExpr, env, funcs).
+                Inspect repCV:
+                    When VSeq (repItems):
+                        Let repLen be length of repItems.
+                        Let mutable repIdx be 1.
+                        Let mutable repDone be false.
+                        While (not repDone):
+                            If repIdx is greater than repLen:
+                                Set repDone to true.
+                            Otherwise:
+                                Let repKey be "{repVar}".
+                                Set item repKey of env to item repIdx of repItems.
+                                Let repIterOut be coreExecBlock(repBody, env, funcs).
+                                Set env to coreOutEnv(repIterOut).
+                                Let repIterResult be coreOutResult(repIterOut).
+                                Let repIterNoth be isNothing(repIterResult).
+                                If not repIterNoth:
+                                    Let repIterTxt be valToText(repIterResult).
+                                    If repIterTxt equals "__break__":
+                                        Set repDone to true.
+                                    Otherwise:
+                                        Return a new CoreOutR with result repIterResult and env env.
+                                Set repIdx to repIdx + 1.
+                    Otherwise:
+                        Let skip be true.
+            When CRepeatRange (rrVar, rrStartExpr, rrEndExpr, rrBody):
+                Let rrSV be coreEval(rrStartExpr, env, funcs).
+                Let rrEV be coreEval(rrEndExpr, env, funcs).
+                Inspect rrSV:
+                    When VInt (rrStart):
+                        Inspect rrEV:
+                            When VInt (rrEnd):
+                                Let mutable rrI be rrStart.
+                                Let mutable rrDone be false.
+                                While not rrDone:
+                                    If rrI is greater than rrEnd:
+                                        Set rrDone to true.
+                                    Otherwise:
+                                        Let rrKey be "{rrVar}".
+                                        Set item rrKey of env to a new VInt with value rrI.
+                                        Let rrIterOut be coreExecBlock(rrBody, env, funcs).
+                                        Set env to coreOutEnv(rrIterOut).
+                                        Let rrIterResult be coreOutResult(rrIterOut).
+                                        Let rrIterNoth be isNothing(rrIterResult).
+                                        If not rrIterNoth:
+                                            Let rrIterTxt be valToText(rrIterResult).
+                                            If rrIterTxt equals "__break__":
+                                                Set rrDone to true.
+                                            Otherwise:
+                                                Return a new CoreOutR with result rrIterResult and env env.
+                                        Set rrI to rrI + 1.
+                            Otherwise:
+                                Let skip be true.
+                    Otherwise:
+                        Let skip be true.
+            When CBreak:
+                Let breakVal be a new VText with value "__break__".
+                Return a new CoreOutR with result breakVal and env env.
+            When CRuntimeAssert (raCond, raMsg):
+                Let raCondVal be coreEval(raCond, env, funcs).
+                Inspect raCondVal:
+                    When VBool (raB):
+                        If raB is not true:
+                            Let raMsgVal be coreEval(raMsg, env, funcs).
+                            Let raMsgText be valToText(raMsgVal).
+                            Show "Assertion failed: {raMsgText}".
+                            Let raErr be a new VError with msg raMsgText.
+                            Return a new CoreOutR with result raErr and env env.
+                    Otherwise:
+                        Let skip be true.
+            When CGive (giveExpr, giveTarget):
+                Let giveVal be coreEval(giveExpr, env, funcs).
+                Set item giveTarget of env to giveVal.
+            When CEscStmt (escCode):
+                Let skip be true.
+            When CSleep (sleepDur):
+                Let skip be true.
+            When CReadConsole (rcTarget):
+                Set item rcTarget of env to (a new VText with value "").
+            When CReadFile (rfPath, rfTarget):
+                Set item rfTarget of env to (a new VText with value "").
+            When CWriteFile (wfPath, wfContent):
+                Let skip be true.
+            When CCheck (chkPred, chkMsg):
+                Let chkVal be coreEval(chkPred, env, funcs).
+                Inspect chkVal:
+                    When VBool (chkB):
+                        If chkB is not true:
+                            Let chkMsgVal be coreEval(chkMsg, env, funcs).
+                            Let chkMsgText be valToText(chkMsgVal).
+                            Show "Security violation: {chkMsgText}".
+                            Let chkErr be a new VError with msg chkMsgText.
+                            Return a new CoreOutR with result chkErr and env env.
+                    Otherwise:
+                        Let skip be true.
+            When CAssert (assertProp):
+                Let assertVal be coreEval(assertProp, env, funcs).
+                Inspect assertVal:
+                    When VBool (assertB):
+                        If assertB is not true:
+                            Show "Assertion failed".
+                            Let assertErr be a new VError with msg "assertion failed".
+                            Return a new CoreOutR with result assertErr and env env.
+                    Otherwise:
+                        Let skip be true.
+            When CTrust (trustProp, trustJust):
+                Let trustVal be coreEval(trustProp, env, funcs).
+                Inspect trustVal:
+                    When VBool (trustB):
+                        If trustB is not true:
+                            Show "Trust violation: {trustJust}".
+                            Let trustErr be a new VError with msg trustJust.
+                            Return a new CoreOutR with result trustErr and env env.
+                    Otherwise:
+                        Let skip be true.
+            When CRequire (reqDep):
+                Let skip be true.
+            When CMerge (mergeTarget, mergeOther):
+                Let skip be true.
+            When CIncrease (incTarget, incAmountExpr):
+                Let incAmount be coreEval(incAmountExpr, env, funcs).
+                Let incTargetVal be item incTarget of env.
+                Inspect incTargetVal:
+                    When VInt (incOldVal):
+                        Inspect incAmount:
+                            When VInt (incAmtVal):
+                                Set item incTarget of env to a new VInt with value (incOldVal + incAmtVal).
+                            Otherwise:
+                                Let skip be true.
+                    Otherwise:
+                        Let skip be true.
+            When CDecrease (decTarget, decAmountExpr):
+                Let decAmount be coreEval(decAmountExpr, env, funcs).
+                Let decTargetVal be item decTarget of env.
+                Inspect decTargetVal:
+                    When VInt (decOldVal):
+                        Inspect decAmount:
+                            When VInt (decAmtVal):
+                                Set item decTarget of env to a new VInt with value (decOldVal - decAmtVal).
+                            Otherwise:
+                                Let skip be true.
+                    Otherwise:
+                        Let skip be true.
+            When CAppendToSeq (asTarget, asValueExpr):
+                Let asValue be coreEval(asValueExpr, env, funcs).
+                Let asTargetVal be item asTarget of env.
+                Inspect asTargetVal:
+                    When VSeq (asItems):
+                        Let mutable asMutSeq be asItems.
+                        Push asValue to asMutSeq.
+                        Set item asTarget of env to a new VSeq with items asMutSeq.
+                    Otherwise:
+                        Let skip be true.
+            When CResolve (resTarget):
+                Let skip be true.
+            When CSync (syncTarget, syncChannel):
+                Let skip be true.
+            When CMount (mountTarget, mountPath):
+                Let skip be true.
+            When CConcurrent (concBranches):
+                Repeat for concBranch in concBranches:
+                    Let concOut be coreExecBlock(concBranch, env, funcs).
+                    Set env to coreOutEnv(concOut).
+                    Let concResult be coreOutResult(concOut).
+                    Let concNoth be isNothing(concResult).
+                    If not concNoth:
+                        Let skip be true.
+            When CParallel (parBranches):
+                Repeat for parBranch in parBranches:
+                    Let parOut be coreExecBlock(parBranch, env, funcs).
+                    Set env to coreOutEnv(parOut).
+                    Let parResult be coreOutResult(parOut).
+                    Let parNoth be isNothing(parResult).
+                    If not parNoth:
+                        Let skip be true.
+            When CLaunchTask (ltBody, ltHandle):
+                Let ltOut be coreExecBlock(ltBody, env, funcs).
+                Set env to coreOutEnv(ltOut).
+                Set item ltHandle of env to a new VText with value "task_handle".
+            When CStopTask (stHandle):
+                Let skip be true.
+            When CSelect (selBranches):
+                Repeat for selBranch in selBranches:
+                    Inspect selBranch:
+                        When CSelectRecv (selPipe, selVar, selBody):
+                            Let selPipeHas be (env contains selPipe).
+                            If selPipeHas:
+                                Let selPipeVal be item selPipe of env.
+                                Inspect selPipeVal:
+                                    When VSeq (selPipeItems):
+                                        If (length of selPipeItems) is greater than 0:
+                                            Set item selVar of env to item 1 of selPipeItems.
+                                            Let mutable selNewPipe be a new Seq of CVal.
+                                            Let mutable selPi be 2.
+                                            While selPi is at most (length of selPipeItems):
+                                                Push item selPi of selPipeItems to selNewPipe.
+                                                Set selPi to selPi + 1.
+                                            Set item selPipe of env to a new VSeq with items selNewPipe.
+                                            Let selRecvOut be coreExecBlock(selBody, env, funcs).
+                                            Set env to coreOutEnv(selRecvOut).
+                                    Otherwise:
+                                        Let skip be true.
+                        When CSelectTimeout (selDur, selBody):
+                            Let selTimeoutOut be coreExecBlock(selBody, env, funcs).
+                            Set env to coreOutEnv(selTimeoutOut).
+            When CCreatePipe (cpName, cpCapacity):
+                Set item cpName of env to a new VSeq with items (a new Seq of CVal).
+            When CSendPipe (spPipe, spValueExpr):
+                Let spVal be coreEval(spValueExpr, env, funcs).
+                Let spPipeVal be item spPipe of env.
+                Inspect spPipeVal:
+                    When VSeq (spItems):
+                        Let mutable spMut be spItems.
+                        Push spVal to spMut.
+                        Set item spPipe of env to a new VSeq with items spMut.
+                    Otherwise:
+                        Let skip be true.
+            When CReceivePipe (rpPipe, rpTarget):
+                Let rpPipeVal be item rpPipe of env.
+                Inspect rpPipeVal:
+                    When VSeq (rpItems):
+                        If (length of rpItems) is greater than 0:
+                            Set item rpTarget of env to item 1 of rpItems.
+                            Let mutable rpNew be a new Seq of CVal.
+                            Let mutable rpI be 2.
+                            While rpI is at most (length of rpItems):
+                                Push item rpI of rpItems to rpNew.
+                                Set rpI to rpI + 1.
+                            Set item rpPipe of env to a new VSeq with items rpNew.
+                    Otherwise:
+                        Let skip be true.
+            When CTrySendPipe (tspPipe, tspValueExpr):
+                Let tspVal be coreEval(tspValueExpr, env, funcs).
+                Let tspPipeVal be item tspPipe of env.
+                Inspect tspPipeVal:
+                    When VSeq (tspItems):
+                        Let mutable tspMut be tspItems.
+                        Push tspVal to tspMut.
+                        Set item tspPipe of env to a new VSeq with items tspMut.
+                    Otherwise:
+                        Let skip be true.
+            When CTryReceivePipe (trpPipe, trpTarget):
+                Let trpPipeVal be item trpPipe of env.
+                Inspect trpPipeVal:
+                    When VSeq (trpItems):
+                        If (length of trpItems) is greater than 0:
+                            Set item trpTarget of env to item 1 of trpItems.
+                            Let mutable trpNew be a new Seq of CVal.
+                            Let mutable trpI be 2.
+                            While trpI is at most (length of trpItems):
+                                Push item trpI of trpItems to trpNew.
+                                Set trpI to trpI + 1.
+                            Set item trpPipe of env to a new VSeq with items trpNew.
+                        Otherwise:
+                            Set item trpTarget of env to a new VNothing.
+                    Otherwise:
+                        Set item trpTarget of env to a new VNothing.
+            When CSpawn (spawnType, spawnTarget):
+                Set item spawnTarget of env to a new VText with value "agent_handle".
+            When CSendMessage (smTarget, smMsg):
+                Let skip be true.
+            When CAwaitMessage (amTarget):
+                Set item amTarget of env to a new VNothing.
+            When CListen (listenAddr, listenHandler):
+                Let skip be true.
+            When CConnectTo (connAddr, connTarget):
+                Set item connTarget of env to a new VText with value "connection".
+            When CZone (zoneName, zoneKind, zoneBody):
+                Let zoneOut be coreExecBlock(zoneBody, env, funcs).
+                Set env to coreOutEnv(zoneOut).
+                Let zoneResult be coreOutResult(zoneOut).
+                Let zoneNoth be isNothing(zoneResult).
+                If not zoneNoth:
+                    Return a new CoreOutR with result zoneResult and env env.
+            Otherwise:
+                Let skip be true.
+    Let finalNoth be a new VNothing.
+    Return a new CoreOutR with result finalNoth and env env.

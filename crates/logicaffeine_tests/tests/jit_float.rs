@@ -96,22 +96,29 @@ fn mandelbrot_kernel_loop_tiers_and_agrees() {
     assert!(region_ok >= 1, "a mandelbrot loop must tier up (got {region_ok})");
 }
 
-/// Float equality is the kernel's EPSILON rule, not bit equality — the
-/// classic 0.1 + 0.2 == 0.3 case must hold through a hot native loop.
+/// Float equality is IEEE (`a == b`, `NaN != NaN`) — identical to the kernel
+/// and the compiled backend. Through a hot native loop, `0.1 + 0.2` is NOT
+/// `0.3` (the artifact is real; `is approximately` is the tolerant spelling),
+/// while the bit-equal value DOES match — both directions must tier up and
+/// agree with the reference.
 #[test]
-fn float_epsilon_equality_through_hot_loop() {
+fn float_ieee_equality_through_hot_loop() {
     let src = "## Main\n\
-               Let mutable hits be 0.\n\
+               Let mutable near_hits be 0.\n\
+               Let mutable exact_hits be 0.\n\
                Let mutable i be 0.\n\
                While i is less than 500:\n\
                \x20   Let s be 0.1 + 0.2.\n\
                \x20   If s equals 0.3:\n\
-               \x20       Set hits to hits + 1.\n\
+               \x20       Set near_hits to near_hits + 1.\n\
+               \x20   If s equals 0.30000000000000004:\n\
+               \x20       Set exact_hits to exact_hits + 1.\n\
                \x20   Set i to i + 1.\n\
-               Show hits.\n";
+               Show near_hits.\n\
+               Show exact_hits.\n";
     let (out, err, _, _) = tiered(src);
     assert_eq!(err, None);
-    assert_eq!(out, "500", "epsilon equality must hold natively exactly as in the kernel");
+    assert_eq!(out, "0\n500", "IEEE equality must hold natively exactly as in the kernel");
 }
 
 /// Float division by zero at a data-dependent iteration: side-exit, replay,
@@ -168,12 +175,12 @@ fn nqueens_inner_loop_bitwise_region_tiers() {
                \x20   If row equals n:\n\
                \x20       Return 1.\n\
                \x20   Let all be (1 shifted left by n) - 1.\n\
-               \x20   Let mutable available be all and not (cols or diag1 or diag2).\n\
+               \x20   Let mutable available be all & ~(cols | diag1 | diag2).\n\
                \x20   Let mutable count be 0.\n\
                \x20   While available is not 0:\n\
-               \x20       Let bit be available and (0 - available).\n\
+               \x20       Let bit be available & (0 - available).\n\
                \x20       Set available to available xor bit.\n\
-               \x20       Set count to count + solve(row + 1, cols or bit, (diag1 or bit) shifted left by 1, (diag2 or bit) shifted right by 1, n).\n\
+               \x20       Set count to count + solve(row + 1, cols | bit, (diag1 | bit) shifted left by 1, (diag2 | bit) shifted right by 1, n).\n\
                \x20   Return count.\n\
                \n\
                ## Main\n\
@@ -190,7 +197,7 @@ fn nqueens_inner_loop_bitwise_region_tiers() {
                 Let mutable i be 0.\n\
                 While i is less than 3000:\n\
                 \x20   Set m to (m shifted left by 1) xor (m shifted right by 3) xor i.\n\
-                \x20   Set acc to (acc or (m and 1023)) xor (acc and m).\n\
+                \x20   Set acc to (acc | (m & 1023)) xor (acc & m).\n\
                 \x20   Set i to i + 1.\n\
                 Show acc.\n";
     let (_, err2, _, region_ok2) = tiered(src2);

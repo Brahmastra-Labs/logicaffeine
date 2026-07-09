@@ -1,4 +1,6 @@
 use dioxus::prelude::*;
+#[cfg(all(feature = "split", target_arch = "wasm32"))]
+use dioxus::wasm_split;
 use crate::ui::router::Route;
 use crate::ui::components::mixed_text::MixedText;
 use crate::ui::components::xp_popup::XpPopup;
@@ -544,8 +546,17 @@ const LESSON_STYLE: &str = r#"
 }
 "#;
 
-#[component]
+#[component(lazy)]
 pub fn Lesson(era: String, module: String, mode: String) -> Element {
+    rsx! {
+        crate::ui::components::lexicon_gate::LexiconGate {
+            LessonInner { era, module, mode }
+        }
+    }
+}
+
+#[component]
+fn LessonInner(era: String, module: String, mode: String) -> Element {
     let session_mode = SessionMode::from_str(&mode);
 
     let mut current_index = use_signal(|| 0usize);

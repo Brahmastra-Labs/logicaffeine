@@ -1,4 +1,4 @@
-//! Concurrency determinacy model + classifier (Phase 0 of `FINISH_INTERPRETER.md`).
+//! Concurrency determinacy model + classifier (Phase 0 of `work/FINISH_INTERPRETER.md`).
 //!
 //! This module is the single source of truth for the language's concurrency
 //! *memory model* and the *determinacy classifier* that labels a program as
@@ -9,11 +9,15 @@
 pub mod bridge;
 pub mod driver;
 pub mod vm_driver;
+pub mod channel;
 pub mod classify;
 pub mod fec;
 pub mod marshal;
 pub mod model;
+pub(crate) mod net_inbox;
+pub mod pnp;
 pub mod send_check;
+pub mod stream;
 
 use crate::ast::stmt::Stmt;
 
@@ -55,4 +59,5 @@ fn stmt_uses_scheduler(s: &Stmt) -> bool {
 pub use classify::{branches_independent, branches_share_mutable_state, classify_program};
 pub use marshal::{materialize, rebuild, MarshalError};
 pub use model::{Determinacy, NondetKind, NondetWitness};
+pub use net_inbox::{net_is_offline, set_net_offline};
 pub use send_check::{check_send_escape, SendDiagnostic};

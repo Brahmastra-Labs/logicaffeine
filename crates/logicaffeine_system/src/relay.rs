@@ -8,7 +8,7 @@
 //! WebSocket; this module is the native server + a native client (used for tests
 //! and native-to-native links).
 //!
-//! "Native servers are their own relays": any native node runs [`serve_bridged`]
+//! "Native servers are their own relays": any native node runs `serve_bridged`
 //! beside its mesh, which cross-forwards the relay's topics with the libp2p
 //! gossipsub mesh — so a browser that dials a native node is injected
 //! straight into the real mesh, and mesh traffic flows back out to the browser.

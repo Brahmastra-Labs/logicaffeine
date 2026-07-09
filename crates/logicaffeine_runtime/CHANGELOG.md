@@ -6,7 +6,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
-## [0.9.17] - 2026-06-11
+## [0.10.0] - 2026-07-08
 
 ### Added
 - Initial release. The deterministic concurrency runtime — the operational semantics of LOGOS concurrency for the interpreter and VM.

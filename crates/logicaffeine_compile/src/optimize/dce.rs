@@ -79,6 +79,11 @@ fn collect_expr_reads(expr: &Expr, reads: &mut HashSet<Symbol>) -> bool {
 /// Collect all symbols read by a statement (recursively into sub-blocks).
 fn collect_stmt_reads(stmt: &Stmt, reads: &mut HashSet<Symbol>) {
     match stmt {
+        Stmt::Splice { body } => {
+            for inner in body.iter() {
+                collect_stmt_reads(inner, reads);
+            }
+        }
         Stmt::Let { value, .. } => { collect_expr_reads(value, reads); }
         Stmt::Set { value, .. } => { collect_expr_reads(value, reads); }
         Stmt::Show { object, recipient } => {
@@ -122,13 +127,20 @@ fn collect_stmt_reads(stmt: &Stmt, reads: &mut HashSet<Symbol>) {
             collect_expr_reads(iterable, reads);
             for s in body.iter() { collect_stmt_reads(s, reads); }
         }
-        Stmt::RuntimeAssert { condition, .. } | Stmt::Listen { address: condition }
-        | Stmt::ConnectTo { address: condition } | Stmt::Sleep { milliseconds: condition }
+        Stmt::RuntimeAssert { condition, .. } | Stmt::Sleep { milliseconds: condition }
         | Stmt::StopTask { handle: condition } => {
             collect_expr_reads(condition, reads);
         }
+        Stmt::Listen { address, secure } | Stmt::ConnectTo { address, secure } => {
+            collect_expr_reads(address, reads);
+            if let Some(bind) = secure {
+                // The pad path is an expression too (a var read must not be pruned as dead).
+                collect_expr_reads(bind.pad, reads);
+            }
+        }
         Stmt::Give { object, recipient } | Stmt::MergeCrdt { source: object, target: recipient }
         | Stmt::SendMessage { message: object, destination: recipient, .. }
+        | Stmt::StreamMessage { values: object, destination: recipient }
         | Stmt::WriteFile { content: object, path: recipient }
         | Stmt::SendPipe { value: object, pipe: recipient }
         | Stmt::TrySendPipe { value: object, pipe: recipient, .. }
@@ -154,6 +166,7 @@ fn collect_stmt_reads(stmt: &Stmt, reads: &mut HashSet<Symbol>) {
             for s in body.iter() { collect_stmt_reads(s, reads); }
         }
         Stmt::FunctionDef { .. } | Stmt::StructDef { .. } | Stmt::Theorem(..) | Stmt::Definition(..)
+        | Stmt::Axiom(..) | Stmt::Theory(..)
         | Stmt::Escape { .. } | Stmt::Require { .. } | Stmt::Break
         | Stmt::Assert { .. } | Stmt::Trust { .. } | Stmt::Check { .. }
         | Stmt::Spawn { .. } | Stmt::CreatePipe { .. } | Stmt::Mount { .. }

@@ -15,19 +15,6 @@
 //! - `placeholder` - Optional placeholder text
 
 use dioxus::prelude::*;
-use wasm_bindgen::prelude::*;
-
-#[wasm_bindgen]
-extern "C" {
-    #[wasm_bindgen(js_namespace = window, js_name = initCodeMirror)]
-    fn init_codemirror(element_id: &str, on_change: &Closure<dyn FnMut(String)>) -> JsValue;
-
-    #[wasm_bindgen(js_namespace = window, js_name = setCodeMirrorValue)]
-    fn set_codemirror_value(editor: &JsValue, value: &str);
-
-    #[wasm_bindgen(js_namespace = window, js_name = getCodeMirrorValue)]
-    fn get_codemirror_value(editor: &JsValue) -> String;
-}
 
 const EDITOR_STYLE: &str = r#"
 .editor-container {

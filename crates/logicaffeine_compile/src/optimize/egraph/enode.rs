@@ -31,8 +31,12 @@ pub enum CompilerENode {
     Shl(NodeId, NodeId),
     Shr(NodeId, NodeId),
     BitXor(NodeId, NodeId),
-    /// Type-aware like the surface language: logical on Bool (short-circuit),
-    /// bitwise on Int. Rules consult class facts before assuming either.
+    /// Bitwise `&`/`|` on Int (the surface `&`/`|` symbols; also what the
+    /// mod-pow2 mask rule synthesizes).
+    BitAnd(NodeId, NodeId),
+    BitOr(NodeId, NodeId),
+    /// Logical `and`/`or`: truthiness in, Bool out, short-circuit. Rules
+    /// consult class facts (`is_bool`) before rewriting.
     And(NodeId, NodeId),
     Or(NodeId, NodeId),
     Not(NodeId),
@@ -65,9 +69,9 @@ impl CompilerENode {
             Int(_) | Bool(_) | Float(_) | Var(..) | Opaque(_) => vec![],
             Not(a) | Len(a) | Copy(a) => vec![a],
             Add(a, b) | Sub(a, b) | Mul(a, b) | Div(a, b) | Mod(a, b) | Shl(a, b)
-            | Shr(a, b) | BitXor(a, b) | And(a, b) | Or(a, b) | Eq(a, b) | Ne(a, b)
-            | Lt(a, b) | Le(a, b) | Gt(a, b) | Ge(a, b) | Concat(a, b) | Index(a, b)
-            | Contains(a, b) => {
+            | Shr(a, b) | BitXor(a, b) | BitAnd(a, b) | BitOr(a, b) | And(a, b) | Or(a, b)
+            | Eq(a, b) | Ne(a, b) | Lt(a, b) | Le(a, b) | Gt(a, b) | Ge(a, b)
+            | Concat(a, b) | Index(a, b) | Contains(a, b) => {
                 vec![a, b]
             }
             Slice(a, b, c) => vec![a, b, c],
@@ -89,6 +93,8 @@ impl CompilerENode {
             Shl(a, b) => Shl(f(a), f(b)),
             Shr(a, b) => Shr(f(a), f(b)),
             BitXor(a, b) => BitXor(f(a), f(b)),
+            BitAnd(a, b) => BitAnd(f(a), f(b)),
+            BitOr(a, b) => BitOr(f(a), f(b)),
             And(a, b) => And(f(a), f(b)),
             Or(a, b) => Or(f(a), f(b)),
             Eq(a, b) => Eq(f(a), f(b)),

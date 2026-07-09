@@ -80,7 +80,7 @@ lang_label() {
 lang_color() {
     case "$1" in
         c) echo "#555555" ;; cpp) echo "#f34b7d" ;; rust) echo "#dea584" ;; zig) echo "#f7a41d" ;;
-        go) echo "#00ADD8" ;; java) echo "#b07219" ;; js) echo "#f7df1e" ;;
+        go) echo "#3fb950" ;; java) echo "#b07219" ;; js) echo "#f7df1e" ;;
         python) echo "#3776ab" ;; ruby) echo "#cc342d" ;; nim) echo "#ffe953" ;;
         logos_release) echo "#00d4ff" ;;
     esac
@@ -623,7 +623,7 @@ OS=$(detect_os)
 if [ -n "${LOGOS_VERSION:-}" ]; then
     LOGOS_VER="$LOGOS_VERSION"
 else
-    LOGOS_VER=$(grep '^version' "$SCRIPT_DIR/../apps/logicaffeine_cli/Cargo.toml" | head -1 | sed 's/.*"\(.*\)".*/\1/')
+    LOGOS_VER=$(grep '^version' "$SCRIPT_DIR/../Cargo.toml" | head -1 | sed 's/.*"\(.*\)".*/\1/')
 fi
 
 get_version() {

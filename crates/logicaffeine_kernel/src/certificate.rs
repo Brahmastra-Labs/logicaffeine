@@ -10,7 +10,7 @@
 //! # The integrity rule
 //!
 //! A certificate carries **only** the proof term and the claimed type — never a
-//! context. [`recheck`] rebuilds the trusted axiom context *itself* via
+//! context. `recheck` rebuilds the trusted axiom context *itself* via
 //! [`StandardLibrary::register`], so a malicious certificate cannot smuggle in a
 //! bogus axiom (e.g. a free proof of `False`). You trust the seven ring axioms
 //! and the type-checker; you do not trust the certificate's provenance.

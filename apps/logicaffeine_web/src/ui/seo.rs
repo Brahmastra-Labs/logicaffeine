@@ -438,10 +438,14 @@ pub mod pages {
     };
 }
 
-/// Update document head meta tags for SEO on every page render.
+/// Per-page head tags: title, description, Open Graph, Twitter Card, canonical.
 ///
-/// Uses `document::Title` for the page title and direct web-sys DOM
-/// manipulation for description, Open Graph, Twitter Card, and canonical URL.
+/// Server renders (the SSG prerender) emit real `<meta>`/`<link>` elements via
+/// `document::*`, so every prerendered page carries its own share-card and
+/// canonical tags for crawlers and link unfurlers. The wasm client instead
+/// creates-or-patches the live head (the tags may come from a prerendered page
+/// OR be absent on an SPA-fallback route), keeping the DOM tag-set identical
+/// without ever duplicating an element.
 #[component]
 pub fn PageHead(
     title: String,
@@ -452,6 +456,9 @@ pub fn PageHead(
 ) -> Element {
     let canonical_url = format!("{}{}", BASE_URL, canonical_path);
     let image_url = format!("{}{}", BASE_URL, og_image);
+    // The default card is the resized 1200x630 OG photo; a page supplying its own
+    // image also owns that image's dimensions, so the size tags are skipped.
+    let default_card = og_image == "/assets/OG-photo.png";
 
     #[cfg(target_arch = "wasm32")]
     {
@@ -460,39 +467,70 @@ pub fn PageHead(
 
     rsx! {
         document::Title { "{title}" }
+        if cfg!(not(target_arch = "wasm32")) {
+            document::Meta { name: "title", content: title.clone() }
+            document::Meta { name: "description", content: description.clone() }
+            document::Meta { property: "og:type", content: "website" }
+            document::Meta { property: "og:url", content: canonical_url.clone() }
+            document::Meta { property: "og:title", content: title.clone() }
+            document::Meta { property: "og:description", content: description.clone() }
+            document::Meta { property: "og:image", content: image_url.clone() }
+            if default_card {
+                document::Meta { property: "og:image:width", content: "1200" }
+                document::Meta { property: "og:image:height", content: "630" }
+                document::Meta { property: "og:image:alt", content: "LOGICAFFEINE — Debug Your Thoughts" }
+            }
+            document::Meta { name: "twitter:url", content: canonical_url.clone() }
+            document::Meta { name: "twitter:title", content: title.clone() }
+            document::Meta { name: "twitter:description", content: description.clone() }
+            document::Meta { name: "twitter:image", content: image_url.clone() }
+            document::Link { rel: "canonical", href: canonical_url.clone() }
+        }
     }
 }
 
-/// Synchronously patch existing `<meta>` and `<link>` tags in `<head>`.
+/// Create-or-patch `<meta>` and `<link>` tags in the live `<head>`.
 ///
-/// Only touches elements already present in `index.html`, so the static
-/// fallback remains intact for crawlers that don't execute JavaScript.
+/// Prerendered pages already carry these elements (patched in place); a route
+/// served by the SPA fallback shell has none, so missing elements are created.
 #[cfg(target_arch = "wasm32")]
 fn update_head_meta(title: &str, description: &str, canonical_url: &str, image_url: &str) {
     let Some(window) = web_sys::window() else { return };
     let Some(doc) = window.document() else { return };
+    let Some(head) = doc.head() else { return };
 
-    let set = |selector: &str, attr: &str, value: &str| {
+    let set = |selector: &str, key_attr: &str, key: &str, attr: &str, value: &str| {
         if let Ok(Some(el)) = doc.query_selector(selector) {
             let _ = el.set_attribute(attr, value);
+        } else if let Ok(el) = doc.create_element(if key_attr == "rel" { "link" } else { "meta" }) {
+            let _ = el.set_attribute(key_attr, key);
+            let _ = el.set_attribute(attr, value);
+            let _ = head.append_child(&el);
         }
+    };
+    let set_name = |name: &str, value: &str| {
+        set(&format!("meta[name='{name}']"), "name", name, "content", value);
+    };
+    let set_property = |property: &str, value: &str| {
+        set(&format!("meta[property='{property}']"), "property", property, "content", value);
     };
 
     // Primary
-    set("meta[name='description']", "content", description);
-    set("meta[name='title']", "content", title);
+    set_name("description", description);
+    set_name("title", title);
     // Open Graph
-    set("meta[property='og:url']", "content", canonical_url);
-    set("meta[property='og:title']", "content", title);
-    set("meta[property='og:description']", "content", description);
-    set("meta[property='og:image']", "content", image_url);
+    set_property("og:type", "website");
+    set_property("og:url", canonical_url);
+    set_property("og:title", title);
+    set_property("og:description", description);
+    set_property("og:image", image_url);
     // Twitter
-    set("meta[name='twitter:url']", "content", canonical_url);
-    set("meta[name='twitter:title']", "content", title);
-    set("meta[name='twitter:description']", "content", description);
-    set("meta[name='twitter:image']", "content", image_url);
+    set_name("twitter:url", canonical_url);
+    set_name("twitter:title", title);
+    set_name("twitter:description", description);
+    set_name("twitter:image", image_url);
     // Canonical
-    set("link[rel='canonical']", "href", canonical_url);
+    set("link[rel='canonical']", "rel", "canonical", "href", canonical_url);
 }
 
 /// Render JSON-LD script tag for a schema

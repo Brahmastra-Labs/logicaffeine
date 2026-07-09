@@ -51,27 +51,24 @@ const PER_EXAMPLE_TIMEOUT: Duration = Duration::from_secs(20);
 ///
 /// NOTE (audit finding): several §13 CRDT examples below are NOT labeled
 /// "(Compiled Only)" in the guide even though the interpreter defers them to
-/// compiled Rust. See SYNTAX_GUIDE_WORK.md — the guide prose understates which
+/// compiled Rust. See work/SYNTAX_GUIDE_WORK.md — the guide prose understates which
 /// CRDT operations are playground-runnable.
 const REQUIRES_COMPILATION: &[&str] = &[
     // (§12 pipe-send-receive / select-timeout were here, but once the `a new Pipe of T`
     //  parse bug was fixed they actually RUN on the interpreter — promoted to runnable.
-    //  Their guide labels still say "(Compiled Only)"; see SYNTAX_GUIDE_WORK.md.)
-    // §13 CRDT network sync / persistence: GossipSub + journal runtime.
-    "crdt-sync-counter",
-    "crdt-sync-profile",
+    //  Their guide labels still say "(Compiled Only)"; see work/SYNTAX_GUIDE_WORK.md.)
+    // §13 CRDT persistence: the journal runtime (Mount/persist) only exists when compiled.
     "crdt-persistent",
     // §13 SharedMap (ORMap) is the one rich CRDT the tree-walker still defers to codegen;
     // OR-Set / RGA / MV-register / counters now run natively in the interpreter.
     "crdt-sharedmap",
-    // §15 P2P networking: libp2p transport + relay only exist when compiled.
-    "network-listen",
+    // §15 P2P networking: the examples that still need the compiled runtime — `Connect` DIALS a relay
+    // (real transport), the `PeerAgent` example and `Distributed`'s `Mount` reach for the live relay /
+    // VFS. (The OFFLINE single-node net examples — Listen/Send/mdns/file-transfer + §13 crdt-sync-* —
+    // now RUN CLEAN in the interpreter's local mode, so they were promoted OUT of this list.)
     "network-connect",
     "network-peer-agent",
-    "network-send-message",
     "network-distributed",
-    "network-mdns",
-    "network-file-transfer",
 ];
 
 #[derive(Debug)]

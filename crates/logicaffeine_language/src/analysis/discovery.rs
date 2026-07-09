@@ -972,7 +972,10 @@ impl<'a> DiscoveryPass<'a> {
 
             // Check if primitive
             match final_name_str {
-                "Int" | "Nat" | "Text" | "Bool" | "Real" | "Unit" => FieldType::Primitive(final_name),
+                "Int" | "Nat" | "Text" | "Bool" | "Real" | "Unit" | "Word8" | "Word16" | "Word32"
+                | "Word64" | "Lanes8Word32" | "Lanes4Word32" | "Lanes16Word8" | "Lanes4Word64" | "Lanes16Word16" => {
+                    FieldType::Primitive(final_name)
+                }
                 _ => FieldType::Named(final_name),
             }
         } else {
@@ -1404,7 +1407,10 @@ impl<'a> DiscoveryPass<'a> {
 
             // Check if primitive
             match final_name_str {
-                "Int" | "Nat" | "Text" | "Bool" | "Real" | "Unit" => FieldType::Primitive(final_name),
+                "Int" | "Nat" | "Text" | "Bool" | "Real" | "Unit" | "Word8" | "Word16" | "Word32"
+                | "Word64" | "Lanes8Word32" | "Lanes4Word32" | "Lanes16Word8" | "Lanes4Word64" | "Lanes16Word16" => {
+                    FieldType::Primitive(final_name)
+                }
                 _ => FieldType::Named(final_name),
             }
         } else {

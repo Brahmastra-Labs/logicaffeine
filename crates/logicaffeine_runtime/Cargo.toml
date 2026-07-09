@@ -1,11 +1,16 @@
 [package]
 name = "logicaffeine-runtime"
-version = "0.9.17"
-edition = "2021"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+repository.workspace = true
+homepage.workspace = true
+keywords.workspace = true
+categories.workspace = true
+rust-version.workspace = true
 license = "BUSL-1.1"
 description = "Deterministic concurrency runtime (scheduler, channels, seed/trace) for the Logicaffeine interpreter and VM. Pure, WASM-safe, tokio-free — never linked into AOT-compiled binaries."
-repository = "https://github.com/Brahmastra-Labs/logicaffeine"
-homepage = "https://logicaffeine.com"
+readme = "README.md"
 
 [features]
 # The cooperative M:1 driver and the work-stealing M:N driver are BOTH standard:

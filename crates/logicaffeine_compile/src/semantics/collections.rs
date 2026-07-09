@@ -66,27 +66,42 @@ pub fn text_is_ascii(s: &Rc<String>) -> bool {
     text_metrics(s).0
 }
 
+/// Resolve a 1-based LOGOS index (negative = end-relative: `-1` is the last
+/// element) to a 0-based offset — the Result-shaped twin of the data crate's
+/// `resolve_logos_index` (same rule, the interp's catchable errors).
+fn resolve_index(i: i64, len: usize) -> Result<usize, String> {
+    if i >= 1 {
+        let idx = (i - 1) as usize;
+        if idx >= len {
+            return Err(format!("Index {} out of bounds", i));
+        }
+        Ok(idx)
+    } else if i <= -1 {
+        let back = i.unsigned_abs() as usize;
+        if back > len {
+            return Err(format!("Index {} out of bounds", i));
+        }
+        Ok(len - back)
+    } else {
+        Err("Index 0 out of bounds".to_string())
+    }
+}
+
 /// 1-based index for List/Tuple/Text; key lookup for Map; Text-keyed field
 /// read for Struct.
 pub fn index_get(coll: &RuntimeValue, idx: &RuntimeValue) -> Result<RuntimeValue, String> {
     match (coll, idx) {
         (RuntimeValue::List(items), RuntimeValue::Int(i)) => {
-            let i = *i as usize;
             let items = items.borrow();
-            if i == 0 || i > items.len() {
-                return Err(format!("Index {} out of bounds", i));
-            }
-            Ok(items.get(i - 1).expect("bounds checked above"))
+            let idx = resolve_index(*i, items.len())?;
+            Ok(items.get(idx).expect("bounds checked above"))
         }
         (RuntimeValue::Tuple(items), RuntimeValue::Int(i)) => {
-            let i = *i as usize;
-            if i == 0 || i > items.len() {
-                return Err(format!("Index {} out of bounds", i));
-            }
-            Ok(items[i - 1].clone())
+            let idx = resolve_index(*i, items.len())?;
+            Ok(items[idx].clone())
         }
         (RuntimeValue::Text(s), RuntimeValue::Int(i)) => {
-            let i = *i as usize;
+            let i = *i;
             // ASCII fast path: byte position == char position and the
             // in-bounds check over bytes equals the check over chars. The
             // `is_ascii` scan is vectorized — far cheaper than the per-char
@@ -96,15 +111,12 @@ pub fn index_get(coll: &RuntimeValue, idx: &RuntimeValue) -> Result<RuntimeValue
             // (recomputed only when the string's byte length changes), so a
             // scan loop stays O(n) instead of O(n²).
             let (ascii, char_len) = text_metrics(s);
-            if i != 0 && i <= bytes.len() && ascii {
-                return Ok(RuntimeValue::Text(ascii_char_text(bytes[i - 1])));
+            if i >= 1 && (i as usize) <= bytes.len() && ascii {
+                return Ok(RuntimeValue::Text(ascii_char_text(bytes[i as usize - 1])));
             }
-            if i == 0 || i > char_len {
-                return Err(format!("Index {} out of bounds", i));
-            }
-            // Index validated against the char count just above.
+            let idx = resolve_index(i, char_len)?;
             Ok(RuntimeValue::Text(Rc::new(
-                s.chars().nth(i - 1).unwrap().to_string(),
+                s.chars().nth(idx).unwrap().to_string(),
             )))
         }
         (RuntimeValue::Map(map), key) => {
@@ -134,24 +146,45 @@ pub fn index_get(coll: &RuntimeValue, idx: &RuntimeValue) -> Result<RuntimeValue
 pub fn index_set(coll: &RuntimeValue, idx: &RuntimeValue, value: RuntimeValue) -> Result<(), String> {
     match (coll, idx) {
         (RuntimeValue::List(items), RuntimeValue::Int(n)) => {
-            let i = *n as usize;
             let mut items = items.borrow_mut();
-            if i == 0 || i > items.len() {
-                return Err(format!(
-                    "Index {} out of bounds for list of length {}",
-                    i,
-                    items.len()
-                ));
-            }
-            items.set(i - 1, value);
+            let idx = resolve_index(*n, items.len())?;
+            items.set(idx, value);
             Ok(())
         }
         (RuntimeValue::Map(map), key) => {
+            assert_hashable_key(key)?;
             map.borrow_mut().insert(key.clone(), value);
             Ok(())
         }
         (RuntimeValue::List(_), _) => Err("List index must be an integer".to_string()),
         _ => Err(format!("Cannot index into {}", coll.type_name())),
+    }
+}
+
+/// A Map key must be TRANSITIVELY immutable: a List/Set/Map key (even one
+/// buried inside a tuple or struct) is a shared handle whose later mutation
+/// would silently corrupt the map, so the insert refuses it outright with a
+/// catchable error. Tuples and structs of immutable parts are VALUE keys.
+pub fn assert_hashable_key(key: &RuntimeValue) -> Result<(), String> {
+    match key {
+        RuntimeValue::List(_) | RuntimeValue::Set(_) | RuntimeValue::Map(_) => Err(format!(
+            "a {} cannot be a Map key — it is mutable, and mutating a live key \
+             would corrupt the map (use a Tuple of its values instead)",
+            key.type_name()
+        )),
+        RuntimeValue::Tuple(items) => {
+            for item in items.iter() {
+                assert_hashable_key(item)?;
+            }
+            Ok(())
+        }
+        RuntimeValue::Struct(s) => {
+            for value in s.fields.values() {
+                assert_hashable_key(value)?;
+            }
+            Ok(())
+        }
+        _ => Ok(()),
     }
 }
 
@@ -315,6 +348,65 @@ pub fn push_to_struct_field(
     }
 }
 
+thread_local! {
+    /// When > 0, the current thread runs collections under REFERENCE semantics
+    /// regardless of the global default. This is the bootstrap-scope: the
+    /// compile-time partial evaluator and self-interpreter (`pe_source.logos`,
+    /// `pe_mini_source.logos`, the core interpreter) are SELF-APPLICABLE — a
+    /// Futamura projection specializes them, and that only works when their
+    /// threaded state is mutated IN PLACE (a stable binding), which is exactly
+    /// reference semantics. They are compiler infrastructure, authored in
+    /// reference-semantics Logos; user programs (the residuals they emit) still
+    /// run under value semantics, which is the default everywhere else.
+    static FORCE_REFERENCE: std::cell::Cell<u32> = const { std::cell::Cell::new(0) };
+}
+
+/// RAII guard: run the closure / dynamic extent under reference semantics on this
+/// thread. Re-entrant (nested PE calls compose). See [`FORCE_REFERENCE`].
+pub struct ReferenceScope;
+
+impl ReferenceScope {
+    pub fn enter() -> Self {
+        FORCE_REFERENCE.with(|c| c.set(c.get() + 1));
+        ReferenceScope
+    }
+}
+
+impl Drop for ReferenceScope {
+    fn drop(&mut self) {
+        FORCE_REFERENCE.with(|c| c.set(c.get().saturating_sub(1)));
+    }
+}
+
+/// Run `f` with reference semantics forced on this thread (the bootstrap scope).
+pub fn with_reference_semantics<T>(f: impl FnOnce() -> T) -> T {
+    let _g = ReferenceScope::enter();
+    f()
+}
+
+/// Whether the current thread is inside a [`ReferenceScope`]. Consulted by the
+/// AOT runner so a child process compiled from PE source inherits reference
+/// semantics (`LOGOS_VALUE_SEMANTICS=0`).
+pub fn reference_scope_active() -> bool {
+    FORCE_REFERENCE.with(|c| c.get() > 0)
+}
+
+/// Whether Mutable Value Semantics (copy-on-write for collections) is enabled.
+/// Value semantics is the DEFAULT (all four tiers — tree-walker, VM, AOT, JIT —
+/// implement it). `LOGOS_VALUE_SEMANTICS=0` restores the historical reference
+/// semantics (escape hatch). A thread-local [`ReferenceScope`] also forces
+/// reference semantics for the duration of compile-time PE / self-interpreter
+/// execution (bootstrap-scope). The env var is read once and cached; the
+/// thread-local check is a single `Cell` read, so the hot path stays cheap.
+pub fn value_semantics_enabled() -> bool {
+    use std::sync::OnceLock;
+    static ON: OnceLock<bool> = OnceLock::new();
+    if reference_scope_active() {
+        return false;
+    }
+    *ON.get_or_init(|| std::env::var("LOGOS_VALUE_SEMANTICS").as_deref() != Ok("0"))
+}
+
 /// `Push value to list` — mutates the shared allocation in place.
 pub fn list_push(coll: &RuntimeValue, value: RuntimeValue) -> Result<(), String> {
     match coll {
@@ -360,7 +452,7 @@ pub fn remove_from(coll: &RuntimeValue, value: &RuntimeValue) -> Result<(), Stri
             Ok(())
         }
         RuntimeValue::Map(map) => {
-            map.borrow_mut().remove(value);
+            map.borrow_mut().shift_remove(value);
             Ok(())
         }
         RuntimeValue::Crdt(c) => c.borrow_mut().remove(value),
@@ -379,15 +471,16 @@ mod tests {
     }
 
     #[test]
-    fn index_is_one_based_with_exact_messages() {
+    fn index_is_one_based_with_end_relative_negatives() {
         let xs = list(vec![RuntimeValue::Int(5), RuntimeValue::Int(6)]);
         assert!(matches!(index_get(&xs, &RuntimeValue::Int(1)).unwrap(), RuntimeValue::Int(5)));
         assert_eq!(index_get(&xs, &RuntimeValue::Int(0)).unwrap_err(), "Index 0 out of bounds");
         assert_eq!(index_get(&xs, &RuntimeValue::Int(3)).unwrap_err(), "Index 3 out of bounds");
-        // A negative index wraps through `as usize` and prints the wrapped
-        // number — a pinned tree-walker behavior.
-        let e = index_get(&xs, &RuntimeValue::Int(-1)).unwrap_err();
-        assert_eq!(e, format!("Index {} out of bounds", (-1i64) as usize));
+        // Negative = end-relative: `-1` is the last element, `-2` the first.
+        assert!(matches!(index_get(&xs, &RuntimeValue::Int(-1)).unwrap(), RuntimeValue::Int(6)));
+        assert!(matches!(index_get(&xs, &RuntimeValue::Int(-2)).unwrap(), RuntimeValue::Int(5)));
+        // Out of range on the negative side is still loud.
+        assert_eq!(index_get(&xs, &RuntimeValue::Int(-3)).unwrap_err(), "Index -3 out of bounds");
     }
 
     #[test]
@@ -427,11 +520,18 @@ mod tests {
     }
 
     #[test]
-    fn set_add_dedups_with_epsilon_equality() {
+    fn set_add_dedups_with_ieee_equality() {
+        // IEEE equality: 0.1 + 0.2 is NOT 0.3 (the artifact is real), so they
+        // are two distinct set elements…
         let s = RuntimeValue::Set(Rc::new(RefCell::new(vec![RuntimeValue::Float(0.3)])));
         set_add(&s, RuntimeValue::Float(0.1 + 0.2)).unwrap();
         if let RuntimeValue::Set(items) = &s {
-            assert_eq!(items.borrow().len(), 1, "epsilon-equal float must dedup");
+            assert_eq!(items.borrow().len(), 2, "IEEE-distinct floats stay distinct");
+        }
+        // …while a bit-equal float DOES dedup.
+        set_add(&s, RuntimeValue::Float(0.3)).unwrap();
+        if let RuntimeValue::Set(items) = &s {
+            assert_eq!(items.borrow().len(), 2, "bit-equal float must dedup");
         }
     }
 

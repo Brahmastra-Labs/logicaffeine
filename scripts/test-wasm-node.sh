@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Browser-networking wasm tests, run LOCALLY under node (FINISH_INTERPRETER.md Phase 9c).
+# Browser-networking wasm tests, run LOCALLY under node (work/FINISH_INTERPRETER.md Phase 9c).
 #
 # A browser tab cannot host a relay, so this orchestrates the integration the same
 # way the headless-browser path does — but without a browser:

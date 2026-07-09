@@ -40,11 +40,13 @@ pub fn format_op(op: &Op, prog: &CompiledProgram) -> String {
     match *op {
         Op::LoadConst { dst, idx } => format!("LoadConst {} = {}", r(dst), k(idx)),
         Op::Move { dst, src } => format!("Move {} = {}", r(dst), r(src)),
+        Op::EnsureOwned { reg } => format!("EnsureOwned {}", r(reg)),
         Op::Add { dst, lhs, rhs } => format!("Add {} = {} + {}", r(dst), r(lhs), r(rhs)),
         Op::AddAssign { dst, src } => format!("AddAssign {} += {}", r(dst), r(src)),
         Op::Sub { dst, lhs, rhs } => format!("Sub {} = {} - {}", r(dst), r(lhs), r(rhs)),
         Op::Mul { dst, lhs, rhs } => format!("Mul {} = {} * {}", r(dst), r(lhs), r(rhs)),
         Op::Div { dst, lhs, rhs } => format!("Div {} = {} / {}", r(dst), r(lhs), r(rhs)),
+        Op::FloorDiv { dst, lhs, rhs } => format!("FloorDiv {} = {} // {}", r(dst), r(lhs), r(rhs)),
         Op::Mod { dst, lhs, rhs } => format!("Mod {} = {} % {}", r(dst), r(lhs), r(rhs)),
         Op::Lt { dst, lhs, rhs } => format!("Lt {} = {} < {}", r(dst), r(lhs), r(rhs)),
         Op::Gt { dst, lhs, rhs } => format!("Gt {} = {} > {}", r(dst), r(lhs), r(rhs)),
@@ -57,7 +59,6 @@ pub fn format_op(op: &Op, prog: &CompiledProgram) -> String {
         Op::Jump { target } => format!("Jump -> {target}"),
         Op::JumpIfFalse { cond, target } => format!("JumpIfFalse {} -> {target}", r(cond)),
         Op::JumpIfTrue { cond, target } => format!("JumpIfTrue {} -> {target}", r(cond)),
-        Op::JumpIfInt { cond, target } => format!("JumpIfInt {} -> {target}", r(cond)),
         Op::Call { dst, func, args_start, arg_count } => {
             format!("Call {} = fn#{func}({}..+{arg_count})", r(dst), r(args_start))
         }
@@ -95,8 +96,7 @@ pub fn op_targets(op: &Op) -> Vec<usize> {
     match *op {
         Op::Jump { target } => vec![target],
         Op::JumpIfFalse { target, .. }
-        | Op::JumpIfTrue { target, .. }
-        | Op::JumpIfInt { target, .. } => vec![target],
+        | Op::JumpIfTrue { target, .. } => vec![target],
         Op::IterNext { exit, .. } => vec![exit],
         _ => Vec::new(),
     }
@@ -119,11 +119,13 @@ pub fn op_io(op: &Op) -> OpIo {
     match *op {
         Op::LoadConst { dst, .. } => rw(dst, vec![]),
         Op::Move { dst, src } => rw(dst, vec![src]),
+        Op::EnsureOwned { reg } => rw(reg, vec![reg]),
         Op::Add { dst, lhs, rhs }
         | Op::Sub { dst, lhs, rhs }
         | Op::Mul { dst, lhs, rhs }
         | Op::Div { dst, lhs, rhs }
         | Op::ExactDiv { dst, lhs, rhs }
+        | Op::FloorDiv { dst, lhs, rhs }
         | Op::Mod { dst, lhs, rhs }
         | Op::Lt { dst, lhs, rhs }
         | Op::Gt { dst, lhs, rhs }
@@ -131,17 +133,18 @@ pub fn op_io(op: &Op) -> OpIo {
         | Op::GtEq { dst, lhs, rhs }
         | Op::Eq { dst, lhs, rhs }
         | Op::NotEq { dst, lhs, rhs }
-        | Op::AndEager { dst, lhs, rhs }
-        | Op::OrEager { dst, lhs, rhs }
         | Op::Concat { dst, lhs, rhs }
+        | Op::Pow { dst, lhs, rhs }
         | Op::BitXor { dst, lhs, rhs }
+        | Op::BitAnd { dst, lhs, rhs }
+        | Op::BitOr { dst, lhs, rhs }
         | Op::Shl { dst, lhs, rhs }
         | Op::Shr { dst, lhs, rhs } => rw(dst, vec![lhs, rhs]),
         Op::AddAssign { dst, src } => rw(dst, vec![dst, src]),
         Op::Not { dst, src } => rw(dst, vec![src]),
         Op::Show { src } => ro(vec![src]),
         Op::Return { src } => ro(vec![src]),
-        Op::JumpIfFalse { cond, .. } | Op::JumpIfTrue { cond, .. } | Op::JumpIfInt { cond, .. } => {
+        Op::JumpIfFalse { cond, .. } | Op::JumpIfTrue { cond, .. } => {
             ro(vec![cond])
         }
         Op::Index { dst, collection, index } | Op::IndexUnchecked { dst, collection, index } => {

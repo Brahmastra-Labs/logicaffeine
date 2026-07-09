@@ -41,16 +41,70 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-cargo-
 
-      - name: Install Dioxus CLI
-        run: cargo install dioxus-cli@0.7.9 --locked || true
+      # dx is installed from our dioxus fork at the pinned rev, not crates.io: the
+      # wasm-split fixes live in the fork's splitter (wasm-split-cli), and the app
+      # crates are pinned to the same rev via [patch.crates-io] in Cargo.toml.
+      # Unpin both once the fixes land in a released dioxus.
+      - name: Install Dioxus CLI (from fork)
+        run: cargo install --git https://github.com/Brahmastra-Labs/dioxus --rev fde227fac7f9974fc61a3d126053b462a122136f dioxus-cli --locked || true
 
-      - name: Build Dioxus App
-        run: cd apps/logicaffeine_web && dx build --release
+      # The wasm app fetches its heavy data (benchmark results/sources, legal HTML,
+      # lexicon) from /data/* at runtime instead of compiling it in. Stage + validate
+      # that bundle from the repo's sources of truth; a missing/empty file fails here.
+      - name: Stage runtime data
+        run: ./scripts/stage-web-data.sh
+
+      # --ssg --fullstack: dx builds the wasm client (features=web) AND the native
+      # prerender server (features=server), spawns the server, and writes per-route
+      # static HTML from /api/static_routes into public/ — crawlers, AI bots, and
+      # link unfurlers get real pages; the wasm client CSR-takes-over for users.
+      # target/dx is derived state restored by the cargo cache; dx's .captured-args
+      # snapshot inside it can pin a STALE Dioxus.toml (observed: old [web.app]
+      # title substituted into the shell). Drop it — recapture is cheap, the real
+      # cargo caches are untouched.
+      # --wasm-split + --features split: route and landing-showcase bodies (and the
+      # LOGOS engine they pin) ship as lazily-fetched chunks, so a first-time
+      # visitor downloads ~1.1 MB of wasm instead of ~12 MB. This relies on the
+      # splitter fixes in the pinned dioxus fork (see the CLI install step above).
+      - name: Build Dioxus App (SSG)
+        run: |
+          rm -rf target/dx
+          dx build -p logicaffeine-web --release --ssg --fullstack --wasm-split --features split
+
+      # The prerender writes into web/prerendered (the client build rewrites
+      # public/index.html after the prerender pass — see merge-ssg.sh).
+      - name: Merge prerendered pages
+        run: ./scripts/merge-ssg.sh
 
       # Fail the deploy if the bundle outgrows the budget — locks in libp2p staying out of
-      # the default build (and any future bloat). Budget: largest *.wasm ≤ 14.7 MB.
+      # the default build (and any future bloat).
       - name: WASM size gate
         run: ./scripts/wasm-size-gate.sh
+
+      # dx silently skips routes whose prerender fails — prove every sitemap route
+      # produced its HTML with per-page canonical/OG/JSON-LD head intact.
+      - name: Verify prerendered routes
+        run: ./scripts/verify-ssg.sh
+
+      # Headless-browser boot: prerendered page CSR takeover (no duplicated DOM)
+      # and an SPA-fallback route still boots the app.
+      - name: SSG smoke test
+        run: ./scripts/test-ssg-smoke.sh
+
+      # Screenshot tests: EVERY sitemap route rendered in headless Chrome after
+      # wasm boot — content markers, completed takeover, zero page errors, and a
+      # pixel-level blank-viewport detector. Screenshots upload as an artifact.
+      - name: Screenshot tests
+        run: |
+          npm install --no-save puppeteer-core@23
+          CHROME_BIN="$(command -v google-chrome || command -v chromium-browser)" ./scripts/test-ssg-screenshots.sh
+      - name: Upload screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: page-screenshots
+          path: /tmp/ssg-shots/
+          retention-days: 14
 
       - name: Install Wrangler
         run: npm install -g wrangler

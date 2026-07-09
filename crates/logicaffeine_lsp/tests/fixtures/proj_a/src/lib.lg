@@ -1,0 +1,7 @@
+# Fixture: library definitions for cross-file navigation.
+
+## To triple (n: Int) -> Int:
+    Return n * 3.
+
+## A Widget has:
+    An id: Int.

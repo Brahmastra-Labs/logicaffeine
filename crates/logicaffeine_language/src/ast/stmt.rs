@@ -10,6 +10,7 @@
 //!
 //! The imperative AST is used in LOGOS mode for generating executable Rust code.
 
+use super::axiom::{AxiomBlock, TheoryBlock};
 use super::definition::DefinitionBlock;
 use super::logic::LogicExpr;
 use super::theorem::TheoremBlock;
@@ -56,6 +57,19 @@ pub enum TypeExpr<'a> {
         /// The inner type (must be a Shared/CRDT type)
         inner: &'a TypeExpr<'a>,
     },
+    /// Mutable-parameter marker (Mutable Value Semantics escape hatch).
+    /// Example: `## To addItem (items: mutable Seq of Int):` →
+    /// `Mutable { inner: Generic { List, [Int] } }`.
+    /// Semantics: under value semantics collections pass by value by default; a
+    /// `Mutable` parameter passes by reference so the callee's mutations are
+    /// visible to the caller (the explicit, opt-in form of the void-mutate
+    /// idiom). Carried on the parameter's type so the `(Symbol, &TypeExpr)`
+    /// parameter representation is unchanged. For every purpose other than the
+    /// parameter-passing convention, `Mutable { inner }` behaves as `inner`.
+    Mutable {
+        /// The underlying parameter type.
+        inner: &'a TypeExpr<'a>,
+    },
 }
 
 /// Source for Read statements.
@@ -83,6 +97,10 @@ pub enum BinaryOpKind {
     Add,
     Subtract,
     Multiply,
+    /// `a ** b` — exponentiation. Integer power is EXACT (promotes to BigInt on
+    /// overflow); a Float operand uses `powf`; a negative integer exponent is a
+    /// loud error. Binds tighter than `* / %`, right-associative.
+    Pow,
     Divide,
     /// EXACT division — the type-directed sibling of [`BinaryOpKind::Divide`].
     /// `Divide` floors (`7 / 2 → 3`, the integer default); `ExactDivide` keeps the
@@ -90,6 +108,12 @@ pub enum BinaryOpKind {
     /// rewrites `Divide → ExactDivide` only where the result flows into a `Rational`
     /// context, so existing (floor) code is untouched.
     ExactDivide,
+    /// `a // b` — FLOOR division, rounding toward negative infinity (`-7 // 2 → -4`).
+    /// Distinct from [`BinaryOpKind::Divide`], which truncates toward zero (`-7 / 2 →
+    /// -3`); the two agree when the operands share a sign. Exact (promotes to BigInt),
+    /// integer-producing, and immune to the `resolve_divisions` Rational rewrite — the
+    /// explicit spelling for "give me the floored integer quotient."
+    FloorDivide,
     Modulo,
     Eq,
     NotEq,
@@ -102,8 +126,19 @@ pub enum BinaryOpKind {
     Or,
     /// String concatenation ("X combined with Y")
     Concat,
-    /// Bitwise XOR: "x xor y" → `x ^ y`
+    /// Sequence concatenation ("A followed by B") — merge two sequences into one.
+    SeqConcat,
+    /// Tolerant float comparison ("a is approximately b") — Python-isclose
+    /// semantics (rel 1e-9, abs floor 1e-12). `==` stays IEEE bit-exact;
+    /// this is the EXPLICIT spelling for near-equality.
+    ApproxEq,
+    /// Bitwise XOR: `x ^ y` (the word `xor` is the English spelling); on
+    /// Sets, symmetric difference.
     BitXor,
+    /// Bitwise AND: `x & y`; on Sets, intersection.
+    BitAnd,
+    /// Bitwise OR: `x | y`; on Sets, union.
+    BitOr,
     /// Left shift: "x shifted left by y" → `x << y`
     Shl,
     /// Right shift: "x shifted right by y" → `x >> y`
@@ -174,6 +209,26 @@ pub enum ZoneSource {
 ///
 /// Stmt is the primary AST node for imperative code blocks like `## Main`
 /// and function bodies. The Assert variant bridges to the Logic Kernel.
+/// Which end of the shared pad this peer draws from, for the PNP one-time-pad tier.
+/// `as initiator` sends on the first directional half; `as responder` sends on the second.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SecureRole {
+    /// Draws the send pad from the first directional half (`i2r`).
+    Initiator,
+    /// Draws the send pad from the second directional half (`r2i`).
+    Responder,
+}
+
+/// The `with pad "<path>" as <role>` binding on a `Connect`/`Listen` — activate the PNP one-time-pad
+/// session over the pad file at `pad`, with this peer taking `role`.
+#[derive(Debug, Clone, Copy)]
+pub struct SecurePad<'a> {
+    /// The pad file path (a string-literal or variable expression).
+    pub pad: &'a Expr<'a>,
+    /// Which directional half this peer sends on.
+    pub role: SecureRole,
+}
+
 #[derive(Debug, Clone)]
 pub enum Stmt<'a> {
     /// Variable binding: `Let x be 5.` or `Let x: Int be 5.`
@@ -290,7 +345,7 @@ pub enum Stmt<'a> {
         native_path: Option<Symbol>,
         /// Whether this function is exported for FFI (C ABI or WASM).
         is_exported: bool,
-        /// Export target: None = C ABI (#[no_mangle] extern "C"), Some("wasm") = #[wasm_bindgen].
+        /// Export target: None = C ABI (#\[no_mangle\] extern "C"), Some("wasm") = #\[wasm_bindgen\].
         export_target: Option<Symbol>,
         /// Per-function optimization config: each `## No <X>` annotation clears
         /// that optimization's bit (default: all enabled).
@@ -333,6 +388,18 @@ pub enum Stmt<'a> {
         collection: &'a Expr<'a>,
         index: &'a Expr<'a>,
         value: &'a Expr<'a>,
+    },
+
+    /// A SCOPE-TRANSPARENT statement sequence — parser-desugar output, never
+    /// written by users. One surface statement can lower to several primitive
+    /// statements (a nested place-write `Set item j of (item i of grid) to v`
+    /// becomes read → copy-on-write element write → write-back; a multi-push
+    /// `Push a, b, c to xs` becomes one Push per element). The body runs in
+    /// the ENCLOSING scope with no block of its own: temporaries inside are
+    /// gensym'd (`__place_*`), so they can never collide with user names, and
+    /// engines that execute blocks with scoping must NOT scope this one.
+    Splice {
+        body: Block<'a>,
     },
 
     /// Memory arena block (Zone).
@@ -419,6 +486,18 @@ pub enum Stmt<'a> {
         /// The receiver evaluates it in the bounded sandbox (never arbitrary code). OFF by
         /// default; a non-lowerable function under `computed` is rejected at send.
         computed: bool,
+        /// `Send indexed …` (alias `addressable`) — encode a record list in the random-access
+        /// struct-view LAYOUT (row + field offset tables), so the receiver reaches any
+        /// (row, field) in O(1) without decoding the rest — Cap'n Proto's home turf. Composes
+        /// with the other knobs (`compressed`, `cached`, `shared`, `unchecked`). OFF by default
+        /// (the dense columnar form is smaller); opt in when the peer does random field reads.
+        indexed: bool,
+        /// `Send deduped …` — Rc-DEDUP: a subtree the same value reaches more than once ships ONCE
+        /// (the first occurrence) plus a tiny backref for every repeat, and the receiver rebuilds the
+        /// SHARING (one aliased value, not N copies). OFF by default; opt in when the message has
+        /// shared sub-structure (a lookup table referenced by many records, one object aliased
+        /// across the payload). Self-describing by tag, so any peer decodes it.
+        deduped: bool,
     },
 
     /// Await response from agent.
@@ -430,6 +509,18 @@ pub enum Stmt<'a> {
         /// decode-on-touch, no rows materialized until a field is read) instead of fully decoding
         /// it. Ignored for non-record-list shapes, which always decode eagerly.
         view: bool,
+        /// `Await stream from …`: receive a batch STREAM message and deframe it into a list (the
+        /// values a peer `Stream`ed), rather than a single message.
+        stream: bool,
+    },
+
+    /// Stream a batch of values to a peer in one framed message.
+    /// `Stream readings to "sink".` — frames each element of `values` length-delimited so the
+    /// receiver (`Await stream from …`) deframes them incrementally; one relay publish ships the
+    /// whole batch (Kafka-style streaming that amortizes per-message overhead).
+    StreamMessage {
+        values: &'a Expr<'a>,
+        destination: &'a Expr<'a>,
     },
 
     /// Merge CRDT state.
@@ -494,6 +585,8 @@ pub enum Stmt<'a> {
     /// Semantics: Bind to address, start accepting connections via libp2p
     Listen {
         address: &'a Expr<'a>,
+        /// Optional PNP one-time-pad binding: `with pad "<path>" as initiator|responder`.
+        secure: Option<SecurePad<'a>>,
     },
 
     /// Connect to remote peer.
@@ -501,6 +594,8 @@ pub enum Stmt<'a> {
     /// Semantics: Dial peer via libp2p
     ConnectTo {
         address: &'a Expr<'a>,
+        /// Optional PNP one-time-pad binding: `with pad "<path>" as initiator|responder`.
+        secure: Option<SecurePad<'a>>,
     },
 
     /// Create PeerAgent remote handle.
@@ -648,6 +743,13 @@ pub enum Stmt<'a> {
     /// Non-executable: like [`Stmt::Theorem`], it is a declaration the proof
     /// layer consumes, not code the VM/AOT runs.
     Definition(DefinitionBlock<'a>),
+
+    /// `## Axiom` block — a named first-order axiom in formal notation. Registers a
+    /// shared premise for later theorems (the seam for an axiomatic base like Tarski).
+    Axiom(AxiomBlock),
+
+    /// `## Theory` block — a named development grouping formal axioms and theorems.
+    Theory(TheoryBlock),
 
     /// Escape hatch: embed raw foreign code.
     /// `Escape to Rust:` followed by an indented block of raw code.

@@ -10,7 +10,7 @@ Both binaries read one input file (one sentence per line; blank lines skipped, t
 
 ## `wiki-trace` — verbose per-sentence dump
 
-```
+```text
 wiki-trace <input.txt> [output_dir]
 ```
 
@@ -22,7 +22,7 @@ Default output: `wikis/traces/<input-stem>/`. Per sentence it calls `compile_for
 
 ## `wiki-triage` — classify the work each sentence implies
 
-```
+```text
 wiki-triage <input.txt> [output_dir]
 ```
 
@@ -55,12 +55,12 @@ Outputs:
 ## Key modules
 
 - `src/lib.rs` — triage model (`TriageRecord`, `Category`, `Outcome`, `Gate`, `Subsystem`) and engine: `quarantine`, `classify`, `cluster`, lexicon probe, metamorphic oracle, `classify_error`, proposal builders.
-- `src/render.rs` — `render_trace` + `count_nodes`; the verbose dump shared by both binaries.
+- The `render` module (`src/render.rs`) — `render_trace` + `count_nodes`; the verbose dump shared by both binaries.
 - `src/bin/trace.rs`, `src/bin/triage.rs` — the two binaries (triage also writes `worklist.md` / `needs_human.md`).
 
 ## Build / test
 
-```
+```bash
 cargo test -p wiki-trace
 cargo run -p wiki-trace --bin wiki-trace  -- article.txt
 cargo run -p wiki-trace --bin wiki-triage -- article.txt

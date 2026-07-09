@@ -2,7 +2,7 @@
 //!
 //! One API, two transports selected at compile time: native dials with the async
 //! [`crate::relay::RelayClient`]; the browser dials with the callback-based
-//! [`crate::relay_browser::RelayBrowserClient`]. Both speak the same `RelayFrame`
+//! `crate::relay_browser::RelayBrowserClient`. Both speak the same `RelayFrame`
 //! protocol to the same relay, so the interpreter's `Sync`/`Connect` lowering is
 //! written once and runs on both targets. This is the platform-capability seam
 //! for networking, the analogue of `get_platform_vfs()` for files.

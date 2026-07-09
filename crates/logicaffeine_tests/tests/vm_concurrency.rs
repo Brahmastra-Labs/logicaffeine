@@ -1,4 +1,4 @@
-//! Phase 5b (FINISH_INTERPRETER.md) — concurrency on the bytecode VM tier.
+//! Phase 5b (work/FINISH_INTERPRETER.md) — concurrency on the bytecode VM tier.
 //!
 //! These run Go-like concurrency programs through `run_vm_concurrent`, which
 //! compiles to the T10 opcodes and drives the resumable VM (`run_until_block`)

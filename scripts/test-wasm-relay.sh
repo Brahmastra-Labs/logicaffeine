@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Headless-browser test for the thin WebSocket relay (FINISH_INTERPRETER.md Phase 9c).
+# Headless-browser test for the thin WebSocket relay (work/FINISH_INTERPRETER.md Phase 9c).
 #
 # A browser tab cannot host a relay, so this orchestrates the integration:
 #   1. start a NATIVE relay host (a real libp2p-free WS relay) on 127.0.0.1:9944,

@@ -6,9 +6,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
-## [0.9.17] - 2026-06-11
+## [0.10.0] - 2026-07-08
 
-Synced to workspace version 0.9.17. See the root CHANGELOG for the cross-crate history.
+Synced to workspace version 0.10.0. See root CHANGELOG for full history.
 
 ## [0.8.12] - 2026-02-14
 

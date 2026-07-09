@@ -1,4 +1,4 @@
-//! Phase 122 — §3.4 Causal / concessive adverbial clauses (MISSING_ENGLISH.md).
+//! Phase 122 — §3.4 Causal / concessive adverbial clauses (work/MISSING_ENGLISH.md).
 //!
 //! Subordinators encode logical relations beyond temporal precedence:
 //!   causal     — "John stayed because it rained."  → Stay(john) ∧ Cause(Rain, Stay(john))

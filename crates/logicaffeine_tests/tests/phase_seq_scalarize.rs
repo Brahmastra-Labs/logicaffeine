@@ -238,8 +238,10 @@ Show length of xs.
 
 #[test]
 fn no_scalarize_identifier_alias() {
-    // `Let b be xs` aliases under reference semantics; arrays copy, so
-    // scalarizing would change behavior.
+    // `Let b be xs` is a value copy: scalarizing xs would require materializing
+    // that copy's elements, which the scalarizer conservatively declines when a
+    // Seq flows into another binding. And under value semantics `Set item 1 of b`
+    // mutates only b's private copy, so xs's first element stays 1.
     assert_not_scalarized(
         r#"## Main
 Let mutable xs be a new Seq of Int.
@@ -249,13 +251,20 @@ Let mutable b be xs.
 Set item 1 of b to 9.
 Show item 1 of xs.
 "#,
-        "9",
+        "1",
     );
 }
 
 #[test]
-fn no_scalarize_passed_to_function() {
-    assert_not_scalarized(
+fn scalarize_passed_to_readonly_function_stays_correct() {
+    // A fixed-size Seq handed to a function that only READS it (`total` indexes, never grows or
+    // mutates length) is now scalarized ACROSS the call boundary — both the caller's buffer and
+    // the callee's `&[i64; 2]` signature — which is sound precisely because the callee is
+    // read-only. The enduring invariant is the RESULT, so this verifies correctness under that
+    // optimization rather than pinning the (since-relaxed) never-scalarize-across-a-call policy.
+    // The genuinely-unsafe cases — a push after the read, or storing the Seq into another Seq —
+    // still must NOT scalarize and keep their `assert_not_scalarized` guards below.
+    common::assert_exact_output(
         r#"## To total (s: Seq of Int) -> Int:
     Return item 1 of s + item 2 of s.
 

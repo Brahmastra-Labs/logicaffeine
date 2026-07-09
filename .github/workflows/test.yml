@@ -24,7 +24,9 @@ on:
 #             suite into 3 disjoint shards whose union is the whole thing, so
 #             every test runs exactly once across the matrix.
 #   extras  — web tests + doctests (the doc harness can't be archived).
-#   badge   — main only; publishes the test-count badge.
+#   badge   — main only; publishes the test-count (suite-size) badge. Depends on
+#             `archive` alone (which computes the count), NOT on the test/extras
+#             passing — so the count never freezes behind a red suite.
 #
 # Why an archive, not a target/ cache: target/ is ~115 GB (84 GB of test-binary
 # deps); GitHub silently drops caches over 10 GB, which would degrade a
@@ -184,6 +186,14 @@ jobs:
           set -o pipefail
           cargo nextest run -p logicaffeine-tests --features web-tests --profile full --retries 1
 
+      # The CLI's verification feature (largo-full's substrate) must keep
+      # compiling — release.yml builds it only on tags, so gate it per-PR
+      # here (cheap: dynamic system Z3, check only).
+      - name: Check largo verification wiring
+        env:
+          Z3_SYS_Z3_HEADER: /usr/include/z3.h
+        run: cargo check -p logicaffeine-cli --features verification
+
       - name: Run doctests
         run: |
           set -o pipefail
@@ -208,8 +218,63 @@ jobs:
           cargo nextest run -p logicaffeine-compile --features wasm-jit --profile full --retries 1 $IGNORED \
             -E 'binary(wasm_jit_differential) + test(wasm_jit)'
 
+  # VSCode extension: lint, typecheck, packaging/version locks (vsce ls — no
+  # VSCode download), then the real editor under xvfb against a debug LSP build.
+  extension:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    defaults:
+      run:
+        working-directory: editors/vscode/logicaffeine
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: editors/vscode/logicaffeine/package-lock.json
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install mold, clang
+        run: sudo apt-get update && sudo apt-get install -y mold clang
+
+      - name: Cache dependencies
+        uses: Swatinem/rust-cache@v2
+
+      - name: Build LSP server (debug — integration tests spawn it)
+        working-directory: .
+        run: cargo build -p logicaffeine-lsp
+
+      - name: Install extension dependencies
+        run: npm ci
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Unit tests (packaging + version-lockstep locks)
+        run: npm run test:unit
+
+      - name: Grammar tests (quickguide ratchet + corpus snapshots)
+        run: npm run test:grammar
+
+      - name: Integration tests (VSCode under xvfb)
+        run: xvfb-run -a npm run test:integration
+        env:
+          LOGICAFFEINE_LSP_PATH: ${{ github.workspace }}/target/debug/logicaffeine-lsp
+
+  # The count is a SUITE-SIZE badge, not a pass/fail badge (CI status has its own
+  # badge). It's computed in `archive` (compile + `nextest list`), which succeeds
+  # independently of whether every test passes — so publish off `archive` alone.
+  # Gating this on `test`/`extras` would freeze the count at the last all-green run
+  # (which is exactly how it got stuck reporting a stale number).
   badge:
-    needs: [archive, test, extras]
+    needs: [archive]
     if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     permissions:

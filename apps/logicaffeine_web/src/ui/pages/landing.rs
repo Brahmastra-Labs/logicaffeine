@@ -11,6 +11,8 @@
 //! Accessed via [`Route::Landing`].
 
 use dioxus::prelude::*;
+#[cfg(all(feature = "split", target_arch = "wasm32"))]
+use dioxus::wasm_split;
 use crate::ui::router::Route;
 use crate::ui::components::main_nav::{MainNav, ActivePage};
 use crate::ui::components::footer::Footer;
@@ -740,6 +742,12 @@ body:has(.landing) {
   backdrop-filter: blur(8px);
 }
 
+.hello-loading {
+  width: 100%;
+  max-width: 820px;
+  min-height: 305px;
+}
+
 .hello-editor-head {
   display: flex;
   align-items: center;
@@ -1052,6 +1060,9 @@ html { scroll-behavior: smooth; }
   display: flex;
   flex-direction: column;
   height: 635px;
+}
+.showcase-loading {
+  min-height: 635px;
 }
 .mini-studio::before {
   content: "";
@@ -1574,6 +1585,7 @@ html { scroll-behavior: smooth; }
   .step-arrow { display: none; }
   .steps { flex-direction: column; }
   .mini-studio { height: 89vh !important; }
+  .showcase-loading { min-height: 89vh; }
   .mini-studio-body { grid-template-columns: 1fr; }
   .mini-explorer { display: none; }
   .mini-file-tabs { display: flex; }
@@ -1631,115 +1643,6 @@ pub fn Landing() -> Element {
         ]),
     ];
 
-    let mut demo_mode = use_signal(|| StudioMode::Code);
-    let mut active_index = use_signal(|| 0usize);
-    let mut cycling_paused = use_signal(|| false);
-    let mut timer_started = use_signal(|| false);
-    let mut terminal_height = use_signal(|| 135.0f64);
-    let mut resizing_terminal = use_signal(|| false);
-    let mut compiled_height = use_signal(|| 140.0f64);
-    let mut show_compiled = use_signal(|| false);
-    let mut resizing_compiled = use_signal(|| false);
-    let mut code_content = use_signal(|| String::new());
-    let mut output_lines = use_signal(|| Vec::<String>::new());
-    let mut output_error = use_signal(|| Option::<String>::None);
-    let mut compiled_output = use_signal(|| String::new());
-    let mut is_running = use_signal(|| false);
-
-    let mut hello_code = use_signal(|| CODE_DEMO_EXAMPLES[0].content.to_string());
-    let mut hello_output = use_signal(|| CODE_DEMO_EXAMPLES[0].output.lines().map(|l| l.to_string()).collect::<Vec<_>>());
-    let mut hello_error = use_signal(|| Option::<String>::None);
-    let mut hello_running = use_signal(|| false);
-
-    use_effect(move || {
-        let mode = *demo_mode.read();
-        let idx = *active_index.read();
-        let examples = examples_for_mode(mode);
-        let clamped = idx.min(examples.len().saturating_sub(1));
-        let ex = &examples[clamped];
-        let content = ex.content.to_string();
-        code_content.set(content.clone());
-        output_error.set(None);
-        compiled_output.set(ex.compiled.to_string());
-
-        match mode {
-            StudioMode::Code => {
-                output_lines.set(Vec::new());
-                spawn(async move {
-                    let result = interpret_for_ui(&content).await;
-                    output_lines.set(result.lines);
-                    output_error.set(result.error);
-                });
-            }
-            StudioMode::Logic | StudioMode::Hardware => {
-                let mut lines: Vec<String> = Vec::new();
-
-                if content.contains("## Theorem:") {
-                    for line in content.lines() {
-                        let trimmed = line.trim();
-                        if let Some(sentence) = trimmed.strip_prefix("Given:") {
-                            let fol = compile_for_ui(sentence.trim());
-                            if let Some(logic) = fol.logic {
-                                lines.push(logic);
-                            }
-                        } else if let Some(sentence) = trimmed.strip_prefix("Prove:") {
-                            let fol = compile_for_ui(sentence.trim());
-                            if let Some(logic) = fol.logic {
-                                lines.push(format!("Goal: {}", logic));
-                            }
-                        }
-                    }
-
-                    let theorem_result = compile_theorem_for_ui(&content);
-                    if let Some(ref err) = theorem_result.error {
-                        output_error.set(Some(err.clone()));
-                    } else {
-                        lines.push(String::new());
-                        if theorem_result.derivation.is_some() {
-                            lines.push(format!("Theorem: {} ✓", theorem_result.name));
-                        } else {
-                            lines.push(format!("Theorem: {} — not proved", theorem_result.name));
-                        }
-                    }
-                } else {
-                    let result = compile_for_ui(&content);
-                    if let Some(logic) = result.logic {
-                        for line in logic.lines() {
-                            lines.push(line.to_string());
-                        }
-                    }
-                    if let Some(ref err) = result.error {
-                        output_error.set(Some(err.clone()));
-                    }
-                }
-
-                output_lines.set(lines);
-            }
-            StudioMode::Math => {
-                let (lines, err) = execute_math_code(&content);
-                output_lines.set(lines);
-                output_error.set(err);
-            }
-        }
-    });
-
-    use_effect(move || {
-        if *timer_started.read() { return; }
-        timer_started.set(true);
-        #[cfg(target_arch = "wasm32")]
-        spawn(async move {
-            loop {
-                gloo_timers::future::TimeoutFuture::new(7_000).await;
-                if !*cycling_paused.read() {
-                    let mode = *demo_mode.read();
-                    let count = examples_for_mode(mode).len();
-                    let next = (*active_index.read() + 1) % count;
-                    active_index.set(next);
-                }
-            }
-        });
-    });
-
     rsx! {
         PageHead {
             title: seo_pages::LANDING.title,
@@ -1773,7 +1676,7 @@ pub fn Landing() -> Element {
 
                             div { class: "hero-ctas",
                                 Link { to: Route::Learn {}, class: "btn btn-primary", "Start Learning" }
-                                Link { to: Route::Studio {}, class: "btn", "Open Studio" }
+                                Link { to: Route::Studio { file: None }, class: "btn", "Open Studio" }
                                 Link { to: Route::Pricing {}, class: "btn btn-ghost", "Contact Us" }
                             }
 
@@ -1791,352 +1694,9 @@ pub fn Landing() -> Element {
                             }
                         }
 
-                        div {
-                            class: "mini-studio",
-                            id: "product",
-                            style: if *resizing_terminal.read() || *resizing_compiled.read() { "user-select: none;" } else { "" },
-                            onmouseenter: move |_| { cycling_paused.set(true); },
-                            onmouseleave: move |_| {
-                                cycling_paused.set(false);
-                                resizing_terminal.set(false);
-                                resizing_compiled.set(false);
-                            },
-                            onmousemove: move |evt| {
-                                let window = web_sys::window().unwrap();
-                                let document = window.document().unwrap();
-                                let cta_height: f64 = 45.0;
-                                if *resizing_terminal.read() {
-                                    if let Some(el) = document.get_element_by_id("product") {
-                                        let rect = el.get_bounding_client_rect();
-                                        let coords = evt.data().client_coordinates();
-                                        let client_y: f64 = coords.y;
-                                        let below = cta_height
-                                            + if *show_compiled.read() { *compiled_height.read() + 6.0 } else { 0.0 };
-                                        let new_height = rect.bottom() - client_y - below;
-                                        terminal_height.set(new_height.clamp(60.0, 300.0));
-                                    }
-                                } else if *resizing_compiled.read() {
-                                    if let Some(el) = document.get_element_by_id("product") {
-                                        let rect = el.get_bounding_client_rect();
-                                        let coords = evt.data().client_coordinates();
-                                        let client_y: f64 = coords.y;
-                                        let new_height = rect.bottom() - client_y - cta_height;
-                                        let max_compiled = rect.height() - *terminal_height.read() - cta_height - 6.0 - 120.0;
-                                        compiled_height.set(new_height.clamp(60.0, max_compiled.max(60.0)));
-                                    }
-                                }
-                            },
-                            onmouseup: move |_| {
-                                resizing_terminal.set(false);
-                                resizing_compiled.set(false);
-                            },
-                            ontouchmove: move |evt| {
-                                let window = web_sys::window().unwrap();
-                                let document = window.document().unwrap();
-                                let cta_height: f64 = 45.0;
-                                if *resizing_terminal.read() || *resizing_compiled.read() {
-                                    evt.prevent_default();
-                                    let touches = evt.data().touches();
-                                    if let Some(touch) = touches.first() {
-                                        if let Some(el) = document.get_element_by_id("product") {
-                                            let rect = el.get_bounding_client_rect();
-                                            let coords = touch.client_coordinates();
-                                            let client_y: f64 = coords.y;
-                                            if *resizing_terminal.read() {
-                                                let below = cta_height
-                                                    + if *show_compiled.read() { *compiled_height.read() + 6.0 } else { 0.0 };
-                                                let new_height = rect.bottom() - client_y - below;
-                                                terminal_height.set(new_height.clamp(60.0, 300.0));
-                                            } else {
-                                                let new_height = rect.bottom() - client_y - cta_height;
-                                                let max_compiled = rect.height() - *terminal_height.read() - cta_height - 6.0 - 120.0;
-                                                compiled_height.set(new_height.clamp(60.0, max_compiled.max(60.0)));
-                                            }
-                                        }
-                                    }
-                                }
-                            },
-                            ontouchend: move |_| {
-                                resizing_terminal.set(false);
-                                resizing_compiled.set(false);
-                            },
-
-                            div { class: "mini-studio-head",
-                                div { class: "win-dots",
-                                    div { class: "wdot wr" }
-                                    div { class: "wdot wy" }
-                                    div { class: "wdot wg" }
-                                }
-                                div { class: "mini-mode-toggle",
-                                    button {
-                                        class: if *demo_mode.read() == StudioMode::Code { "mini-toggle-btn active" } else { "mini-toggle-btn" },
-                                        onclick: move |_| {
-                                            demo_mode.set(StudioMode::Code);
-                                            active_index.set(0);
-                                        },
-                                        span { "λ" }
-                                        span { class: "mini-toggle-label", "Code" }
-                                    }
-                                    button {
-                                        class: if *demo_mode.read() == StudioMode::Logic { "mini-toggle-btn active" } else { "mini-toggle-btn" },
-                                        onclick: move |_| {
-                                            demo_mode.set(StudioMode::Logic);
-                                            active_index.set(0);
-                                            show_compiled.set(false);
-                                        },
-                                        span { "∀" }
-                                        span { class: "mini-toggle-label", "Logic" }
-                                    }
-                                    button {
-                                        class: if *demo_mode.read() == StudioMode::Math { "mini-toggle-btn active" } else { "mini-toggle-btn" },
-                                        onclick: move |_| {
-                                            demo_mode.set(StudioMode::Math);
-                                            active_index.set(0);
-                                            show_compiled.set(false);
-                                        },
-                                        span { "π" }
-                                        span { class: "mini-toggle-label", "Math" }
-                                    }
-                                }
-                            }
-
-                            div { class: "mini-action-bar",
-                                if *demo_mode.read() == StudioMode::Code {
-                                    button {
-                                        class: "mini-exec-btn compile",
-                                        onclick: move |_| {
-                                            let code = code_content.read().clone();
-
-                                            match generate_rust_code(&code) {
-                                                Ok(rust) => compiled_output.set(rust),
-                                                Err(e) => compiled_output.set(format!("// Compile error: {:?}", e)),
-                                            }
-
-                                            let current = *show_compiled.read();
-                                            if !current {
-                                                show_compiled.set(true);
-                                            }
-                                        },
-                                        "🦀"
-                                        span { class: "btn-label", "Compile to Rust" }
-                                    }
-                                }
-                                button {
-                                    class: "mini-exec-btn run",
-                                    onclick: move |_| {
-                                        let code = code_content.read().clone();
-                                        let mode = *demo_mode.read();
-                                        is_running.set(true);
-                                        output_lines.set(Vec::new());
-                                        output_error.set(None);
-
-                                        match mode {
-                                            StudioMode::Code => {
-                                                spawn(async move {
-                                                    let result = interpret_for_ui(&code).await;
-                                                    output_lines.set(result.lines);
-                                                    output_error.set(result.error);
-                                                    is_running.set(false);
-                                                });
-                                            }
-                                            StudioMode::Logic | StudioMode::Hardware => {
-                                                let mut lines: Vec<String> = Vec::new();
-
-                                                if code.contains("## Theorem:") {
-                                                    // FOL transpilation: compile each premise sentence individually
-                                                    for line in code.lines() {
-                                                        let trimmed = line.trim();
-                                                        if let Some(sentence) = trimmed.strip_prefix("Given:") {
-                                                            let sentence = sentence.trim();
-                                                            let fol = compile_for_ui(sentence);
-                                                            if let Some(logic) = fol.logic {
-                                                                lines.push(logic);
-                                                            }
-                                                        } else if let Some(sentence) = trimmed.strip_prefix("Prove:") {
-                                                            let sentence = sentence.trim();
-                                                            let fol = compile_for_ui(sentence);
-                                                            if let Some(logic) = fol.logic {
-                                                                lines.push(format!("Goal: {}", logic));
-                                                            }
-                                                        }
-                                                    }
-
-                                                    // Proof verification
-                                                    let theorem_result = compile_theorem_for_ui(&code);
-                                                    if let Some(ref err) = theorem_result.error {
-                                                        output_error.set(Some(err.clone()));
-                                                    } else {
-                                                        lines.push(String::new());
-                                                        let proved = theorem_result.derivation.is_some();
-                                                        if proved {
-                                                            lines.push(format!("Theorem: {} ✓", theorem_result.name));
-                                                        } else {
-                                                            lines.push(format!("Theorem: {} — not proved", theorem_result.name));
-                                                        }
-                                                    }
-                                                } else {
-                                                    let result = compile_for_ui(&code);
-                                                    if let Some(logic) = result.logic {
-                                                        for line in logic.lines() {
-                                                            lines.push(line.to_string());
-                                                        }
-                                                    }
-                                                    if let Some(ref err) = result.error {
-                                                        output_error.set(Some(err.clone()));
-                                                    }
-                                                }
-
-                                                output_lines.set(lines);
-                                                is_running.set(false);
-                                            }
-                                            StudioMode::Math => {
-                                                let (lines, err) = execute_math_code(&code);
-                                                output_lines.set(lines);
-                                                output_error.set(err);
-                                                is_running.set(false);
-                                            }
-                                        }
-                                    },
-                                    "▶"
-                                    span { class: "btn-label",
-                                        if *demo_mode.read() == StudioMode::Code { "Run" } else { "Execute" }
-                                    }
-                                }
-                            }
-
-                            div { class: "mini-file-tabs",
-                                for i in 0..examples_for_mode(*demo_mode.read()).len() {
-                                    button {
-                                        key: "{i}",
-                                        class: if *active_index.read() == i { "mini-file-tab active" } else { "mini-file-tab" },
-                                        onclick: move |_| {
-                                            active_index.set(i);
-                                            cycling_paused.set(true);
-                                        },
-                                        "{examples_for_mode(*demo_mode.read())[i].filename}"
-                                    }
-                                }
-                                a {
-                                    class: "mini-file-tab view-more",
-                                    href: "/studio",
-                                    "View more..."
-                                }
-                            }
-
-                            div { class: "mini-studio-body",
-                                div { class: "mini-explorer",
-                                    div { class: "mini-explorer-label", "FILES" }
-                                    for i in 0..examples_for_mode(*demo_mode.read()).len() {
-                                        div {
-                                            key: "{i}",
-                                            class: if *active_index.read() == i { "mini-file-item active" } else { "mini-file-item" },
-                                            onclick: move |_| {
-                                                active_index.set(i);
-                                                cycling_paused.set(true);
-                                            },
-                                            span { class: "mini-file-icon", "●" }
-                                            span { "{examples_for_mode(*demo_mode.read())[i].filename}" }
-                                        }
-                                    }
-                                    a {
-                                        class: "mini-file-item view-more",
-                                        href: "/studio",
-                                        "View more..."
-                                    }
-                                }
-                                div { class: "mini-code-panel",
-                                    {
-                                        let mode = *demo_mode.read();
-                                        let examples = examples_for_mode(mode);
-                                        let idx = (*active_index.read()).min(examples.len().saturating_sub(1));
-                                        let ex = &examples[idx];
-                                        rsx! {
-                                            div { class: "mini-code-filename",
-                                                span { "{ex.filename}" }
-                                                span { "  {ex.icon}" }
-                                            }
-                                            CodeEditor {
-                                                value: code_content.read().clone(),
-                                                on_change: move |v: String| code_content.set(v),
-                                                language: match mode {
-                                                    StudioMode::Code => Language::Logos,
-                                                    StudioMode::Logic | StudioMode::Hardware => Language::Logos,
-                                                    StudioMode::Math => Language::Vernacular,
-                                                },
-                                                placeholder: "Enter code...".to_string(),
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-
-                            div {
-                                class: if *resizing_terminal.read() { "mini-terminal-resizer active" } else { "mini-terminal-resizer" },
-                                onmousedown: move |e| {
-                                    e.prevent_default();
-                                    resizing_terminal.set(true);
-                                },
-                                ontouchstart: move |e| {
-                                    e.prevent_default();
-                                    resizing_terminal.set(true);
-                                },
-                            }
-
-                            div { class: "mini-terminal", style: "height: {terminal_height}px;",
-                                div { class: "mini-terminal-head", "OUTPUT" }
-                                div { class: "mini-terminal-body",
-                                    if *is_running.read() {
-                                        div { class: "mini-output-loading", "Running..." }
-                                    }
-                                    {
-                                        let lines = output_lines.read().clone();
-                                        let error = output_error.read().clone();
-                                        rsx! {
-                                            for (i, line) in lines.iter().enumerate() {
-                                                pre { key: "{i}", class: "mini-output-line", "{line}" }
-                                            }
-                                            if let Some(ref err) = error {
-                                                pre { class: "mini-output-error", "{err}" }
-                                            }
-                                            if lines.is_empty() && error.is_none() && !*is_running.read() {
-                                                div { class: "mini-output-empty", "Click Run to see output" }
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-
-                            if *show_compiled.read() {
-                                div {
-                                    class: if *resizing_compiled.read() { "mini-terminal-resizer active" } else { "mini-terminal-resizer" },
-                                    onmousedown: move |e| {
-                                        e.prevent_default();
-                                        resizing_compiled.set(true);
-                                    },
-                                    ontouchstart: move |e| {
-                                        e.prevent_default();
-                                        resizing_compiled.set(true);
-                                    },
-                                }
-                                div { class: "mini-compiled", style: "height: {compiled_height}px;",
-                                    div { class: "mini-compiled-head", "COMPILED RUST" }
-                                    pre { class: "mini-compiled-body", "{compiled_output}" }
-                                }
-                            }
-
-                            div { class: "mini-studio-cta",
-                                {
-                                    let mode = *demo_mode.read();
-                                    let examples = examples_for_mode(mode);
-                                    let idx = (*active_index.read()).min(examples.len().saturating_sub(1));
-                                    let studio_url = format!("/studio?file={}", examples[idx].studio_path);
-                                    rsx! {
-                                        a { href: "{studio_url}", class: "mini-cta-btn",
-                                            "Try it in the Studio →"
-                                        }
-                                    }
-                                }
-                            }
+                        SuspenseBoundary {
+                            fallback: |_| rsx! { div { class: "showcase-loading" } },
+                            LandingShowcase {}
                         }
                     }
                 }
@@ -2204,66 +1764,15 @@ pub fn Landing() -> Element {
                 section { class: "section hello-world section-center hello-world-layout",
                     h2 { class: "section-title", "Hello World in LOGOS" }
 
-                    div { class: "hello-editor",
-                        div { class: "hello-editor-head",
-                            span { class: "hello-filename", "hello-world.logos" }
-                            button {
-                                class: "hello-run-btn",
-                                disabled: *hello_running.read(),
-                                onclick: move |_| {
-                                    let code = hello_code.read().clone();
-                                    hello_running.set(true);
-                                    hello_output.set(Vec::new());
-                                    hello_error.set(None);
-                                    spawn(async move {
-                                        let result = interpret_for_ui(&code).await;
-                                        hello_output.set(result.lines);
-                                        hello_error.set(result.error);
-                                        hello_running.set(false);
-                                    });
-                                },
-                                if *hello_running.read() { "Running..." } else { "▶ Run" }
-                            }
-                        }
-                        div { class: "hello-editor-body",
-                            div { class: "hello-editor-left",
-                                CodeEditor {
-                                    value: hello_code.read().clone(),
-                                    on_change: move |v: String| hello_code.set(v),
-                                    language: Language::Logos,
-                                    placeholder: "Enter code...".to_string(),
-                                }
-                            }
-                            div { class: "hello-editor-right",
-                                div { class: "hello-output-head", "Output" }
-                                div { class: "hello-output-body",
-                                    if *hello_running.read() {
-                                        div { class: "hello-output-loading", "Running..." }
-                                    }
-                                    {
-                                        let lines = hello_output.read().clone();
-                                        let error = hello_error.read().clone();
-                                        rsx! {
-                                            for (i, line) in lines.iter().enumerate() {
-                                                pre { key: "{i}", class: "hello-output-line", "{line}" }
-                                            }
-                                            if let Some(ref err) = error {
-                                                pre { class: "hello-output-error", "{err}" }
-                                            }
-                                            if lines.is_empty() && error.is_none() && !*hello_running.read() {
-                                                div { class: "hello-output-empty", "Click Run to see output" }
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                        }
+                    SuspenseBoundary {
+                        fallback: |_| rsx! { div { class: "hello-loading" } },
+                        LandingHelloWorld {}
                     }
                     div { class: "hello-pill-wrap",
                         p { class: "hello-note", "Compiles to a native binary via Rust. Zero runtime overhead." }
                     }
                     div { class: "hello-cta-wrap",
-                        a { href: "/studio?file=examples/code/hello-world.logos", class: "btn btn-primary",
+                        a { href: crate::ui::router::studio_file_url("examples/code/hello-world.logos"), class: "btn btn-primary",
                             "Open in Studio →"
                         }
                     }
@@ -2520,6 +2029,533 @@ pub fn Landing() -> Element {
                 }
 
                 Footer {}
+            }
+        }
+    }
+}
+
+// `lazy`: with the `split` feature + dx `--wasm-split`, the interactive demo body
+// (and the LOGOS engine — logicaffeine_compile/logicaffeine_kernel — that only it
+// references) moves into the lazily-fetched chunk, keeping the eager core engine-free.
+#[component(lazy)]
+fn LandingShowcase() -> Element {
+    let mut demo_mode = use_signal(|| StudioMode::Code);
+    let mut active_index = use_signal(|| 0usize);
+    let mut cycling_paused = use_signal(|| false);
+    let mut timer_started = use_signal(|| false);
+    let mut terminal_height = use_signal(|| 135.0f64);
+    let mut resizing_terminal = use_signal(|| false);
+    let mut compiled_height = use_signal(|| 140.0f64);
+    let mut show_compiled = use_signal(|| false);
+    let mut resizing_compiled = use_signal(|| false);
+    let mut code_content = use_signal(|| String::new());
+    let mut output_lines = use_signal(|| Vec::<String>::new());
+    let mut output_error = use_signal(|| Option::<String>::None);
+    let mut compiled_output = use_signal(|| String::new());
+    let mut is_running = use_signal(|| false);
+
+    use_effect(move || {
+        let mode = *demo_mode.read();
+        let idx = *active_index.read();
+        let examples = examples_for_mode(mode);
+        let clamped = idx.min(examples.len().saturating_sub(1));
+        let ex = &examples[clamped];
+        let content = ex.content.to_string();
+        code_content.set(content.clone());
+        output_error.set(None);
+        compiled_output.set(ex.compiled.to_string());
+
+        match mode {
+            StudioMode::Code => {
+                output_lines.set(Vec::new());
+                spawn(async move {
+                    let result = interpret_for_ui(&content).await;
+                    output_lines.set(result.lines);
+                    output_error.set(result.error);
+                });
+            }
+            StudioMode::Logic | StudioMode::Hardware => {
+                let mut lines: Vec<String> = Vec::new();
+
+                if content.contains("## Theorem:") {
+                    for line in content.lines() {
+                        let trimmed = line.trim();
+                        if let Some(sentence) = trimmed.strip_prefix("Given:") {
+                            let fol = compile_for_ui(sentence.trim());
+                            if let Some(logic) = fol.logic {
+                                lines.push(logic);
+                            }
+                        } else if let Some(sentence) = trimmed.strip_prefix("Prove:") {
+                            let fol = compile_for_ui(sentence.trim());
+                            if let Some(logic) = fol.logic {
+                                lines.push(format!("Goal: {}", logic));
+                            }
+                        }
+                    }
+
+                    let theorem_result = compile_theorem_for_ui(&content);
+                    if let Some(ref err) = theorem_result.error {
+                        output_error.set(Some(err.clone()));
+                    } else {
+                        lines.push(String::new());
+                        if theorem_result.derivation.is_some() {
+                            lines.push(format!("Theorem: {} ✓", theorem_result.name));
+                        } else {
+                            lines.push(format!("Theorem: {} — not proved", theorem_result.name));
+                        }
+                    }
+                } else {
+                    let result = compile_for_ui(&content);
+                    if let Some(logic) = result.logic {
+                        for line in logic.lines() {
+                            lines.push(line.to_string());
+                        }
+                    }
+                    if let Some(ref err) = result.error {
+                        output_error.set(Some(err.clone()));
+                    }
+                }
+
+                output_lines.set(lines);
+            }
+            StudioMode::Math => {
+                let (lines, err) = execute_math_code(&content);
+                output_lines.set(lines);
+                output_error.set(err);
+            }
+        }
+    });
+
+    use_effect(move || {
+        if *timer_started.read() { return; }
+        timer_started.set(true);
+        #[cfg(target_arch = "wasm32")]
+        spawn(async move {
+            loop {
+                gloo_timers::future::TimeoutFuture::new(7_000).await;
+                if !*cycling_paused.read() {
+                    let mode = *demo_mode.read();
+                    let count = examples_for_mode(mode).len();
+                    let next = (*active_index.read() + 1) % count;
+                    active_index.set(next);
+                }
+            }
+        });
+    });
+
+    rsx! {
+        div {
+            class: "mini-studio",
+            id: "product",
+            style: if *resizing_terminal.read() || *resizing_compiled.read() { "user-select: none;" } else { "" },
+            onmouseenter: move |_| { cycling_paused.set(true); },
+            onmouseleave: move |_| {
+                cycling_paused.set(false);
+                resizing_terminal.set(false);
+                resizing_compiled.set(false);
+            },
+            onmousemove: move |evt| {
+                let window = web_sys::window().unwrap();
+                let document = window.document().unwrap();
+                let cta_height: f64 = 45.0;
+                if *resizing_terminal.read() {
+                    if let Some(el) = document.get_element_by_id("product") {
+                        let rect = el.get_bounding_client_rect();
+                        let coords = evt.data().client_coordinates();
+                        let client_y: f64 = coords.y;
+                        let below = cta_height
+                            + if *show_compiled.read() { *compiled_height.read() + 6.0 } else { 0.0 };
+                        let new_height = rect.bottom() - client_y - below;
+                        terminal_height.set(new_height.clamp(60.0, 300.0));
+                    }
+                } else if *resizing_compiled.read() {
+                    if let Some(el) = document.get_element_by_id("product") {
+                        let rect = el.get_bounding_client_rect();
+                        let coords = evt.data().client_coordinates();
+                        let client_y: f64 = coords.y;
+                        let new_height = rect.bottom() - client_y - cta_height;
+                        let max_compiled = rect.height() - *terminal_height.read() - cta_height - 6.0 - 120.0;
+                        compiled_height.set(new_height.clamp(60.0, max_compiled.max(60.0)));
+                    }
+                }
+            },
+            onmouseup: move |_| {
+                resizing_terminal.set(false);
+                resizing_compiled.set(false);
+            },
+            ontouchmove: move |evt| {
+                let window = web_sys::window().unwrap();
+                let document = window.document().unwrap();
+                let cta_height: f64 = 45.0;
+                if *resizing_terminal.read() || *resizing_compiled.read() {
+                    evt.prevent_default();
+                    let touches = evt.data().touches();
+                    if let Some(touch) = touches.first() {
+                        if let Some(el) = document.get_element_by_id("product") {
+                            let rect = el.get_bounding_client_rect();
+                            let coords = touch.client_coordinates();
+                            let client_y: f64 = coords.y;
+                            if *resizing_terminal.read() {
+                                let below = cta_height
+                                    + if *show_compiled.read() { *compiled_height.read() + 6.0 } else { 0.0 };
+                                let new_height = rect.bottom() - client_y - below;
+                                terminal_height.set(new_height.clamp(60.0, 300.0));
+                            } else {
+                                let new_height = rect.bottom() - client_y - cta_height;
+                                let max_compiled = rect.height() - *terminal_height.read() - cta_height - 6.0 - 120.0;
+                                compiled_height.set(new_height.clamp(60.0, max_compiled.max(60.0)));
+                            }
+                        }
+                    }
+                }
+            },
+            ontouchend: move |_| {
+                resizing_terminal.set(false);
+                resizing_compiled.set(false);
+            },
+
+            div { class: "mini-studio-head",
+                div { class: "win-dots",
+                    div { class: "wdot wr" }
+                    div { class: "wdot wy" }
+                    div { class: "wdot wg" }
+                }
+                div { class: "mini-mode-toggle",
+                    button {
+                        class: if *demo_mode.read() == StudioMode::Code { "mini-toggle-btn active" } else { "mini-toggle-btn" },
+                        onclick: move |_| {
+                            demo_mode.set(StudioMode::Code);
+                            active_index.set(0);
+                        },
+                        span { "λ" }
+                        span { class: "mini-toggle-label", "Code" }
+                    }
+                    button {
+                        class: if *demo_mode.read() == StudioMode::Logic { "mini-toggle-btn active" } else { "mini-toggle-btn" },
+                        onclick: move |_| {
+                            demo_mode.set(StudioMode::Logic);
+                            active_index.set(0);
+                            show_compiled.set(false);
+                        },
+                        span { "∀" }
+                        span { class: "mini-toggle-label", "Logic" }
+                    }
+                    button {
+                        class: if *demo_mode.read() == StudioMode::Math { "mini-toggle-btn active" } else { "mini-toggle-btn" },
+                        onclick: move |_| {
+                            demo_mode.set(StudioMode::Math);
+                            active_index.set(0);
+                            show_compiled.set(false);
+                        },
+                        span { "π" }
+                        span { class: "mini-toggle-label", "Math" }
+                    }
+                }
+            }
+
+            div { class: "mini-action-bar",
+                if *demo_mode.read() == StudioMode::Code {
+                    button {
+                        class: "mini-exec-btn compile",
+                        onclick: move |_| {
+                            let code = code_content.read().clone();
+
+                            match generate_rust_code(&code) {
+                                Ok(rust) => compiled_output.set(rust),
+                                Err(e) => compiled_output.set(format!("// Compile error: {:?}", e)),
+                            }
+
+                            let current = *show_compiled.read();
+                            if !current {
+                                show_compiled.set(true);
+                            }
+                        },
+                        "🦀"
+                        span { class: "btn-label", "Compile to Rust" }
+                    }
+                }
+                button {
+                    class: "mini-exec-btn run",
+                    onclick: move |_| {
+                        let code = code_content.read().clone();
+                        let mode = *demo_mode.read();
+                        is_running.set(true);
+                        output_lines.set(Vec::new());
+                        output_error.set(None);
+
+                        match mode {
+                            StudioMode::Code => {
+                                spawn(async move {
+                                    let result = interpret_for_ui(&code).await;
+                                    output_lines.set(result.lines);
+                                    output_error.set(result.error);
+                                    is_running.set(false);
+                                });
+                            }
+                            StudioMode::Logic | StudioMode::Hardware => {
+                                let mut lines: Vec<String> = Vec::new();
+
+                                if code.contains("## Theorem:") {
+                                    // FOL transpilation: compile each premise sentence individually
+                                    for line in code.lines() {
+                                        let trimmed = line.trim();
+                                        if let Some(sentence) = trimmed.strip_prefix("Given:") {
+                                            let sentence = sentence.trim();
+                                            let fol = compile_for_ui(sentence);
+                                            if let Some(logic) = fol.logic {
+                                                lines.push(logic);
+                                            }
+                                        } else if let Some(sentence) = trimmed.strip_prefix("Prove:") {
+                                            let sentence = sentence.trim();
+                                            let fol = compile_for_ui(sentence);
+                                            if let Some(logic) = fol.logic {
+                                                lines.push(format!("Goal: {}", logic));
+                                            }
+                                        }
+                                    }
+
+                                    // Proof verification
+                                    let theorem_result = compile_theorem_for_ui(&code);
+                                    if let Some(ref err) = theorem_result.error {
+                                        output_error.set(Some(err.clone()));
+                                    } else {
+                                        lines.push(String::new());
+                                        let proved = theorem_result.derivation.is_some();
+                                        if proved {
+                                            lines.push(format!("Theorem: {} ✓", theorem_result.name));
+                                        } else {
+                                            lines.push(format!("Theorem: {} — not proved", theorem_result.name));
+                                        }
+                                    }
+                                } else {
+                                    let result = compile_for_ui(&code);
+                                    if let Some(logic) = result.logic {
+                                        for line in logic.lines() {
+                                            lines.push(line.to_string());
+                                        }
+                                    }
+                                    if let Some(ref err) = result.error {
+                                        output_error.set(Some(err.clone()));
+                                    }
+                                }
+
+                                output_lines.set(lines);
+                                is_running.set(false);
+                            }
+                            StudioMode::Math => {
+                                let (lines, err) = execute_math_code(&code);
+                                output_lines.set(lines);
+                                output_error.set(err);
+                                is_running.set(false);
+                            }
+                        }
+                    },
+                    "▶"
+                    span { class: "btn-label",
+                        if *demo_mode.read() == StudioMode::Code { "Run" } else { "Execute" }
+                    }
+                }
+            }
+
+            div { class: "mini-file-tabs",
+                for i in 0..examples_for_mode(*demo_mode.read()).len() {
+                    button {
+                        key: "{i}",
+                        class: if *active_index.read() == i { "mini-file-tab active" } else { "mini-file-tab" },
+                        onclick: move |_| {
+                            active_index.set(i);
+                            cycling_paused.set(true);
+                        },
+                        "{examples_for_mode(*demo_mode.read())[i].filename}"
+                    }
+                }
+                a {
+                    class: "mini-file-tab view-more",
+                    href: "/studio",
+                    "View more..."
+                }
+            }
+
+            div { class: "mini-studio-body",
+                div { class: "mini-explorer",
+                    div { class: "mini-explorer-label", "FILES" }
+                    for i in 0..examples_for_mode(*demo_mode.read()).len() {
+                        div {
+                            key: "{i}",
+                            class: if *active_index.read() == i { "mini-file-item active" } else { "mini-file-item" },
+                            onclick: move |_| {
+                                active_index.set(i);
+                                cycling_paused.set(true);
+                            },
+                            span { class: "mini-file-icon", "●" }
+                            span { "{examples_for_mode(*demo_mode.read())[i].filename}" }
+                        }
+                    }
+                    a {
+                        class: "mini-file-item view-more",
+                        href: "/studio",
+                        "View more..."
+                    }
+                }
+                div { class: "mini-code-panel",
+                    {
+                        let mode = *demo_mode.read();
+                        let examples = examples_for_mode(mode);
+                        let idx = (*active_index.read()).min(examples.len().saturating_sub(1));
+                        let ex = &examples[idx];
+                        rsx! {
+                            div { class: "mini-code-filename",
+                                span { "{ex.filename}" }
+                                span { "  {ex.icon}" }
+                            }
+                            CodeEditor {
+                                value: code_content.read().clone(),
+                                on_change: move |v: String| code_content.set(v),
+                                language: match mode {
+                                    StudioMode::Code => Language::Logos,
+                                    StudioMode::Logic | StudioMode::Hardware => Language::Logos,
+                                    StudioMode::Math => Language::Vernacular,
+                                },
+                                placeholder: "Enter code...".to_string(),
+                            }
+                        }
+                    }
+                }
+            }
+
+            div {
+                class: if *resizing_terminal.read() { "mini-terminal-resizer active" } else { "mini-terminal-resizer" },
+                onmousedown: move |e| {
+                    e.prevent_default();
+                    resizing_terminal.set(true);
+                },
+                ontouchstart: move |e| {
+                    e.prevent_default();
+                    resizing_terminal.set(true);
+                },
+            }
+
+            div { class: "mini-terminal", style: "height: {terminal_height}px;",
+                div { class: "mini-terminal-head", "OUTPUT" }
+                div { class: "mini-terminal-body",
+                    if *is_running.read() {
+                        div { class: "mini-output-loading", "Running..." }
+                    }
+                    {
+                        let lines = output_lines.read().clone();
+                        let error = output_error.read().clone();
+                        rsx! {
+                            for (i, line) in lines.iter().enumerate() {
+                                pre { key: "{i}", class: "mini-output-line", "{line}" }
+                            }
+                            if let Some(ref err) = error {
+                                pre { class: "mini-output-error", "{err}" }
+                            }
+                            if lines.is_empty() && error.is_none() && !*is_running.read() {
+                                div { class: "mini-output-empty", "Click Run to see output" }
+                            }
+                        }
+                    }
+                }
+            }
+
+            if *show_compiled.read() {
+                div {
+                    class: if *resizing_compiled.read() { "mini-terminal-resizer active" } else { "mini-terminal-resizer" },
+                    onmousedown: move |e| {
+                        e.prevent_default();
+                        resizing_compiled.set(true);
+                    },
+                    ontouchstart: move |e| {
+                        e.prevent_default();
+                        resizing_compiled.set(true);
+                    },
+                }
+                div { class: "mini-compiled", style: "height: {compiled_height}px;",
+                    div { class: "mini-compiled-head", "COMPILED RUST" }
+                    pre { class: "mini-compiled-body", "{compiled_output}" }
+                }
+            }
+
+            div { class: "mini-studio-cta",
+                {
+                    let mode = *demo_mode.read();
+                    let examples = examples_for_mode(mode);
+                    let idx = (*active_index.read()).min(examples.len().saturating_sub(1));
+                    let studio_url = crate::ui::router::studio_file_url(examples[idx].studio_path);
+                    rsx! {
+                        a { href: "{studio_url}", class: "mini-cta-btn",
+                            "Try it in the Studio →"
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+// `lazy`: keeps the hello-world editor's interpreter dependency out of the eager core.
+#[component(lazy)]
+fn LandingHelloWorld() -> Element {
+    let mut hello_code = use_signal(|| CODE_DEMO_EXAMPLES[0].content.to_string());
+    let mut hello_output = use_signal(|| CODE_DEMO_EXAMPLES[0].output.lines().map(|l| l.to_string()).collect::<Vec<_>>());
+    let mut hello_error = use_signal(|| Option::<String>::None);
+    let mut hello_running = use_signal(|| false);
+
+    rsx! {
+        div { class: "hello-editor",
+            div { class: "hello-editor-head",
+                span { class: "hello-filename", "hello-world.logos" }
+                button {
+                    class: "hello-run-btn",
+                    disabled: *hello_running.read(),
+                    onclick: move |_| {
+                        let code = hello_code.read().clone();
+                        hello_running.set(true);
+                        hello_output.set(Vec::new());
+                        hello_error.set(None);
+                        spawn(async move {
+                            let result = interpret_for_ui(&code).await;
+                            hello_output.set(result.lines);
+                            hello_error.set(result.error);
+                            hello_running.set(false);
+                        });
+                    },
+                    if *hello_running.read() { "Running..." } else { "▶ Run" }
+                }
+            }
+            div { class: "hello-editor-body",
+                div { class: "hello-editor-left",
+                    CodeEditor {
+                        value: hello_code.read().clone(),
+                        on_change: move |v: String| hello_code.set(v),
+                        language: Language::Logos,
+                        placeholder: "Enter code...".to_string(),
+                    }
+                }
+                div { class: "hello-editor-right",
+                    div { class: "hello-output-head", "Output" }
+                    div { class: "hello-output-body",
+                        if *hello_running.read() {
+                            div { class: "hello-output-loading", "Running..." }
+                        }
+                        {
+                            let lines = hello_output.read().clone();
+                            let error = hello_error.read().clone();
+                            rsx! {
+                                for (i, line) in lines.iter().enumerate() {
+                                    pre { key: "{i}", class: "hello-output-line", "{line}" }
+                                }
+                                if let Some(ref err) = error {
+                                    pre { class: "hello-output-error", "{err}" }
+                                }
+                                if lines.is_empty() && error.is_none() && !*hello_running.read() {
+                                    div { class: "hello-output-empty", "Click Run to see output" }
+                                }
+                            }
+                        }
+                    }
+                }
             }
         }
     }

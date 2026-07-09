@@ -62,6 +62,7 @@
 //! program from a list of statements.
 
 // Module declarations
+pub(crate) mod bigint_promote;
 pub(crate) mod context;
 pub(crate) mod detection;
 pub(crate) mod types;
@@ -90,7 +91,7 @@ pub(crate) mod slice;
 
 pub use context::{RefinementContext, VariableCapabilities, empty_var_caps};
 pub use detection::{collect_async_functions, collect_pipe_sender_params, collect_pipe_vars};
-pub use program::{codegen_program, codegen_program_with_proven};
+pub use program::{codegen_program, codegen_program_mapped, codegen_program_with_proven};
 pub use slice::function_slice;
 pub use marshal::codegen_native_tier_export;
 pub use hoist::force_disable_for_test as force_disable_borrow_hoist_for_test;
@@ -185,4 +186,72 @@ pub(crate) fn escape_rust_ident(name: &str) -> String {
     } else {
         name.to_string()
     }
+}
+
+/// A call-site ABI role a function parameter can carry, keyed by parameter index.
+/// A single function may play SEVERAL at once — the canonical case is a readonly
+/// `Seq` param (de-Rc'd to `&[T]`) alongside a value-semantics `mutable` collection
+/// param (passed as `&LogosSeq`/`&LogosMap`).
+#[derive(Clone, Copy)]
+pub(crate) enum FnRole {
+    /// Readonly borrow (`&[T]`) — the `borrow_params_map` opt.
+    Borrow,
+    /// Element-mutating borrow (`&mut [T]`) — the `mut_borrow_params_map` opt.
+    MutBorrow,
+    /// Value-semantics `mutable` collection (`&LogosSeq`/`&LogosMap`).
+    ValueMutable,
+}
+
+/// Pack the per-parameter role index sets a function plays into ONE `variable_types`
+/// slot. The slot is single-valued, so registering each role as its own
+/// `fn_borrow:` / `fn_value_mutable:` string used to make them clobber each other —
+/// a function with both a readonly-borrow param and a `mutable` param would keep
+/// only the last-registered role, and every call site then mis-lowered the other
+/// (cloning an owned `LogosSeq` into a `&[T]` slot). This keeps all roles together.
+pub(crate) fn encode_fn_roles(
+    borrow: &std::collections::HashSet<usize>,
+    mut_borrow: &std::collections::HashSet<usize>,
+    value_mutable: &std::collections::HashSet<usize>,
+) -> String {
+    fn csv(s: &std::collections::HashSet<usize>) -> String {
+        let mut v: Vec<usize> = s.iter().copied().collect();
+        v.sort_unstable();
+        v.iter().map(|i| i.to_string()).collect::<Vec<_>>().join(",")
+    }
+    format!(
+        "fn_roles|b={}|m={}|v={}",
+        csv(borrow),
+        csv(mut_borrow),
+        csv(value_mutable)
+    )
+}
+
+/// The parameter indices for one [`FnRole`] out of a slot written by
+/// [`encode_fn_roles`]. Empty when the slot is absent or is an ordinary variable
+/// type rather than a role encoding.
+pub(crate) fn fn_role_indices(
+    encoded: Option<&String>,
+    role: FnRole,
+) -> std::collections::HashSet<usize> {
+    let empty = std::collections::HashSet::new();
+    let Some(rest) = encoded.and_then(|s| s.strip_prefix("fn_roles|")) else {
+        return empty;
+    };
+    let key = match role {
+        FnRole::Borrow => "b=",
+        FnRole::MutBorrow => "m=",
+        FnRole::ValueMutable => "v=",
+    };
+    for section in rest.split('|') {
+        if let Some(csv) = section.strip_prefix(key) {
+            return csv.split(',').filter_map(|i| i.parse().ok()).collect();
+        }
+    }
+    empty
+}
+
+/// True when a `variable_types` slot is a [`encode_fn_roles`] encoding (a function
+/// symbol's ABI role) rather than an ordinary variable type.
+pub(crate) fn is_fn_role_slot(ty: &str) -> bool {
+    ty.starts_with("fn_roles|")
 }

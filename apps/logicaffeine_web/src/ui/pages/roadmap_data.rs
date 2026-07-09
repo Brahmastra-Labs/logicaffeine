@@ -333,6 +333,21 @@ static MILESTONES: &[Milestone] = &[
         ],
         examples: &[],
     },
+    Milestone {
+        title: "Silicon",
+        status: Status::Planned,
+        description: "The LOGOS chip. The AOT tier already runs at 2.6× the speed of C — faster than C, C++, Rust, and Zig, the fastest language in the suite — so the general-purpose CPU is tapped out, and the next order of magnitude leaves it for a full-custom HPC SoC. The register-VM ops become a native ISA, the copy-and-patch stencils become hardwired functional units, and the Jones-optimal Futamura specializer configures a spatial dataflow fabric: implementation is a partial evaluation of the specification, so the compiled program *is* the circuit, correct by construction. Because that residual is a statically-known dataflow, there is no speculative cache hierarchy to pay for — memory is scheduled onto scratchpads, not guessed. The crypto and codec kernels already written in Logos — Keccak-f[1600], the ML-KEM / ML-DSA NTT, SHA-3, group-varint — drop onto dedicated accelerators for line-rate post-quantum crypto and serialization. And the goal is not only speed but power: with no cache hierarchy and no speculation to feed, the fabric spends energy only on the computation that runs — driving toward the Landauer limit, and, through reversible logic, past it. Because the same substrate that verifies English specs emits SVA, extracts Verilog, and proves BitVec(n) properties across every bus width, the chip is designed and formally proven in Logos itself: self-hosting, zero-defect silicon.",
+        features: &[
+            "LOGOS-ISA cores",
+            "Stencils → functional units",
+            "Futamura dataflow fabric",
+            "No cache hierarchy",
+            "Low power → Landauer",
+            "PQC accelerators",
+            "Self-verified RTL",
+        ],
+        examples: &[],
+    },
 ];
 
 #[cfg(test)]

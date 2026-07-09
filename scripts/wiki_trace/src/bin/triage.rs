@@ -6,7 +6,7 @@
 //! READ-ONLY: writes only under the output directory. Never edits source,
 //! lexicon, or tests — it proposes; the loop (gated) applies.
 //!
-//! Usage: wiki-triage <input.txt> [output_dir]
+//! Usage: wiki-triage <input.txt> \[output_dir\]
 //! Default output: wikis/triage/<input-stem>/
 
 use logicaffeine_compile::ui_bridge::compile_for_ui;

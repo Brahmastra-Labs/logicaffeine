@@ -1,4 +1,4 @@
-//! Phase 112 — §5.3 Proportional / partitive quantifiers (MISSING_ENGLISH.md).
+//! Phase 112 — §5.3 Proportional / partitive quantifiers (work/MISSING_ENGLISH.md).
 //!
 //! Quantifiers over a presupposed salient set:
 //!   "Two of the three students passed." → |{x:Student(x)∧Pass(x)}|=2  (within the 3-set)

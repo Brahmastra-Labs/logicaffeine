@@ -4,6 +4,9 @@ version = "0.0.0"
 publish = false
 edition.workspace = true
 rust-version.workspace = true
+license = "BUSL-1.1"
+description = "Corpus-tracing harness: runs the logicaffeine compiler over large English corpora and triages what parses to FOL."
+readme = "README.md"
 
 [lib]
 name = "wiki_trace"
@@ -18,7 +21,7 @@ name = "wiki-triage"
 path = "src/bin/triage.rs"
 
 [dependencies]
-logicaffeine-compile = { path = "../../crates/logicaffeine_compile" }
-logicaffeine-language = { path = "../../crates/logicaffeine_language" }
+logicaffeine-compile = { workspace = true }
+logicaffeine-language = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }

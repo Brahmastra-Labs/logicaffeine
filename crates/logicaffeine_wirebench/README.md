@@ -2,7 +2,7 @@
 
 A fair, reproducible head-to-head benchmark of the Logos wire codec against industry serializers — measuring encoded size, encode ns/op, and decode ns/op on the same logical data (the Logos value space: int/float arrays, struct lists, records, strings).
 
-Part of the [Logicaffeine](../../NEW_README.md) workspace. It is a thin `[[bin]]` (`wirebench`) over `logicaffeine_compile`'s `concurrency::marshal` codec and `interpreter` value types; it owns no library surface of its own. The crate is pinned to `version = "0.0.0"`, is `publish = false`, and — although it is listed as a workspace member — is deliberately kept **out of `default-members`** so its heavy competitor dependencies never touch the main build, test, or CI flow.
+Part of the [Logicaffeine](https://github.com/Brahmastra-Labs/logicaffeine/blob/main/README.md) workspace. It is a thin `[[bin]]` (`wirebench`) over `logicaffeine_compile`'s `concurrency::marshal` codec and `interpreter` value types; it owns no library surface of its own. The crate is pinned to `version = "0.0.0"`, is `publish = false`, and — although it is listed as a workspace member — is deliberately kept **out of `default-members`** so its heavy competitor dependencies never touch the main build, test, or CI flow.
 
 ## Role in the workspace
 
@@ -51,7 +51,7 @@ The toolchain-backed competitors are off by default so the core bench builds and
 
 ## License
 
-Business Source License 1.1 — see [LICENSE.md](../../LICENSE.md).
+Business Source License 1.1 — see [LICENSE.md](https://github.com/Brahmastra-Labs/logicaffeine/blob/main/LICENSE.md).
 
 ---
-[Docs index](../../new_docs/README.md) · [Root README](../../NEW_README.md) · [Changelog](../../CHANGELOG.md)
+[Docs index](https://github.com/Brahmastra-Labs/logicaffeine/blob/main/docs/README.md) · [Root README](https://github.com/Brahmastra-Labs/logicaffeine/blob/main/README.md) · [Changelog](https://github.com/Brahmastra-Labs/logicaffeine/blob/main/CHANGELOG.md)

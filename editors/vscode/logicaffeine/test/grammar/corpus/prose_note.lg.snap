@@ -1,0 +1,40 @@
+># Prose-heavy literate file — the over-highlighting guard.
+#^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ source.logicaffeine comment.line.number-sign.logicaffeine
+># Ordinary English below must stay mostly unpainted.
+#^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ source.logicaffeine comment.line.number-sign.logicaffeine
+>
+>## Note
+#^^ source.logicaffeine comment.block.documentation.logicaffeine punctuation.definition.heading.logicaffeine
+#  ^ source.logicaffeine comment.block.documentation.logicaffeine
+#   ^^^^ source.logicaffeine comment.block.documentation.logicaffeine keyword.control.section.logicaffeine
+>
+>This module sorts sequences. The algorithm chooses a pivot near the
+#^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ source.logicaffeine comment.block.documentation.logicaffeine
+>middle and partitions the remaining values around it. Nothing here is
+#^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ source.logicaffeine comment.block.documentation.logicaffeine
+>code; a reader should see documentation, and the highlighter should
+#^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ source.logicaffeine comment.block.documentation.logicaffeine
+>leave these paragraphs alone apart from structural words.
+#^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ source.logicaffeine comment.block.documentation.logicaffeine
+>
+>## Main
+#^^ source.logicaffeine punctuation.definition.heading.logicaffeine
+#  ^ source.logicaffeine
+#   ^^^^ source.logicaffeine keyword.control.section.logicaffeine
+># The entry point is deliberately tiny.
+#^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ source.logicaffeine comment.line.number-sign.logicaffeine
+>Let greeting be "Hello, World!".
+#^^^ source.logicaffeine keyword.control.logicaffeine
+#   ^ source.logicaffeine
+#    ^^^^^^^^ source.logicaffeine variable.other.readwrite.definition.logicaffeine
+#            ^ source.logicaffeine
+#             ^^ source.logicaffeine keyword.control.logicaffeine
+#               ^ source.logicaffeine
+#                ^ source.logicaffeine string.quoted.double.logicaffeine
+#                 ^^^^^^^^^^^^^ source.logicaffeine string.quoted.double.logicaffeine
+#                              ^ source.logicaffeine string.quoted.double.logicaffeine
+#                               ^^ source.logicaffeine
+>Show greeting.
+#^^^^ source.logicaffeine keyword.control.logicaffeine
+#    ^^^^^^^^^^^ source.logicaffeine
+>

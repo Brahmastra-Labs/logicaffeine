@@ -1,4 +1,4 @@
-//! Phase 4 (FINISH_INTERPRETER.md) — Send/escape analysis tests.
+//! Phase 4 (work/FINISH_INTERPRETER.md) — Send/escape analysis tests.
 //!
 //! The concurrency memory model is message-passing + CRDT: tasks have isolated
 //! heaps; the only cross-task sharing is channels (move) and CRDT cells. This

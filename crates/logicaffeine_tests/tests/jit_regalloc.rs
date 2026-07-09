@@ -181,12 +181,12 @@ fn nqueens_with_regalloc_is_exact() {
                \x20   If row equals n:\n\
                \x20       Return 1.\n\
                \x20   Let all be (1 shifted left by n) - 1.\n\
-               \x20   Let mutable available be all and not (cols or diag1 or diag2).\n\
+               \x20   Let mutable available be all & ~(cols | diag1 | diag2).\n\
                \x20   Let mutable count be 0.\n\
                \x20   While available is not 0:\n\
-               \x20       Let bit be available and (0 - available).\n\
+               \x20       Let bit be available & (0 - available).\n\
                \x20       Set available to available xor bit.\n\
-               \x20       Set count to count + solve(row + 1, cols or bit, (diag1 or bit) shifted left by 1, (diag2 or bit) shifted right by 1, n).\n\
+               \x20       Set count to count + solve(row + 1, cols | bit, (diag1 | bit) shifted left by 1, (diag2 | bit) shifted right by 1, n).\n\
                \x20   Return count.\n\
                \n\
                ## Main\n\
@@ -709,12 +709,12 @@ fn nqueens_tiers_via_regalloc_function() {
                \x20   If row equals n:\n\
                \x20       Return 1.\n\
                \x20   Let all be (1 shifted left by n) - 1.\n\
-               \x20   Let mutable available be all and not (cols or diag1 or diag2).\n\
+               \x20   Let mutable available be all & ~(cols | diag1 | diag2).\n\
                \x20   Let mutable count be 0.\n\
                \x20   While available is not 0:\n\
-               \x20       Let bit be available and (0 - available).\n\
+               \x20       Let bit be available & (0 - available).\n\
                \x20       Set available to available xor bit.\n\
-               \x20       Set count to count + solve(row + 1, cols or bit, (diag1 or bit) shifted left by 1, (diag2 or bit) shifted right by 1, n).\n\
+               \x20       Set count to count + solve(row + 1, cols | bit, (diag1 | bit) shifted left by 1, (diag2 | bit) shifted right by 1, n).\n\
                \x20   Return count.\n\
                \n\
                ## Main\n\

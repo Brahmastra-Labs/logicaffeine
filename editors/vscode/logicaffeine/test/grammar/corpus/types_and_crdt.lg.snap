@@ -1,0 +1,226 @@
+># Types, enums, pattern matching, CRDTs, zones, temporal literals.
+#^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ source.logicaffeine comment.line.number-sign.logicaffeine
+>
+>## A Point has:
+#^^ source.logicaffeine punctuation.definition.heading.logicaffeine
+#  ^ source.logicaffeine
+#   ^ source.logicaffeine keyword.control.section.logicaffeine
+#    ^ source.logicaffeine
+#     ^^^^^ source.logicaffeine entity.name.type.logicaffeine
+#          ^^^^^^ source.logicaffeine
+>    An x: Int.
+#^^^^^^^ source.logicaffeine
+#       ^ source.logicaffeine variable.parameter.logicaffeine
+#        ^ source.logicaffeine punctuation.separator.annotation.logicaffeine
+#         ^ source.logicaffeine
+#          ^^^ source.logicaffeine entity.name.type.logicaffeine
+#             ^^ source.logicaffeine
+>    A y: Int.
+#^^^^^^ source.logicaffeine
+#      ^ source.logicaffeine variable.parameter.logicaffeine
+#       ^ source.logicaffeine punctuation.separator.annotation.logicaffeine
+#        ^ source.logicaffeine
+#         ^^^ source.logicaffeine entity.name.type.logicaffeine
+#            ^^ source.logicaffeine
+>
+>## A Shape is one of:
+#^^ source.logicaffeine punctuation.definition.heading.logicaffeine
+#  ^ source.logicaffeine
+#   ^ source.logicaffeine keyword.control.section.logicaffeine
+#    ^ source.logicaffeine
+#     ^^^^^ source.logicaffeine entity.name.type.logicaffeine
+#          ^^^^^^^^ source.logicaffeine
+#                  ^^ source.logicaffeine keyword.control.logicaffeine
+#                    ^^ source.logicaffeine
+>    A Circle with radius Int.
+#^^^^^^^^^^^^^ source.logicaffeine
+#             ^^^^ source.logicaffeine keyword.control.logicaffeine
+#                 ^^^^^^^^ source.logicaffeine
+#                         ^^^ source.logicaffeine entity.name.type.logicaffeine
+#                            ^^ source.logicaffeine
+>    A Square with side Int.
+#^^^^^^^^^^^^^ source.logicaffeine
+#             ^^^^ source.logicaffeine keyword.control.logicaffeine
+#                 ^^^^^^ source.logicaffeine
+#                       ^^^ source.logicaffeine entity.name.type.logicaffeine
+#                          ^^ source.logicaffeine
+>
+>## Main
+#^^ source.logicaffeine punctuation.definition.heading.logicaffeine
+#  ^ source.logicaffeine
+#   ^^^^ source.logicaffeine keyword.control.section.logicaffeine
+>Let p be a new Point with x 10 and y 20.
+#^^^ source.logicaffeine keyword.control.logicaffeine
+#   ^ source.logicaffeine
+#    ^ source.logicaffeine variable.other.readwrite.definition.logicaffeine
+#     ^ source.logicaffeine
+#      ^^ source.logicaffeine keyword.control.logicaffeine
+#        ^ source.logicaffeine
+#         ^ source.logicaffeine keyword.control.logicaffeine
+#          ^ source.logicaffeine
+#           ^^^ source.logicaffeine keyword.control.logicaffeine
+#              ^ source.logicaffeine
+#               ^^^^^ source.logicaffeine entity.name.type.logicaffeine
+#                    ^ source.logicaffeine
+#                     ^^^^ source.logicaffeine keyword.control.logicaffeine
+#                         ^^^ source.logicaffeine
+#                            ^^ source.logicaffeine constant.numeric.logicaffeine
+#                              ^ source.logicaffeine
+#                               ^^^ source.logicaffeine keyword.operator.logical.logicaffeine
+#                                  ^^^ source.logicaffeine
+#                                     ^^ source.logicaffeine constant.numeric.logicaffeine
+#                                       ^^ source.logicaffeine
+>Set p's x to 5.
+#^^^ source.logicaffeine keyword.control.logicaffeine
+#   ^ source.logicaffeine
+#    ^ source.logicaffeine variable.other.readwrite.logicaffeine
+#     ^^ source.logicaffeine keyword.operator.accessor.logicaffeine
+#       ^^^ source.logicaffeine
+#          ^^ source.logicaffeine keyword.control.logicaffeine
+#            ^ source.logicaffeine
+#             ^ source.logicaffeine constant.numeric.logicaffeine
+#              ^^ source.logicaffeine
+>Show p's x.
+#^^^^ source.logicaffeine keyword.control.logicaffeine
+#    ^^ source.logicaffeine
+#      ^^ source.logicaffeine keyword.operator.accessor.logicaffeine
+#        ^^^^ source.logicaffeine
+>Let s be a new Circle with radius 10.
+#^^^ source.logicaffeine keyword.control.logicaffeine
+#   ^ source.logicaffeine
+#    ^ source.logicaffeine variable.other.readwrite.definition.logicaffeine
+#     ^ source.logicaffeine
+#      ^^ source.logicaffeine keyword.control.logicaffeine
+#        ^ source.logicaffeine
+#         ^ source.logicaffeine keyword.control.logicaffeine
+#          ^ source.logicaffeine
+#           ^^^ source.logicaffeine keyword.control.logicaffeine
+#              ^ source.logicaffeine
+#               ^^^^^^ source.logicaffeine entity.name.type.logicaffeine
+#                     ^ source.logicaffeine
+#                      ^^^^ source.logicaffeine keyword.control.logicaffeine
+#                          ^^^^^^^^ source.logicaffeine
+#                                  ^^ source.logicaffeine constant.numeric.logicaffeine
+#                                    ^^ source.logicaffeine
+>Inspect s:
+#^^^^^^^ source.logicaffeine keyword.control.logicaffeine
+#       ^^^^ source.logicaffeine
+>    When Circle (r):
+#^^^^ source.logicaffeine
+#    ^^^^ source.logicaffeine keyword.control.logicaffeine
+#        ^ source.logicaffeine
+#         ^^^^^^ source.logicaffeine variable.other.enummember.logicaffeine
+#               ^^^^^^ source.logicaffeine
+>        Show r.
+#^^^^^^^^ source.logicaffeine
+#        ^^^^ source.logicaffeine keyword.control.logicaffeine
+#            ^^^^ source.logicaffeine
+>    Otherwise:
+#^^^^ source.logicaffeine
+#    ^^^^^^^^^ source.logicaffeine keyword.control.logicaffeine
+#             ^^ source.logicaffeine
+>        Show "other".
+#^^^^^^^^ source.logicaffeine
+#        ^^^^ source.logicaffeine keyword.control.logicaffeine
+#            ^ source.logicaffeine
+#             ^ source.logicaffeine string.quoted.double.logicaffeine
+#              ^^^^^ source.logicaffeine string.quoted.double.logicaffeine
+#                   ^ source.logicaffeine string.quoted.double.logicaffeine
+#                    ^^ source.logicaffeine
+>Let maybe be some 30.
+#^^^ source.logicaffeine keyword.control.logicaffeine
+#   ^ source.logicaffeine
+#    ^^^^^ source.logicaffeine variable.other.readwrite.definition.logicaffeine
+#         ^ source.logicaffeine
+#          ^^ source.logicaffeine keyword.control.logicaffeine
+#            ^ source.logicaffeine
+#             ^^^^ source.logicaffeine constant.language.logicaffeine
+#                 ^ source.logicaffeine
+#                  ^^ source.logicaffeine constant.numeric.logicaffeine
+#                    ^^ source.logicaffeine
+>Inspect maybe:
+#^^^^^^^ source.logicaffeine keyword.control.logicaffeine
+#       ^^^^^^^^ source.logicaffeine
+>    When OptionSome (v):
+#^^^^ source.logicaffeine
+#    ^^^^ source.logicaffeine keyword.control.logicaffeine
+#        ^ source.logicaffeine
+#         ^^^^^^^^^^ source.logicaffeine variable.other.enummember.logicaffeine
+#                   ^^^^^^ source.logicaffeine
+>        Show v.
+#^^^^^^^^ source.logicaffeine
+#        ^^^^ source.logicaffeine keyword.control.logicaffeine
+#            ^^^^ source.logicaffeine
+>    When OptionNone:
+#^^^^ source.logicaffeine
+#    ^^^^ source.logicaffeine keyword.control.logicaffeine
+#        ^ source.logicaffeine
+#         ^^^^^^^^^^ source.logicaffeine variable.other.enummember.logicaffeine
+#                   ^^ source.logicaffeine
+>        Show none.
+#^^^^^^^^ source.logicaffeine
+#        ^^^^ source.logicaffeine keyword.control.logicaffeine
+#            ^ source.logicaffeine
+#             ^^^^ source.logicaffeine constant.language.logicaffeine
+#                 ^^ source.logicaffeine
+>Let deadline be 2026-05-20 at 4pm.
+#^^^ source.logicaffeine keyword.control.logicaffeine
+#   ^ source.logicaffeine
+#    ^^^^^^^^ source.logicaffeine variable.other.readwrite.definition.logicaffeine
+#            ^ source.logicaffeine
+#             ^^ source.logicaffeine keyword.control.logicaffeine
+#               ^ source.logicaffeine
+#                ^^^^^^^^^^ source.logicaffeine constant.numeric.date.logicaffeine
+#                          ^ source.logicaffeine
+#                           ^^ source.logicaffeine keyword.control.logicaffeine
+#                             ^ source.logicaffeine
+#                              ^^^ source.logicaffeine constant.numeric.time.logicaffeine
+#                                 ^^ source.logicaffeine
+>Sleep 500ms.
+#^^^^^ source.logicaffeine keyword.control.logicaffeine
+#     ^ source.logicaffeine
+#      ^^^^^ source.logicaffeine constant.numeric.duration.logicaffeine
+#           ^^ source.logicaffeine
+>Inside a zone called "Scratch":
+#^^^^^^ source.logicaffeine keyword.control.logicaffeine
+#      ^^^^^^^^ source.logicaffeine
+#              ^^^^^^ source.logicaffeine keyword.control.logicaffeine
+#                    ^ source.logicaffeine
+#                     ^ source.logicaffeine string.quoted.double.logicaffeine
+#                      ^^^^^^^ source.logicaffeine string.quoted.double.logicaffeine
+#                             ^ source.logicaffeine string.quoted.double.logicaffeine
+#                              ^^ source.logicaffeine
+>    Let tmp be a copy of p.
+#^^^^ source.logicaffeine
+#    ^^^ source.logicaffeine keyword.control.logicaffeine
+#       ^ source.logicaffeine
+#        ^^^ source.logicaffeine variable.other.readwrite.definition.logicaffeine
+#           ^ source.logicaffeine
+#            ^^ source.logicaffeine keyword.control.logicaffeine
+#              ^^^ source.logicaffeine
+#                 ^^^^^^^ source.logicaffeine keyword.operator.word.logicaffeine
+#                        ^^^^ source.logicaffeine
+>Merge remote into local.
+#^^^^^ source.logicaffeine keyword.control.logicaffeine
+#     ^^^^^^^^^^^^^^^^^^^^ source.logicaffeine
+>Increase c's points by 10.
+#^^^^^^^^ source.logicaffeine keyword.control.logicaffeine
+#        ^^ source.logicaffeine
+#          ^^ source.logicaffeine keyword.operator.accessor.logicaffeine
+#            ^^^^^^^^ source.logicaffeine
+#                    ^^ source.logicaffeine keyword.control.logicaffeine
+#                      ^ source.logicaffeine
+#                       ^^ source.logicaffeine constant.numeric.logicaffeine
+#                         ^^ source.logicaffeine
+>Append "Line 1" to doc's lines.
+#^^^^^^ source.logicaffeine keyword.control.logicaffeine
+#      ^ source.logicaffeine
+#       ^ source.logicaffeine string.quoted.double.logicaffeine
+#        ^^^^^^ source.logicaffeine string.quoted.double.logicaffeine
+#              ^ source.logicaffeine string.quoted.double.logicaffeine
+#               ^ source.logicaffeine
+#                ^^ source.logicaffeine keyword.control.logicaffeine
+#                  ^^^^ source.logicaffeine
+#                      ^^ source.logicaffeine keyword.operator.accessor.logicaffeine
+#                        ^^^^^^^^ source.logicaffeine
+>

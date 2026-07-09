@@ -1,6 +1,6 @@
 [package]
 name = "logicaffeine-compile"
-version = "0.9.17"
+version.workspace = true
 edition.workspace = true
 authors.workspace = true
 repository.workspace = true
@@ -33,14 +33,15 @@ wasm-jit = ["dep:wasmi"]
 # only pulled in with `wasm-jit`. (A browser build would later swap to the host's native
 # `WebAssembly` via js-sys — a perf refinement, not a correctness change.)
 wasmi = { version = "0.31", optional = true }
-logicaffeine-base = { version = "0.9.17", path = "../logicaffeine_base" }
-logicaffeine-language = { version = "0.9.17", path = "../logicaffeine_language" }
-logicaffeine-kernel = { version = "0.9.17", path = "../logicaffeine_kernel" }
-logicaffeine-data = { version = "0.9.17", path = "../logicaffeine_data" }
-logicaffeine-system = { version = "0.9.17", path = "../logicaffeine_system", features = ["persistence"] }
-logicaffeine-proof = { version = "0.9.17", path = "../logicaffeine_proof" }
-logicaffeine-runtime = { version = "0.9.17", path = "../logicaffeine_runtime" }
-logicaffeine-verify = { version = "0.9.17", path = "../logicaffeine_verify", optional = true }
+indexmap = { version = "2", features = ["serde"] }
+logicaffeine-base = { workspace = true }
+logicaffeine-language = { workspace = true }
+logicaffeine-kernel = { workspace = true }
+logicaffeine-data = { workspace = true }
+logicaffeine-system = { workspace = true, features = ["persistence"] }
+logicaffeine-proof = { workspace = true }
+logicaffeine-runtime = { workspace = true }
+logicaffeine-verify = { workspace = true, optional = true }
 
 # Runtime dependencies
 async-recursion = "1.1"
@@ -81,7 +82,7 @@ libloading = "0.8"
 zstd = "0.13"
 # The thin relay (tokio-tungstenite, NO libp2p) so the interpreter can network
 # over the relay. wasm uses the browser WebSocket client, which needs no feature.
-logicaffeine-system = { version = "0.9.17", path = "../logicaffeine_system", features = ["relay"] }
+logicaffeine-system = { workspace = true, features = ["relay"] }
 
 [dev-dependencies]
 tempfile = "3.10"

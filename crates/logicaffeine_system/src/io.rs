@@ -3,7 +3,7 @@
 //! Provides input/output primitives for LOGOS programs including:
 //!
 //! - [`show`]: Natural formatting output (primitives without quotes, collections with brackets)
-//! - [`print`], [`println`], [`eprintln`]: Standard output functions
+//! - `print`, `println`, `eprintln`: Standard output functions
 //! - [`read_line`]: Read a line from stdin
 //!
 //! The [`Showable`] trait enables custom types to integrate with the `show` verb.
@@ -78,7 +78,63 @@ impl Showable for f64 {
 
 // Exact rationals show as `n/d` (or a bare integer when whole) — `Display` already
 // reduces, so `Let x: Rational be 7 / 2; Show x` prints `7/2`.
+/// The exact compiled integer (i64 fast path, BigInt spill) prints as the
+/// plain number — indistinguishable from an `i64` `Show`.
+impl Showable for logicaffeine_data::LogosInt {
+    #[inline(always)]
+    fn format_show(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        Display::fmt(self, f)
+    }
+}
+
 impl Showable for logicaffeine_data::LogosRational {
+    #[inline(always)]
+    fn format_show(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        Display::fmt(self, f)
+    }
+}
+
+// Exact base-10 decimals (money) show with their scale faithful — `Display` prints
+// `19.99`/`20.00`, so `Show decimal("19.99")` prints `19.99`, never a lossy float.
+impl Showable for logicaffeine_data::LogosDecimal {
+    #[inline(always)]
+    fn format_show(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        Display::fmt(self, f)
+    }
+}
+
+// Exact complex numbers show as `3+4i` / `i` / `-2i` — `Display` already formats them.
+impl Showable for logicaffeine_data::LogosComplex {
+    #[inline(always)]
+    fn format_show(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        Display::fmt(self, f)
+    }
+}
+
+// ℤ/nℤ elements show as `3 (mod 7)`.
+impl Showable for logicaffeine_data::LogosModular {
+    #[inline(always)]
+    fn format_show(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        Display::fmt(self, f)
+    }
+}
+
+// Physical quantities show as magnitude + unit (`42/127 ft`, `20 °C`) — `Display` formats them.
+impl Showable for logicaffeine_data::LogosQuantity {
+    #[inline(always)]
+    fn format_show(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        Display::fmt(self, f)
+    }
+}
+
+impl Showable for logicaffeine_data::LogosMoney {
+    #[inline(always)]
+    fn format_show(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        Display::fmt(self, f)
+    }
+}
+
+impl Showable for logicaffeine_data::LogosUuid {
     #[inline(always)]
     fn format_show(&self, f: &mut fmt::Formatter) -> fmt::Result {
         Display::fmt(self, f)
@@ -161,6 +217,23 @@ impl<K: Showable + Eq + std::hash::Hash, V: Showable> Showable for logicaffeine_
             }
             k.format_show(f)?;
             write!(f, ": ")?;
+            v.format_show(f)?;
+        }
+        write!(f, "}}")
+    }
+}
+
+// A Set shows as `{e0, e1, …}` in INSERTION order — matching the
+// tree-walker's Vec-backed set display and the direct-WASM linear set
+// (the LOGOS `Set` alias is an insertion-ordered IndexSet).
+impl<T: Showable, S: std::hash::BuildHasher> Showable for indexmap::IndexSet<T, S> {
+    #[inline(always)]
+    fn format_show(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{{")?;
+        for (i, v) in self.iter().enumerate() {
+            if i > 0 {
+                write!(f, ", ")?;
+            }
             v.format_show(f)?;
         }
         write!(f, "}}")

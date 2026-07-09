@@ -23,19 +23,28 @@ pub struct TermParser<'a> {
     pos: usize,
     /// Variables currently in scope (bound by lambda, forall, fix, or match case)
     bound_vars: HashSet<String>,
+    /// How many leading implicit binders `{x:T}` were parsed (for the elaborator).
+    implicit_count: usize,
 }
 
 impl<'a> TermParser<'a> {
     /// Parse a term from input string.
     pub fn parse(input: &'a str) -> Result<Term, ParseError> {
+        Self::parse_with_implicits(input).map(|(t, _)| t)
+    }
+
+    /// Parse a term, also returning how many leading implicit binders `{x:T}` it had —
+    /// the implicit-argument count the elaborator uses at application sites.
+    pub fn parse_with_implicits(input: &'a str) -> Result<(Term, usize), ParseError> {
         let mut parser = Self {
             input,
             pos: 0,
             bound_vars: HashSet::new(),
+            implicit_count: 0,
         };
         let term = parser.parse_term()?;
         parser.skip_whitespace();
-        Ok(term)
+        Ok((term, parser.implicit_count))
     }
 
     /// Parse a term (top-level).
@@ -50,9 +59,75 @@ impl<'a> TermParser<'a> {
             self.parse_fix()
         } else if self.peek_keyword("match") {
             self.parse_match()
+        } else if self.peek_keyword("let") {
+            self.parse_let()
+        } else if self.peek_char('{') {
+            self.parse_implicit_binder()
         } else {
             self.parse_arrow()
         }
+    }
+
+    /// Parse a let-expression `let x := e in body` (an optional `: T` annotation is
+    /// accepted and ignored), desugaring to `body[x := e]` — a local binding as
+    /// capture-avoiding substitution, so no new kernel term is needed.
+    fn parse_let(&mut self) -> Result<Term, ParseError> {
+        self.consume_keyword("let")?;
+        self.skip_whitespace();
+        let name = self.parse_ident()?;
+        self.skip_whitespace();
+        // Optional `: T` ascription (parsed and discarded — the value carries its type).
+        if self.peek_char(':') && !self.peek_str(":=") {
+            self.expect_char(':')?;
+            let _ty = self.parse_term()?;
+            self.skip_whitespace();
+        }
+        self.expect_str(":=")?;
+        self.skip_whitespace();
+        let value = self.parse_term()?;
+        self.skip_whitespace();
+        self.consume_keyword("in")?;
+
+        let was_bound = self.bound_vars.contains(&name);
+        self.bound_vars.insert(name.clone());
+        let body = self.parse_term()?;
+        if !was_bound {
+            self.bound_vars.remove(&name);
+        }
+
+        Ok(crate::type_checker::substitute(&body, &name, &value))
+    }
+
+    /// Parse an implicit binder `{x : T}` (optionally followed by `->`) and the body —
+    /// `Π{x:T}. body`, sugar marking `x` as an implicit argument the elaborator infers.
+    /// The binder is an ordinary `Pi` in the kernel; the implicit-ness is tracked by
+    /// `implicit_count` (the kernel `Term` has no implicit flag).
+    fn parse_implicit_binder(&mut self) -> Result<Term, ParseError> {
+        self.expect_char('{')?;
+        self.skip_whitespace();
+        let param = self.parse_ident()?;
+        self.skip_whitespace();
+        self.expect_char(':')?;
+        let param_type = self.parse_term()?;
+        self.skip_whitespace();
+        self.expect_char('}')?;
+        self.implicit_count += 1;
+
+        self.skip_whitespace();
+        self.try_consume("->"); // optional arrow between the binder and the body
+
+        let was_bound = self.bound_vars.contains(&param);
+        self.bound_vars.insert(param.clone());
+        let body_type = self.parse_term()?;
+        if !was_bound {
+            self.bound_vars.remove(&param);
+        }
+
+        Ok(Term::Pi {
+            param,
+            param_type: Box::new(param_type),
+            body_type: Box::new(body_type),
+        })
     }
 
     /// Parse arrow type: A -> B -> C (right associative)
@@ -83,14 +158,19 @@ impl<'a> TermParser<'a> {
             // Stop at: ), ->, =>, ,, |, with, return, end, ., EOF, or keywords
             if self.at_end()
                 || self.peek_char(')')
+                || self.peek_char('}')
+                || self.peek_char('{')
                 || self.peek_char('.')
                 || self.peek_char(',')
                 || self.peek_char('|')
+                || self.peek_char('⟩')
                 || self.peek_str("->")
                 || self.peek_str("=>")
+                || self.peek_str(":=")
                 || self.peek_keyword("with")
                 || self.peek_keyword("return")
                 || self.peek_keyword("end")
+                || self.peek_keyword("in")
             {
                 break;
             }
@@ -104,7 +184,18 @@ impl<'a> TermParser<'a> {
 
     /// Parse an atom: (term), number, string, sort, or identifier
     fn parse_atom(&mut self) -> Result<Term, ParseError> {
+        let base = self.parse_atom_base()?;
+        self.parse_dot_postfix(base)
+    }
+
+    /// Parse the base of an atom, before any postfix projection.
+    fn parse_atom_base(&mut self) -> Result<Term, ParseError> {
         self.skip_whitespace();
+
+        // Anonymous constructor ⟨e₁, …, eₙ⟩ (E3)
+        if self.peek_char('⟨') {
+            return self.parse_anon_ctor();
+        }
 
         // Check for negative number
         if self.peek_char('-') {
@@ -130,6 +221,58 @@ impl<'a> TermParser<'a> {
         } else {
             self.parse_ident_or_sort()
         }
+    }
+
+    /// Apply zero or more TIGHT postfix projections `.field` to `base` (E4). Tight means no
+    /// intervening whitespace: `p.fst` projects, while `p .` / `p.` at a clause end stays a
+    /// terminator, and only a `.` immediately followed by an identifier start is a field.
+    fn parse_dot_postfix(&mut self, mut base: Term) -> Result<Term, ParseError> {
+        while self.peek_char('.') {
+            let after = self.pos + '.'.len_utf8();
+            let is_field = self.input[after..]
+                .chars()
+                .next()
+                .map(|c| c.is_alphabetic() || c == '_')
+                .unwrap_or(false);
+            if !is_field {
+                break;
+            }
+            self.advance(); // consume '.'
+            let field = self.parse_ident()?;
+            base = Term::App(
+                Box::new(Term::App(
+                    Box::new(Term::Global(crate::elaborate::DOT_MARKER.to_string())),
+                    Box::new(base),
+                )),
+                Box::new(Term::Global(field)),
+            );
+        }
+        Ok(base)
+    }
+
+    /// Parse an anonymous constructor `⟨e₁, …, eₙ⟩` into the reserved marker application
+    /// `⟨anon⟩ e₁ … eₙ` (E3). The elaborator resolves the marker against the expected type.
+    fn parse_anon_ctor(&mut self) -> Result<Term, ParseError> {
+        self.expect_char('⟨')?;
+        let mut comps = Vec::new();
+        self.skip_whitespace();
+        if !self.peek_char('⟩') {
+            loop {
+                comps.push(self.parse_term()?);
+                self.skip_whitespace();
+                if self.try_consume(",") {
+                    self.skip_whitespace();
+                    continue;
+                }
+                break;
+            }
+        }
+        self.expect_char('⟩')?;
+        let mut t = Term::Global(crate::elaborate::ANON_CTOR_MARKER.to_string());
+        for c in comps {
+            t = Term::App(Box::new(t), Box::new(c));
+        }
+        Ok(t)
     }
 
     /// Parse a positive integer literal
@@ -357,10 +500,16 @@ impl<'a> TermParser<'a> {
         self.skip_whitespace();
         let discriminant = self.parse_app()?;
         self.skip_whitespace();
-        self.consume_keyword("return")?;
-        self.skip_whitespace();
-        let motive = self.parse_app()?;
-        self.skip_whitespace();
+        // The `return <motive>` clause is OPTIONAL: when omitted, the motive is left as a
+        // `Hole` for the elaborator to infer (`match e with …`).
+        let motive = if self.try_consume_keyword("return") {
+            self.skip_whitespace();
+            let m = self.parse_app()?;
+            self.skip_whitespace();
+            m
+        } else {
+            Term::Hole
+        };
         self.consume_keyword("with")?;
 
         let mut cases = Vec::new();

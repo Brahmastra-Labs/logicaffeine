@@ -1,4 +1,4 @@
-//! Phase 9 (FINISH_INTERPRETER.md) — concurrency runs in the browser (wasm32), headless.
+//! Phase 9 (work/FINISH_INTERPRETER.md) — concurrency runs in the browser (wasm32), headless.
 //!
 //! Drives the cooperative scheduler through `interpret_streaming` on the `wasm32` target:
 //! the same slice-driven, macrotask-yielding loop the Studio uses. This proves the

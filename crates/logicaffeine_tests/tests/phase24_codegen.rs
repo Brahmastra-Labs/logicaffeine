@@ -271,7 +271,13 @@ fn codegen_if_without_else() {
     let registry = TypeRegistry::with_primitives(&mut interner);
     let type_env = logicaffeine_compile::analysis::types::TypeEnv::new();
     let result = codegen_stmt(&stmt, &interner, 0, &HashSet::<Symbol>::new(), &mut ctx, &empty_lww_fields(), &empty_mv_fields(), &mut synced_vars, &empty_var_caps(), &empty_async_fns(), &empty_pipe_vars(), &HashSet::new(), &registry, &type_env);
-    assert!(result.contains("if x {"), "Expected 'if x {{' but got: {}", result);
+    // An UNTYPED identifier condition gets the truthiness wrap — it could be
+    // a Seq/Text/Float; only a statically-Bool cond emits bare (`if x {`).
+    assert!(
+        result.contains("if logos_truthy(&(x)) {"),
+        "Expected 'if logos_truthy(&(x)) {{' but got: {}",
+        result
+    );
     assert!(result.contains("}"), "Expected '}}' but got: {}", result);
 }
 
@@ -293,7 +299,13 @@ fn codegen_while_loop() {
     let registry = TypeRegistry::with_primitives(&mut interner);
     let type_env = logicaffeine_compile::analysis::types::TypeEnv::new();
     let result = codegen_stmt(&stmt, &interner, 0, &HashSet::<Symbol>::new(), &mut ctx, &empty_lww_fields(), &empty_mv_fields(), &mut synced_vars, &empty_var_caps(), &empty_async_fns(), &empty_pipe_vars(), &HashSet::new(), &registry, &type_env);
-    assert!(result.contains("while running {"), "Expected 'while running {{' but got: {}", result);
+    // An UNTYPED identifier condition gets the truthiness wrap (see
+    // codegen_if_without_else).
+    assert!(
+        result.contains("while logos_truthy(&(running)) {"),
+        "Expected 'while logos_truthy(&(running)) {{' but got: {}",
+        result
+    );
     assert!(result.contains("}"), "Expected '}}' but got: {}", result);
 }
 

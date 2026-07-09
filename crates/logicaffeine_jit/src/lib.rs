@@ -1,27 +1,5 @@
-//! The LOGOS native tier: the bridge from the bytecode VM's tier-up seam to
-//! the copy-and-patch forge JIT.
-//!
-//! The VM profiles calls and Main-loop back-edges; when something goes hot it
-//! asks its installed [`NativeTier`] to compile. This crate is that tier:
-//! [`ForgeTier`] translates VM bytecode into the forge's [`MicroOp`] subset
-//! (functions AND loop regions), compiles it to a native stencil chain, and
-//! hands it back. Anything outside the integer subset BAILS (`None`) and stays
-//! on bytecode forever — the deopt contract.
-//!
-//! Soundness rests on three legs, each differentially tested in
-//! `logicaffeine-tests`:
-//! - the kind-inference dataflow (params are Int via the entry guard,
-//!   comparisons are Bool, arithmetic requires Int operands);
-//! - per-call / per-entry guards (a non-Int argument routes the call back to
-//!   bytecode);
-//! - the write-back contract for regions (incoming-dead scratches need no
-//!   guard, writes re-box by inferred kind).
-//!
-//! Production binaries call [`install`] once at startup; the live VM
-//! constructors pick the tier up from the global seam. WASM builds compile
-//! this crate to nothing — the browser runs pure bytecode.
-
 #![cfg(not(target_arch = "wasm32"))]
+#![doc = include_str!("../README.md")]
 
 use std::sync::atomic::{AtomicU32, Ordering};
 
@@ -323,7 +301,7 @@ pub unsafe extern "C" fn logos_rt_clear_bool(
 /// * `src_len >= 0` — CONST form: `src` is a `*const u8` to `src_len` bytes (a
 ///   baked ASCII literal).
 ///
-/// The grow reproduces the VM's [`Vm::add_assign`] semantics EXACTLY so the
+/// The grow reproduces the VM's `Vm::add_assign` semantics EXACTLY so the
 /// tiered run is BIT-IDENTICAL to the tree-walker for every alias case:
 /// * if the accumulator is a sole-owned `Rc<String>` (`Rc::get_mut` succeeds), it
 ///   is extended IN PLACE (`String::push_str`);
@@ -438,6 +416,21 @@ pub unsafe extern "C" fn logos_rt_memmem(
     start: i64,
     _bound_unused: i64,
 ) -> i64 {
+    // Lengths arrive as raw `i64` from the JIT frame. A negative (or larger than
+    // `isize::MAX`) value would make `len as usize` a ~2^64 slice length and turn
+    // the `from_raw_parts` calls below into immediate undefined behavior
+    // (`from_raw_parts` requires `len <= isize::MAX`). Treat any out-of-range length
+    // as the recoverable bail path — bytecode then reproduces the exact semantics —
+    // exactly as for an over-long needle access. Without this, a negative
+    // `needle_len`/`haystack_len` is a reachable OOB / arbitrary-length read.
+    if haystack_len < 0
+        || needle_buf_len < 0
+        || needle_len < 0
+        || haystack_len as u64 > isize::MAX as u64
+        || needle_len as u64 > isize::MAX as u64
+    {
+        return LOGOS_MEMMEM_DEOPT;
+    }
     // A checked needle access past its buffer is the nest's recoverable error
     // path: bail to bytecode rather than read OOB or guess the count.
     if needle_len > needle_buf_len {
@@ -702,9 +695,6 @@ fn join(a: Kind, b: Kind) -> Kind {
 /// BEFORE it executes; merge points join per slot (`Unknown ⊔ k = k`,
 /// `k ⊔ k = k`, else `Mixed`). Constants carry their pool type (Int, Float,
 /// Bool); arithmetic promotes like the kernel (any Float operand → Float).
-/// `JumpIfInt` — the compiler's eager-vs-short-circuit dispatch for
-/// `and`/`or` — resolves STATICALLY: a proven-Int condition takes only the
-/// jump edge, a proven-Bool only the fall-through; anything else bails.
 /// Jump targets outside the slice are exits. Returns per-op kind-in vectors
 /// (None = unreachable), or None when any reachable use violates the gates.
 fn kind_flow(
@@ -763,7 +753,7 @@ fn kind_flow(
             | Op::BitXor { dst, .. }
             | Op::Shl { dst, .. }
             | Op::Shr { dst, .. } => out[dst as usize] = Kind::Int,
-            Op::AndEager { dst, lhs, rhs } | Op::OrEager { dst, lhs, rhs } => {
+            Op::BitAnd { dst, lhs, rhs } | Op::BitOr { dst, lhs, rhs } => {
                 out[dst as usize] = match (out[lhs as usize], out[rhs as usize]) {
                     (Kind::Int, Kind::Int) => Kind::Int,
                     (Kind::Bool, Kind::Bool) => Kind::Bool,
@@ -772,7 +762,6 @@ fn kind_flow(
             }
             Op::Not { dst, src } => {
                 out[dst as usize] = match out[src as usize] {
-                    Kind::Int => Kind::Int,
                     Kind::Bool => Kind::Bool,
                     _ => Kind::Mixed,
                 }
@@ -826,20 +815,6 @@ fn kind_flow(
                     succs.push(target - base_pc);
                 }
             }
-            // Statically resolved: only the actually-takeable edge flows.
-            Op::JumpIfInt { cond, target } => match out[cond as usize] {
-                Kind::Int => {
-                    if in_slice(target) {
-                        succs.push(target - base_pc);
-                    }
-                }
-                Kind::Bool | Kind::Float => {
-                    if i + 1 < n {
-                        succs.push(i + 1);
-                    }
-                }
-                _ => return None,
-            },
             Op::Return { .. } | Op::ReturnNothing => {}
             _ => {
                 if i + 1 < n {
@@ -915,16 +890,19 @@ fn kind_flow(
                     return None;
                 }
             }
-            // Eager and/or: both-Int (bitwise) or both-Bool (logical).
-            Op::AndEager { lhs, rhs, .. } | Op::OrEager { lhs, rhs, .. } => {
+            // `& |`: both-Int (bitwise) or both-Bool (logical 0/1).
+            Op::BitAnd { lhs, rhs, .. } | Op::BitOr { lhs, rhs, .. } => {
                 let ints = int_at(lhs) && int_at(rhs);
                 let bools = k[lhs as usize] == Kind::Bool && k[rhs as usize] == Kind::Bool;
                 if !ints && !bools {
                     return None;
                 }
             }
+            // `not` is LOGICAL (truthiness → Bool); only a Bool operand has a
+            // 0/1 register form the stencils can negate. `not <Int>` (rare —
+            // an emptiness idiom) stays on the VM.
             Op::Not { src, .. } => {
-                if !matches!(k[src as usize], Kind::Int | Kind::Bool) {
+                if !matches!(k[src as usize], Kind::Bool) {
                     return None;
                 }
             }
@@ -1118,6 +1096,7 @@ pub fn adapt(
                 _ => return None,
             },
             Op::Move { dst, src } => micro.push(MicroOp::Move { dst, src }),
+            Op::EnsureOwned { .. } => {} // interpreter-only COW barrier — no-op in a native region
             Op::Add { dst, lhs, rhs } => micro.push(MicroOp::Add { dst, lhs, rhs }),
             Op::AddAssign { dst, src } => micro.push(MicroOp::Add { dst, lhs: dst, rhs: src }),
             Op::Div { dst, lhs, rhs } => match const_pow2_div(ops, rhs, constants) {
@@ -1291,8 +1270,7 @@ fn adapt_function(
     for op in ops {
         if let Op::Jump { target }
         | Op::JumpIfFalse { target, .. }
-        | Op::JumpIfTrue { target, .. }
-        | Op::JumpIfInt { target, .. } = *op
+        | Op::JumpIfTrue { target, .. } = *op
         {
             if target < entry_pc || target >= entry_pc + ops.len() {
                 return None;
@@ -1406,7 +1384,7 @@ fn adapt_function(
                 }
                 Op::JumpIfFalse { target, .. }
                 | Op::JumpIfTrue { target, .. }
-                | Op::JumpIfInt { target, .. } => {
+                => {
                     if i + 1 < ops.len() {
                         succs.push(i + 1);
                     }
@@ -1589,7 +1567,7 @@ fn adapt_function(
             Op::Jump { target }
             | Op::JumpIfFalse { target, .. }
             | Op::JumpIfTrue { target, .. }
-            | Op::JumpIfInt { target, .. } => Some(target),
+            => Some(target),
             _ => None,
         })
         .collect();
@@ -1965,13 +1943,16 @@ fn region_use_def(op: &Op) -> Option<(Vec<u16>, Vec<u16>)> {
         Op::DivPow2 { dst, lhs, .. } => (vec![lhs], vec![dst]),
         Op::MagicDivU { dst, lhs, .. } => (vec![lhs], vec![dst]),
         Op::Move { dst, src } => (vec![src], vec![dst]),
-        Op::AndEager { dst, lhs, rhs }
-        | Op::OrEager { dst, lhs, rhs }
-        | Op::BitXor { dst, lhs, rhs }
+        // Interpreter-only call-site COW barrier: a no-op in a native region (the
+        // pinned-buffer / list-param mechanism already governs value semantics here,
+        // exactly as it did before the barrier existed). Reads `reg` to keep it live.
+        Op::EnsureOwned { reg } => (vec![reg], vec![]),
+        Op::BitXor { dst, lhs, rhs }
+        | Op::BitAnd { dst, lhs, rhs }
+        | Op::BitOr { dst, lhs, rhs }
         | Op::Shl { dst, lhs, rhs }
         | Op::Shr { dst, lhs, rhs } => (vec![lhs, rhs], vec![dst]),
         Op::Not { dst, src } => (vec![src], vec![dst]),
-        Op::JumpIfInt { cond, .. } => (vec![cond], vec![]),
         Op::Index { dst, collection, index }
         | Op::IndexUnchecked { dst, collection, index } => (vec![collection, index], vec![dst]),
         Op::Contains { dst, collection, value } => (vec![collection, value], vec![dst]),
@@ -2039,7 +2020,7 @@ fn liveness(ops: &[Op], base_pc: usize, nregs: usize) -> Option<Vec<Vec<bool>>> 
                 }
                 Op::JumpIfFalse { target, .. }
                 | Op::JumpIfTrue { target, .. }
-                | Op::JumpIfInt { target, .. } => {
+                => {
                     if i + 1 < ops.len() {
                         merge_into(&mut out, &live[i + 1]);
                     }
@@ -2319,6 +2300,7 @@ fn translate_op(
             _ => return None,
         },
         Op::Move { dst, src } => micro.push(MicroOp::Move { dst, src }),
+        Op::EnsureOwned { .. } => {} // interpreter-only COW barrier — no-op in a native region
         Op::DivPow2 { dst, lhs, k } => micro.push(MicroOp::DivPow2 { dst, lhs, k: k as u32 }),
         Op::MagicDivU { dst, lhs, magic, more, mul_back } => {
             micro.push(MicroOp::MagicDivU { dst, lhs, magic, more, mul_back })
@@ -2388,11 +2370,13 @@ fn translate_op(
         Op::BitXor { dst, lhs, rhs } => micro.push(MicroOp::BitXor { dst, lhs, rhs }),
         Op::Shl { dst, lhs, rhs } => micro.push(MicroOp::Shl { dst, lhs, rhs }),
         Op::Shr { dst, lhs, rhs } => micro.push(MicroOp::Shr { dst, lhs, rhs }),
-        Op::AndEager { dst, lhs, rhs } => micro.push(MicroOp::BitAnd { dst, lhs, rhs }),
-        Op::OrEager { dst, lhs, rhs } => micro.push(MicroOp::BitOr { dst, lhs, rhs }),
+        Op::BitAnd { dst, lhs, rhs } => micro.push(MicroOp::BitAnd { dst, lhs, rhs }),
+        Op::BitOr { dst, lhs, rhs } => micro.push(MicroOp::BitOr { dst, lhs, rhs }),
         Op::Not { dst, src } => match kind_of(src) {
             Kind::Bool => micro.push(MicroOp::NotBool { dst, src }),
-            _ => micro.push(MicroOp::NotInt { dst, src }),
+            // The region guard admits `Not` only on Bool; a bitwise NotInt
+            // here would silently miscompile the logical `not` — fail closed.
+            _ => return None,
         },
         Op::Lt { dst, lhs, rhs }
         | Op::Gt { dst, lhs, rhs }
@@ -2435,16 +2419,6 @@ fn translate_op(
             fixups.push(micro.len());
             micro.push(MicroOp::JumpIfTrue { cond, target });
         }
-        // Statically resolved by kind: a proven-Int condition always takes
-        // the jump; a proven-Bool/Float never does (emit nothing).
-        Op::JumpIfInt { cond, target } => match kind_of(cond) {
-            Kind::Int => {
-                fixups.push(micro.len());
-                micro.push(MicroOp::Jump { target });
-            }
-            Kind::Bool | Kind::Float => {}
-            _ => return None,
-        },
         // `IndexUnchecked` carries the Oracle's in-bounds proof (M9 range
         // analysis): its array load drops the bounds branch entirely
         // (V8/LLVM-style bounds-check elimination). Maps always check
@@ -3362,7 +3336,7 @@ fn adapt_region(
             }
             Op::JumpIfFalse { target, .. }
             | Op::JumpIfTrue { target, .. }
-            | Op::JumpIfInt { target, .. } => {
+            => {
                 if i + 1 < ops.len() {
                     succs.push(i + 1);
                 }
@@ -3406,7 +3380,7 @@ fn adapt_region(
             Op::Jump { target }
             | Op::JumpIfFalse { target, .. }
             | Op::JumpIfTrue { target, .. }
-            | Op::JumpIfInt { target, .. } => !in_region(target),
+            => !in_region(target),
             Op::Return { .. } => true,
             _ => false,
         };
@@ -3547,7 +3521,7 @@ fn adapt_region(
             Op::Jump { target } => !in_region(target),
             Op::JumpIfFalse { target, .. }
             | Op::JumpIfTrue { target, .. }
-            | Op::JumpIfInt { target, .. } => !in_region(target),
+            => !in_region(target),
             // An in-region Return leaves the loop too — its named writes
             // flow through the same write-back.
             Op::Return { .. } => true,
@@ -3676,7 +3650,7 @@ fn adapt_region(
             Op::Jump { target }
             | Op::JumpIfFalse { target, .. }
             | Op::JumpIfTrue { target, .. }
-            | Op::JumpIfInt { target, .. } => Some(target),
+            => Some(target),
             _ => None,
         })
         .collect();
@@ -6832,6 +6806,47 @@ pub fn install() -> &'static ForgeTier {
         install_native_tier(tier);
     }
     tier
+}
+
+#[cfg(test)]
+mod memmem_safety_tests {
+    use super::*;
+
+    /// SECURITY/UB regression (CRITIQUE #6). `logos_rt_memmem` cast its `i64` lengths
+    /// straight to `usize` for `from_raw_parts`, so a negative `needle_len` or
+    /// `haystack_len` became a ~2^64 slice length — immediate undefined behavior
+    /// (`from_raw_parts` requires `len <= isize::MAX`), reachable on program-controlled
+    /// input. The guard must bail to the recoverable deopt sentinel before constructing
+    /// any slice. (The pre-fix failure is UB, so it is established by inspection of the
+    /// `from_raw_parts` calls rather than executed as a crashing test.)
+    #[test]
+    fn out_of_range_lengths_bail_safely_without_constructing_an_invalid_slice() {
+        let haystack = b"abcabc";
+        let needle = b"bc";
+        let hp = haystack.as_ptr() as i64;
+        let np = needle.as_ptr() as i64;
+        unsafe {
+            // negative needle_len → ~2^64 slice length pre-fix; must bail.
+            assert_eq!(
+                logos_rt_memmem(hp, 6, np, 2, -1, 1, 0),
+                LOGOS_MEMMEM_DEOPT,
+                "negative needle_len must bail to deopt, never reach from_raw_parts"
+            );
+            assert_eq!(logos_rt_memmem(hp, -1, np, 2, 2, 1, 0), LOGOS_MEMMEM_DEOPT, "negative haystack_len must bail");
+            assert_eq!(logos_rt_memmem(hp, 6, np, -1, 2, 1, 0), LOGOS_MEMMEM_DEOPT, "negative needle_buf_len must bail");
+        }
+    }
+
+    /// Regression: valid inputs still search correctly after the guard is added.
+    /// `"bc"` occurs twice in `"abcabc"` (0-based offsets 1 and 4).
+    #[test]
+    fn valid_search_still_counts_matches() {
+        let haystack = b"abcabc";
+        let needle = b"bc";
+        let count =
+            unsafe { logos_rt_memmem(haystack.as_ptr() as i64, 6, needle.as_ptr() as i64, 2, 2, 1, 0) };
+        assert_eq!(count, 2, "the guard must not change correct search results");
+    }
 }
 
 #[cfg(test)]

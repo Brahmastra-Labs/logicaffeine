@@ -90,11 +90,12 @@ Show item (capacity + 1) of prev.
 }
 
 // ---------------------------------------------------------------------------
-// Reference semantics: `Let b be a` aliases — a push through b is visible via a.
+// Value semantics: `Let b be a` is an independent value — a push through b is
+// NOT visible via a. Both engines isolate and agree (length of a stays 1).
 // ---------------------------------------------------------------------------
 #[cfg(not(target_arch = "wasm32"))]
 #[test]
-fn diff_let_binding_aliases() {
+fn diff_let_binding_isolates() {
     assert_compiled_equals_interpreted_eq(
         r#"## Main
 Let mutable a be a new Seq of Int.
@@ -103,7 +104,7 @@ Let mutable b be a.
 Push 2 to b.
 Show length of a.
 "#,
-        "2",
+        "1",
     );
 }
 

@@ -1,10 +1,10 @@
-//! Phase 106 — §9.1 Relational / pertainymic adjectives (MISSING_ENGLISH.md).
+//! Phase 106 — §9.1 Relational / pertainymic adjectives (work/MISSING_ENGLISH.md).
 //!
 //! A relational adjective ("dental" ← tooth, "coastal" ← coast) is denominal and
 //! NON-predicating: "a dental procedure" is not {dental things} ∩ {procedures};
 //! the adjective relates the procedure to teeth.
 //!
-//! Authoritative model (MISSING_ENGLISH.md §9.1, McNally & Boleda 2004 —
+//! Authoritative model (work/MISSING_ENGLISH.md §9.1, McNally & Boleda 2004 —
 //! relational adjectives are predicates of KINDS):
 //!   - kind-level (DEFAULT):  Noun(x) ∧ Rel(x, ^Base)     — no ∃y
 //!   - instance-level (override): Noun(x) ∧ ∃y(Base(y) ∧ Rel(x, y))

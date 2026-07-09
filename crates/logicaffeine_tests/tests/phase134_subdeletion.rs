@@ -1,4 +1,4 @@
-//! Phase 134 — §2.4 Comparative subdeletion (MISSING_ENGLISH.md).
+//! Phase 134 — §2.4 Comparative subdeletion (work/MISSING_ENGLISH.md).
 //!
 //! A clausal `than`-complement with its OWN gradable dimension compares two
 //! different degrees:

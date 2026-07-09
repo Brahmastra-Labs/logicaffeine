@@ -1,0 +1,17 @@
+# Logic surface: theorems, quantified prose, contracts.
+
+## Theorem: Socrates
+
+Given: All men are mortal. Socrates is a man.
+Prove: Socrates is mortal.
+Proof: Auto.
+
+## Main
+Let x: Int where x > 0 be 5.
+Assert that x is equal to 5.
+Trust that x is greater than 0 because "set to 5 above".
+Check that x is at least 1.
+If x is between 1 and 10:
+    Show "small".
+If x is even or x is divisible by 3:
+    Show "structured".

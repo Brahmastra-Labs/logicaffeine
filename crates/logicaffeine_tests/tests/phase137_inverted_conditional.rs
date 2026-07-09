@@ -1,4 +1,4 @@
-//! Phase 137 — §4.1 Inverted conditionals (MISSING_ENGLISH.md).
+//! Phase 137 — §4.1 Inverted conditionals (work/MISSING_ENGLISH.md).
 //!
 //! Subject-aux inversion of the auxiliary stands in for "if" and yields a
 //! counterfactual:

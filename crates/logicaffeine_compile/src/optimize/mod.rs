@@ -1,5 +1,6 @@
 mod defunctionalize;
 mod fold;
+mod splice_fuse;
 mod inline_tiny;
 mod inline_leaf;
 mod inline_recursive;
@@ -11,6 +12,7 @@ mod gvn;
 mod loop_carried_cse;
 mod float_induction_sr;
 mod licm;
+mod bound_version;
 mod closed_form;
 mod ctfe;
 mod deforest;
@@ -39,7 +41,7 @@ mod affine;
 mod abstract_interp;
 pub use abstract_interp::{
     lin_to_rust, oracle_analyze, oracle_analyze_with, oracle_analyze_with_entry_guards, OracleFacts,
-    ScalarKind,
+    ScalarKind, VarProvenFacts,
 };
 pub mod egraph;
 pub mod supercompile;
@@ -74,6 +76,36 @@ thread_local! {
 /// entry (codegen / VM) so the deep codegen + VM toggle reads see it.
 pub fn set_active_config(cfg: OptimizationConfig) {
     ACTIVE_CONFIG.with(|c| c.set(cfg));
+}
+
+thread_local! {
+    /// Expr node addresses whose Int op is PROVEN in-range by the pass that
+    /// CONSTRUCTED them — the proof lives where the knowledge lives (e.g.
+    /// `try_defer_modulus` sizes its version guard so no op in the guarded
+    /// chunk can overflow, a relation the interval oracle's widening cannot
+    /// re-derive). Codegen consults this BEFORE the interval oracle and
+    /// lowers a registered op as raw i64. Cleared at every optimizer entry
+    /// so a freed arena's reused addresses can never leak a stale proof
+    /// into a later program on the same thread.
+    static PROVEN_RAW_INT_OPS: std::cell::RefCell<std::collections::HashSet<usize>> =
+        std::cell::RefCell::new(std::collections::HashSet::new());
+}
+
+/// Forget all constructed-proof registrations (call at optimizer entry).
+pub(crate) fn clear_proven_raw_int_ops() {
+    PROVEN_RAW_INT_OPS.with(|s| s.borrow_mut().clear());
+}
+
+/// Register an Int op the CONSTRUCTING pass proved can never leave i64.
+pub(crate) fn mark_proven_raw_int_op(e: &crate::ast::stmt::Expr) {
+    PROVEN_RAW_INT_OPS.with(|s| {
+        s.borrow_mut().insert(e as *const crate::ast::stmt::Expr as usize);
+    });
+}
+
+/// Was this exact op node proven in-range by its constructing pass?
+pub fn expr_proven_raw_int_op(e: &crate::ast::stmt::Expr) -> bool {
+    PROVEN_RAW_INT_OPS.with(|s| s.borrow().contains(&(e as *const crate::ast::stmt::Expr as usize)))
 }
 
 /// The current compile's optimization config (all-on if unset).
@@ -281,6 +313,7 @@ pub fn optimize_for_run_tiered<'a>(
     tier: Tier,
 ) -> Vec<Stmt<'a>> {
     set_active_config(*cfg);
+    clear_proven_raw_int_ops();
     if cfg.is_all_off() || tier == Tier::T0 {
         return stmts;
     }
@@ -510,6 +543,11 @@ pub fn optimize_program<'a>(
     cfg: &OptimizationConfig,
 ) -> Vec<Stmt<'a>> {
     set_active_config(*cfg);
+    clear_proven_raw_int_ops();
+    // De-desugar FIRST: under reference semantics the parser's place-write
+    // Splices fuse back to the direct nested writes every downstream pass
+    // (BTA, borrow-hoist, bounds elision) pattern-matches.
+    let stmts = splice_fuse::fuse_place_splices(stmts, expr_arena, stmt_arena, interner);
     // NOTE: no early tiny-fn inliner here — that is a RUN-PATH device
     // (optimize_for_run skips supercompile for budget). This AOT pipeline
     // inlines through supercompile at the end exactly like v1, so the PE
@@ -667,6 +705,18 @@ pub fn optimize_program<'a>(
     };
     let folded = fold::fold_stmts(unrolled, expr_arena, stmt_arena, interner);
     let propagated = propagate::propagate_stmts(folded, expr_arena, stmt_arena, interner);
+    // O9 — bound-versioned loop nests (spectral_norm's vectorization): runs
+    // LAST among the rewriters so nothing rebuilds its proven-raw-marked
+    // clone nodes before codegen. Versioning is guard-based loop cloning, the
+    // LoopSplit family; AOT-only like its sibling (the payoff is SIMD).
+    #[cfg(feature = "codegen")]
+    let propagated = if cfg.is_on(Opt::LoopSplit) {
+        run_traced(Opt::LoopSplit, propagated, |c| {
+            bound_version::bound_version_stmts(c, expr_arena, stmt_arena)
+        })
+    } else {
+        propagated
+    };
     if cfg.is_on(Opt::DeadCode) {
         run_traced(Opt::DeadCode, propagated, |c| {
             dce::eliminate_dead_code(c, stmt_arena, expr_arena)

@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use tower_lsp::lsp_types::{Diagnostic, Url};
+use tower_lsp::lsp_types::{Diagnostic, Range, Url};
 
 use logicaffeine_base::Interner;
 use logicaffeine_compile::analysis::VarState;
@@ -42,26 +42,7 @@ impl DocumentState {
         let line_index = LineIndex::new(&source);
 
         let analysis = pipeline::analyze(&source);
-
-        let mut diagnostics = crate::diagnostics::convert_errors(
-            &analysis.errors,
-            &analysis.interner,
-            &line_index,
-        );
-        diagnostics.extend(crate::diagnostics::convert_analysis_errors(
-            &analysis.escape_errors,
-            &analysis.tokens,
-            &analysis.interner,
-            &line_index,
-            uri,
-        ));
-        diagnostics.extend(crate::diagnostics::convert_analysis_errors(
-            &analysis.ownership_errors,
-            &analysis.tokens,
-            &analysis.interner,
-            &line_index,
-            uri,
-        ));
+        let diagnostics = build_diagnostics(&analysis, &line_index, uri);
 
         DocumentState {
             source,
@@ -77,47 +58,69 @@ impl DocumentState {
         }
     }
 
-    /// Update the document with new source text and re-run analysis.
-    pub fn update(&mut self, source: String, version: i32) {
-        self.update_with_uri(source, version, None);
+}
+
+/// Apply one LSP content change to a document's text.
+///
+/// A `None` range is a whole-document replacement; a `Some` range is an
+/// incremental edit whose positions are in UTF-16 code units, converted to
+/// byte offsets through a fresh [`LineIndex`] over the current text.
+pub fn apply_content_change(text: &mut String, range: Option<Range>, new_text: &str) {
+    match range {
+        None => {
+            text.clear();
+            text.push_str(new_text);
+        }
+        Some(range) => {
+            let line_index = LineIndex::new(text);
+            let start = line_index.offset(range.start);
+            let end = line_index.offset(range.end);
+            text.replace_range(start..end, new_text);
+        }
     }
+}
 
-    /// Update the document with a URI for richer diagnostics.
-    pub fn update_with_uri(&mut self, source: String, version: i32, uri: Option<&Url>) {
-        self.line_index = LineIndex::new(&source);
-        self.source = source;
-        self.version = version;
-
-        let analysis = pipeline::analyze(&self.source);
-
-        let mut diagnostics = crate::diagnostics::convert_errors(
-            &analysis.errors,
-            &analysis.interner,
-            &self.line_index,
-        );
-        diagnostics.extend(crate::diagnostics::convert_analysis_errors(
-            &analysis.escape_errors,
-            &analysis.tokens,
-            &analysis.interner,
-            &self.line_index,
-            uri,
-        ));
-        diagnostics.extend(crate::diagnostics::convert_analysis_errors(
-            &analysis.ownership_errors,
-            &analysis.tokens,
-            &analysis.interner,
-            &self.line_index,
-            uri,
-        ));
-
-        self.diagnostics = diagnostics;
-        self.tokens = analysis.tokens;
-        self.interner = analysis.interner;
-        self.symbol_index = analysis.symbol_index;
-        self.type_registry = analysis.type_registry;
-        self.policy_registry = analysis.policy_registry;
-        self.ownership_states = analysis.ownership_states;
-    }
+/// Convert every error class one analysis pass produced into LSP diagnostics.
+fn build_diagnostics(
+    analysis: &pipeline::AnalysisResult,
+    line_index: &LineIndex,
+    uri: Option<&Url>,
+) -> Vec<Diagnostic> {
+    let mut diagnostics = crate::diagnostics::convert_errors(
+        &analysis.errors,
+        &analysis.tokens,
+        &analysis.interner,
+        line_index,
+        uri,
+    );
+    diagnostics.extend(crate::diagnostics::convert_analysis_errors(
+        &analysis.escape_errors,
+        &analysis.tokens,
+        &analysis.interner,
+        line_index,
+        uri,
+    ));
+    diagnostics.extend(crate::diagnostics::convert_analysis_errors(
+        &analysis.ownership_errors,
+        &analysis.tokens,
+        &analysis.interner,
+        line_index,
+        uri,
+    ));
+    diagnostics.extend(crate::diagnostics::unused_variable_hints(
+        &analysis.symbol_index,
+        line_index,
+    ));
+    diagnostics.extend(crate::diagnostics::shadowing_warnings(
+        &analysis.symbol_index,
+        line_index,
+        uri,
+    ));
+    diagnostics.extend(crate::diagnostics::unused_function_hints(
+        &analysis.symbol_index,
+        line_index,
+    ));
+    diagnostics
 }
 
 #[cfg(test)]
@@ -126,7 +129,7 @@ mod tests {
 
     #[test]
     fn new_document_parses_source() {
-        let doc = DocumentState::new("## Main\n    Let x be 5.\n".to_string(), 1);
+        let doc = DocumentState::new("## Main\n    Let x be 5.\n    Show x.\n".to_string(), 1);
         assert_eq!(doc.version, 1);
         assert!(doc.diagnostics.is_empty(), "Valid source should have no diagnostics: {:?}", doc.diagnostics);
         assert!(!doc.tokens.is_empty());
@@ -134,12 +137,13 @@ mod tests {
     }
 
     #[test]
-    fn update_replaces_analysis() {
-        let mut doc = DocumentState::new("## Main\n    Let x be 5.\n".to_string(), 1);
+    fn fresh_snapshot_replaces_analysis() {
+        let doc = DocumentState::new("## Main\n    Let x be 5.\n".to_string(), 1);
         assert_eq!(doc.symbol_index.definitions_of("x").len(), 1);
         assert_eq!(doc.symbol_index.definitions_of("y").len(), 0);
 
-        doc.update("## Main\n    Let y be 10.\n".to_string(), 2);
+        // Documents are immutable snapshots: an edit produces a new one.
+        let doc = DocumentState::new("## Main\n    Let y be 10.\n".to_string(), 2);
         assert_eq!(doc.version, 2);
         assert_eq!(doc.symbol_index.definitions_of("y").len(), 1);
     }
@@ -159,19 +163,18 @@ mod tests {
     }
 
     #[test]
-    fn update_changes_diagnostics_on_error() {
-        let mut doc = DocumentState::new("## Main\n    Let x be 5.\n".to_string(), 1);
+    fn snapshot_of_broken_source_carries_diagnostics() {
+        let doc = DocumentState::new("## Main\n    Let x be 5.\n    Show x.\n".to_string(), 1);
         assert!(doc.diagnostics.is_empty(), "Valid source should have no diagnostics");
-        doc.update("## Main\n    Let be.\n".to_string(), 2);
+        let doc = DocumentState::new("## Main\n    Let be.\n".to_string(), 2);
         assert!(!doc.diagnostics.is_empty(), "Invalid source should produce diagnostics");
     }
 
     #[test]
-    fn line_index_syncs_after_update() {
-        let mut doc = DocumentState::new("ab\ncd\n".to_string(), 1);
-        doc.update("line0\nline1\nline2\nline3\nline4\n".to_string(), 2);
+    fn line_index_matches_snapshot_source() {
+        let doc = DocumentState::new("line0\nline1\nline2\nline3\nline4\n".to_string(), 2);
         let pos = doc.line_index.position(doc.source.len().saturating_sub(2));
-        assert_eq!(pos.line, 4, "After update to 5-line doc, near-end should be line 4");
+        assert_eq!(pos.line, 4, "In a 5-line doc, near-end should be line 4");
     }
 
     #[test]

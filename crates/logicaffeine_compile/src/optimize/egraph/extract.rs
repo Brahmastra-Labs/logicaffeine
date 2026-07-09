@@ -23,7 +23,8 @@ fn op_cost(node: &CompilerENode) -> u64 {
         // Opaque subtrees re-emit the original expression; bias against
         // duplicating them when a modeled form exists.
         Opaque(_) => 4,
-        Add(..) | Sub(..) | Shl(..) | Shr(..) | BitXor(..) | And(..) | Or(..) | Not(..)
+        Add(..) | Sub(..) | Shl(..) | Shr(..) | BitXor(..) | BitAnd(..) | BitOr(..)
+        | And(..) | Or(..) | Not(..)
         | Eq(..) | Ne(..) | Lt(..) | Le(..) | Gt(..) | Ge(..) => 1,
         Len(..) => 2,
         Index(..) => 3,

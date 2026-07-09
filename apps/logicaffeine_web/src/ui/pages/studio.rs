@@ -20,6 +20,8 @@
 //! Accessed via [`Route::Studio`](crate::ui::router::Route::Studio).
 
 use dioxus::prelude::*;
+#[cfg(all(feature = "split", target_arch = "wasm32"))]
+use dioxus::wasm_split;
 use std::cell::RefCell;
 use logicaffeine_compile::{
     compile_for_ui, compile_for_proof, compile_theorem_for_ui, generate_rust_code,
@@ -63,7 +65,7 @@ use std::rc::Rc;
 /// - `## To ...` blocks: collect header + all indented lines until non-indented line
 /// - `A X is either:` blocks: collect header + indented variants
 /// - Traditional commands: accumulate until period-terminator
-fn parse_math_statements(code: &str) -> Vec<String> {
+pub fn parse_math_statements(code: &str) -> Vec<String> {
     let mut statements = Vec::new();
     let lines: Vec<&str> = code.lines().collect();
     let mut i = 0;
@@ -1774,8 +1776,15 @@ mod traffic_viz_tests {
     }
 }
 
-#[component]
-pub fn Studio() -> Element {
+/// Keep the address bar on the canonical shareable URL for the open file
+/// without pushing a history entry.
+#[cfg(target_arch = "wasm32")]
+fn sync_studio_url(vfs_path: &str) {
+    crate::ui::router::replace_bar_url(&crate::ui::router::studio_file_url(vfs_path));
+}
+
+#[component(lazy)]
+pub fn Studio(file: Option<String>) -> Element {
     // Mode state
     let mut mode = use_signal(|| StudioMode::Logic);
 
@@ -1889,6 +1898,7 @@ pub fn Studio() -> Element {
         }
         vfs_initialized.set(true);
 
+        let file = file.clone();
         spawn(async move {
             // Get platform VFS with automatic fallback (OPFS -> IndexedDB)
             match get_platform_vfs_with_fallback().await {
@@ -1920,14 +1930,8 @@ pub fn Studio() -> Element {
                         }
                     }
 
-                    // Get file from URL query parameter, or use default
-                    let window = web_sys::window().unwrap();
-                    let location = window.location();
-                    let search = location.search().unwrap_or_default();
-                    let url_params = web_sys::UrlSearchParams::new_with_str(&search).ok();
-
-                    let file_to_load = url_params
-                        .and_then(|params| params.get("file"))
+                    // Open the file from the route's `file` query prop, or the default
+                    let file_to_load = file
                         .map(|f| {
                             // Normalize path - ensure it starts with /
                             if f.starts_with('/') {
@@ -1941,6 +1945,7 @@ pub fn Studio() -> Element {
                     // Load the file and detect mode from path/extension
                     if let Ok(content) = vfs.read_to_string(&file_to_load).await {
                         current_file.set(Some(file_to_load.clone()));
+                        sync_studio_url(&file_to_load);
 
                         let ext = file_to_load.rsplit('.').next().unwrap_or("").to_lowercase();
                         let is_math_dir = file_to_load.contains("/math/") || file_to_load.contains("/examples/math");
@@ -2503,6 +2508,37 @@ pub fn Studio() -> Element {
             hw_error.set(None);
             return;
         }
+        // Pigeonhole spec (`pigeons: N`) → the live viz panel solves PHP(N) directly from the editor.
+        // Execute clears the other Hardware outputs and posts the certified verdict to the proof line.
+        if let Some(pspec) = crate::ui::pages::pigeonhole_viz::parse_pigeonhole_spec(content) {
+            hw_sva.set(String::new());
+            hw_psl.set(String::new());
+            hw_signals.write().clear();
+            hw_counterexample.write().clear();
+            hw_kg.set(Default::default());
+            hw_error.set(None);
+            hw_proof.set(format!(
+                "\u{2717} PHP({0}) \u{2014} {0} pigeons can't fit {1} holes. Certified UNSAT by our prover (maximum matching + symmetry breaking), no Z3.",
+                pspec.pigeons,
+                pspec.holes()
+            ));
+            hw_proof_ok.set(Some(false));
+            return;
+        }
+        // Register-allocation spec (`registers:` + `name: start-end`) → the live viz panel renders
+        // the certified allocation directly from the editor, so Execute just clears the other
+        // Hardware outputs (no SVA synthesis, no spurious "not a hardware property" error).
+        if content.contains("registers:") || content.contains("Registers:") {
+            hw_sva.set(String::new());
+            hw_psl.set(String::new());
+            hw_signals.write().clear();
+            hw_proof.set(String::new());
+            hw_proof_ok.set(None);
+            hw_counterexample.write().clear();
+            hw_kg.set(Default::default());
+            hw_error.set(None);
+            return;
+        }
         // RTL/Verilog input → bounded model checking + k-induction (no Z3), distinct from the
         // English-spec → SVA synthesis path.
         if content.contains("module") && content.contains("endmodule") {
@@ -2749,12 +2785,25 @@ pub fn Studio() -> Element {
     };
 
     // Determine if Panel 3 should be shown based on mode and content
+    // A register-allocation spec (`registers:` + live ranges) routes Hardware mode to the certified
+    // linear-scan easter egg: the output panel shows the allocation report and panel 3 the live-range
+    // timeline. Computed once so panel visibility, the panel-2 header, and the panel-2 content agree.
+    let hw_is_regalloc = matches!(*mode.read(), StudioMode::Hardware)
+        && crate::ui::pages::register_alloc_viz::is_register_alloc_spec(&hw_input.read());
+    // A pigeonhole spec (`pigeons: N`) routes Hardware mode to the live PHP(N) crusher easter egg:
+    // panel 2 shows the certified refutation report, panel 3 the animated flight. Computed once so the
+    // panel-3 gate, the panel-2 header, and the panel-2 content all agree on which egg is active.
+    let hw_is_pigeonhole = matches!(*mode.read(), StudioMode::Hardware)
+        && crate::ui::pages::pigeonhole_viz::is_pigeonhole_spec(&hw_input.read());
+
     let show_panel3 = match *mode.read() {
         StudioMode::Logic => current_result.ast.is_some(),
         StudioMode::Code => interpreter_result.read().error.is_some(),
         StudioMode::Math => !definitions.is_empty() || !inductives.is_empty(),
         StudioMode::Hardware => {
-            !hw_signals.read().is_empty()
+            hw_is_regalloc
+                || hw_is_pigeonhole
+                || !hw_signals.read().is_empty()
                 || !hw_counterexample.read().is_empty()
                 || !hw_kg.read().nodes.is_empty()
         }
@@ -3130,18 +3179,7 @@ pub fn Studio() -> Element {
 
                             // Update URL with file parameter for shareable links
                             #[cfg(target_arch = "wasm32")]
-                            {
-                                let window = web_sys::window().unwrap();
-                                let history = window.history().unwrap();
-                                // Remove leading slash for cleaner URL
-                                let url_path = if path.starts_with('/') {
-                                    &path[1..]
-                                } else {
-                                    &path
-                                };
-                                let new_url = format!("/studio?file={}", url_path);
-                                let _ = history.replace_state_with_url(&JsValue::NULL, "", Some(&new_url));
-                            }
+                            sync_studio_url(&path);
 
                             // Load file content from VFS
                             #[cfg(target_arch = "wasm32")]
@@ -3681,24 +3719,50 @@ pub fn Studio() -> Element {
                                         let v = *output_expanded.read();
                                         output_expanded.set(!v);
                                     },
-                                    span { "SVA" }
-                                    div {
-                                        class: "output-mode-toggle",
-                                        onclick: move |evt| evt.stop_propagation(),
-                                        button {
-                                            class: if current_hw_output_mode == CodeOutputMode::Interpret { "output-mode-btn active" } else { "output-mode-btn" },
-                                            onclick: move |_| hw_output_mode.set(CodeOutputMode::Interpret),
-                                            "SVA"
-                                        }
-                                        button {
-                                            class: if current_hw_output_mode == CodeOutputMode::Rust { "output-mode-btn active" } else { "output-mode-btn" },
-                                            onclick: move |_| hw_output_mode.set(CodeOutputMode::Rust),
-                                            "Rust"
+                                    span { if hw_is_regalloc { "Allocation" } else if hw_is_pigeonhole { "Pigeonhole" } else { "SVA" } }
+                                    if !hw_is_regalloc && !hw_is_pigeonhole {
+                                        div {
+                                            class: "output-mode-toggle",
+                                            onclick: move |evt| evt.stop_propagation(),
+                                            button {
+                                                class: if current_hw_output_mode == CodeOutputMode::Interpret { "output-mode-btn active" } else { "output-mode-btn" },
+                                                onclick: move |_| hw_output_mode.set(CodeOutputMode::Interpret),
+                                                "SVA"
+                                            }
+                                            button {
+                                                class: if current_hw_output_mode == CodeOutputMode::Rust { "output-mode-btn active" } else { "output-mode-btn" },
+                                                onclick: move |_| hw_output_mode.set(CodeOutputMode::Rust),
+                                                "Rust"
+                                            }
                                         }
                                     }
                                 }
                                 div { class: "panel-content",
-                                    if current_hw_output_mode == CodeOutputMode::Interpret {
+                                    if hw_is_regalloc {
+                                        {
+                                            let report = crate::ui::pages::register_alloc_viz::parse_register_spec(&hw_input.read())
+                                                .map(|s| crate::ui::pages::register_alloc_viz::allocation_report(&s))
+                                                .unwrap_or_default();
+                                            rsx! {
+                                                div { class: "interpreter-output",
+                                                    div { style: "font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em; color: rgba(255,255,255,0.45); margin: 4px 0;", "Certified register allocation" }
+                                                    pre { style: "font-family: ui-monospace, monospace; font-size: 13px; white-space: pre-wrap; word-break: break-word; color: #e5e7eb; background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.08); border-radius: 8px; padding: 10px; margin: 0;", "{report}" }
+                                                }
+                                            }
+                                        }
+                                    } else if hw_is_pigeonhole {
+                                        {
+                                            let report = crate::ui::pages::pigeonhole_viz::parse_pigeonhole_spec(&hw_input.read())
+                                                .map(|s| crate::ui::pages::pigeonhole_viz::report(&s))
+                                                .unwrap_or_default();
+                                            rsx! {
+                                                div { class: "interpreter-output",
+                                                    div { style: "font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em; color: rgba(255,255,255,0.45); margin: 4px 0;", "Certified pigeonhole refutation" }
+                                                    pre { style: "font-family: ui-monospace, monospace; font-size: 13px; white-space: pre-wrap; word-break: break-word; color: #e5e7eb; background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.08); border-radius: 8px; padding: 10px; margin: 0;", "{report}" }
+                                                }
+                                            }
+                                        }
+                                    } else if current_hw_output_mode == CodeOutputMode::Interpret {
                                         {
                                             let sva = hw_sva.read().clone();
                                             let psl = hw_psl.read().clone();
@@ -3812,7 +3876,53 @@ pub fn Studio() -> Element {
                                 StudioMode::Hardware => {
                                     let ce = hw_counterexample.read().clone();
                                     let sigs = hw_signals.read().clone();
-                                    if !ce.is_empty() {
+                                    if let Some(pspec) = crate::ui::pages::pigeonhole_viz::parse_pigeonhole_spec(&hw_input.read()) {
+                                        // Pigeonhole easter egg: n pigeons fly into n-1 holes, one left
+                                        // out — solved live (matching Hall witness + certified symmetry
+                                        // breaking) by our prover in the browser, no Z3.
+                                        let (svg, verdict) = crate::ui::pages::pigeonhole_viz::render(&pspec);
+                                        rsx! {
+                                            div { class: "panel-header", span { "Pigeonhole" } }
+                                            div { class: "panel-content",
+                                                div { style: "padding: 8px; overflow-x: auto;",
+                                                    div { dangerous_inner_html: "{svg}" }
+                                                    div {
+                                                        style: "margin-top:4px;font-size:11px;line-height:1.4;color:rgba(255,255,255,0.45);",
+                                                        "Each pigeon flies toward a hole; with one more pigeon than holes, one is always left out. Maximum bipartite matching proves it impossible in polynomial time (the re-verified Hall witness), and our prover emits a certified symmetry-breaking refutation — while every resolution-based solver (Kissat, CaDiCaL, Z3) provably needs exponentially many steps (Haken 1985)."
+                                                    }
+                                                    div {
+                                                        style: "margin-top:8px;padding:8px;border-radius:6px;font-size:12px;line-height:1.45;background:rgba(224,108,117,0.15);color:#f3c0c4;",
+                                                        "{verdict}"
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    } else if let Some(spec) = crate::ui::pages::register_alloc_viz::parse_register_spec(&hw_input.read()) {
+                                        // Register-allocation easter egg: live-range timeline coloured
+                                        // by the certified linear-scan allocation (spill clique in red).
+                                        let (svg, verdict) = crate::ui::pages::register_alloc_viz::render(&spec);
+                                        let ok = verdict.starts_with('\u{2713}');
+                                        rsx! {
+                                            div { class: "panel-header", span { "Register Allocation" } }
+                                            div { class: "panel-content",
+                                                div { style: "padding: 8px; overflow-x: auto;",
+                                                    div { dangerous_inner_html: "{svg}" }
+                                                    div {
+                                                        style: "margin-top:4px;font-size:11px;line-height:1.4;color:rgba(255,255,255,0.45);",
+                                                        "The sweep line is the program counter; each register lane lights up while it holds a value and goes dark when it's freed. The pressure histogram counts how many values are live at each instruction — bars above the dashed budget line turn red, the exact points where spilling is forced and a value drops to the MEM lane. The interference graph is what allocation really colours: an edge joins two values whose lifetimes overlap, nodes are coloured by their register, and a red clique is a set that mutually conflicts and provably cannot share."
+                                                    }
+                                                    div {
+                                                        style: if ok {
+                                                            "margin-top:8px;padding:8px;border-radius:6px;font-size:12px;line-height:1.45;background:rgba(152,195,121,0.15);color:#cdebc5;"
+                                                        } else {
+                                                            "margin-top:8px;padding:8px;border-radius:6px;font-size:12px;line-height:1.45;background:rgba(224,108,117,0.15);color:#f3c0c4;"
+                                                        },
+                                                        "{verdict}"
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    } else if !ce.is_empty() {
                                         // A counterexample exists — render it as a waveform.
                                         let wf = logicaffeine_compile::codegen_sva::hw_pipeline::counterexample_waveform(&ce);
                                         let traffic = traffic_svg(&wf);

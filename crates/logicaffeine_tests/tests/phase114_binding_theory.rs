@@ -1,4 +1,4 @@
-//! Phase 114 — §8.1 Binding theory (MISSING_ENGLISH.md).
+//! Phase 114 — §8.1 Binding theory (work/MISSING_ENGLISH.md).
 //!
 //! Structural constraints on anaphora:
 //!   Principle A — a reflexive is bound in its local clause:

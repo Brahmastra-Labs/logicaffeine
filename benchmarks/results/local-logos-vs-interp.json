@@ -1,0 +1,113 @@
+{
+  "schema_version": 1,
+  "metadata": {
+    "date": "2026-06-12T06:12:09Z",
+    "commit": "4d31c18",
+    "logos_version": "0.9.17",
+    "cpu": "Intel(R) Core(TM) i9-14900K",
+    "os": "Ubuntu 24.04.2 LTS x86_64",
+    "warmup": 2,
+    "runs": 10
+  },
+  "languages": [
+    {
+      "id": "logos_release",
+      "label": "LOGOS (compiled)",
+      "color": "#00d4ff",
+      "tier": "systems"
+    },
+    {
+      "id": "interp",
+      "label": "LOGOS (interpreted)",
+      "color": "#ff8c00",
+      "tier": "interpreted"
+    }
+  ],
+  "benchmarks": [
+    {
+      "id": "fib",
+      "name": "Recursive Fibonacci",
+      "reference_size": "30",
+      "interpreter_engine": "vm+jit",
+      "sizes": [
+        "30",
+        "35",
+        "40"
+      ],
+      "logos_source": "## To native args () -> Seq of Text\n## To native parseInt (s: Text) -> Int\n\n## To fib (n: Int) -> Int:\n    If n is less than 2:\n        Return n.\n    Return fib(n - 1) + fib(n - 2).\n\n## Main\nLet arguments be args().\nLet n be parseInt(item 2 of arguments).\nShow fib(n).",
+      "generated_rust": "#[allow(unused_imports)]\nuse std::fmt::Write as _;\nuse logicaffeine_data::*;\nuse logicaffeine_system::*;\n\nfn args() -> LogosSeq<String> {\n    logicaffeine_system::env::args()\n}\n\nfn parseInt(s: String) -> i64 {\n    logicaffeine_system::text::parseInt(s)\n}\n\nfn fib(n: i64) -> i64 {\n    use std::cell::RefCell;\n    thread_local! {\n        static __MEMO_FIB: RefCell<FxHashMap<i64, i64>> = RefCell::new(FxHashMap::default());\n    }\n    if let Some(__v) = __MEMO_FIB.with(|c| c.borrow().get(&n).copied()) {\n        return __v;\n    }\n    let __memo_result = (|| -> i64 {\n        if (n < 2) {\n            return n;\n        }\n        return (fib((n - 1)) + fib((n - 2)));\n    })();\n    __MEMO_FIB.with(|c| c.borrow_mut().insert(n, __memo_result));\n    __memo_result\n}\n\nfn main() {\n    std::thread::Builder::new()\n        .stack_size(67_108_864)\n        .spawn(_logos_main)\n        .unwrap().join().unwrap();\n}\nfn _logos_main() {\n    let arguments = args();\n    let n = parseInt(arguments.borrow()[1].clone());\n    show(&fib(n));\n}",
+      "scaling": {
+        "30": {
+          "logos_release": {
+            "mean_ms": 0.4888176999999999000,
+            "median_ms": 0.47653050000000003000,
+            "stddev_ms": 0.05109820986655664000,
+            "min_ms": 0.44117900000000004000,
+            "max_ms": 0.591045000,
+            "cv": 0.10453428725383031435,
+            "runs": 10,
+            "user_ms": 0.22559999999999998000,
+            "system_ms": 0.22569999999999998000
+          },
+          "interp": {
+            "mean_ms": 175.32424984000,
+            "median_ms": 174.21992704000,
+            "stddev_ms": 3.6512597249374447000,
+            "min_ms": 171.07916454000,
+            "max_ms": 184.07809554000001000,
+            "cv": 0.02082575415705223530,
+            "runs": 10,
+            "user_ms": 174.40319999999998000,
+            "system_ms": 0.815992000
+          }
+        }
+      },
+      "compilation": {},
+      "timeouts": {}
+    },
+    {
+      "id": "loop_sum",
+      "name": "Loop Sum",
+      "reference_size": "4178131",
+      "interpreter_engine": "vm+jit",
+      "sizes": [
+        "100000000",
+        "500000000",
+        "1000000000"
+      ],
+      "logos_source": "## To native args () -> Seq of Text\n## To native parseInt (s: Text) -> Int\n\n## Main\nLet arguments be args().\nLet n be parseInt(item 2 of arguments).\nLet mutable sum be 0.\nLet mutable i be 1.\nWhile i is at most n:\n    Set sum to (sum + i) % 1000000007.\n    Set i to i + 1.\nShow sum.",
+      "generated_rust": "#[allow(unused_imports)]\nuse std::fmt::Write as _;\nuse logicaffeine_data::*;\nuse logicaffeine_system::*;\n\nfn args() -> LogosSeq<String> {\n    logicaffeine_system::env::args()\n}\n\nfn parseInt(s: String) -> i64 {\n    logicaffeine_system::text::parseInt(s)\n}\n\nfn main() {\n    std::thread::Builder::new()\n        .stack_size(67_108_864)\n        .spawn(_logos_main)\n        .unwrap().join().unwrap();\n}\nfn _logos_main() {\n    let arguments = args();\n    let n = parseInt(arguments.borrow()[1].clone());\n    let mut sum = 0;\n    for i in 1..(n + 1) {\n        sum = ((sum + i) % 1000000007);\n    }\n    show(&sum);\n}",
+      "scaling": {
+        "4178131": {
+          "logos_release": {
+            "mean_ms": 17.140506500000003000,
+            "median_ms": 15.727183500000002000,
+            "stddev_ms": 4.226216289254051000,
+            "min_ms": 12.825604000,
+            "max_ms": 25.974924000,
+            "cv": 0.24656309247652922393,
+            "runs": 10,
+            "user_ms": 16.4562000,
+            "system_ms": 0.5916000
+          },
+          "interp": {
+            "mean_ms": 235.86883178000004000,
+            "median_ms": 236.38359478000004000,
+            "stddev_ms": 3.3324867020761255000,
+            "min_ms": 230.82910278000002000,
+            "max_ms": 239.90231178000002000,
+            "cv": 0.01412855898308941433,
+            "runs": 10,
+            "user_ms": 235.39112000,
+            "system_ms": 0.44912800000000003000
+          }
+        }
+      },
+      "compilation": {},
+      "timeouts": {}
+    }
+  ],
+  "summary": {
+    "geometric_mean_speedup_compiled_vs_interp": 70.254
+  }
+}

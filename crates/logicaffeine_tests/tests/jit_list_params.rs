@@ -128,11 +128,13 @@ fn float_list_reader_fn_tiers() {
     assert!(fn_ok >= 1, "the float-list reader must JIT (got {fn_ok})");
 }
 
-/// Mutations through the list parameter are visible to EVERY alias after
-/// the call (the Rc is shared, not copied at the native boundary).
+/// Mutations through a `mutable` list parameter are visible to the caller's
+/// variable (the callee writes through the shared collection, across the JIT
+/// boundary). An explicit `copy of` taken beforehand is an independent deep
+/// copy under value semantics — the in-place writes never reach it.
 #[test]
-fn list_param_mutation_visible_through_aliases() {
-    let src = "## To stamp (xs: Seq of Int, n: Int) -> Int:\n\
+fn list_param_mutation_visible_through_mutable_param() {
+    let src = "## To stamp (xs: mutable Seq of Int, n: Int) -> Int:\n\
                \x20   Let mutable i be 1.\n\
                \x20   While i is at most n:\n\
                \x20       Set item i of xs to i * 7.\n\
@@ -141,25 +143,27 @@ fn list_param_mutation_visible_through_aliases() {
                \n\
                ## Main\n\
                Let mutable xs be [0, 0, 0, 0, 0].\n\
-               Let ys be xs.\n\
+               Let snapshot be copy of xs.\n\
                Let mutable i be 0.\n\
                While i is less than 200:\n\
                \x20   Let r be stamp(xs, 5).\n\
                \x20   Set i to i + r - 5.\n\
                \x20   Set i to i + 1.\n\
                Show item 3 of xs.\n\
-               Show item 5 of ys.\n";
+               Show item 5 of snapshot.\n";
     let (out, err, fn_ok) = tiered(src);
     assert_eq!(err, None);
-    assert_eq!(out, "21\n35");
+    assert_eq!(out, "21\n0");
     assert!(fn_ok >= 1, "stamp must JIT (got {fn_ok})");
 }
 
-/// Returning the list parameter preserves IDENTITY: the caller's result is
-/// the same Rc, so mutating the returned binding mutates the original.
+/// A `mutable` list parameter mutated and returned: the in-place increments
+/// land in the caller's `xs` across all 300 calls (400 = 100 + 300). A value
+/// binding of the return (`r`) is independent under value semantics — mutating
+/// `r` does NOT reach back into `xs` (item 2 stays 200).
 #[test]
-fn list_return_preserves_identity() {
-    let src = "## To pass (xs: Seq of Int) -> Seq of Int:\n\
+fn list_return_through_mutable_param() {
+    let src = "## To pass (xs: mutable Seq of Int) -> Seq of Int:\n\
                \x20   Set item 1 of xs to item 1 of xs + 1.\n\
                \x20   Return xs.\n\
                \n\
@@ -175,7 +179,7 @@ fn list_return_preserves_identity() {
                Show item 2 of xs.\n";
     let (out, err, _) = tiered(src);
     assert_eq!(err, None);
-    assert_eq!(out, "400\n999", "r and xs must be the same list");
+    assert_eq!(out, "400\n200", "writes accumulate in xs; r is an independent value");
 }
 
 /// THE precise-state gate: a recursive function lands writes through its
@@ -194,7 +198,7 @@ fn oob_after_writes_inside_native_recursion_is_precise() {
     // of the `Let x; Return x` pair, so real native frames stack and tier.
     // `+ bad` is value-preserving on the success path (bad = 0 there) and only
     // the deep base case (bad = 1) errors, before any unwind runs.
-    let src = "## To wreck (xs: Seq of Int, n: Int, bad: Int) -> Int:\n\
+    let src = "## To wreck (xs: mutable Seq of Int, n: Int, bad: Int) -> Int:\n\
                \x20   Set item 1 of xs to item 1 of xs + 1.\n\
                \x20   If n is at most 0:\n\
                \x20       If bad equals 1:\n\
@@ -236,7 +240,7 @@ fn depth_limit_with_list_writes_is_precise() {
     // that TCO loops in constant stack, which would never hit the cap. The `- 1`
     // runs only after each call returns, so it never executes before the deep
     // deopt — the landed writes this test checks are unaffected.
-    let src = "## To sink (xs: Seq of Int, n: Int) -> Int:\n\
+    let src = "## To sink (xs: mutable Seq of Int, n: Int) -> Int:\n\
                \x20   Set item 1 of xs to item 1 of xs + 1.\n\
                \x20   If n equals 0:\n\
                \x20       Return item 1 of xs.\n\
@@ -268,7 +272,7 @@ fn depth_limit_with_list_writes_is_precise() {
 /// stay exact either way.
 #[test]
 fn alternating_list_identities_stay_correct() {
-    let src = "## To pingpong (a: Seq of Int, b: Seq of Int, n: Int) -> Int:\n\
+    let src = "## To pingpong (a: mutable Seq of Int, b: mutable Seq of Int, n: Int) -> Int:\n\
                \x20   If n equals 0:\n\
                \x20       Return item 1 of a + item 1 of b.\n\
                \x20   Set item 1 of a to item 1 of a + n.\n\
@@ -292,7 +296,7 @@ fn alternating_list_identities_stay_correct() {
 /// is the contract whether or not the tier accepts it yet.
 #[test]
 fn push_through_list_param_stays_correct() {
-    let src = "## To grow (xs: Seq of Int, n: Int) -> Int:\n\
+    let src = "## To grow (xs: mutable Seq of Int, n: Int) -> Int:\n\
                \x20   Let mutable i be 0.\n\
                \x20   While i is less than n:\n\
                \x20       Push i to xs.\n\

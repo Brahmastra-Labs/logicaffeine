@@ -1,4 +1,4 @@
-//! Phase 115 — §6.2 Mass vs count semantics (MISSING_ENGLISH.md).
+//! Phase 115 — §6.2 Mass vs count semantics (work/MISSING_ENGLISH.md).
 //!
 //! Mass nouns denote cumulative, non-atomic stuff; count nouns have atoms.
 //!   "Water is wet."        → kind predication (no ∃ individual)

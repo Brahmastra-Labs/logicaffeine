@@ -1,4 +1,4 @@
-//! Phase 126 — §7.2 Implicit comparison class / standard (MISSING_ENGLISH.md).
+//! Phase 126 — §7.2 Implicit comparison class / standard (work/MISSING_ENGLISH.md).
 //!
 //! Bare gradable predication relies on a contextual standard θ_C:
 //!   "John is tall." → ∃d(Tall(john,d) ∧ d > θ_C)

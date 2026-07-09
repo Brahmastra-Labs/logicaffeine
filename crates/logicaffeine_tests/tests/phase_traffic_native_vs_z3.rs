@@ -15,6 +15,7 @@ use logicaffeine_proof::sat::{find_model, prove_unsat, ModelOutcome, UnsatOutcom
 use logicaffeine_proof::hornsat::{self, HornClause, HornOutcome};
 use logicaffeine_proof::twosat::{self, Lit as TsLit, TwoSatOutcome};
 use logicaffeine_proof::xorsat::{self, XorEquation, XorOutcome};
+use logicaffeine_proof::interval_sched::{self, Interval, ScheduleOutcome};
 use logicaffeine_proof::ProofExpr;
 use logicaffeine_verify::ic3::check_sat;
 use logicaffeine_verify::VerifyExpr;
@@ -1049,6 +1050,48 @@ fn coloring_clique_hall_crushes_z3() {
         eprintln!("K{m}@{:<5} | {:>10.1}us | {:>16} | {:>10}", m - 1, ours.as_secs_f64() * 1e6, "(intractable)", "inf");
     }
     eprintln!("========================================================================\n");
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Interval scheduling vs Z3: a high-contention schedule — n tasks all contending for one window,
+// only m=n-1 machines. The overlap graph is the complete graph, so this is the clique-colouring
+// core; Z3 grinds the colouring encoding exponentially while our O(n log n) sweep returns the
+// overflow clique instantly.
+// ─────────────────────────────────────────────────────────────────────────────
+
+#[test]
+#[ignore = "interval-scheduling crush — run with --ignored --nocapture"]
+fn interval_sched_crushes_z3() {
+    eprintln!("\n===== INTERVAL SCHEDULING (n tasks, 1 window, m=n-1): sweep vs Z3 =====");
+    eprintln!("{:<10} | {:>12} | {:>16} | {:>10}", "n tasks", "ours", "z3", "speedup");
+    for n in [6usize, 8, 10] {
+        let tasks: Vec<Interval> = (0..n).map(|i| Interval::new(0, 100 + i as i64)).collect();
+        let m = n - 1;
+        let t = Instant::now();
+        let r = interval_sched::schedule_or_overflow(&tasks, m);
+        let ours = t.elapsed();
+        let vf = proof_to_verify(&clique_coloring_formula(n, m));
+        let t = Instant::now();
+        let z = check_sat(&vf);
+        let z3 = t.elapsed();
+        assert!(matches!(r, ScheduleOutcome::Infeasible(_)), "n={n} m={m} must overflow");
+        assert!(!z, "Z3 must agree n={n} m={m} is infeasible");
+        eprintln!(
+            "{n:<10} | {:>10.1}us | {:>14.2}ms | {:>9.0}x",
+            ours.as_secs_f64() * 1e6,
+            z3.as_secs_f64() * 1e3,
+            z3.as_secs_f64() / ours.as_secs_f64().max(f64::MIN_POSITIVE),
+        );
+    }
+    for n in [12usize, 50, 200, 1000] {
+        let tasks: Vec<Interval> = (0..n).map(|i| Interval::new(0, 100 + i as i64)).collect();
+        let t = Instant::now();
+        let r = interval_sched::schedule_or_overflow(&tasks, n - 1);
+        let ours = t.elapsed();
+        assert!(matches!(r, ScheduleOutcome::Infeasible(_)), "n={n} must overflow");
+        eprintln!("{n:<10} | {:>10.1}us | {:>16} | {:>10}", ours.as_secs_f64() * 1e6, "(intractable)", "inf");
+    }
+    eprintln!("=================================================================\n");
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

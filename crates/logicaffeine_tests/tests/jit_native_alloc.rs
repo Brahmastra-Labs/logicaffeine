@@ -179,11 +179,13 @@ fn deopt_after_allocation_drains_and_replays() {
     });
 }
 
-/// Pushing into a PARAMETER stays outside the subset — exactness is the
-/// contract, the tier may decline.
+/// Pushing into a `mutable` PARAMETER is by-reference: the callee grows the
+/// caller's list, so after 200 calls its length is exactly 200. Exactness under
+/// the tier is the contract (it may decline rather than miscompile the shared
+/// mutation).
 #[test]
 fn param_push_stays_exact() {
-    let src = "## To grow (xs: Seq of Int, n: Int) -> Int:\n\
+    let src = "## To grow (xs: mutable Seq of Int, n: Int) -> Int:\n\
                \x20   Push n to xs.\n\
                \x20   Return length of xs.\n\
                \n\

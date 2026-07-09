@@ -55,6 +55,36 @@ pub(super) fn codegen_expr(expr: &Expr, ctx: &CContext) -> String {
 
             let l = codegen_expr(left, ctx);
             let r = codegen_expr(right, ctx);
+            // Tolerant comparison — the shared isclose semantics
+            // (`logos_approx_eq`), self-contained C (fabs/fmax from math.h).
+            if matches!(op, BinaryOpKind::ApproxEq) {
+                return format!(
+                    "(({l}) == ({r}) || fabs(({l}) - ({r})) <= fmax(1e-9 * fmax(fabs({l}), fabs({r})), 1e-12))",
+                    l = l, r = r
+                );
+            }
+            // `**` has no C operator. The C stub tier is int64/double only (no
+            // BigInt): exact for small integer powers via `llround(pow(...))`,
+            // `pow` from math.h for a Float operand. Large-exponent fidelity is
+            // the Rust AOT path's, like `followed by`.
+            if matches!(op, BinaryOpKind::Pow) {
+                if lt == CType::Float64 || rt == CType::Float64 {
+                    return format!("pow((double)({}), (double)({}))", l, r);
+                }
+                return format!("((int64_t)llround(pow((double)({}), (double)({}))))", l, r);
+            }
+            // `//` floors toward negative infinity; C's `/` truncates toward zero, so the
+            // integer case corrects by one when the operands differ in sign and the
+            // remainder is nonzero. A Float operand floors the double quotient.
+            if matches!(op, BinaryOpKind::FloorDivide) {
+                if lt == CType::Float64 || rt == CType::Float64 {
+                    return format!("floor((double)({}) / (double)({}))", l, r);
+                }
+                return format!(
+                    "((({l}) / ({r})) - ((((({l}) % ({r})) != 0) && (((({l}) % ({r})) < 0) != (({r}) < 0))) ? 1 : 0))",
+                    l = l, r = r
+                );
+            }
             let op_str = match op {
                 BinaryOpKind::Add => "+",
                 BinaryOpKind::Subtract => "-",
@@ -68,13 +98,19 @@ pub(super) fn codegen_expr(expr: &Expr, ctx: &CContext) -> String {
                 BinaryOpKind::LtEq => "<=",
                 BinaryOpKind::Gt => ">",
                 BinaryOpKind::GtEq => ">=",
-                BinaryOpKind::And => {
-                    if lt == CType::Bool && rt == CType::Bool { "&&" } else { "&" }
-                },
-                BinaryOpKind::Or => {
-                    if lt == CType::Bool && rt == CType::Bool { "||" } else { "|" }
-                },
+                // Logical — C's `&&`/`||` are truthiness-correct for ints too
+                // (0/1 result, short-circuit); the bitwise spellings are `&`/`|`.
+                BinaryOpKind::And => "&&",
+                BinaryOpKind::Or => "||",
                 BinaryOpKind::Concat => "+",
+                // The C backend has no real concat (Concat itself is a stub); `followed by` is
+                // unsupported here — it lowers via the Rust AOT path, not C.
+                BinaryOpKind::SeqConcat => "+",
+                BinaryOpKind::ApproxEq => unreachable!("handled above"),
+                BinaryOpKind::Pow => unreachable!("handled above"),
+                BinaryOpKind::FloorDivide => unreachable!("handled above"),
+                BinaryOpKind::BitAnd => "&",
+                BinaryOpKind::BitOr => "|",
                 BinaryOpKind::BitXor => "^",
                 BinaryOpKind::Shl => "<<",
                 BinaryOpKind::Shr => ">>",

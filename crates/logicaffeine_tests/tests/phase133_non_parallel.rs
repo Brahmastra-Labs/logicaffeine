@@ -1,4 +1,4 @@
-//! Phase 133 — §2.2 Non-parallel coordination (MISSING_ENGLISH.md).
+//! Phase 133 — §2.2 Non-parallel coordination (work/MISSING_ENGLISH.md).
 //!
 //! Coordinated copular predicates of different categories (adjective + predicate
 //! nominal) are each predicated of the shared subject:

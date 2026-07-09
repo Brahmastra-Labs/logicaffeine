@@ -60,13 +60,50 @@ use logicaffeine_language::{compile, compile_all_scopes};
 use rand::Rng;
 use rand::seq::SliceRandom;
 use std::collections::HashMap;
+#[cfg(not(target_arch = "wasm32"))]
+use std::sync::LazyLock;
+#[cfg(target_arch = "wasm32")]
+use std::sync::OnceLock;
+
+// The process-wide lexicon, parsed exactly once. Native builds parse the embedded
+// JSON on first use; wasm pins the copy fetched from /data/lexicon.json (staged by
+// scripts/stage-web-data.sh) so the 279 KB document never rides in the binary.
+#[cfg(not(target_arch = "wasm32"))]
+static LEXICON: LazyLock<LexiconIndex> = LazyLock::new(LexiconIndex::new);
+#[cfg(target_arch = "wasm32")]
+static LEXICON: OnceLock<LexiconIndex> = OnceLock::new();
+
+/// The pinned lexicon. `None` only on wasm before [`ensure_lexicon`] resolves —
+/// the `LexiconGate` component holds Learn content back until it has.
+pub fn lexicon() -> Option<&'static LexiconIndex> {
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        Some(&LEXICON)
+    }
+    #[cfg(target_arch = "wasm32")]
+    {
+        LEXICON.get()
+    }
+}
+
+/// Resolves once the lexicon is pinned — instant on native and on repeat calls.
+pub async fn ensure_lexicon() -> Result<(), String> {
+    #[cfg(target_arch = "wasm32")]
+    if LEXICON.get().is_none() {
+        let text = crate::ui::data_fetch::fetch_static_text("/data/lexicon.json").await?;
+        let index = LexiconIndex::from_json(&text)
+            .map_err(|e| format!("parsing /data/lexicon.json: {e}"))?;
+        let _ = LEXICON.set(index);
+    }
+    Ok(())
+}
 
 /// Exercise generator that fills templates with lexicon words.
 ///
 /// Holds a reference to the lexicon index for word selection.
 /// Stateless; create one instance and reuse for all exercise generation.
 pub struct Generator {
-    lexicon: LexiconIndex,
+    lexicon: &'static LexiconIndex,
 }
 
 /// A generated exercise instance ready for display and grading.
@@ -117,10 +154,10 @@ impl Generator {
     /// misconfigured template from looping forever.
     const MAX_DRAWS: usize = 32;
 
-    /// Creates a new generator with a fresh lexicon index.
+    /// Creates a new generator over the pinned lexicon index.
     pub fn new() -> Self {
         Self {
-            lexicon: LexiconIndex::new(),
+            lexicon: lexicon().expect("gated: LexiconGate resolves the lexicon before Learn content renders"),
         }
     }
 

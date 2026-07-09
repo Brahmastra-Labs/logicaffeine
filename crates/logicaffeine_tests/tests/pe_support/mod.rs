@@ -1,4 +1,4 @@
-//! Shared test harness for the partial-evaluator phases (PE_IMPROVE.md §4.5).
+//! Shared test harness for the partial-evaluator phases (work/PE_IMPROVE.md §4.5).
 //!
 //! A partial evaluator is the kind of program where a plausible-looking output is the
 //! most dangerous failure mode, so the harness defends the three properties that matter:
@@ -173,6 +173,14 @@ pub fn decompile(program: &str) -> Result<String, String> {
     compile::projection1_source_real_fast("", "", program)
 }
 
+/// The same genuine PE residual, but produced by running the PE engine on the register
+/// bytecode VM ([`projection1_source_real_fast_on_vm`]) instead of the tree-walker. The
+/// PE is a fixed program; the tier must not change its output. Locked byte-for-byte
+/// against [`decompile`] by `futamura_tier_lock::pe_engine_residual_identical_on_vm`.
+pub fn decompile_on_vm(program: &str) -> Result<String, String> {
+    compile::projection1_source_real_fast_on_vm("", "", program)
+}
+
 /// Run the PE residual of `program` through the tree-walker.
 pub fn run_p1(program: &str) -> Observation {
     let program = program.to_string();
@@ -183,6 +191,42 @@ pub fn run_p1(program: &str) -> Observation {
     match result {
         Ok(obs) => obs,
         Err(_) => Observation::timed_out(),
+    }
+}
+
+/// Compile `program` through a reduced PE dialect (`bti=false` → pe_mini / the P2 subject;
+/// `bti=true` → pe_bti / the P3 subject) IN-PROCESS, then run its residual — the behavioral
+/// P2/P3 fidelity signal. Returns the trimmed output, or an error string. Runs on the budgeted
+/// 256 MB-stack thread (the reduced PE still recurses deeply).
+pub fn run_via_dialect(program: &str, bti: bool) -> Result<String, String> {
+    let program = program.to_string();
+    let out = with_budget(move || {
+        let (pe, block_fn, core) = if bti {
+            let core = compile::core_types_for_pe_source()
+                .replace("specResults", "memoCache")
+                .replace("onStack", "callGuard");
+            (compile::pe_bti_source_text().to_string(), "peBlockB", core)
+        } else {
+            (compile::pe_mini_source_text().to_string(), "peBlockM", compile::core_types_for_pe_source().to_string())
+        };
+        let decompile = compile::decompile_source_text();
+        let encoded = compile::encode_program_source(&program).map_err(|e| format!("encode: {e:?}"))?;
+        let src = format!(
+            "{core}\n{pe}\n{decompile}\n## Main\n{encoded}\n\
+             Let fzState be makePeState(a new Map of Text to CVal, encodedFuncMap, 200).\n\
+             Let fzCompiled be {block_fn}(encodedMain, fzState).\n\
+             Let fzOut be decompileBlock(fzCompiled, 0).\n\
+             Show fzOut."
+        );
+        let residual = compile::interpret_program(&src).map_err(|e| format!("residual: {e:?}"))?;
+        let wrapped = format!("## Main\n{}", residual.trim());
+        compile::interpret_program(&wrapped)
+            .map(|o| o.trim().to_string())
+            .map_err(|e| format!("run: {e:?}"))
+    });
+    match out {
+        Ok(r) => r,
+        Err(_) => Err("budget exceeded".into()),
     }
 }
 
@@ -354,6 +398,77 @@ pub fn gen_program(_seed: u64, shape: Shape) -> String {
             body
         }
     }
+}
+
+/// Generate a diverse, well-typed, TOTAL Int program from `seed` — exercising let-bindings,
+/// mutable `Set`, static-bound `Repeat` loops, and `If`/comparison control flow, all over
+/// `+ - *` (no division, small literals ⇒ no i64 overflow). Every generated program terminates
+/// with a defined Int output, so the PE residual MUST be dispatch-free (Jones-optimal) AND agree
+/// with the tree-walker. Deterministic: same seed ⇒ same program. This is the full-language
+/// generative surface — the answer to "you only proved Jones optimality on a curated corpus."
+pub fn gen_diverse_program(seed: u64) -> String {
+    let mut rng = seed ^ 0x2545F4914F6CDD1D;
+    let mut vars: Vec<String> = Vec::new();
+    let mut body = String::from("## Main\n");
+    // Seed two mutable Int bindings so Set / If / loop targets always exist and are in scope.
+    for i in 0..2u32 {
+        let e = gen_int_expr(&mut rng, &vars, 2);
+        body.push_str(&format!("Let mutable v{i} be {e}.\n"));
+        vars.push(format!("v{i}"));
+    }
+    let cmps = ["is less than", "is greater than", "is at most", "is at least"];
+    let nstmts = 4 + (next_rand(&mut rng) % 6) as usize; // 4..=9 more statements
+    for _ in 0..nstmts {
+        let target = vars[(next_rand(&mut rng) as usize) % vars.len()].clone();
+        match next_rand(&mut rng) % 6 {
+            0 => {
+                let e = gen_int_expr(&mut rng, &vars, 2);
+                body.push_str(&format!("Set {target} to {e}.\n"));
+            }
+            1 => {
+                // If/Otherwise — each branch may set a DIFFERENT target, and read cross-vars, so
+                // the else branch must see PRE-`If` values (exercises branch isolation).
+                let cond_var = vars[(next_rand(&mut rng) as usize) % vars.len()].clone();
+                let lit = next_rand(&mut rng) % 10;
+                let cmp = cmps[(next_rand(&mut rng) as usize) % cmps.len()];
+                let t2 = vars[(next_rand(&mut rng) as usize) % vars.len()].clone();
+                let te = gen_int_expr(&mut rng, &vars, 1);
+                let ee = gen_int_expr(&mut rng, &vars, 1);
+                body.push_str(&format!(
+                    "If {cond_var} {cmp} {lit}:\n    Set {target} to {te}.\nOtherwise:\n    Set {t2} to {ee}.\n"
+                ));
+            }
+            2 => {
+                let k = 1 + next_rand(&mut rng) % 4; // small loop — pe_source unrolls (< cap 64)
+                body.push_str(&format!("Repeat for gi from 1 to {k}:\n    Set {target} to {target} + gi.\n"));
+            }
+            3 => {
+                // LARGE loop (>= pe_source's unroll cap of 64) — forces pe_source to RESIDUALIZE,
+                // driving its dynamic-regime path (the one the small-loop corpus never reached).
+                let k = 64 + next_rand(&mut rng) % 40; // 64..=103
+                body.push_str(&format!("Repeat for gi from 1 to {k}:\n    Set {target} to ({target} + 1).\n"));
+            }
+            4 => {
+                // If INSIDE a loop — nested dynamic control flow (modvar handling under a dynamic
+                // loop), bounded oscillation so tree-walk and residual agree exactly.
+                let k = 48 + next_rand(&mut rng) % 40; // 48..=87 (mostly >= cap → residualized)
+                let cmp = cmps[(next_rand(&mut rng) as usize) % cmps.len()];
+                let lit = 40 + next_rand(&mut rng) % 40;
+                body.push_str(&format!(
+                    "Repeat for gi from 1 to {k}:\n    If {target} {cmp} {lit}:\n        Set {target} to ({target} - 1).\n    Otherwise:\n        Set {target} to ({target} + 2).\n"
+                ));
+            }
+            _ => {
+                let e = gen_int_expr(&mut rng, &vars, 2);
+                let v = format!("v{}", vars.len());
+                body.push_str(&format!("Let mutable {v} be {e}.\n"));
+                vars.push(v);
+            }
+        }
+    }
+    let vf = vars[(next_rand(&mut rng) as usize) % vars.len()].clone();
+    body.push_str(&format!("Show {vf}.\n"));
+    body
 }
 
 /// A small curated set of pathological-but-correct programs, paired with expected output.

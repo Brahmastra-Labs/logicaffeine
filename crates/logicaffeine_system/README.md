@@ -6,7 +6,7 @@ holds pure, WASM-safe value types, this crate owns every interaction with the
 outside world and gates the heavy dependencies behind features so a lean (or
 `wasm32`) build pays only for what it uses.
 
-Part of the [Logicaffeine](../../NEW_README.md) workspace. Tier 2 — depends on
+Part of the [Logicaffeine](https://github.com/Brahmastra-Labs/logicaffeine/blob/main/README.md) workspace. Tier 2 — depends on
 logicaffeine_base and logicaffeine_data. Provides the host primitives that
 AOT-compiled LOGOS programs lower to.
 
@@ -19,7 +19,7 @@ verbs all bottom out in these primitives. The same surface compiles on native
 and `wasm32` behind platform seams — `get_platform_vfs()` for files, `net::Net`
 for networking — so generated code is written once and runs on both. The
 networking and distributed story is covered in
-[../../new_docs/concurrency.md](../../new_docs/concurrency.md).
+[concurrency.md](https://github.com/Brahmastra-Labs/logicaffeine/blob/main/docs/concurrency.md).
 
 ## Public API
 
@@ -81,8 +81,32 @@ Feature-gated:
   mesh-journal bridge: local mutations go RAM → journal → network and remote
   updates go network → RAM → journal, with auto-compaction at 1000 entries.
 
-The crate root re-exports the `io`/`temporal` items plus `tokio` (native), and
-adds `panic_with(reason)` and a `fmt` helper module.
+### Post-quantum cryptography and runtime kernels
+
+Always available (native and `wasm32`, no feature needed) — the symmetric/PQC
+primitives compiled LOGOS crypto lowers to, and validated bit-exact against the
+Logos-native implementations:
+
+- `keccak` — Keccak-f\[1600\] + FIPS-202 sponge (`sha3_256`/`sha3_512`/`shake128`/
+  `shake256`, multi-block squeeze), the hash/XOF layer everything below rides on.
+- `ntt` — the ML-KEM (Kyber) negacyclic NTT kernel: a verified scalar reference
+  plus an AVX2 i16×16 path, with the byte-encode/decode, compression, and CBD
+  samplers (`mlkem_ntt`/`mlkem_inv_ntt`/`mlkem_base_mul`/`mlkem_byte_encode`/… )
+  re-exported at the crate root.
+- `mlkem` — ML-KEM-768 (FIPS-203) keygen / encapsulation / decapsulation, the
+  post-quantum key exchange for the channel handshake, composed from the NTT +
+  Keccak kernels.
+- `mldsa` — ML-DSA-65 (FIPS-204 / Dilithium) keygen / sign / verify, the
+  post-quantum signature complement to ML-KEM.
+- `aead` — ChaCha20-Poly1305 (RFC 8439), the symmetric seal that closes the
+  post-quantum channel once the shared secret is established.
+- `word_rt` — runtime support for the `Word8`/`Word16`/`Word32`/`Word64` ring
+  types in compiled LOGOS (`word32`, `rotl`, and the `Showable` glue), the
+  execution-side complement to `logicaffeine_base::word`.
+
+The crate root re-exports the `io`/`temporal` items and the `keccak`/`ntt`
+kernels, plus `tokio` (native), and adds `panic_with(reason)` and a `fmt` helper
+module.
 
 ## Feature flags
 
@@ -114,7 +138,7 @@ io-uring + crossbeam-channel (`io-uring`, Linux).
 
 ## License
 
-Business Source License 1.1 — see [LICENSE.md](../../LICENSE.md).
+Business Source License 1.1 — see [LICENSE.md](https://github.com/Brahmastra-Labs/logicaffeine/blob/main/LICENSE.md).
 
 ---
-[Docs index](../../new_docs/README.md) · [Root README](../../NEW_README.md) · [Changelog](../../CHANGELOG.md)
+[Docs index](https://github.com/Brahmastra-Labs/logicaffeine/blob/main/docs/README.md) · [Root README](https://github.com/Brahmastra-Labs/logicaffeine/blob/main/README.md) · [Changelog](https://github.com/Brahmastra-Labs/logicaffeine/blob/main/CHANGELOG.md)

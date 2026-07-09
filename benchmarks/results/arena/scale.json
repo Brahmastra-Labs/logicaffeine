@@ -1,0 +1,45 @@
+{
+  "arena": "sat",
+  "timeout_s": 40,
+  "cap_per_category": 99,
+  "solvers": ["ours", "kissat", "cadical"],
+  "summary": {
+    "ours": {"solved": 3, "sat": 2, "unsat": 1, "timeout": 21, "error": 0, "par2": 1696.148, "verified": 2, "verify_fail": 0},
+    "kissat": {"solved": 13, "sat": 9, "unsat": 4, "timeout": 11, "error": 0, "par2": 1055.982, "verified": 0, "verify_fail": 0},
+    "cadical": {"solved": 13, "sat": 9, "unsat": 4, "timeout": 11, "error": 0, "par2": 980.436, "verified": 0, "verify_fail": 0}
+  },
+  "categories": {
+    "rand3_n300": {"count": 6, "ours": 3, "kissat": 6, "cadical": 6},
+    "rand3_n400": {"count": 6, "ours": 0, "kissat": 2, "cadical": 2},
+    "rand3_n500": {"count": 6, "ours": 0, "kissat": 3, "cadical": 3},
+    "rand3_n600": {"count": 6, "ours": 0, "kissat": 2, "cadical": 2}
+  },
+  "conflicts": [],
+  "skipped": [],
+  "instances": [
+    {"name": "rand3_n300_00", "category": "rand3_n300", "vars": 300, "clauses": 1280, "ours": {"verdict": "SAT", "seconds": 6.0747, "verified": true}, "kissat": {"verdict": "SAT", "seconds": 0.0968, "verified": null}, "cadical": {"verdict": "SAT", "seconds": 0.2132, "verified": null}},
+    {"name": "rand3_n300_01", "category": "rand3_n300", "vars": 300, "clauses": 1280, "ours": {"verdict": "UNSAT", "seconds": 9.9602, "verified": null}, "kissat": {"verdict": "UNSAT", "seconds": 5.1062, "verified": null}, "cadical": {"verdict": "UNSAT", "seconds": 6.5730, "verified": null}},
+    {"name": "rand3_n300_02", "category": "rand3_n300", "vars": 300, "clauses": 1280, "ours": {"verdict": "SAT", "seconds": 0.1129, "verified": true}, "kissat": {"verdict": "SAT", "seconds": 0.1190, "verified": null}, "cadical": {"verdict": "SAT", "seconds": 0.0225, "verified": null}},
+    {"name": "rand3_n300_03", "category": "rand3_n300", "vars": 300, "clauses": 1280, "ours": {"verdict": "TIMEOUT", "seconds": 40.0000, "verified": null}, "kissat": {"verdict": "UNSAT", "seconds": 18.3380, "verified": null}, "cadical": {"verdict": "UNSAT", "seconds": 20.9595, "verified": null}},
+    {"name": "rand3_n300_04", "category": "rand3_n300", "vars": 300, "clauses": 1280, "ours": {"verdict": "TIMEOUT", "seconds": 40.0000, "verified": null}, "kissat": {"verdict": "UNSAT", "seconds": 21.0156, "verified": null}, "cadical": {"verdict": "UNSAT", "seconds": 25.6315, "verified": null}},
+    {"name": "rand3_n300_05", "category": "rand3_n300", "vars": 300, "clauses": 1280, "ours": {"verdict": "TIMEOUT", "seconds": 40.0000, "verified": null}, "kissat": {"verdict": "UNSAT", "seconds": 22.6374, "verified": null}, "cadical": {"verdict": "UNSAT", "seconds": 24.4770, "verified": null}},
+    {"name": "rand3_n400_00", "category": "rand3_n400", "vars": 400, "clauses": 1707, "ours": {"verdict": "TIMEOUT", "seconds": 40.0000, "verified": null}, "kissat": {"verdict": "TIMEOUT", "seconds": 40.0000, "verified": null}, "cadical": {"verdict": "TIMEOUT", "seconds": 40.0000, "verified": null}},
+    {"name": "rand3_n400_01", "category": "rand3_n400", "vars": 400, "clauses": 1707, "ours": {"verdict": "TIMEOUT", "seconds": 40.0000, "verified": null}, "kissat": {"verdict": "TIMEOUT", "seconds": 40.0000, "verified": null}, "cadical": {"verdict": "TIMEOUT", "seconds": 40.0000, "verified": null}},
+    {"name": "rand3_n400_02", "category": "rand3_n400", "vars": 400, "clauses": 1707, "ours": {"verdict": "TIMEOUT", "seconds": 40.0000, "verified": null}, "kissat": {"verdict": "TIMEOUT", "seconds": 40.0000, "verified": null}, "cadical": {"verdict": "TIMEOUT", "seconds": 40.0000, "verified": null}},
+    {"name": "rand3_n400_03", "category": "rand3_n400", "vars": 400, "clauses": 1707, "ours": {"verdict": "TIMEOUT", "seconds": 40.0000, "verified": null}, "kissat": {"verdict": "TIMEOUT", "seconds": 40.0000, "verified": null}, "cadical": {"verdict": "TIMEOUT", "seconds": 40.0000, "verified": null}},
+    {"name": "rand3_n400_04", "category": "rand3_n400", "vars": 400, "clauses": 1707, "ours": {"verdict": "TIMEOUT", "seconds": 40.0000, "verified": null}, "kissat": {"verdict": "SAT", "seconds": 8.7021, "verified": null}, "cadical": {"verdict": "SAT", "seconds": 0.3551, "verified": null}},
+    {"name": "rand3_n400_05", "category": "rand3_n400", "vars": 400, "clauses": 1707, "ours": {"verdict": "TIMEOUT", "seconds": 40.0000, "verified": null}, "kissat": {"verdict": "SAT", "seconds": 0.2946, "verified": null}, "cadical": {"verdict": "SAT", "seconds": 0.3682, "verified": null}},
+    {"name": "rand3_n500_00", "category": "rand3_n500", "vars": 500, "clauses": 2134, "ours": {"verdict": "TIMEOUT", "seconds": 40.0000, "verified": null}, "kissat": {"verdict": "SAT", "seconds": 33.9229, "verified": null}, "cadical": {"verdict": "SAT", "seconds": 1.3917, "verified": null}},
+    {"name": "rand3_n500_01", "category": "rand3_n500", "vars": 500, "clauses": 2134, "ours": {"verdict": "TIMEOUT", "seconds": 40.0000, "verified": null}, "kissat": {"verdict": "SAT", "seconds": 0.8397, "verified": null}, "cadical": {"verdict": "SAT", "seconds": 1.1661, "verified": null}},
+    {"name": "rand3_n500_02", "category": "rand3_n500", "vars": 500, "clauses": 2134, "ours": {"verdict": "TIMEOUT", "seconds": 40.0000, "verified": null}, "kissat": {"verdict": "TIMEOUT", "seconds": 40.0000, "verified": null}, "cadical": {"verdict": "TIMEOUT", "seconds": 40.0000, "verified": null}},
+    {"name": "rand3_n500_03", "category": "rand3_n500", "vars": 500, "clauses": 2134, "ours": {"verdict": "TIMEOUT", "seconds": 40.0000, "verified": null}, "kissat": {"verdict": "SAT", "seconds": 18.1040, "verified": null}, "cadical": {"verdict": "SAT", "seconds": 6.0023, "verified": null}},
+    {"name": "rand3_n500_04", "category": "rand3_n500", "vars": 500, "clauses": 2134, "ours": {"verdict": "TIMEOUT", "seconds": 40.0000, "verified": null}, "kissat": {"verdict": "TIMEOUT", "seconds": 40.0000, "verified": null}, "cadical": {"verdict": "TIMEOUT", "seconds": 40.0000, "verified": null}},
+    {"name": "rand3_n500_05", "category": "rand3_n500", "vars": 500, "clauses": 2134, "ours": {"verdict": "TIMEOUT", "seconds": 40.0000, "verified": null}, "kissat": {"verdict": "TIMEOUT", "seconds": 40.0000, "verified": null}, "cadical": {"verdict": "TIMEOUT", "seconds": 40.0000, "verified": null}},
+    {"name": "rand3_n600_00", "category": "rand3_n600", "vars": 600, "clauses": 2560, "ours": {"verdict": "TIMEOUT", "seconds": 40.0000, "verified": null}, "kissat": {"verdict": "SAT", "seconds": 9.0996, "verified": null}, "cadical": {"verdict": "SAT", "seconds": 4.5200, "verified": null}},
+    {"name": "rand3_n600_01", "category": "rand3_n600", "vars": 600, "clauses": 2560, "ours": {"verdict": "TIMEOUT", "seconds": 40.0000, "verified": null}, "kissat": {"verdict": "TIMEOUT", "seconds": 40.0000, "verified": null}, "cadical": {"verdict": "TIMEOUT", "seconds": 40.0000, "verified": null}},
+    {"name": "rand3_n600_02", "category": "rand3_n600", "vars": 600, "clauses": 2560, "ours": {"verdict": "TIMEOUT", "seconds": 40.0000, "verified": null}, "kissat": {"verdict": "TIMEOUT", "seconds": 40.0000, "verified": null}, "cadical": {"verdict": "TIMEOUT", "seconds": 40.0000, "verified": null}},
+    {"name": "rand3_n600_03", "category": "rand3_n600", "vars": 600, "clauses": 2560, "ours": {"verdict": "TIMEOUT", "seconds": 40.0000, "verified": null}, "kissat": {"verdict": "SAT", "seconds": 37.7060, "verified": null}, "cadical": {"verdict": "SAT", "seconds": 8.7559, "verified": null}},
+    {"name": "rand3_n600_04", "category": "rand3_n600", "vars": 600, "clauses": 2560, "ours": {"verdict": "TIMEOUT", "seconds": 40.0000, "verified": null}, "kissat": {"verdict": "TIMEOUT", "seconds": 40.0000, "verified": null}, "cadical": {"verdict": "TIMEOUT", "seconds": 40.0000, "verified": null}},
+    {"name": "rand3_n600_05", "category": "rand3_n600", "vars": 600, "clauses": 2560, "ours": {"verdict": "TIMEOUT", "seconds": 40.0000, "verified": null}, "kissat": {"verdict": "TIMEOUT", "seconds": 40.0000, "verified": null}, "cadical": {"verdict": "TIMEOUT", "seconds": 40.0000, "verified": null}}
+  ]
+}

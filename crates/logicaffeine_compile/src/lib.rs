@@ -1,92 +1,5 @@
 #![cfg_attr(docsrs, feature(doc_cfg))]
-
-//! # logicaffeine_compile
-//!
-//! The compilation pipeline for LOGOS, transforming natural language logic
-//! into executable Rust code.
-//!
-//! ## Architecture
-//!
-//! ```text
-//! LOGOS Source
-//!      │
-//!      ▼
-//! ┌─────────┐     ┌───────────┐     ┌──────────┐
-//! │  Lexer  │ ──▶ │  Parser   │ ──▶ │   AST    │
-//! └─────────┘     └───────────┘     └──────────┘
-//!                                         │
-//!      ┌──────────────────────────────────┘
-//!      ▼
-//! ┌─────────────────────────────────────────────┐
-//! │            Analysis Passes                   │
-//! │  ┌─────────┐  ┌───────────┐  ┌───────────┐ │
-//! │  │ Escape  │  │ Ownership │  │    Z3     │ │
-//! │  └─────────┘  └───────────┘  └───────────┘ │
-//! └─────────────────────────────────────────────┘
-//!      │
-//!      ▼
-//! ┌──────────┐     ┌────────────┐
-//! │ CodeGen  │ ──▶ │ Rust Code  │
-//! └──────────┘     └────────────┘
-//! ```
-//!
-//! ## Feature Flags
-//!
-//! | Feature | Description |
-//! |---------|-------------|
-//! | `codegen` | Rust code generation (default) |
-//! | `verification` | Z3-based static verification |
-//!
-//! ## Modules
-//!
-//! - [`compile`]: Top-level compilation functions
-//! - [`codegen`]: AST to Rust code generation (requires `codegen` feature)
-//! - [`analysis`]: Static analysis passes (escape, ownership, discovery)
-//! - [`extraction`]: Kernel term extraction to Rust
-//! - [`interpreter`]: Tree-walking AST interpreter
-//! - [`diagnostic`]: Rustc error translation to LOGOS-friendly messages
-//! - [`sourcemap`]: Source location mapping for diagnostics
-//! - [`loader`]: Multi-file module loading
-//! - [`ui_bridge`]: Web interface integration
-//! - `verification`: Z3-based static verification (requires `verification` feature)
-//!
-//! ## Getting Started
-//!
-//! ### Basic Compilation
-//!
-//! ```
-//! use logicaffeine_compile::compile::compile_to_rust;
-//! # use logicaffeine_compile::ParseError;
-//! # fn main() -> Result<(), ParseError> {
-//!
-//! let source = "## Main\nLet x be 5.\nShow x.";
-//! let rust_code = compile_to_rust(source)?;
-//! # Ok(())
-//! # }
-//! ```
-//!
-//! ### With Ownership Checking
-//!
-//! ```
-//! use logicaffeine_compile::compile::compile_to_rust_checked;
-//!
-//! let source = "## Main\nLet x be 5.\nGive x to y.\nShow x.";
-//! // Returns error: use-after-move detected at check-time
-//! let result = compile_to_rust_checked(source);
-//! ```
-//!
-//! ### Interpretation
-//!
-//! ```no_run
-//! use logicaffeine_compile::interpret_for_ui;
-//!
-//! # fn main() {}
-//! # async fn example() {
-//! let source = "## Main\nLet x be 5.\nShow x.";
-//! let result = interpret_for_ui(source).await;
-//! // result.lines contains ["5"]
-//! # }
-//! ```
+#![doc = include_str!("../README.md")]
 
 // Re-export base types
 pub use logicaffeine_base::{Arena, Interner, Symbol, SymbolEq};
@@ -112,7 +25,7 @@ pub use loader::{Loader, ModuleSource};
 // Compile-time analysis
 pub mod analysis;
 
-// Concurrency determinacy model + classifier (Phase 0 of FINISH_INTERPRETER.md).
+// Concurrency determinacy model + classifier (Phase 0 of work/FINISH_INTERPRETER.md).
 // Pure AST analysis — independent of the codegen feature.
 pub mod concurrency;
 
@@ -174,6 +87,10 @@ pub mod debug;
 // UI Bridge - high-level compilation for web interface
 pub mod ui_bridge;
 
+// The replay-based interactive session behind `largo repl`.
+pub mod repl;
+pub use repl::{ReplOutcome, ReplSession};
+
 #[cfg(feature = "verification")]
 pub mod defeasible;
 
@@ -192,7 +109,7 @@ pub use ui_bridge::{
     interpret_for_ui_sync_with_args, interpret_for_ui_baseline,
     interpret_for_ui_baseline_with_args, interpret_for_ui_baseline_sync_with_args,
     interpret_streaming, interpret_streaming_with_vfs, interpret_streaming_with_vfs_observer,
-    ObserverCallback, run_vm_concurrent,
+    ObserverCallback, run_vm_concurrent, run_vm_net_async,
     run_vm_concurrent_seeded, run_treewalker_concurrent_seeded,
     CompileResult, ProofCompileResult,
     TheoremCompileResult, AstNode, TokenInfo, TokenCategory,

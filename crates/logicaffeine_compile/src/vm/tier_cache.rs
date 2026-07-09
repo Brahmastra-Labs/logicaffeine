@@ -8,7 +8,7 @@
 //! hit's indices resolve to the same symbols. Changing one byte of source (or the
 //! config, or the tier) changes the key → a miss → recompile. (m8: tier is in the key.)
 //!
-//! [`encode`]/[`decode`]/[`cache_key`] are platform-agnostic so the browser warm tier
+//! `encode`/`decode`/`cache_key` are platform-agnostic so the browser warm tier
 //! (P13) can store the same wire bytes through OPFS (`Vfs`); [`store`]/[`load`] are the
 //! desktop on-disk sidecar.
 
@@ -47,7 +47,7 @@ fn key_hash(source: &str, config_bits: u64, tier: u8) -> u64 {
 }
 
 /// FNV-1a over the JSON payload — a content checksum so a truncated / bit-flipped entry
-/// that still parses as JSON is rejected rather than installed (see [`decode`]).
+/// that still parses as JSON is rejected rather than installed (see `decode`).
 fn payload_checksum(json: &str) -> u64 {
     let mut h: u64 = 0xcbf2_9ce4_8422_2325;
     for &b in json.as_bytes() {

@@ -1,4 +1,4 @@
-//! Phase 11 (FINISH_INTERPRETER.md) — translation validation for concurrency.
+//! Phase 11 (work/FINISH_INTERPRETER.md) — translation validation for concurrency.
 //!
 //! The TV encoder (`symexec`) must encode the *determinate* concurrency fragment — channels
 //! and task spawn — so the meta-soundness check (`check_encoder_sound`) proves the encoder

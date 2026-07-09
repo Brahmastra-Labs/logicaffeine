@@ -104,7 +104,11 @@ fn nqueens_reports_its_signature_optimizations() {
 #[test]
 fn codegen_time_optimizations_are_traced() {
     let cases: &[(&str, &str)] = &[
-        ("quicksort", "borrow"),
+        // Under value semantics the recursive partition threads a copy-on-write
+        // `LogosSeq` and pair-TCEs, so its borrow-family win is borrow HOISTING
+        // (`.borrow()` lifted out of the partition loop) rather than by-borrow
+        // parameter inference.
+        ("quicksort", "hoistborrows"),
         ("two_sum", "densemap"),
         ("string_search", "simd"),
         ("mergesort", "unchecked"),

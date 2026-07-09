@@ -40,6 +40,8 @@ const CORE_TYPES: &str = r#"
     A CTimeNow.
     A CDateToday.
     A CEscExpr with code Text.
+    A CManifestOf with zn CExpr.
+    A CChunkAt with idx CExpr and zn CExpr.
 
 ## A CStmt is one of:
     A CLet with name Text and expr CExpr.
@@ -94,6 +96,7 @@ const CORE_TYPES: &str = r#"
     A CTryReceivePipe with chan Text and target Text.
     A CSpawn with agentType Text and target Text.
     A CSendMessage with target CExpr and msg CExpr.
+    A CStreamMessage with target CExpr and values CExpr.
     A CAwaitMessage with target Text.
     A CListen with addr CExpr and handler Text.
     A CConnectTo with addr CExpr and target Text.
@@ -143,1208 +146,54 @@ const CORE_TYPES: &str = r#"
     A CExprPart with expr CExpr.
 "#;
 
-const INTERPRETER: &str = r#"
-## To isNothing (v: CVal) -> Bool:
-    Inspect v:
-        When VNothing:
-            Return true.
-        Otherwise:
-            Return false.
+/// ════════════════════════════════════════════════════════════════════════════════════════════
+/// CATALOG PARITY LOCK — the test-fixture self-interpreter type catalog (`CORE_TYPES`) and the
+/// runtime catalog the PE dialects are actually built on (`compile::core_types_for_pe_source`) are
+/// two hand-maintained copies of the SAME `CStmt`/`CExpr`/`CVal`/… inductives. They MUST declare the
+/// same set of `C…` constructors. The instant they drift, a statement added to one but not the other
+/// is silently dropped from whichever projection uses the stale copy (this exact drift — a missing
+/// `CStreamMessage` — once broke the whole projection suite). Fix by SYNCING the catalogs; you do
+/// NOT get to weaken this assertion.
+/// ════════════════════════════════════════════════════════════════════════════════════════════
+#[test]
+fn core_types_catalog_matches_runtime_pe_source() {
+    fn ctors(s: &str) -> std::collections::BTreeSet<String> {
+        s.lines()
+            .filter_map(|l| {
+                l.trim().strip_prefix("A C").map(|rest| {
+                    let name: String = rest.chars().take_while(|c| c.is_alphanumeric()).collect();
+                    format!("C{name}")
+                })
+            })
+            .collect()
+    }
+    let test_ctors = ctors(CORE_TYPES);
+    let runtime_ctors = ctors(logicaffeine_compile::compile::core_types_for_pe_source());
+    let only_test: Vec<_> = test_ctors.difference(&runtime_ctors).collect();
+    let only_runtime: Vec<_> = runtime_ctors.difference(&test_ctors).collect();
+    assert!(
+        only_test.is_empty() && only_runtime.is_empty(),
+        "CATALOG PARITY REGRESSION: the self-interpreter type catalogs drifted.\n  only in the test \
+         fixture CORE_TYPES: {only_test:?}\n  only in runtime core_types_for_pe_source: \
+         {only_runtime:?}\nSync the two catalogs — never weaken this lock."
+    );
+}
 
-## To valToText (v: CVal) -> Text:
-    Inspect v:
-        When VInt (n):
-            Return "{n}".
-        When VFloat (f):
-            Return "{f}".
-        When VBool (b):
-            If b:
-                Return "true".
-            Otherwise:
-                Return "false".
-        When VText (s):
-            Return s.
-        When VSeq (items):
-            Return "[seq]".
-        When VMap (m):
-            Return "[map]".
-        When VSet (setItems):
-            Return "[set]".
-        When VOption (optInner, optPresent):
-            If optPresent:
-                Let innerText be valToText(optInner).
-                Return "Some({innerText})".
-            Otherwise:
-                Return "None".
-        When VTuple (tupItems):
-            Let tupParts be a new Seq of Text.
-            Repeat for ti in tupItems:
-                Push valToText(ti) to tupParts.
-            Let mutable tupResult be "(".
-            Let mutable tupIdx be 1.
-            Let tupLen be length of tupParts.
-            Repeat for tp in tupParts:
-                Set tupResult to "{tupResult}{tp}".
-                If tupIdx is less than tupLen:
-                    Set tupResult to "{tupResult}, ".
-                Set tupIdx to tupIdx + 1.
-            Set tupResult to "{tupResult})".
-            Return tupResult.
-        When VStruct (sTypeName, sFields):
-            Return "{sTypeName}(...)".
-        When VVariant (vTypeName, vVarName, vFields):
-            Return "{vVarName}".
-        When VClosure (clParams, clBody, clEnv):
-            Return "<closure>".
-        When VDuration (durMs):
-            If durMs is less than 1000:
-                Return "{durMs}ms".
-            Let durSec be durMs / 1000.
-            If durSec is less than 60:
-                Return "{durSec}s".
-            Let durMin be durSec / 60.
-            Return "{durMin}m".
-        When VDate (dYear, dMonth, dDay):
-            Return "{dYear}-{dMonth}-{dDay}".
-        When VMoment (mMs):
-            Return "moment({mMs})".
-        When VSpan (spanStart, spanEnd):
-            Return "span({spanStart}..{spanEnd})".
-        When VTime (tHour, tMin, tSec):
-            Return "{tHour}:{tMin}:{tSec}".
-        When VCrdt (crdtKind, crdtState):
-            Return "<crdt:{crdtKind}>".
-        When VError (msg):
-            Return "Error: {msg}".
-        When VNothing:
-            Return "nothing".
+const INTERPRETER: &str = include_str!("../../logicaffeine_compile/src/optimize/core_interp.logos");
 
-## To applyBinOp (op: Text) and (lv: CVal) and (rv: CVal) -> CVal:
-    Inspect lv:
-        When VError (msg):
-            Return a new VError with msg msg.
-        When VInt (a):
-            Inspect rv:
-                When VError (msg):
-                    Return a new VError with msg msg.
-                When VInt (b):
-                    If op equals "+":
-                        Return a new VInt with value (a + b).
-                    If op equals "-":
-                        Return a new VInt with value (a - b).
-                    If op equals "*":
-                        Return a new VInt with value (a * b).
-                    If op equals "/":
-                        If b equals 0:
-                            Return a new VError with msg "division by zero".
-                        Return a new VInt with value (a / b).
-                    If op equals "%":
-                        If b equals 0:
-                            Return a new VError with msg "modulo by zero".
-                        Return a new VInt with value (a % b).
-                    If op equals "<":
-                        Return a new VBool with value (a is less than b).
-                    If op equals ">":
-                        Return a new VBool with value (a is greater than b).
-                    If op equals "<=":
-                        Return a new VBool with value (a is at most b).
-                    If op equals ">=":
-                        Return a new VBool with value (a is at least b).
-                    If op equals "==":
-                        Return a new VBool with value (a equals b).
-                    If op equals "!=":
-                        Return a new VBool with value (a is not b).
-                    If op equals "^":
-                        Return a new VInt with value (a xor b).
-                    If op equals "<<":
-                        Return a new VInt with value (a shifted left by b).
-                    If op equals ">>":
-                        Return a new VInt with value (a shifted right by b).
-                    Return a new VNothing.
-                When VFloat (b):
-                    If op equals "+":
-                        Return a new VFloat with value (a + b).
-                    If op equals "-":
-                        Return a new VFloat with value (a - b).
-                    If op equals "*":
-                        Return a new VFloat with value (a * b).
-                    If op equals "/":
-                        If b equals 0.0:
-                            Return a new VError with msg "division by zero".
-                        Return a new VFloat with value (a / b).
-                    If op equals "<":
-                        Return a new VBool with value (a is less than b).
-                    If op equals ">":
-                        Return a new VBool with value (a is greater than b).
-                    If op equals "<=":
-                        Return a new VBool with value (a is at most b).
-                    If op equals ">=":
-                        Return a new VBool with value (a is at least b).
-                    If op equals "==":
-                        Return a new VBool with value (a equals b).
-                    If op equals "!=":
-                        Return a new VBool with value (a is not b).
-                    Return a new VNothing.
-                Otherwise:
-                    Return a new VNothing.
-        When VFloat (a):
-            Inspect rv:
-                When VError (msg):
-                    Return a new VError with msg msg.
-                When VFloat (b):
-                    If op equals "+":
-                        Return a new VFloat with value (a + b).
-                    If op equals "-":
-                        Return a new VFloat with value (a - b).
-                    If op equals "*":
-                        Return a new VFloat with value (a * b).
-                    If op equals "/":
-                        If b equals 0.0:
-                            Return a new VError with msg "division by zero".
-                        Return a new VFloat with value (a / b).
-                    If op equals "<":
-                        Return a new VBool with value (a is less than b).
-                    If op equals ">":
-                        Return a new VBool with value (a is greater than b).
-                    If op equals "<=":
-                        Return a new VBool with value (a is at most b).
-                    If op equals ">=":
-                        Return a new VBool with value (a is at least b).
-                    If op equals "==":
-                        Return a new VBool with value (a equals b).
-                    If op equals "!=":
-                        Return a new VBool with value (a is not b).
-                    Return a new VNothing.
-                When VInt (b):
-                    If op equals "+":
-                        Return a new VFloat with value (a + b).
-                    If op equals "-":
-                        Return a new VFloat with value (a - b).
-                    If op equals "*":
-                        Return a new VFloat with value (a * b).
-                    If op equals "/":
-                        If b equals 0:
-                            Return a new VError with msg "division by zero".
-                        Return a new VFloat with value (a / b).
-                    If op equals "<":
-                        Return a new VBool with value (a is less than b).
-                    If op equals ">":
-                        Return a new VBool with value (a is greater than b).
-                    If op equals "<=":
-                        Return a new VBool with value (a is at most b).
-                    If op equals ">=":
-                        Return a new VBool with value (a is at least b).
-                    If op equals "==":
-                        Return a new VBool with value (a equals b).
-                    If op equals "!=":
-                        Return a new VBool with value (a is not b).
-                    Return a new VNothing.
-                Otherwise:
-                    Return a new VNothing.
-        When VBool (a):
-            Inspect rv:
-                When VError (msg):
-                    Return a new VError with msg msg.
-                When VBool (b):
-                    If op equals "&&":
-                        Return a new VBool with value (a and b).
-                    If op equals "||":
-                        Return a new VBool with value (a or b).
-                    If op equals "==":
-                        Return a new VBool with value (a equals b).
-                    If op equals "!=":
-                        Return a new VBool with value (a is not b).
-                    Return a new VNothing.
-                Otherwise:
-                    Return a new VNothing.
-        When VText (a):
-            Inspect rv:
-                When VError (msg):
-                    Return a new VError with msg msg.
-                When VText (b):
-                    If op equals "+":
-                        Let joined be "{a}{b}".
-                        Return a new VText with value joined.
-                    If op equals "==":
-                        Return a new VBool with value (a equals b).
-                    If op equals "!=":
-                        Return a new VBool with value (a is not b).
-                    Return a new VNothing.
-                When VInt (b):
-                    If op equals "+":
-                        Let joined be "{a}{b}".
-                        Return a new VText with value joined.
-                    Return a new VNothing.
-                When VBool (b):
-                    If op equals "+":
-                        If b:
-                            Let joined be "{a}true".
-                            Return a new VText with value joined.
-                        Otherwise:
-                            Let joined be "{a}false".
-                            Return a new VText with value joined.
-                    Return a new VNothing.
-                Otherwise:
-                    Return a new VNothing.
-        When VDuration (durA):
-            Inspect rv:
-                When VDuration (durB):
-                    If op equals "+":
-                        Return a new VDuration with millis (durA + durB).
-                    If op equals "-":
-                        Return a new VDuration with millis (durA - durB).
-                    If op equals "==":
-                        Return a new VBool with value (durA equals durB).
-                    If op equals "!=":
-                        Return a new VBool with value (durA is not durB).
-                    If op equals "<":
-                        Return a new VBool with value (durA is less than durB).
-                    If op equals ">":
-                        Return a new VBool with value (durA is greater than durB).
-                    Return a new VNothing.
-                When VInt (durB):
-                    If op equals "*":
-                        Return a new VDuration with millis (durA * durB).
-                    Return a new VNothing.
-                Otherwise:
-                    Return a new VNothing.
-        When VDate (dateYA, dateMA, dateDA):
-            Inspect rv:
-                When VDuration (durB):
-                    If op equals "+":
-                        Let shiftedDay be dateDA + (durB / 86400000).
-                        Return a new VDate with year dateYA and month dateMA and day shiftedDay.
-                    Return a new VNothing.
-                When VDate (dateYB, dateMB, dateDB):
-                    If op equals "-":
-                        Let dayDiff be dateDA - dateDB.
-                        Return a new VDuration with millis (dayDiff * 86400000).
-                    If op equals "==":
-                        Let yEq be dateYA equals dateYB.
-                        Let mEq be dateMA equals dateMB.
-                        Let dEq be dateDA equals dateDB.
-                        Return a new VBool with value (yEq and mEq and dEq).
-                    If op equals "<":
-                        If dateYA is less than dateYB:
-                            Return a new VBool with value true.
-                        If dateYA is greater than dateYB:
-                            Return a new VBool with value false.
-                        If dateMA is less than dateMB:
-                            Return a new VBool with value true.
-                        If dateMA is greater than dateMB:
-                            Return a new VBool with value false.
-                        Return a new VBool with value (dateDA is less than dateDB).
-                    Return a new VNothing.
-                Otherwise:
-                    Return a new VNothing.
-        When VMoment (momA):
-            Inspect rv:
-                When VMoment (momB):
-                    If op equals "<":
-                        Return a new VBool with value (momA is less than momB).
-                    If op equals ">":
-                        Return a new VBool with value (momA is greater than momB).
-                    If op equals "==":
-                        Return a new VBool with value (momA equals momB).
-                    If op equals "<=":
-                        Return a new VBool with value (momA is at most momB).
-                    If op equals ">=":
-                        Return a new VBool with value (momA is at least momB).
-                    Return a new VNothing.
-                Otherwise:
-                    Return a new VNothing.
-        Otherwise:
-            Return a new VNothing.
-
-## To valEquals (a: CVal) and (b: CVal) -> Bool:
-    Let ta be valToText(a).
-    Let tb be valToText(b).
-    Return ta equals tb.
-
-## To coreEval (expr: CExpr) and (env: Map of Text to CVal) and (funcs: Map of Text to CFunc) -> CVal:
-    Inspect expr:
-        When CInt (n):
-            Return a new VInt with value n.
-        When CFloat (f):
-            Return a new VFloat with value f.
-        When CBool (b):
-            Return a new VBool with value b.
-        When CText (s):
-            Return a new VText with value s.
-        When CVar (name):
-            Return item name of env.
-        When CBinOp (op, left, right):
-            Let lv be coreEval(left, env, funcs).
-            Let rv be coreEval(right, env, funcs).
-            Return applyBinOp(op, lv, rv).
-        When CNot (inner):
-            Let v be coreEval(inner, env, funcs).
-            Inspect v:
-                When VBool (b):
-                    Return a new VBool with value (not b).
-                Otherwise:
-                    Return a new VNothing.
-        When CCall (name, argExprs):
-            Let argVals be a new Seq of CVal.
-            Repeat for a in argExprs:
-                Push coreEval(a, env, funcs) to argVals.
-            Let callInFuncs be (funcs contains name).
-            If callInFuncs:
-                Let func be item name of funcs.
-                Inspect func:
-                    When CFuncDef (fname, params, fnParamTypes, fnReturnType, body):
-                        Let callEnv be a new Map of Text to CVal.
-                        Let mutable idx be 1.
-                        Repeat for p in params:
-                            Set item p of callEnv to item idx of argVals.
-                            Set idx to idx + 1.
-                        Return coreExecBlock(body, callEnv, funcs).
-                    Otherwise:
-                        Return a new VNothing.
-            Otherwise:
-                Let callInEnv be (env contains name).
-                If callInEnv:
-                    Let envVal be item name of env.
-                    Inspect envVal:
-                        When VClosure (ceParams, ceBody, ceCapturedEnv):
-                            Let mutable ceCallEnv be ceCapturedEnv.
-                            Let mutable ceCopyIdx be 1.
-                            While ceCopyIdx is at most (length of ceParams):
-                                If ceCopyIdx is at most (length of argVals):
-                                    Set item (item ceCopyIdx of ceParams) of ceCallEnv to item ceCopyIdx of argVals.
-                                Set ceCopyIdx to ceCopyIdx + 1.
-                            Return coreExecBlock(ceBody, ceCallEnv, funcs).
-                        Otherwise:
-                            Return a new VNothing.
-                Otherwise:
-                    Return a new VNothing.
-        When CIndex (collExpr, idxExpr):
-            Let cv be coreEval(collExpr, env, funcs).
-            Let iv be coreEval(idxExpr, env, funcs).
-            Inspect cv:
-                When VError (msg):
-                    Return a new VError with msg msg.
-                When VSeq (items):
-                    Inspect iv:
-                        When VError (msg):
-                            Return a new VError with msg msg.
-                        When VInt (i):
-                            If i is less than 1:
-                                Return a new VError with msg "index out of bounds".
-                            If i is greater than (length of items):
-                                Return a new VError with msg "index out of bounds".
-                            Return item i of items.
-                        Otherwise:
-                            Return a new VNothing.
-                When VTuple (tupItems):
-                    Inspect iv:
-                        When VInt (i):
-                            If i is less than 1:
-                                Return a new VError with msg "index out of bounds".
-                            If i is greater than (length of tupItems):
-                                Return a new VError with msg "index out of bounds".
-                            Return item i of tupItems.
-                        Otherwise:
-                            Return a new VNothing.
-                Otherwise:
-                    Return a new VNothing.
-        When CLen (collExpr):
-            Let cv be coreEval(collExpr, env, funcs).
-            Inspect cv:
-                When VSeq (items):
-                    Return a new VInt with value (length of items).
-                When VSet (setItems):
-                    Return a new VInt with value (length of setItems).
-                When VTuple (tupItems):
-                    Return a new VInt with value (length of tupItems).
-                When VText (textVal):
-                    Return a new VInt with value (length of textVal).
-                Otherwise:
-                    Return a new VNothing.
-        When CMapGet (mapExpr, keyExpr):
-            Let mv be coreEval(mapExpr, env, funcs).
-            Let kv be coreEval(keyExpr, env, funcs).
-            Inspect mv:
-                When VMap (mapData):
-                    Inspect kv:
-                        When VText (key):
-                            Return item key of mapData.
-                        Otherwise:
-                            Return a new VNothing.
-                Otherwise:
-                    Return a new VNothing.
-        When CNewSeq:
-            Return a new VSeq with items a new Seq of CVal.
-        When CNewVariant (nvTag, nvNames, nvVals):
-            Let nvMap be a new Map of Text to CVal.
-            Set item "__tag" of nvMap to a new VText with value nvTag.
-            Let nvFnSeq be a new Seq of CVal.
-            Let mutable nvi be 1.
-            While nvi is at most (length of nvNames):
-                Let nvn be item nvi of nvNames.
-                Let nvv be coreEval(item nvi of nvVals, env, funcs).
-                Set item nvn of nvMap to nvv.
-                Let nvn2 be item nvi of nvNames.
-                Push a new VText with value nvn2 to nvFnSeq.
-                Set nvi to nvi + 1.
-            Set item "__fnames__" of nvMap to a new VSeq with items nvFnSeq.
-            Return a new VMap with entries nvMap.
-        When CList (listItems):
-            Let result be a new Seq of CVal.
-            Repeat for listItem in listItems:
-                Push coreEval(listItem, env, funcs) to result.
-            Return a new VSeq with items result.
-        When CRange (rangeStart, rangeEnd):
-            Let sv be coreEval(rangeStart, env, funcs).
-            Let ev be coreEval(rangeEnd, env, funcs).
-            Let result be a new Seq of CVal.
-            Inspect sv:
-                When VInt (s):
-                    Inspect ev:
-                        When VInt (e):
-                            Let mutable ri be s.
-                            While ri is at most e:
-                                Push a new VInt with value ri to result.
-                                Set ri to ri + 1.
-                        Otherwise:
-                            Let skip be true.
-                Otherwise:
-                    Let skip be true.
-            Return a new VSeq with items result.
-        When CSlice (sliceColl, sliceStart, sliceEnd):
-            Let cv be coreEval(sliceColl, env, funcs).
-            Let siv be coreEval(sliceStart, env, funcs).
-            Let eiv be coreEval(sliceEnd, env, funcs).
-            Inspect cv:
-                When VSeq (srcItems):
-                    Inspect siv:
-                        When VInt (si):
-                            Inspect eiv:
-                                When VInt (ei):
-                                    Let sliceResult be a new Seq of CVal.
-                                    Let mutable sIdx be si.
-                                    While sIdx is at most ei:
-                                        If sIdx is at least 1:
-                                            If sIdx is at most (length of srcItems):
-                                                Push item sIdx of srcItems to sliceResult.
-                                        Set sIdx to sIdx + 1.
-                                    Return a new VSeq with items sliceResult.
-                                Otherwise:
-                                    Return a new VNothing.
-                        Otherwise:
-                            Return a new VNothing.
-                Otherwise:
-                    Return a new VNothing.
-        When CCopy (copyTarget):
-            Let cv be coreEval(copyTarget, env, funcs).
-            Inspect cv:
-                When VSeq (srcItems):
-                    Let copiedItems be a new Seq of CVal.
-                    Repeat for ci in srcItems:
-                        Push ci to copiedItems.
-                    Return a new VSeq with items copiedItems.
-                When VMap (mapData):
-                    Let copiedMap be copy of mapData.
-                    Return a new VMap with entries copiedMap.
-                When VStruct (stn, stf):
-                    Let copiedFields be copy of stf.
-                    Return a new VStruct with typeName stn and fields copiedFields.
-                Otherwise:
-                    Return cv.
-        When CNewSet:
-            Return a new VSet with items a new Seq of CVal.
-        When CContains (containsColl, containsElem):
-            Let ccv be coreEval(containsColl, env, funcs).
-            Let cev be coreEval(containsElem, env, funcs).
-            Let cevText be valToText(cev).
-            Inspect ccv:
-                When VSet (setItems):
-                    Repeat for si in setItems:
-                        Let siText be valToText(si).
-                        If siText equals cevText:
-                            Return a new VBool with value true.
-                    Return a new VBool with value false.
-                When VSeq (seqItems):
-                    Repeat for si in seqItems:
-                        Let siText be valToText(si).
-                        If siText equals cevText:
-                            Return a new VBool with value true.
-                    Return a new VBool with value false.
-                When VText (haystack):
-                    Inspect cev:
-                        When VText (needle):
-                            If haystack contains needle:
-                                Return a new VBool with value true.
-                            Otherwise:
-                                Return a new VBool with value false.
-                        Otherwise:
-                            Return a new VBool with value false.
-                Otherwise:
-                    Return a new VBool with value false.
-        When CUnion (unionLeft, unionRight):
-            Let ulv be coreEval(unionLeft, env, funcs).
-            Let urv be coreEval(unionRight, env, funcs).
-            Inspect ulv:
-                When VSet (leftItems):
-                    Inspect urv:
-                        When VSet (rightItems):
-                            Let unionResult be a new Seq of CVal.
-                            Let unionTexts be a new Seq of Text.
-                            Let mutable uliIdx be 1.
-                            While uliIdx is at most (length of leftItems):
-                                Push item uliIdx of leftItems to unionResult.
-                                Push valToText(item uliIdx of leftItems) to unionTexts.
-                                Set uliIdx to uliIdx + 1.
-                            Let mutable uriIdx be 1.
-                            While uriIdx is at most (length of rightItems):
-                                Let uriTxt be valToText(item uriIdx of rightItems).
-                                Let mutable uriFound be false.
-                                Repeat for ut in unionTexts:
-                                    If ut equals uriTxt:
-                                        Set uriFound to true.
-                                If not uriFound:
-                                    Push item uriIdx of rightItems to unionResult.
-                                    Push uriTxt to unionTexts.
-                                Set uriIdx to uriIdx + 1.
-                            Return a new VSet with items unionResult.
-                        Otherwise:
-                            Return a new VNothing.
-                Otherwise:
-                    Return a new VNothing.
-        When CIntersection (interLeft, interRight):
-            Let ilv be coreEval(interLeft, env, funcs).
-            Let irv be coreEval(interRight, env, funcs).
-            Inspect ilv:
-                When VSet (leftItems):
-                    Inspect irv:
-                        When VSet (rightItems):
-                            Let interResult be a new Seq of CVal.
-                            Let rightTexts be a new Seq of Text.
-                            Repeat for iri in rightItems:
-                                Push valToText(iri) to rightTexts.
-                            Let mutable iliIdx be 1.
-                            While iliIdx is at most (length of leftItems):
-                                Let iliTxt be valToText(item iliIdx of leftItems).
-                                Let mutable iliFound be false.
-                                Repeat for irt in rightTexts:
-                                    If irt equals iliTxt:
-                                        Set iliFound to true.
-                                If iliFound:
-                                    Push item iliIdx of leftItems to interResult.
-                                Set iliIdx to iliIdx + 1.
-                            Return a new VSet with items interResult.
-                        Otherwise:
-                            Return a new VNothing.
-                Otherwise:
-                    Return a new VNothing.
-        When COptionSome (optInner):
-            Let optVal be coreEval(optInner, env, funcs).
-            Return a new VOption with inner optVal and present true.
-        When COptionNone:
-            Return a new VOption with inner (a new VNothing) and present false.
-        When CTuple (tupleItems):
-            Let tupleResult be a new Seq of CVal.
-            Repeat for ti in tupleItems:
-                Push coreEval(ti, env, funcs) to tupleResult.
-            Return a new VTuple with items tupleResult.
-        When CNew (newTypeName, newFieldNames, newFields):
-            If newTypeName equals "Map":
-                Return a new VMap with entries a new Map of Text to CVal.
-            Let newFieldMap be a new Map of Text to CVal.
-            Let mutable nfIdx be 1.
-            Repeat for nfn in newFieldNames:
-                If nfIdx is at most (length of newFields):
-                    Set item nfn of newFieldMap to coreEval(item nfIdx of newFields, env, funcs).
-                Set nfIdx to nfIdx + 1.
-            Return a new VStruct with typeName newTypeName and fields newFieldMap.
-        When CFieldAccess (faTarget, faField):
-            Let faVal be coreEval(faTarget, env, funcs).
-            Inspect faVal:
-                When VStruct (faTypeName, faFields):
-                    Return item faField of faFields.
-                When VMap (faMapData):
-                    Return item faField of faMapData.
-                Otherwise:
-                    Return a new VNothing.
-        When CClosure (clParams, clBody, clCaptured):
-            Let clEnv be a new Map of Text to CVal.
-            Let mutable clCapIdx be 1.
-            While clCapIdx is at most (length of clCaptured):
-                Let clCapName be item clCapIdx of clCaptured.
-                Let clCapVal be item clCapName of env.
-                Let clCapName2 be item clCapIdx of clCaptured.
-                Set item clCapName2 of clEnv to clCapVal.
-                Set clCapIdx to clCapIdx + 1.
-            Return a new VClosure with params clParams and body clBody and capturedEnv clEnv.
-        When CCallExpr (ceTarget, ceArgs):
-            Let ceVal be coreEval(ceTarget, env, funcs).
-            Inspect ceVal:
-                When VClosure (ceParams, ceBody, ceCapturedEnv):
-                    Let mutable ceCallEnv be ceCapturedEnv.
-                    Let mutable ceCopyIdx be 1.
-                    While ceCopyIdx is at most (length of ceParams):
-                        If ceCopyIdx is at most (length of ceArgs):
-                            Let ceArgVal be coreEval(item ceCopyIdx of ceArgs, env, funcs).
-                            Set item (item ceCopyIdx of ceParams) of ceCallEnv to ceArgVal.
-                        Set ceCopyIdx to ceCopyIdx + 1.
-                    Let ceResult be coreExecBlock(ceBody, ceCallEnv, funcs).
-                    Return ceResult.
-                Otherwise:
-                    Return a new VNothing.
-        When CInterpolatedString (isParts):
-            Let mutable isResult be "".
-            Repeat for isPart in isParts:
-                Inspect isPart:
-                    When CLiteralPart (litVal):
-                        Set isResult to "{isResult}{litVal}".
-                    When CExprPart (epExpr):
-                        Let epVal be coreEval(epExpr, env, funcs).
-                        Let epText be valToText(epVal).
-                        Set isResult to "{isResult}{epText}".
-            Return a new VText with value isResult.
-        When CDuration (durAmountExpr, durUnit):
-            Let durAmountVal be coreEval(durAmountExpr, env, funcs).
-            Inspect durAmountVal:
-                When VInt (durAmt):
-                    If durUnit equals "seconds":
-                        Return a new VDuration with millis (durAmt * 1000).
-                    If durUnit equals "minutes":
-                        Return a new VDuration with millis (durAmt * 60000).
-                    If durUnit equals "hours":
-                        Return a new VDuration with millis (durAmt * 3600000).
-                    If durUnit equals "milliseconds":
-                        Return a new VDuration with millis durAmt.
-                    Return a new VDuration with millis (durAmt * 1000).
-                Otherwise:
-                    Return a new VNothing.
-        When CTimeNow:
-            Return a new VMoment with millis 0.
-        When CDateToday:
-            Return a new VDate with year 2026 and month 1 and day 1.
-        When CEscExpr (escCode):
-            Return a new VNothing.
-
-## To coreExecBlock (stmts: Seq of CStmt) and (env: Map of Text to CVal) and (funcs: Map of Text to CFunc) -> CVal:
-    Repeat for s in stmts:
-        Inspect s:
-            When CLet (name, expr):
-                Set item name of env to coreEval(expr, env, funcs).
-            When CSet (name, expr):
-                Set item name of env to coreEval(expr, env, funcs).
-            When CIf (cond, thenBlock, elseBlock):
-                Let cv be coreEval(cond, env, funcs).
-                Inspect cv:
-                    When VBool (b):
-                        If b:
-                            Let ifResult be coreExecBlock(thenBlock, env, funcs).
-                            Let ifNoth be isNothing(ifResult).
-                            If not ifNoth:
-                                Return ifResult.
-                        Otherwise:
-                            Let elseResult be coreExecBlock(elseBlock, env, funcs).
-                            Let elseNoth be isNothing(elseResult).
-                            If not elseNoth:
-                                Return elseResult.
-                    Otherwise:
-                        Let skip be true.
-            When CWhile (whileCond, whileBody):
-                Let mutable loopDone be false.
-                While not loopDone:
-                    Let wcv be coreEval(whileCond, env, funcs).
-                    Inspect wcv:
-                        When VBool (wb):
-                            If not wb:
-                                Set loopDone to true.
-                            Otherwise:
-                                Let whileIterResult be coreExecBlock(whileBody, env, funcs).
-                                Let whileIterNoth be isNothing(whileIterResult).
-                                If not whileIterNoth:
-                                    Let whileIterTxt be valToText(whileIterResult).
-                                    If whileIterTxt equals "__break__":
-                                        Set loopDone to true.
-                                    Otherwise:
-                                        Return whileIterResult.
-                        Otherwise:
-                            Set loopDone to true.
-            When CReturn (expr):
-                Return coreEval(expr, env, funcs).
-            When CShow (expr):
-                Let v be coreEval(expr, env, funcs).
-                Show valToText(v).
-            When CCallS (name, argExprs):
-                Let argVals be a new Seq of CVal.
-                Repeat for a in argExprs:
-                    Push coreEval(a, env, funcs) to argVals.
-                Let csInFuncs be (funcs contains name).
-                If csInFuncs:
-                    Let func be item name of funcs.
-                    Inspect func:
-                        When CFuncDef (fname, params, fnParamTypes, fnReturnType, body):
-                            Let callEnv be a new Map of Text to CVal.
-                            Let mutable cidx be 1.
-                            Repeat for p in params:
-                                Set item p of callEnv to item cidx of argVals.
-                                Set cidx to cidx + 1.
-                            Let callResult be coreExecBlock(body, callEnv, funcs).
-                            Let skip be true.
-                        Otherwise:
-                            Let skip be true.
-                Otherwise:
-                    Let csInEnv be (env contains name).
-                    If csInEnv:
-                        Let envVal be item name of env.
-                        Inspect envVal:
-                            When VClosure (csParams, csBody, csCapturedEnv):
-                                Let mutable csCallEnv be csCapturedEnv.
-                                Let mutable csCopyIdx be 1.
-                                While csCopyIdx is at most (length of csParams):
-                                    If csCopyIdx is at most (length of argVals):
-                                        Set item (item csCopyIdx of csParams) of csCallEnv to item csCopyIdx of argVals.
-                                    Set csCopyIdx to csCopyIdx + 1.
-                                Let csResult be coreExecBlock(csBody, csCallEnv, funcs).
-                                Let skip be true.
-                            Otherwise:
-                                Let skip be true.
-            When CPush (valExpr, collName):
-                Let v be coreEval(valExpr, env, funcs).
-                Let seq be item collName of env.
-                Inspect seq:
-                    When VSeq (items):
-                        Let mutable mutItems be items.
-                        Push v to mutItems.
-                        Set item collName of env to a new VSeq with items mutItems.
-                    Otherwise:
-                        Let skip be true.
-            When CSetIdx (collName, idxExpr, valExpr):
-                Let iv be coreEval(idxExpr, env, funcs).
-                Let v be coreEval(valExpr, env, funcs).
-                Let seq be item collName of env.
-                Inspect seq:
-                    When VSeq (items):
-                        Inspect iv:
-                            When VInt (i):
-                                Let mutable mutItems be items.
-                                Set item i of mutItems to v.
-                                Set item collName of env to a new VSeq with items mutItems.
-                            Otherwise:
-                                Let skip be true.
-                    When VMap (mapData):
-                        Inspect iv:
-                            When VText (key):
-                                Let mutable mutMap be mapData.
-                                Set item key of mutMap to v.
-                                Set item collName of env to a new VMap with entries mutMap.
-                            Otherwise:
-                                Let skip be true.
-                    Otherwise:
-                        Let skip be true.
-            When CMapSet (mapName, keyExpr, valExpr):
-                Let kv be coreEval(keyExpr, env, funcs).
-                Let v be coreEval(valExpr, env, funcs).
-                Let mv be item mapName of env.
-                Inspect mv:
-                    When VMap (mapData):
-                        Inspect kv:
-                            When VText (key):
-                                Let mutable mutMap be mapData.
-                                Set item key of mutMap to v.
-                                Set item mapName of env to a new VMap with entries mutMap.
-                            Otherwise:
-                                Let skip be true.
-                    Otherwise:
-                        Let skip be true.
-            When CPop (popTarget):
-                Let seq be item popTarget of env.
-                Inspect seq:
-                    When VSeq (seqItems):
-                        Let seqLen be length of seqItems.
-                        If seqLen is greater than 0:
-                            Let mutable newItems be a new Seq of CVal.
-                            Let mutable pi be 1.
-                            While pi is less than seqLen:
-                                Push item pi of seqItems to newItems.
-                                Set pi to pi + 1.
-                            Set item popTarget of env to a new VSeq with items newItems.
-                    Otherwise:
-                        Let skip be true.
-            When CAdd (addElem, addTarget):
-                Let addValHolder be a new Seq of CVal.
-                Push coreEval(addElem, env, funcs) to addValHolder.
-                Let addValText be valToText(item 1 of addValHolder).
-                Let addColl be item addTarget of env.
-                Inspect addColl:
-                    When VSet (addItems):
-                        Let mutable addFound be false.
-                        Repeat for ai in addItems:
-                            Let aiText be valToText(ai).
-                            If aiText equals addValText:
-                                Set addFound to true.
-                        If not addFound:
-                            Let mutable addNew be addItems.
-                            Push item 1 of addValHolder to addNew.
-                            Set item addTarget of env to a new VSet with items addNew.
-                    Otherwise:
-                        Let skip be true.
-            When CRemove (remElem, remTarget):
-                Let remValText be valToText(coreEval(remElem, env, funcs)).
-                Let remColl be item remTarget of env.
-                Inspect remColl:
-                    When VSet (remItems):
-                        Let mutable remNew be a new Seq of CVal.
-                        Let mutable remIdx be 1.
-                        While remIdx is at most (length of remItems):
-                            Let remItemText be valToText(item remIdx of remItems).
-                            If remItemText is not remValText:
-                                Push item remIdx of remItems to remNew.
-                            Set remIdx to remIdx + 1.
-                        Set item remTarget of env to a new VSet with items remNew.
-                    Otherwise:
-                        Let skip be true.
-            When CSetField (sfTarget, sfField, sfValExpr):
-                Let sfVal be coreEval(sfValExpr, env, funcs).
-                Let sfObj be item sfTarget of env.
-                Inspect sfObj:
-                    When VStruct (sfTypeName, sfFields):
-                        Let mutable sfMut be copy of sfFields.
-                        Set item sfField of sfMut to sfVal.
-                        Set item sfTarget of env to a new VStruct with typeName sfTypeName and fields sfMut.
-                    When VMap (sfMapData):
-                        Let mutable sfMutMap be copy of sfMapData.
-                        Set item sfField of sfMutMap to sfVal.
-                        Set item sfTarget of env to a new VMap with entries sfMutMap.
-                    Otherwise:
-                        Let skip be true.
-            When CStructDef (sdName, sdFieldNames):
-                Let skip be true.
-            When CEnumDef (edName, edVariants):
-                Let skip be true.
-            When CInspect (inspTarget, inspArms):
-                Let inspVal be coreEval(inspTarget, env, funcs).
-                Let mutable inspTag be "".
-                Let mutable inspFields be a new Seq of CVal.
-                Let mutable inspNamedFields be a new Map of Text to CVal.
-                Let mutable inspIsMap be false.
-                Inspect inspVal:
-                    When VVariant (ivt, ivn, ivf):
-                        Set inspTag to ivn.
-                        Set inspFields to ivf.
-                    When VMap (mapData):
-                        Set inspIsMap to true.
-                        Let tagEntry be item "__tag" of mapData.
-                        Inspect tagEntry:
-                            When VText (tagStr):
-                                Set inspTag to tagStr.
-                            Otherwise:
-                                Let skip be true.
-                        Set inspNamedFields to mapData.
-                    Otherwise:
-                        Let skip be true.
-                Let mutable inspMatched be false.
-                Repeat for arm in inspArms:
-                    If not inspMatched:
-                        Inspect arm:
-                            When CWhen (armName, armBindings, armBody):
-                                If armName equals inspTag:
-                                    Set inspMatched to true.
-                                    If inspIsMap:
-                                        Let fnamesEntry be item "__fnames__" of inspNamedFields.
-                                        Let mutable inspFnameSeq be a new Seq of CVal.
-                                        Inspect fnamesEntry:
-                                            When VSeq (fnameItems):
-                                                Set inspFnameSeq to fnameItems.
-                                            Otherwise:
-                                                Let skip be true.
-                                        Let mutable abiM be 1.
-                                        While abiM is at most (length of armBindings):
-                                            If abiM is at most (length of inspFnameSeq):
-                                                Let fnameVal be item abiM of inspFnameSeq.
-                                                Let mutable fnameStr be "".
-                                                Inspect fnameVal:
-                                                    When VText (fns):
-                                                        Set fnameStr to fns.
-                                                    Otherwise:
-                                                        Let skip be true.
-                                                Let abLookup be item fnameStr of inspNamedFields.
-                                                Set item (item abiM of armBindings) of env to abLookup.
-                                            Set abiM to abiM + 1.
-                                    Otherwise:
-                                        Let mutable abi2 be 1.
-                                        While abi2 is at most (length of armBindings):
-                                            If abi2 is at most (length of inspFields):
-                                                Set item (item abi2 of armBindings) of env to item abi2 of inspFields.
-                                            Set abi2 to abi2 + 1.
-                                    Let armResult be coreExecBlock(armBody, env, funcs).
-                                    Let armNoth be isNothing(armResult).
-                                    If not armNoth:
-                                        Return armResult.
-                            When COtherwise (owBody):
-                                If not inspMatched:
-                                    Set inspMatched to true.
-                                    Let owResult be coreExecBlock(owBody, env, funcs).
-                                    Let owNoth be isNothing(owResult).
-                                    If not owNoth:
-                                        Return owResult.
-            When CRepeat (repVar, repCollExpr, repBody):
-                Let repCV be coreEval(repCollExpr, env, funcs).
-                Inspect repCV:
-                    When VSeq (repItems):
-                        Let repLen be length of repItems.
-                        Let mutable repIdx be 1.
-                        Let mutable repDone be false.
-                        While (not repDone):
-                            If repIdx is greater than repLen:
-                                Set repDone to true.
-                            Otherwise:
-                                Let repKey be "{repVar}".
-                                Set item repKey of env to item repIdx of repItems.
-                                Let repIterResult be coreExecBlock(repBody, env, funcs).
-                                Let repIterNoth be isNothing(repIterResult).
-                                If not repIterNoth:
-                                    Let repIterTxt be valToText(repIterResult).
-                                    If repIterTxt equals "__break__":
-                                        Set repDone to true.
-                                    Otherwise:
-                                        Return repIterResult.
-                                Set repIdx to repIdx + 1.
-                    Otherwise:
-                        Let skip be true.
-            When CRepeatRange (rrVar, rrStartExpr, rrEndExpr, rrBody):
-                Let rrSV be coreEval(rrStartExpr, env, funcs).
-                Let rrEV be coreEval(rrEndExpr, env, funcs).
-                Inspect rrSV:
-                    When VInt (rrStart):
-                        Inspect rrEV:
-                            When VInt (rrEnd):
-                                Let mutable rrI be rrStart.
-                                Let mutable rrDone be false.
-                                While not rrDone:
-                                    If rrI is greater than rrEnd:
-                                        Set rrDone to true.
-                                    Otherwise:
-                                        Let rrKey be "{rrVar}".
-                                        Set item rrKey of env to a new VInt with value rrI.
-                                        Let rrIterResult be coreExecBlock(rrBody, env, funcs).
-                                        Let rrIterNoth be isNothing(rrIterResult).
-                                        If not rrIterNoth:
-                                            Let rrIterTxt be valToText(rrIterResult).
-                                            If rrIterTxt equals "__break__":
-                                                Set rrDone to true.
-                                            Otherwise:
-                                                Return rrIterResult.
-                                        Set rrI to rrI + 1.
-                            Otherwise:
-                                Let skip be true.
-                    Otherwise:
-                        Let skip be true.
-            When CBreak:
-                Return a new VText with value "__break__".
-            When CRuntimeAssert (raCond, raMsg):
-                Let raCondVal be coreEval(raCond, env, funcs).
-                Inspect raCondVal:
-                    When VBool (raB):
-                        If raB is not true:
-                            Let raMsgVal be coreEval(raMsg, env, funcs).
-                            Let raMsgText be valToText(raMsgVal).
-                            Show "Assertion failed: {raMsgText}".
-                            Return a new VError with msg raMsgText.
-                    Otherwise:
-                        Let skip be true.
-            When CGive (giveExpr, giveTarget):
-                Let giveVal be coreEval(giveExpr, env, funcs).
-                Set item giveTarget of env to giveVal.
-            When CEscStmt (escCode):
-                Let skip be true.
-            When CSleep (sleepDur):
-                Let skip be true.
-            When CReadConsole (rcTarget):
-                Set item rcTarget of env to (a new VText with value "").
-            When CReadFile (rfPath, rfTarget):
-                Set item rfTarget of env to (a new VText with value "").
-            When CWriteFile (wfPath, wfContent):
-                Let skip be true.
-            When CCheck (chkPred, chkMsg):
-                Let chkVal be coreEval(chkPred, env, funcs).
-                Inspect chkVal:
-                    When VBool (chkB):
-                        If chkB is not true:
-                            Let chkMsgVal be coreEval(chkMsg, env, funcs).
-                            Let chkMsgText be valToText(chkMsgVal).
-                            Show "Security violation: {chkMsgText}".
-                            Return a new VError with msg chkMsgText.
-                    Otherwise:
-                        Let skip be true.
-            When CAssert (assertProp):
-                Let assertVal be coreEval(assertProp, env, funcs).
-                Inspect assertVal:
-                    When VBool (assertB):
-                        If assertB is not true:
-                            Show "Assertion failed".
-                            Return a new VError with msg "assertion failed".
-                    Otherwise:
-                        Let skip be true.
-            When CTrust (trustProp, trustJust):
-                Let trustVal be coreEval(trustProp, env, funcs).
-                Inspect trustVal:
-                    When VBool (trustB):
-                        If trustB is not true:
-                            Show "Trust violation: {trustJust}".
-                            Return a new VError with msg trustJust.
-                    Otherwise:
-                        Let skip be true.
-            When CRequire (reqDep):
-                Let skip be true.
-            When CMerge (mergeTarget, mergeOther):
-                Let skip be true.
-            When CIncrease (incTarget, incAmountExpr):
-                Let incAmount be coreEval(incAmountExpr, env, funcs).
-                Let incTargetVal be item incTarget of env.
-                Inspect incTargetVal:
-                    When VInt (incOldVal):
-                        Inspect incAmount:
-                            When VInt (incAmtVal):
-                                Set item incTarget of env to a new VInt with value (incOldVal + incAmtVal).
-                            Otherwise:
-                                Let skip be true.
-                    Otherwise:
-                        Let skip be true.
-            When CDecrease (decTarget, decAmountExpr):
-                Let decAmount be coreEval(decAmountExpr, env, funcs).
-                Let decTargetVal be item decTarget of env.
-                Inspect decTargetVal:
-                    When VInt (decOldVal):
-                        Inspect decAmount:
-                            When VInt (decAmtVal):
-                                Set item decTarget of env to a new VInt with value (decOldVal - decAmtVal).
-                            Otherwise:
-                                Let skip be true.
-                    Otherwise:
-                        Let skip be true.
-            When CAppendToSeq (asTarget, asValueExpr):
-                Let asValue be coreEval(asValueExpr, env, funcs).
-                Let asTargetVal be item asTarget of env.
-                Inspect asTargetVal:
-                    When VSeq (asItems):
-                        Let mutable asMutSeq be asItems.
-                        Push asValue to asMutSeq.
-                        Set item asTarget of env to a new VSeq with items asMutSeq.
-                    Otherwise:
-                        Let skip be true.
-            When CResolve (resTarget):
-                Let skip be true.
-            When CSync (syncTarget, syncChannel):
-                Let skip be true.
-            When CMount (mountTarget, mountPath):
-                Let skip be true.
-            When CConcurrent (concBranches):
-                Repeat for concBranch in concBranches:
-                    Let concResult be coreExecBlock(concBranch, env, funcs).
-                    Let concNoth be isNothing(concResult).
-                    If not concNoth:
-                        Let skip be true.
-            When CParallel (parBranches):
-                Repeat for parBranch in parBranches:
-                    Let parResult be coreExecBlock(parBranch, env, funcs).
-                    Let parNoth be isNothing(parResult).
-                    If not parNoth:
-                        Let skip be true.
-            When CLaunchTask (ltBody, ltHandle):
-                Let ltResult be coreExecBlock(ltBody, env, funcs).
-                Set item ltHandle of env to a new VText with value "task_handle".
-            When CStopTask (stHandle):
-                Let skip be true.
-            When CSelect (selBranches):
-                Repeat for selBranch in selBranches:
-                    Inspect selBranch:
-                        When CSelectRecv (selPipe, selVar, selBody):
-                            Let selPipeHas be (env contains selPipe).
-                            If selPipeHas:
-                                Let selPipeVal be item selPipe of env.
-                                Inspect selPipeVal:
-                                    When VSeq (selPipeItems):
-                                        If (length of selPipeItems) is greater than 0:
-                                            Set item selVar of env to item 1 of selPipeItems.
-                                            Let mutable selNewPipe be a new Seq of CVal.
-                                            Let mutable selPi be 2.
-                                            While selPi is at most (length of selPipeItems):
-                                                Push item selPi of selPipeItems to selNewPipe.
-                                                Set selPi to selPi + 1.
-                                            Set item selPipe of env to a new VSeq with items selNewPipe.
-                                            Let selResult be coreExecBlock(selBody, env, funcs).
-                                    Otherwise:
-                                        Let skip be true.
-                        When CSelectTimeout (selDur, selBody):
-                            Let selResult be coreExecBlock(selBody, env, funcs).
-            When CCreatePipe (cpName, cpCapacity):
-                Set item cpName of env to a new VSeq with items (a new Seq of CVal).
-            When CSendPipe (spPipe, spValueExpr):
-                Let spVal be coreEval(spValueExpr, env, funcs).
-                Let spPipeVal be item spPipe of env.
-                Inspect spPipeVal:
-                    When VSeq (spItems):
-                        Let mutable spMut be spItems.
-                        Push spVal to spMut.
-                        Set item spPipe of env to a new VSeq with items spMut.
-                    Otherwise:
-                        Let skip be true.
-            When CReceivePipe (rpPipe, rpTarget):
-                Let rpPipeVal be item rpPipe of env.
-                Inspect rpPipeVal:
-                    When VSeq (rpItems):
-                        If (length of rpItems) is greater than 0:
-                            Set item rpTarget of env to item 1 of rpItems.
-                            Let mutable rpNew be a new Seq of CVal.
-                            Let mutable rpI be 2.
-                            While rpI is at most (length of rpItems):
-                                Push item rpI of rpItems to rpNew.
-                                Set rpI to rpI + 1.
-                            Set item rpPipe of env to a new VSeq with items rpNew.
-                    Otherwise:
-                        Let skip be true.
-            When CTrySendPipe (tspPipe, tspValueExpr):
-                Let tspVal be coreEval(tspValueExpr, env, funcs).
-                Let tspPipeVal be item tspPipe of env.
-                Inspect tspPipeVal:
-                    When VSeq (tspItems):
-                        Let mutable tspMut be tspItems.
-                        Push tspVal to tspMut.
-                        Set item tspPipe of env to a new VSeq with items tspMut.
-                    Otherwise:
-                        Let skip be true.
-            When CTryReceivePipe (trpPipe, trpTarget):
-                Let trpPipeVal be item trpPipe of env.
-                Inspect trpPipeVal:
-                    When VSeq (trpItems):
-                        If (length of trpItems) is greater than 0:
-                            Set item trpTarget of env to item 1 of trpItems.
-                            Let mutable trpNew be a new Seq of CVal.
-                            Let mutable trpI be 2.
-                            While trpI is at most (length of trpItems):
-                                Push item trpI of trpItems to trpNew.
-                                Set trpI to trpI + 1.
-                            Set item trpPipe of env to a new VSeq with items trpNew.
-                        Otherwise:
-                            Set item trpTarget of env to a new VNothing.
-                    Otherwise:
-                        Set item trpTarget of env to a new VNothing.
-            When CSpawn (spawnType, spawnTarget):
-                Set item spawnTarget of env to a new VText with value "agent_handle".
-            When CSendMessage (smTarget, smMsg):
-                Let skip be true.
-            When CAwaitMessage (amTarget):
-                Set item amTarget of env to a new VNothing.
-            When CListen (listenAddr, listenHandler):
-                Let skip be true.
-            When CConnectTo (connAddr, connTarget):
-                Set item connTarget of env to a new VText with value "connection".
-            When CZone (zoneName, zoneKind, zoneBody):
-                Let zoneResult be coreExecBlock(zoneBody, env, funcs).
-                Let zoneNoth be isNothing(zoneResult).
-                If not zoneNoth:
-                    Return zoneResult.
-            Otherwise:
-                Let skip be true.
-    Return a new VNothing.
-"#;
+/// Phase-0 promotion parity: the self-interpreter is now the committed `optimize/core_interp.logos`,
+/// exposed by the compile crate as `core_interp_source()`. This fixture `include_str!`s the SAME
+/// file, so the runtime artifact and the test fixture are one source and can never drift.
+#[test]
+fn promoted_core_interp_is_the_fixture_self_interpreter() {
+    assert_eq!(
+        logicaffeine_compile::compile::core_interp_source(),
+        INTERPRETER,
+        "core_interp.logos and the phase_futamura fixture must be the same self-interpreter"
+    );
+    assert!(INTERPRETER.contains("## To coreEval"), "the promoted file must define coreEval");
+    assert!(INTERPRETER.contains("## To coreExecBlock"), "the promoted file must define coreExecBlock");
+}
 
 fn run_interpreter_program(main_block: &str, expected: &str) {
     let source = format!("{}\n{}\n## Main\n{}", CORE_TYPES, INTERPRETER, main_block);
@@ -7344,7 +6193,7 @@ fn fix_pe_state_record_exists() {
 {}
 {}
 ## Main
-    Let state be makePeState(a new Map of Text to CVal, a new Map of Text to CFunc, 10).
+    Let mutable state be makePeState(a new Map of Text to CVal, a new Map of Text to CFunc, 10).
     Show peDepth(state).
 "#, CORE_TYPES, pe_source);
     common::assert_exact_output(&source, "10");
@@ -7361,7 +6210,7 @@ fn fix_pe_state_peblock_works() {
     Push (a new CShow with expr (a new CInt with value 99)) to stmts.
     Let env be a new Map of Text to CVal.
     Let funcs be a new Map of Text to CFunc.
-    Let state be makePeState(env, funcs, 10).
+    Let mutable state be makePeState(env, funcs, 10).
     Let result be peBlock(stmts, state).
     Repeat for s in result:
         Inspect s:
@@ -7895,7 +6744,10 @@ fn fix_pe_source_memo_caches_all_static() {
 
 #[test]
 fn fix_pe_env_split_static_let() {
-    // Test: Do LOGOS Maps have reference semantics across function calls?
+    // LOGOS collections are value-semantic across function calls: `modify` takes
+    // `m` by value, so its `Set item "x"` mutates a private copy and the caller's
+    // map is unchanged. (Passing `m: mutable Map …` is the opt-in for shared
+    // mutation.) So the caller still sees "x" = 0.
     let source = r#"
 ## To modify (m: Map of Text to Int) -> Int:
     Set item "x" of m to 42.
@@ -7907,7 +6759,7 @@ fn fix_pe_env_split_static_let() {
     Let r be modify(m).
     Show item "x" of m.
 "#;
-    common::assert_exact_output(source, "42");
+    common::assert_exact_output(source, "0");
 }
 
 #[test]
@@ -7922,7 +6774,7 @@ fn fix_pe_env_split_set_dynamic() {
     Push (a new CLet with name "x" and expr (a new CInt with value 5)) to stmts.
     Push (a new CSet with name "x" and expr (a new CVar with name "input")) to stmts.
     Push (a new CShow with expr (a new CVar with name "x")) to stmts.
-    Let state be makePeState(a new Map of Text to CVal, a new Map of Text to CFunc, 10).
+    Let mutable state be makePeState(a new Map of Text to CVal, a new Map of Text to CFunc, 10).
     Let result be peBlock(stmts, state).
     Repeat for s in result:
         Inspect s:
@@ -7958,7 +6810,7 @@ fn fix_pe_env_split_into_function() {
     Let callArgs be a new Seq of CExpr.
     Push (a new CInt with value 5) to callArgs.
     Let callExpr be a new CCall with name "f" and args callArgs.
-    Let state be makePeState(a new Map of Text to CVal, funcs, 10).
+    Let mutable state be makePeState(a new Map of Text to CVal, funcs, 10).
     Let result be peExpr(callExpr, state).
     Inspect result:
         When CInt (v):
@@ -7989,7 +6841,7 @@ fn fix_pe_env_split_loop_dynamic() {
     Push (a new CInt with value 3) to collItems.
     Push (a new CRepeat with var "i" and coll (a new CList with items collItems) and body loopBody) to stmts.
     Push (a new CShow with expr (a new CVar with name "x")) to stmts.
-    Let state be makePeState(a new Map of Text to CVal, a new Map of Text to CFunc, 10).
+    Let mutable state be makePeState(a new Map of Text to CVal, a new Map of Text to CFunc, 10).
     Let result be peBlock(stmts, state).
     Repeat for s in result:
         Inspect s:
@@ -8019,7 +6871,7 @@ fn fix_pe_env_split_static_binop() {
     Push (a new CLet with name "x" and expr (a new CInt with value 3)) to stmts.
     Push (a new CLet with name "y" and expr (a new CInt with value 4)) to stmts.
     Push (a new CShow with expr (a new CBinOp with op "+" and left (a new CVar with name "x") and right (a new CVar with name "y"))) to stmts.
-    Let state be makePeState(a new Map of Text to CVal, a new Map of Text to CFunc, 10).
+    Let mutable state be makePeState(a new Map of Text to CVal, a new Map of Text to CFunc, 10).
     Let result be peBlock(stmts, state).
     Repeat for s in result:
         Inspect s:
@@ -8050,7 +6902,7 @@ fn fix_pe_env_split_static_list() {
     Push (a new CInt with value 3) to listItems.
     Push (a new CLet with name "x" and expr (a new CList with items listItems)) to stmts.
     Push (a new CShow with expr (a new CLen with target (a new CVar with name "x"))) to stmts.
-    Let state be makePeState(a new Map of Text to CVal, a new Map of Text to CFunc, 10).
+    Let mutable state be makePeState(a new Map of Text to CVal, a new Map of Text to CFunc, 10).
     Let result be peBlock(stmts, state).
     Repeat for s in result:
         Inspect s:
@@ -8093,7 +6945,7 @@ fn fix_positive_info_inspect_arm() {
     Push (a new CLet with name "x" and expr (a new CNewVariant with tag "CInt" and fnames ["value"] and fvals [a new CInt with value 42])) to stmts.
     Push (a new CInspect with target (a new CVar with name "x") and arms outerArms) to stmts.
 
-    Let state be makePeState(a new Map of Text to CVal, a new Map of Text to CFunc, 10).
+    Let mutable state be makePeState(a new Map of Text to CVal, a new Map of Text to CFunc, 10).
     Let result be peBlock(stmts, state).
     Repeat for s in result:
         Inspect s:
@@ -8132,7 +6984,7 @@ fn fix_pe_env_split_mixed_arg_static_propagation() {
     Push (a new CInt with value 3) to callArgs.
     Push (a new CVar with name "input") to callArgs.
     Let callExpr be a new CCall with name "scale" and args callArgs.
-    Let state be makePeState(a new Map of Text to CVal, funcs, 10).
+    Let mutable state be makePeState(a new Map of Text to CVal, funcs, 10).
     Let result be peExpr(callExpr, state).
     Inspect result:
         When CBinOp (op, left, right):
@@ -8166,7 +7018,7 @@ fn fix_pe_static_index_via_staticenv() {
     Push (a new CInt with value 30) to listItems.
     Push (a new CLet with name "x" and expr (a new CList with items listItems)) to stmts.
     Push (a new CShow with expr (a new CIndex with coll (a new CVar with name "x") and idx (a new CInt with value 2))) to stmts.
-    Let state be makePeState(a new Map of Text to CVal, a new Map of Text to CFunc, 10).
+    Let mutable state be makePeState(a new Map of Text to CVal, a new Map of Text to CFunc, 10).
     Let result be peBlock(stmts, state).
     Repeat for s in result:
         Inspect s:
@@ -8199,7 +7051,7 @@ fn fix_pe_static_field_access_variant() {
     Push (a new CInt with value 7) to fvals.
     Let variantExpr be a new CNewVariant with tag "Point" and fnames fnames and fvals fvals.
     Let fieldExpr be a new CFieldAccess with target variantExpr and field "y".
-    Let state be makePeState(a new Map of Text to CVal, a new Map of Text to CFunc, 10).
+    Let mutable state be makePeState(a new Map of Text to CVal, a new Map of Text to CFunc, 10).
     Let result be peExpr(fieldExpr, state).
     Inspect result:
         When CInt (v):
@@ -8228,7 +7080,7 @@ fn fix_pe_static_field_access_via_staticenv() {
     Push (a new CInt with value 20) to fvals.
     Push (a new CLet with name "p" and expr (a new CNewVariant with tag "Pair" and fnames fnames and fvals fvals)) to stmts.
     Push (a new CShow with expr (a new CFieldAccess with target (a new CVar with name "p") and field "b")) to stmts.
-    Let state be makePeState(a new Map of Text to CVal, a new Map of Text to CFunc, 10).
+    Let mutable state be makePeState(a new Map of Text to CVal, a new Map of Text to CFunc, 10).
     Let result be peBlock(stmts, state).
     Repeat for s in result:
         Inspect s:
@@ -8255,7 +7107,7 @@ fn fix_pe_dynamic_index_preserved() {
     Let coll be a new CVar with name "myList".
     Let idx be a new CVar with name "i".
     Let expr be a new CIndex with coll coll and idx idx.
-    Let state be makePeState(a new Map of Text to CVal, a new Map of Text to CFunc, 10).
+    Let mutable state be makePeState(a new Map of Text to CVal, a new Map of Text to CFunc, 10).
     Let result be peExpr(expr, state).
     Inspect result:
         When CIndex (rc, ri):
@@ -8283,7 +7135,7 @@ fn fix_pe_static_len_via_staticenv() {
     Push (a new CInt with value 50) to listItems.
     Let listExpr be a new CList with items listItems.
     Let lenExpr be a new CLen with target listExpr.
-    Let state be makePeState(a new Map of Text to CVal, a new Map of Text to CFunc, 10).
+    Let mutable state be makePeState(a new Map of Text to CVal, a new Map of Text to CFunc, 10).
     Let result be peExpr(lenExpr, state).
     Inspect result:
         When CInt (v):
@@ -8439,7 +7291,7 @@ fn fix_decompile_roundtrip() {
     Let stmts be a new Seq of CStmt.
     Push (a new CLet with name "x" and expr (a new CInt with value 42)) to stmts.
     Push (a new CShow with expr (a new CVar with name "x")) to stmts.
-    Let state be makePeState(a new Map of Text to CVal, a new Map of Text to CFunc, 10).
+    Let mutable state be makePeState(a new Map of Text to CVal, a new Map of Text to CFunc, 10).
     Let peResult be peBlock(stmts, state).
     Let decompiled be decompileBlock(peResult, 0).
     Show decompiled.
@@ -8645,6 +7497,159 @@ fn fix_p2_real_compiler_arithmetic() {
         "120",
     );
 }
+
+/// Broadens the proven genuine-P2 correctness envelope beyond `Show 42`/factorial: the compiler
+/// pe_mini produces must run diverse programs (operator precedence, let-chains, range loops) to the
+/// right answer. Each program de-risks removing the string-replacement fakes (Phase 6).
+///
+/// The range-loop case previously miscompiled to 20: pe_mini residualized the loop but — unlike
+/// pe_source — failed to DROP the loop's modvar static bindings afterward, so `Show s` leaked to
+/// `Show (s + i)` (evaluated with s=15 and leftover i=5 → 20). Fixed by mirroring pe_source's
+/// post-body `SeDrop` into pe_mini's CRepeatRange.
+#[test]
+fn p2_real_semantic_fidelity_corpus() {
+    compile_and_run_via_p2_real("## Main\nShow 2 + 3 * 4.", "14");
+    compile_and_run_via_p2_real("## Main\nLet x be 7.\nLet y be x + 1.\nShow y.", "8");
+    compile_and_run_via_p2_real(
+        "## Main\nLet mutable s be 0.\nRepeat for i from 1 to 5:\n    Set s to s + i.\nShow s.",
+        "15",
+    );
+}
+
+/// Control-flow correctness through genuine P2 — while loops, nested loops, and if/otherwise with
+/// mutation. Same clone-divergence risk class as the range-loop fix (modvar static bindings must be
+/// dropped after a loop/branch so a later use of the accumulator does not leak the body's residual).
+#[test]
+fn p2_real_control_flow_corpus() {
+    compile_and_run_via_p2_real(
+        "## Main\nLet mutable i be 3.\nLet mutable s be 0.\nWhile i is greater than 0:\n    Set s to s + i.\n    Set i to i - 1.\nShow s.",
+        "6",
+    );
+    // Nested range loops: outer loop must see the inner loop's modvar (`s`), else the accumulator
+    // init leaks INTO the outer body and resets each iteration. Fixed by adding CRepeatRange to
+    // collectSetVarsM's recursion.
+    compile_and_run_via_p2_real(
+        "## Main\nLet mutable s be 0.\nRepeat for i from 1 to 3:\n    Repeat for j from 1 to 3:\n        Set s to s + 1.\nShow s.",
+        "9",
+    );
+    compile_and_run_via_p2_real(
+        "## Main\nLet x be 5.\nLet mutable r be 0.\nIf x is greater than 3:\n    Set r to 1.\nOtherwise:\n    Set r to 2.\nShow r.",
+        "1",
+    );
+}
+
+/// Genuine P3 (cogen pe_bti) correctness — same construct classes as P2. Loops fixed by mirroring
+/// pe_source's CRepeatRange structure into pe_bti: a `didUnrollRR` flag instead of a premature
+/// `Return blockResult` that dropped every statement AFTER the loop (making `Show s` vanish → empty
+/// residual); plus the post-body modvar drop and the `collectSetVarsB` CRepeatRange recursion.
+#[test]
+fn p3_real_semantic_fidelity_corpus() {
+    compile_and_run_via_p3_real("## Main\nShow 2 + 3 * 4.", "14");
+    compile_and_run_via_p3_real("## Main\nLet x be 7.\nLet y be x + 1.\nShow y.", "8");
+    compile_and_run_via_p3_real(
+        "## Main\nLet mutable s be 0.\nRepeat for i from 1 to 5:\n    Set s to s + i.\nShow s.",
+        "15",
+    );
+    compile_and_run_via_p3_real(
+        "## Main\nLet mutable s be 0.\nRepeat for i from 1 to 3:\n    Repeat for j from 1 to 3:\n        Set s to s + 1.\nShow s.",
+        "9",
+    );
+}
+
+/// Data-structure correctness through genuine P2 — lists and maps.
+///
+/// The map case previously returned "nothing": `Set item k of m`/`item k of m` on a Map encode as
+/// the generic CSetIdx/CIndex (no type info at encode time). coreExecBlock's CSetIdx already handled
+/// VMap, but coreEval's CIndex only handled VSeq/VTuple — so the map READ fell through. Fixed by
+/// adding a VMap arm to coreEval's CIndex.
+///
+/// TRACKED: higher-order closures (`apply((n) -> n*2, 21)`) return "nothing" through the genuine
+/// P2 path — a deeper coreEval CCallExpr/CClosure incompleteness (closure value passed as a param
+/// and applied). Separate from the map/loop fixes; needs focused work on the Core interpreter's
+/// closure application.
+#[test]
+fn p2_real_data_corpus() {
+    compile_and_run_via_p2_real("## Main\nLet xs be [10, 20, 30].\nShow item 2 of xs.", "20");
+    compile_and_run_via_p2_real(
+        "## Main\nLet m be a new Map of Text to Int.\nSet item \"a\" of m to 5.\nShow item \"a\" of m.",
+        "5",
+    );
+}
+
+/// More construct correctness through genuine P2 — tuples, sets, string interpolation.
+#[test]
+fn p2_real_extra_corpus() {
+    compile_and_run_via_p2_real("## Main\nLet t be (5, 6, 7).\nShow item 3 of t.", "7");
+    compile_and_run_via_p2_real(
+        "## Main\nLet s be a new Set of Int.\nAdd 3 to s.\nIf s contains 3:\n    Show \"yes\".\nOtherwise:\n    Show \"no\".",
+        "yes",
+    );
+    compile_and_run_via_p2_real("## Main\nLet n be 7.\nShow \"v={n}\".", "v=7");
+}
+
+/// ── CLOSURE KEYSTONE (Phase 3/4) ──────────────────────────────────────────────────────────────
+/// A closure passed as a function argument is STATIC: `isStaticM`/`checkStatic` must classify
+/// `CClosure` as `true` (mirroring `pe_source.isStatic`) so `apply(closure, k)` takes the all-static
+/// inline path and binds the closure param into the static env. The clone-drift bug (missing
+/// `When CClosure … Return true`) sent it down the mixed-arg path and residualized the parameter as
+/// a dangling free variable. These lock the fix on the genuine P2 (pe_mini-as-compiler) path.
+#[test]
+fn p2_real_closure_applied_argument() {
+    // apply CALLS the closure: residual folds to a runnable `((n) -> n * 2)(21)` → 42.
+    compile_and_run_via_p2_real(
+        "## To apply (f: fn(Int) -> Int) and (x: Int) -> Int:\n    Return f(x).\n\n## Main\nShow apply((n: Int) -> n * 2, 21).",
+        "42",
+    );
+}
+
+#[test]
+fn p2_real_closure_ignored_argument() {
+    // apply IGNORES the closure (returns x): the static-inline path must still bind `x` → 21.
+    compile_and_run_via_p2_real(
+        "## To apply (f: fn(Int) -> Int) and (x: Int) -> Int:\n    Return x.\n\n## Main\nShow apply((n: Int) -> n * 2, 21).",
+        "21",
+    );
+}
+
+#[test]
+fn p3_real_closure_applied_argument() {
+    // The pe_bti (P3 cogen subject) twin — exercises `checkStatic`'s CClosure arm.
+    compile_and_run_via_p3_real(
+        "## To apply (f: fn(Int) -> Int) and (x: Int) -> Int:\n    Return f(x).\n\n## Main\nShow apply((n: Int) -> n * 2, 21).",
+        "42",
+    );
+}
+
+/// Compound programs through genuine P2 — construct INTERACTIONS (function composition, loop over a
+/// list). Interactions are where single-construct tests miss bugs (as the nested-loop bug showed).
+#[test]
+fn p2_real_compound_corpus() {
+    compile_and_run_via_p2_real(
+        "## To dbl (x: Int) -> Int:\n    Return x * 2.\n\n## To inc (x: Int) -> Int:\n    Return x + 1.\n\n## Main\nShow dbl(inc(20)).",
+        "42",
+    );
+    compile_and_run_via_p2_real(
+        "## Main\nLet mutable total be 0.\nLet xs be [10, 20, 30].\nRepeat for v in xs:\n    Set total to total + v.\nShow total.",
+        "60",
+    );
+}
+
+// CLOSURE KEYSTONE (tracked; root cause REFINED this session): `apply((n)->n*2, 21)` → "nothing".
+// pe_mini inlines `apply` and substitutes literal `x=21`, but the residual is `Show f(21)` with `f`
+// DANGLING — the all-static inline path fails to bind/substitute the closure param `f` into the body,
+// EVEN with isStatic(closure)=true and isCopyPropSafe(closure)=true (verified: adding the isStatic
+// CClosure arm did NOT change the residual, only flipped the runtime miss "nothing"→panic; reverted).
+// So the bug is entirely in the CCall all-static INLINE path's closure-param binding (pe_source binds
+// it correctly — closure_hof passes in P1). This is the CCall mixed-arg keystone (FIX_SPECIALIZER_PLAN
+// Corner Cut 11 / Sprints C.2/C.3), SAME root as the #[ignore]d self-application SPEED problem.
+// Deep, multi-cycle: diff pe_mini vs pe_source CCall all-static param binding (pe_source.logos:1081).
+// EXHAUSTIVE STATIC DIFF (this session): the all-static param-binding loop (pe_mini:495-508 vs
+// pe_source:1083-1096) AND the peExpr/peExprM CVar substitution arm (pe_mini:431-444 vs
+// pe_source:944-957) are BYTE-IDENTICAL. So `f` is provably bound in childSEnv, yet the residual is
+// still `Show f(21)` un-substituted → the fault is in a subtler childState construction / env
+// threading in the all-static inline (or the call not taking that path as the logic implies).
+// Static reading has hit its limit — this needs INTERACTIVE step-debugging (print childSEnv when the
+// body is PE'd), not further autonomous read-only diffing.
 
 // --- F2: P3 real produces a cogen ---
 
@@ -8979,7 +7984,7 @@ fn run_via_pe_bti(program: &str) -> String {
     };
     let encoded = logicaffeine_compile::compile::encode_program_source(&full_source).unwrap();
     let decompile = logicaffeine_compile::compile::decompile_source_text();
-    let driver = "    Let state be makePeState(a new Map of Text to CVal, encodedFuncMap, 200).\n    Let residual be peBlockB(encodedMain, state).\n    Let source be decompileBlock(residual, 0).\n    Show source.\n";
+    let driver = "    Let mutable state be makePeState(a new Map of Text to CVal, encodedFuncMap, 200).\n    Let residual be peBlockB(encodedMain, state).\n    Let source be decompileBlock(residual, 0).\n    Show source.\n";
     let combined = format!("{}\n{}\n{}\n## Main\n{}\n{}", types, pe_bti, decompile, encoded, driver);
     let result = common::run_logos(&combined);
     assert!(result.success, "pe_bti P1 failed: {}", result.stderr);
@@ -9034,7 +8039,7 @@ fn pe_bti_p1_jones_optimality() {
     let types = core_types_bti();
     let encoded = logicaffeine_compile::compile::encode_program_source(prog).unwrap();
     let decompile = logicaffeine_compile::compile::decompile_source_text();
-    let driver = "    Let state be makePeState(a new Map of Text to CVal, encodedFuncMap, 200).\n    Let residual be peBlockB(encodedMain, state).\n    Let source be decompileBlock(residual, 0).\n    Show source.\n";
+    let driver = "    Let mutable state be makePeState(a new Map of Text to CVal, encodedFuncMap, 200).\n    Let residual be peBlockB(encodedMain, state).\n    Let source be decompileBlock(residual, 0).\n    Show source.\n";
     let combined = format!("{}\n{}\n{}\n## Main\n{}\n{}", types, pe_bti, decompile, encoded, driver);
     let result = common::run_logos(&combined);
     let residual = result.stdout.trim();
@@ -9070,7 +8075,7 @@ fn run_via_pe_mini(program: &str) -> String {
     };
     let encoded = logicaffeine_compile::compile::encode_program_source(&full_source).unwrap();
     let decompile = logicaffeine_compile::compile::decompile_source_text();
-    let driver = "    Let state be makePeState(a new Map of Text to CVal, encodedFuncMap, 200).\n    Let residual be peBlockM(encodedMain, state).\n    Let source be decompileBlock(residual, 0).\n    Show source.\n";
+    let driver = "    Let mutable state be makePeState(a new Map of Text to CVal, encodedFuncMap, 200).\n    Let residual be peBlockM(encodedMain, state).\n    Let source be decompileBlock(residual, 0).\n    Show source.\n";
     let combined = format!("{}\n{}\n{}\n## Main\n{}\n{}", CORE_TYPES, pe_mini, decompile, encoded, driver);
     let result = common::run_logos(&combined);
     assert!(result.success, "pe_mini P1 failed: {}", result.stderr);
@@ -9180,7 +8185,7 @@ fn pe_mini_residual_source(program: &str) -> String {
     };
     let encoded = logicaffeine_compile::compile::encode_program_source(&full_source).unwrap();
     let decompile = logicaffeine_compile::compile::decompile_source_text();
-    let driver = "    Let state be makePeState(a new Map of Text to CVal, encodedFuncMap, 200).\n    Let residual be peBlockM(encodedMain, state).\n    Let source be decompileBlock(residual, 0).\n    Show source.\n";
+    let driver = "    Let mutable state be makePeState(a new Map of Text to CVal, encodedFuncMap, 200).\n    Let residual be peBlockM(encodedMain, state).\n    Let source be decompileBlock(residual, 0).\n    Show source.\n";
     let combined = format!("{}\n{}\n{}\n## Main\n{}\n{}", CORE_TYPES, pe_mini, decompile, encoded, driver);
     let result = common::run_logos(&combined);
     assert!(result.success, "pe_mini PE failed: {}", result.stderr);
@@ -9194,7 +8199,7 @@ fn pe_mini_direct_residual_count(setup_stmts: &str) -> usize {
     let source = format!(
         "{}\n{}\n## Main\n\
          {}\n\
-         Let state be makePeState(a new Map of Text to CVal, a new Map of Text to CFunc, 200).\n\
+         Let mutable state be makePeState(a new Map of Text to CVal, a new Map of Text to CFunc, 200).\n\
          Let residual be peBlockM(testStmts, state).\n\
          Show length of residual.\n",
         CORE_TYPES, pe_mini, setup_stmts
@@ -9348,7 +8353,7 @@ fn pe_mini_inspect_static_dispatch() {
     Let inspectStmt be a new CInspect with target target and arms arms.
     Let testStmts be a new Seq of CStmt.
     Push inspectStmt to testStmts.
-    Let state be makePeState(a new Map of Text to CVal, a new Map of Text to CFunc, 200).
+    Let mutable state be makePeState(a new Map of Text to CVal, a new Map of Text to CFunc, 200).
     Let residual be peBlockM(testStmts, state).
     Let residualLen be length of residual.
     Show residualLen.
@@ -9391,7 +8396,7 @@ fn pe_mini_inspect_static_dispatch_binds_fields() {
     Push (a new CWhen with variantName "Mk" and bindings bindings and body body) to arms.
     Let testStmts be a new Seq of CStmt.
     Push (a new CInspect with target target and arms arms) to testStmts.
-    Let state be makePeState(a new Map of Text to CVal, a new Map of Text to CFunc, 200).
+    Let mutable state be makePeState(a new Map of Text to CVal, a new Map of Text to CFunc, 200).
     Let residual be peBlockM(testStmts, state).
     Let ret be extractReturnM(residual).
     Inspect ret:
@@ -9425,7 +8430,7 @@ fn pe_mini_repeat_static_unroll() {
     Push (a new CShow with expr (a new CVar with name "x")) to body.
     Let testStmts be a new Seq of CStmt.
     Push (a new CRepeat with var "x" and coll coll and body body) to testStmts.
-    Let state be makePeState(a new Map of Text to CVal, a new Map of Text to CFunc, 200).
+    Let mutable state be makePeState(a new Map of Text to CVal, a new Map of Text to CFunc, 200).
     Let residual be peBlockM(testStmts, state).
     Let residualLen be length of residual.
     Show residualLen.
@@ -9469,7 +8474,7 @@ fn pe_mini_repeat_static_unroll_with_break() {
     Push (a new CShow with expr (a new CVar with name "x")) to body.
     Let testStmts be a new Seq of CStmt.
     Push (a new CRepeat with var "x" and coll coll and body body) to testStmts.
-    Let state be makePeState(a new Map of Text to CVal, a new Map of Text to CFunc, 200).
+    Let mutable state be makePeState(a new Map of Text to CVal, a new Map of Text to CFunc, 200).
     Let residual be peBlockM(testStmts, state).
     Let residualLen be length of residual.
     Show residualLen.
@@ -9554,7 +8559,7 @@ fn pe_mini_while_loop_variable_invalidation() {
     Let testStmts be a new Seq of CStmt.
     Push (a new CLet with name "x" and expr (a new CInt with value 5)) to testStmts.
     Push (a new CWhile with cond whileCond and body whileBody) to testStmts.
-    Let state be makePeState(a new Map of Text to CVal, a new Map of Text to CFunc, 200).
+    Let mutable state be makePeState(a new Map of Text to CVal, a new Map of Text to CFunc, 200).
     Let residual be peBlockM(testStmts, state).
     Repeat for rs in residual:
         Inspect rs:
@@ -9607,7 +8612,7 @@ fn pe_mini_repeat_non_static_invalidates_loop_var() {
     Let testStmts be a new Seq of CStmt.
     Push (a new CLet with name "item" and expr (a new CInt with value 999)) to testStmts.
     Push (a new CRepeat with var "item" and coll (a new CVar with name "dynamicList") and body body) to testStmts.
-    Let state be makePeState(a new Map of Text to CVal, a new Map of Text to CFunc, 200).
+    Let mutable state be makePeState(a new Map of Text to CVal, a new Map of Text to CFunc, 200).
     Let residual be peBlockM(testStmts, state).
     Let mutable foundConstShow be false.
     Let mutable foundDynShow be false.
@@ -9781,7 +8786,7 @@ fn decompile_full_p1_roundtrip_no_placeholders() {
     let pe = logicaffeine_compile::compile::pe_source_text();
     let decompile = logicaffeine_compile::compile::decompile_source_text();
     let encoded = logicaffeine_compile::compile::encode_program_source(prog).unwrap();
-    let driver = "    Let state be makePeState(a new Map of Text to CVal, encodedFuncMap, 200).\n    Let residual be peBlock(encodedMain, state).\n    Let source be decompileBlock(residual, 0).\n    Show source.\n";
+    let driver = "    Let mutable state be makePeState(a new Map of Text to CVal, encodedFuncMap, 200).\n    Let residual be peBlock(encodedMain, state).\n    Let source be decompileBlock(residual, 0).\n    Show source.\n";
     let combined = format!("{}\n{}\n{}\n## Main\n{}\n{}", CORE_TYPES, pe, decompile, encoded, driver);
     let result = common::run_logos(&combined);
     assert!(result.success, "P1 roundtrip failed: {}", result.stderr);
@@ -9858,7 +8863,7 @@ fn self_application_p1_roundtrip_baseline() {
     let pe = logicaffeine_compile::compile::pe_source_text();
     let decompile = logicaffeine_compile::compile::decompile_source_text();
     let encoded = logicaffeine_compile::compile::encode_program_source(program).unwrap();
-    let driver = "    Let state be makePeState(a new Map of Text to CVal, encodedFuncMap, 200).\n    Let residual be peBlock(encodedMain, state).\n    Let source be decompileBlock(residual, 0).\n    Show source.\n";
+    let driver = "    Let mutable state be makePeState(a new Map of Text to CVal, encodedFuncMap, 200).\n    Let residual be peBlock(encodedMain, state).\n    Let source be decompileBlock(residual, 0).\n    Show source.\n";
     let combined = format!("{}\n{}\n{}\n## Main\n{}\n{}", CORE_TYPES, pe, decompile, encoded, driver);
     let result = common::run_logos(&combined);
     assert!(result.success, "P1 baseline must succeed: {}", result.stderr);
@@ -9880,7 +8885,6 @@ fn self_application_p1_roundtrip_baseline() {
 ///
 /// The outer PE specializes pe_mini's dispatch with respect to the known target.
 #[test]
-#[ignore] // genuine self-application needs further PE optimization to complete in CI time
 fn genuine_self_application_pe_mini_on_target() {
     // Target: a simple program that pe_mini will specialize
     let target = r#"## Main
@@ -9912,13 +8916,22 @@ fn genuine_self_application_pe_mini_on_target() {
 
     let pe = logicaffeine_compile::compile::pe_source_text();
     let decompile = logicaffeine_compile::compile::decompile_source_text();
-    let outer_driver = "    Let state be makePeState(a new Map of Text to CVal, encodedFuncMap, 30).\n    Let residual be peBlock(encodedMain, state).\n    Let source be decompileBlock(residual, 0).\n    Show source.\n";
+    let outer_driver = "    Let mutable state be makePeState(a new Map of Text to CVal, encodedFuncMap, 30).\n    Let residual be peBlock(encodedMain, state).\n    Let source be decompileBlock(residual, 0).\n    Show source.\n";
     let combined = format!("{}\n{}\n{}\n## Main\n{}\n{}", CORE_TYPES, pe, decompile, outer_encoded, outer_driver);
 
     let start = std::time::Instant::now();
     let result = common::run_logos(&combined);
     let elapsed = start.elapsed();
     eprintln!("PE(pe_mini, target) timing: {:?}", elapsed);
+
+    // The genuine double self-application PE(pe_source, PE(pe_mini, target)) completes in ~20s
+    // (measured). A generous 180s ceiling never flakes but catches a catastrophic specializer
+    // regression (memoization/whistle blowup) that would re-break Futamura's Projection 2.
+    assert!(
+        elapsed.as_secs() < 180,
+        "genuine double self-application took {elapsed:?} — far above the ~20s baseline; the PE \
+         specializer has regressed (memoization/whistle blowup)."
+    );
 
     assert!(result.success, "PE(pe_mini, target) must complete: {}", result.stderr);
     let residual = result.stdout.trim();
@@ -9971,7 +8984,7 @@ fn genuine_pe_source_specializes_target_with_functions() {
     let pe = logicaffeine_compile::compile::pe_source_text();
     let decompile = logicaffeine_compile::compile::decompile_source_text();
     let encoded = logicaffeine_compile::compile::encode_program_source(target).unwrap();
-    let driver = "    Let state be makePeState(a new Map of Text to CVal, encodedFuncMap, 200).\n    Let residual be peBlock(encodedMain, state).\n    Let source be decompileBlock(residual, 0).\n    Show source.\n";
+    let driver = "    Let mutable state be makePeState(a new Map of Text to CVal, encodedFuncMap, 200).\n    Let residual be peBlock(encodedMain, state).\n    Let source be decompileBlock(residual, 0).\n    Show source.\n";
     let combined = format!("{}\n{}\n{}\n## Main\n{}\n{}", CORE_TYPES, pe, decompile, encoded, driver);
 
     let result = common::run_logos(&combined);
@@ -10082,6 +9095,101 @@ fn the_trick_p3_fewer_inspects_than_p2() {
     );
 }
 
+/// ════════════════════════════════════════════════════════════════════════════════════════════
+/// JONES OPTIMALITY LOCK — the defining property of a non-trivial partial evaluator. Specializing
+/// the self-interpreter to a program must REMOVE the interpretation layer, so the residual (P2, the
+/// generated compiler; P3, the generated compiler-generator) carries strictly LESS dispatch
+/// machinery — counted as `Inspect ` nodes — than the partial evaluator `pe_source` it was produced
+/// from. The locked Futamura chain is |P2| < |PE| and |P3| < |PE|: if specialization ever stops
+/// shrinking the dispatch, the projections have collapsed back into a glorified interpreter. That is
+/// a REGRESSION of the deepest property this whole stack exists to demonstrate.
+///
+///  ⚠️  YOU DO NOT GET TO WEAKEN THIS TEST — loosen the `<`, swap to `<=`, or count something
+///  cheaper — TO MAKE IT PASS.  ⚠️  A RED here means the PE lost Jones optimality; fix the partial
+///  evaluator (`optimize/pe_source.logos` + the projection pipeline), never this lock. Strictly
+///  monotone: strengthen it, never relax it.
+/// ════════════════════════════════════════════════════════════════════════════════════════════
+#[test]
+fn jones_optimality_lock() {
+    let pe = logicaffeine_compile::compile::pe_source_text();
+    let p2 = get_p2_residual();
+    let p3 = get_p3_residual();
+    let pe_inspects = pe.matches("Inspect ").count();
+    let p2_inspects = p2.matches("Inspect ").count();
+    let p3_inspects = p3.matches("Inspect ").count();
+    eprintln!("Jones chain — PE: {pe_inspects} Inspects, P2: {p2_inspects}, P3: {p3_inspects}");
+    assert!(
+        pe_inspects > 0,
+        "JONES OPTIMALITY LOCK is vacuous: pe_source has 0 Inspect nodes — the measurement broke."
+    );
+    assert!(
+        p2_inspects < pe_inspects,
+        "JONES OPTIMALITY REGRESSION: P2 ({p2_inspects}) must have STRICTLY FEWER Inspect dispatch \
+         nodes than the partial evaluator PE ({pe_inspects}). Specialization stopped removing the \
+         interpretation layer — fix the PE, not this lock."
+    );
+    assert!(
+        p3_inspects < pe_inspects,
+        "JONES OPTIMALITY REGRESSION: P3 ({p3_inspects}) must have STRICTLY FEWER Inspect dispatch \
+         nodes than the partial evaluator PE ({pe_inspects}). Fix the PE, not this lock."
+    );
+}
+
+/// ════════════════════════════════════════════════════════════════════════════════════════════
+/// STREAM-THROUGH-EVERY-DIALECT LOCK — a Stream program must survive ALL THREE partial-evaluator
+/// dialects end-to-end: each self-interpreter must COMPILE, RUN, and leave the statement in the
+/// decompiled residual. This is the lock that catches a dialect referencing an undefined PER-DIALECT
+/// helper (`peExpr` pasted into pe_mini/pe_bti instead of `peExprM`/`peExprB`) or dropping the
+/// `When CStreamMessage` case — the exact bug class that once turned the whole projection suite red.
+/// `run_via_*` assert `success` internally, so a dialect that fails to compile PANICS here.
+///  ⚠️  DO NOT skip a dialect or weaken this lock without asking. Strictly monotone — add, never remove. ⚠️
+/// ════════════════════════════════════════════════════════════════════════════════════════════
+#[test]
+fn stream_survives_every_partial_evaluator_dialect() {
+    // Residualize a Stream program through one PE dialect (peBlock/peBlockM/peBlockB) and decompile
+    // it back to surface syntax, using the AUGMENTED test catalog (CORE_TYPES has the memoCache /
+    // callGuard PEState fields the dialects need). Returns the decompiled residual SOURCE.
+    fn stream_residual(catalog: &str, dialect_text: &str, block_call: &str) -> (bool, String) {
+        let decompile = logicaffeine_compile::compile::decompile_source_text();
+        let encoded = logicaffeine_compile::compile::encode_program_source(
+            "## Main\n    Let items be [1, 2, 3].\n    Stream items to \"agent\".\n",
+        )
+        .unwrap();
+        let driver = format!(
+            "    Let mutable state be makePeState(a new Map of Text to CVal, encodedFuncMap, 200).\n\
+             \x20   Let residual be {block_call}(encodedMain, state).\n\
+             \x20   Let source be decompileBlock(residual, 0).\n\
+             \x20   Show source.\n"
+        );
+        let combined =
+            format!("{}\n{}\n{}\n## Main\n{}\n{}", catalog, dialect_text, decompile, encoded, driver);
+        let r = common::run_logos(&combined);
+        (r.success, if r.success { r.stdout.trim().to_string() } else { r.stderr })
+    }
+    // Each dialect needs its own catalog: pe_source/pe_mini use the base CORE_TYPES; pe_bti's
+    // memoizing PEState (memoCache/callGuard) needs the bti-augmented catalog.
+    for (catalog, text, block_call, name) in [
+        (CORE_TYPES.to_string(), logicaffeine_compile::compile::pe_source_text(), "peBlock", "pe_source"),
+        (CORE_TYPES.to_string(), logicaffeine_compile::compile::pe_mini_source_text(), "peBlockM", "pe_mini"),
+        (core_types_bti(), logicaffeine_compile::compile::pe_bti_source_text(), "peBlockB", "pe_bti"),
+    ] {
+        let (ok, residual) = stream_residual(&catalog, text, block_call);
+        assert!(
+            ok,
+            "STREAM TIER PARITY REGRESSION: the `{name}` partial-evaluator dialect failed to \
+             COMPILE+RUN a Stream program (an undefined per-dialect helper like `peExpr` where \
+             `{name}` needs `peExprM`/`peExprB`, or a malformed `When CStreamMessage`). Fix the \
+             dialect, not this lock.\n\nstderr:\n{residual}"
+        );
+        assert!(
+            residual.contains("Stream"),
+            "STREAM TIER PARITY REGRESSION: the `{name}` partial-evaluator dialect DROPPED the Stream \
+             statement from its residual (a missing `When CStreamMessage` case). Fix the dialect, \
+             not this lock. Residual:\n{residual}"
+        );
+    }
+}
+
 /// Phase 4.3: Cross-interpreter P3 test (Corner Cut 20).
 /// Write a minimal calculator interpreter and run it through P3 cogen.
 /// The resulting compiler should work on calculator programs.
@@ -10108,7 +9216,7 @@ fn post_unfolding_cascading_constant_fold() {
     let pe = logicaffeine_compile::compile::pe_source_text();
     let decompile = logicaffeine_compile::compile::decompile_source_text();
     let encoded = logicaffeine_compile::compile::encode_program_source(program).unwrap();
-    let driver = "    Let state be makePeState(a new Map of Text to CVal, encodedFuncMap, 200).\n    Let residual be peBlock(encodedMain, state).\n    Let source be decompileBlock(residual, 0).\n    Show source.\n";
+    let driver = "    Let mutable state be makePeState(a new Map of Text to CVal, encodedFuncMap, 200).\n    Let residual be peBlock(encodedMain, state).\n    Let source be decompileBlock(residual, 0).\n    Show source.\n";
     let combined = format!("{}\n{}\n{}\n## Main\n{}\n{}", CORE_TYPES, pe, decompile, encoded, driver);
 
     let result = common::run_logos(&combined);
@@ -10385,7 +9493,7 @@ fn cross_interpreter_p3_real_calculator() {
     let decompile = logicaffeine_compile::compile::decompile_source_text();
     let encoded = logicaffeine_compile::compile::encode_program_source_compact(&calc_interp)
         .expect("Encoding calculator must succeed");
-    let driver = "    Let state be makePeState(a new Map of Text to CVal, encodedFuncMap, 200).\n    Let residual be peBlock(encodedMain, state).\n    Let source be decompileBlock(residual, 0).\n    Show source.\n";
+    let driver = "    Let mutable state be makePeState(a new Map of Text to CVal, encodedFuncMap, 200).\n    Let residual be peBlock(encodedMain, state).\n    Let source be decompileBlock(residual, 0).\n    Show source.\n";
     let combined = format!("{}\n{}\n{}\n## Main\n{}\n{}", CORE_TYPES, pe, decompile, encoded, driver);
     let pe_result = common::run_logos(&combined);
     assert!(pe_result.success, "PE(calculator) must succeed: {}", pe_result.stderr);
@@ -10427,7 +9535,7 @@ fn pe_source_wqo_terminates_growing_chain() {
     ).unwrap();
     let decompile = logicaffeine_compile::compile::decompile_source_text();
     let pe = logicaffeine_compile::compile::pe_source_text();
-    let driver = "    Let state be makePeState(a new Map of Text to CVal, encodedFuncMap, 200).\n    Let residual be peBlock(encodedMain, state).\n    Let source be decompileBlock(residual, 0).\n    Show source.\n";
+    let driver = "    Let mutable state be makePeState(a new Map of Text to CVal, encodedFuncMap, 200).\n    Let residual be peBlock(encodedMain, state).\n    Let source be decompileBlock(residual, 0).\n    Show source.\n";
     let combined = format!("{}\n{}\n{}\n## Main\n{}\n{}", CORE_TYPES, pe, decompile, encoded, driver);
     let result = common::run_logos(&combined);
     assert!(result.success, "PE on growing chain must terminate: {}", result.stderr);
@@ -10618,7 +9726,7 @@ fn genuine_self_app_pe_mini_on_cint() {
     Let env be a new Map of Text to CVal.
     Let funcs be a new Map of Text to CFunc.
     Let depth be 10.
-    Let state be makePeState(env, funcs, depth).
+    Let mutable state be makePeState(env, funcs, depth).
     Let result be peExprM(targetExpr, state).
     Inspect result:
         When CInt (v):
@@ -10657,7 +9765,7 @@ fn genuine_self_app_pe_mini_on_binop() {
     Let env be a new Map of Text to CVal.
     Let funcs be a new Map of Text to CFunc.
     Let depth be 10.
-    Let state be makePeState(env, funcs, depth).
+    Let mutable state be makePeState(env, funcs, depth).
     Let result be peExprM(targetExpr, state).
     Inspect result:
         When CInt (v):
@@ -10723,7 +9831,7 @@ fn genuine_self_app_dispatch_elimination() {
     let decompile = logicaffeine_compile::compile::decompile_source_text();
     let encoded = logicaffeine_compile::compile::encode_program_source(&nano_pe_program).unwrap();
 
-    let driver = "    Let state be makePeState(a new Map of Text to CVal, encodedFuncMap, 200).\n    Let residual be peBlock(encodedMain, state).\n    Let source be decompileBlock(residual, 0).\n    Show source.\n";
+    let driver = "    Let mutable state be makePeState(a new Map of Text to CVal, encodedFuncMap, 200).\n    Let residual be peBlock(encodedMain, state).\n    Let source be decompileBlock(residual, 0).\n    Show source.\n";
     let combined = format!("{}\n{}\n{}\n## Main\n{}\n{}", CORE_TYPES, pe, decompile, encoded, driver);
 
     let result = common::run_logos(&combined);
@@ -10798,7 +9906,7 @@ fn genuine_self_app_no_pe_function_definitions() {
     let decompile = logicaffeine_compile::compile::decompile_source_text();
     let encoded = logicaffeine_compile::compile::encode_program_source(&nano_pe_program).unwrap();
 
-    let driver = "    Let state be makePeState(a new Map of Text to CVal, encodedFuncMap, 200).\n    Let residual be peBlock(encodedMain, state).\n    Let source be decompileBlock(residual, 0).\n    Show source.\n";
+    let driver = "    Let mutable state be makePeState(a new Map of Text to CVal, encodedFuncMap, 200).\n    Let residual be peBlock(encodedMain, state).\n    Let source be decompileBlock(residual, 0).\n    Show source.\n";
     let combined = format!("{}\n{}\n{}\n## Main\n{}\n{}", CORE_TYPES, pe, decompile, encoded, driver);
 
     let result = common::run_logos(&combined);
@@ -10870,7 +9978,7 @@ fn genuine_self_app_no_online_predicates() {
     let decompile = logicaffeine_compile::compile::decompile_source_text();
     let encoded = logicaffeine_compile::compile::encode_program_source(&nano_pe_program).unwrap();
 
-    let driver = "    Let state be makePeState(a new Map of Text to CVal, encodedFuncMap, 200).\n    Let residual be peBlock(encodedMain, state).\n    Let source be decompileBlock(residual, 0).\n    Show source.\n";
+    let driver = "    Let mutable state be makePeState(a new Map of Text to CVal, encodedFuncMap, 200).\n    Let residual be peBlock(encodedMain, state).\n    Let source be decompileBlock(residual, 0).\n    Show source.\n";
     let combined = format!("{}\n{}\n{}\n## Main\n{}\n{}", CORE_TYPES, pe, decompile, encoded, driver);
 
     let result = common::run_logos(&combined);
@@ -10951,7 +10059,7 @@ fn the_trick_strict_inspect_reduction() {
     let decompile = logicaffeine_compile::compile::decompile_source_text();
     let encoded = logicaffeine_compile::compile::encode_program_source(&nano_pe_program).unwrap();
 
-    let driver = "    Let state be makePeState(a new Map of Text to CVal, encodedFuncMap, 200).\n    Let residual be peBlock(encodedMain, state).\n    Let source be decompileBlock(residual, 0).\n    Show source.\n";
+    let driver = "    Let mutable state be makePeState(a new Map of Text to CVal, encodedFuncMap, 200).\n    Let residual be peBlock(encodedMain, state).\n    Let source be decompileBlock(residual, 0).\n    Show source.\n";
     let combined = format!("{}\n{}\n{}\n## Main\n{}\n{}", CORE_TYPES, pe, decompile, encoded, driver);
 
     let result = common::run_logos(&combined);
@@ -11191,7 +10299,7 @@ fn genuine_p2_nano_pe_dynamic_target() {
     // Step 2: Run pe_source on the encoded program.
     // pe_source specializes nanoEval's dispatch (static function body)
     // but leaves targetExpr as dynamic.
-    let driver = "    Let state be makePeState(a new Map of Text to CVal, encodedFuncMap, 200).\n    Let residual be peBlock(encodedMain, state).\n    Let source be decompileBlock(residual, 0).\n    Show source.\n";
+    let driver = "    Let mutable state be makePeState(a new Map of Text to CVal, encodedFuncMap, 200).\n    Let residual be peBlock(encodedMain, state).\n    Let source be decompileBlock(residual, 0).\n    Show source.\n";
     let combined = format!("{}\n{}\n{}\n## Main\n{}\n{}", CORE_TYPES, pe, decompile, encoded, driver);
 
     let result = common::run_logos(&combined);
@@ -11363,7 +10471,7 @@ fn genuine_self_app_pe_mini_factorial() {
     Let env be a new Map of Text to CVal.
     Let funcs be a new Map of Text to CFunc.
     Let depth be 10.
-    Let state be makePeState(env, funcs, depth).
+    Let mutable state be makePeState(env, funcs, depth).
     Let result be peExprM(targetExpr, state).
     Inspect result:
         When CInt (v):
@@ -11411,7 +10519,7 @@ fn genuine_p2_pe_mini_specializes_arith_eval() {
 ## Main
     Let env be a new Map of Text to CVal.
     Let funcs be a new Map of Text to CFunc.
-    Let state be makePeState(env, funcs, 10).
+    Let mutable state be makePeState(env, funcs, 10).
     Let target be a new CBinOp with op "+" and left (a new CInt with value 5) and right (a new CInt with value 3).
     Let result be peExprM(target, state).
     Inspect result:
@@ -11579,7 +10687,7 @@ fn genuine_p2_dynamic_target_produces_compiler() {
     let decompile = logicaffeine_compile::compile::decompile_source_text();
     let encoded = logicaffeine_compile::compile::encode_program_source(&program).unwrap();
 
-    let driver = "    Let state be makePeState(a new Map of Text to CVal, encodedFuncMap, 200).\n    Let residual be peBlock(encodedMain, state).\n    Let source be decompileBlock(residual, 0).\n    Show source.\n";
+    let driver = "    Let mutable state be makePeState(a new Map of Text to CVal, encodedFuncMap, 200).\n    Let residual be peBlock(encodedMain, state).\n    Let source be decompileBlock(residual, 0).\n    Show source.\n";
     let combined = format!("{}\n{}\n{}\n## Main\n{}\n{}", CORE_TYPES, pe, decompile, encoded, driver);
 
     let result = common::run_logos(&combined);
@@ -11638,7 +10746,7 @@ fn genuine_p2_pe_mini_full_scale_dynamic_target() {
 ## Main
     Let env be a new Map of Text to CVal.
     Let funcs be a new Map of Text to CFunc.
-    Let state be makePeState(env, funcs, 10).
+    Let mutable state be makePeState(env, funcs, 10).
     Let result be peExprM(targetExpr, state).
     Inspect result:
         When CInt (v):
@@ -11666,7 +10774,7 @@ fn genuine_p2_pe_mini_full_scale_dynamic_target() {
     // Driver: run PE, then decompile residual block.
     // Also collect specialized function names from the residual CCall nodes
     // and decompile those functions from peFuncs.
-    let driver = r#"    Let state be makePeState(a new Map of Text to CVal, encodedFuncMap, 200).
+    let driver = r#"    Let mutable state be makePeState(a new Map of Text to CVal, encodedFuncMap, 200).
     Let residual be peBlock(encodedMain, state).
     Let nl be chr(10).
     Let mutable output be "".
@@ -12938,7 +12046,7 @@ fn run_crdt_via_dialect(program: &str, pe_source: &str, types: &str, pe_block_fn
     let encoded = logicaffeine_compile::compile::encode_program_source(program).unwrap();
     let decompile = logicaffeine_compile::compile::decompile_source_text();
     let driver = format!(
-        "    Let state be makePeState(a new Map of Text to CVal, encodedFuncMap, 200).\n    Let residual be {}(encodedMain, state).\n    Let source be decompileBlock(residual, 0).\n    Show source.\n",
+        "    Let mutable state be makePeState(a new Map of Text to CVal, encodedFuncMap, 200).\n    Let residual be {}(encodedMain, state).\n    Let source be decompileBlock(residual, 0).\n    Show source.\n",
         pe_block_fn
     );
     let combined = format!("{}\n{}\n{}\n## Main\n{}\n{}", types, pe_source, decompile, encoded, driver);
@@ -12991,6 +12099,23 @@ fn crdt_force_dynamic_handler_in_all_pe_dialects() {
 }
 
 // ── Behavioral lock: real CRDT semantics through mini-PE and bti-PE ──────────
+
+#[test]
+fn __dump_crdt_mini_rust() {
+    let pe_mini = logicaffeine_compile::compile::pe_mini_source_text();
+    let program = CRDT_SET_PROG;
+    let encoded = logicaffeine_compile::compile::encode_program_source(program).unwrap();
+    let decompile = logicaffeine_compile::compile::decompile_source_text();
+    let driver = format!(
+        "    Let mutable state be makePeState(a new Map of Text to CVal, encodedFuncMap, 200).\n    Let residual be {}(encodedMain, state).\n    Let source be decompileBlock(residual, 0).\n    Show source.\n",
+        "peBlockM"
+    );
+    let combined = format!("{}\n{}\n{}\n## Main\n{}\n{}", CORE_TYPES, pe_mini, decompile, encoded, driver);
+    match logicaffeine_compile::compile::compile_to_rust(&combined) {
+        Ok(rust) => std::fs::write("/tmp/crdt_gen.rs", rust).unwrap(),
+        Err(e) => std::fs::write("/tmp/crdt_gen.rs", format!("COMPILE ERROR: {:?}", e)).unwrap(),
+    }
+}
 
 #[test]
 fn crdt_mini_pe_counter_end_to_end() {
@@ -13057,7 +12182,7 @@ fn pe_bti_direct_residual_count(setup_stmts: &str) -> usize {
     let source = format!(
         "{}\n{}\n## Main\n\
          {}\n\
-         Let state be makePeState(a new Map of Text to CVal, a new Map of Text to CFunc, 200).\n\
+         Let mutable state be makePeState(a new Map of Text to CVal, a new Map of Text to CFunc, 200).\n\
          Let residual be peBlockB(testStmts, state).\n\
          Show length of residual.\n",
         types, pe_bti, setup_stmts

@@ -189,6 +189,7 @@ fn stmt_is_pure(s: &Stmt) -> bool {
         | Stmt::Listen { .. }
         | Stmt::ConnectTo { .. }
         | Stmt::SendMessage { .. }
+        | Stmt::StreamMessage { .. }
         | Stmt::AwaitMessage { .. }
         | Stmt::Spawn { .. }
         | Stmt::Inspect { .. }

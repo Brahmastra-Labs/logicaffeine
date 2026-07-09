@@ -1,7 +1,7 @@
 //! Programmer's Guide page.
 //!
 //! A beautiful, interactive guide to the LOGOS programming language with:
-//! - 22 sections from PROGRAMMERS_LANGUAGE_STARTER.md
+//! - 22 sections from work/PROGRAMMERS_LANGUAGE_STARTER.md
 //! - Sticky sidebar navigation
 //! - Interactive code examples with Run/Copy/Reset
 //! - Dual mode: Logic (FOL output) and Imperative (WASM execution)
@@ -9,6 +9,8 @@
 pub mod content;
 
 use dioxus::prelude::*;
+#[cfg(all(feature = "split", target_arch = "wasm32"))]
+use dioxus::wasm_split;
 use crate::ui::router::Route;
 use crate::ui::components::guide_code_block::GuideCodeBlock;
 use crate::ui::components::guide_sidebar::{GuideSidebar, SectionInfo};
@@ -155,6 +157,49 @@ const GUIDE_STYLE: &str = r#"
     border-radius: var(--radius-sm);
     font-size: 0.9em;
     color: var(--color-accent-purple);
+}
+
+/* Fenced code blocks (install commands etc.) — copyable, one command per block */
+.guide-section .guide-code-block {
+    position: relative;
+    margin: 0 0 var(--spacing-lg);
+}
+
+.guide-section .guide-code-block pre {
+    font-family: var(--font-mono);
+    background: rgba(255,255,255,0.05);
+    border: 1px solid rgba(255,255,255,0.08);
+    border-radius: var(--radius-lg);
+    padding: var(--spacing-lg);
+    padding-right: 72px;
+    overflow-x: auto;
+    font-size: 0.9em;
+    line-height: 1.6;
+    margin: 0;
+}
+
+.guide-section .guide-code-block code {
+    background: none;
+    padding: 0;
+    color: var(--text-primary);
+}
+
+.guide-section .guide-code-copy {
+    position: absolute;
+    top: 10px;
+    right: 10px;
+    font-size: 12px;
+    color: var(--text-secondary);
+    background: rgba(255,255,255,0.06);
+    border: 1px solid rgba(255,255,255,0.1);
+    border-radius: var(--radius-sm);
+    padding: 3px 10px;
+    cursor: pointer;
+}
+
+.guide-section .guide-code-copy:hover {
+    color: var(--text-primary);
+    background: rgba(255,255,255,0.12);
 }
 
 .guide-section strong {
@@ -372,7 +417,9 @@ const GUIDE_STYLE: &str = r#"
 }
 "#;
 
-#[component]
+// `lazy`: with the `split` feature + dx `--wasm-split`, this page's body (and the
+// guide content strings only it references) moves into the lazily-fetched chunk.
+#[component(lazy)]
 pub fn Guide() -> Element {
     let mut active_section = use_signal(|| "introduction".to_string());
 
@@ -631,15 +678,36 @@ fn CollapsibleExamples(section_id: String, examples: &'static [content::CodeExam
 }
 
 /// Simple markdown to HTML converter
-/// Handles: headers, paragraphs, lists, tables, inline code, bold
+/// Handles: fenced code blocks, headers, paragraphs, lists, tables, inline code, bold
 fn render_markdown(content: &str) -> String {
     let mut html = String::new();
     let mut in_list = false;
     let mut in_table = false;
     let mut in_table_header = false;
+    let mut in_code_block = false;
+    let mut code_buf = String::new();
 
     for line in content.lines() {
         let trimmed = line.trim();
+
+        // Fenced code blocks — raw lines, indentation and blank lines preserved
+        if in_code_block {
+            if trimmed.starts_with("```") {
+                html.push_str(&code_block_html(&code_buf));
+                code_buf.clear();
+                in_code_block = false;
+            } else {
+                code_buf.push_str(line);
+                code_buf.push('\n');
+            }
+            continue;
+        }
+        if trimmed.starts_with("```") {
+            if in_list { html.push_str("</ul>"); in_list = false; }
+            if in_table { html.push_str("</tbody></table></div>"); in_table = false; }
+            in_code_block = true;
+            continue;
+        }
 
         // Skip empty lines
         if trimmed.is_empty() {
@@ -742,8 +810,29 @@ fn render_markdown(content: &str) -> String {
     if in_table {
         html.push_str("</tbody></table></div>");
     }
+    if in_code_block {
+        html.push_str(&code_block_html(&code_buf));
+    }
 
     html
+}
+
+/// A fenced code block as copy-friendly HTML: a Copy button (clipboard API, inline
+/// handler — the block arrives via `dangerous_inner_html`, so it can't carry a
+/// Dioxus listener) over an escaped `<pre><code>`.
+fn code_block_html(code: &str) -> String {
+    format!(
+        "<div class=\"guide-code-block\">\
+         <button class=\"guide-code-copy\" \
+         onclick=\"navigator.clipboard.writeText(this.nextElementSibling.textContent);\
+         this.textContent='Copied!';setTimeout(()=>{{this.textContent='Copy'}},1200)\">Copy</button>\
+         <pre><code>{}</code></pre></div>",
+        html_escape(code.trim_end_matches('\n'))
+    )
+}
+
+fn html_escape(s: &str) -> String {
+    s.replace('&', "&amp;").replace('<', "&lt;").replace('>', "&gt;")
 }
 
 /// Process inline markdown: **bold**, `code`, [links]
@@ -780,4 +869,45 @@ fn inline_markdown(text: &str) -> String {
     }
 
     result
+}
+
+#[cfg(test)]
+mod render_markdown_tests {
+    use super::{render_markdown, SECTIONS};
+
+    /// A fenced block becomes one copyable `<pre><code>` unit — never a paragraph
+    /// of mangled inline code (the install-command regression).
+    #[test]
+    fn fenced_block_renders_as_pre_code_with_copy_button() {
+        let md = "Install it:\n\n```bash\ncurl -fsSL https://logicaffeine.com/install.sh | sh\n```\n\nDone.";
+        let html = render_markdown(md);
+        assert!(html.contains("<pre><code>curl -fsSL https://logicaffeine.com/install.sh | sh</code></pre>"), "{html}");
+        assert!(html.contains("guide-code-copy"), "{html}");
+        assert!(!html.contains("```"), "fence markers must never leak into the page: {html}");
+    }
+
+    /// Blank lines and indentation inside a fence are content, not structure.
+    #[test]
+    fn fenced_block_preserves_blank_lines_and_indentation() {
+        let md = "```logos\n## Main\n    Show 1.\n\n    Show 2.\n```";
+        let html = render_markdown(md);
+        assert!(html.contains("## Main\n    Show 1.\n\n    Show 2."), "{html}");
+    }
+
+    /// Code is escaped, and the fence's language tag is not rendered as text.
+    #[test]
+    fn fenced_block_escapes_html_and_drops_language_tag() {
+        let html = render_markdown("```powershell\nirm https://x | iex && a < b\n```");
+        assert!(html.contains("&amp;&amp; a &lt; b"), "{html}");
+        assert!(!html.contains("powershell"), "language tag must not render: {html}");
+    }
+
+    /// The whole shipped guide renders with zero leaked fence markers.
+    #[test]
+    fn no_section_leaks_fence_markers() {
+        for section in SECTIONS {
+            let html = render_markdown(section.content);
+            assert!(!html.contains("```"), "section '{}' leaks fence markers", section.id);
+        }
+    }
 }

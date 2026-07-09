@@ -53,9 +53,24 @@ fixed 261 ns vs capnp 375.
 logos BEST **2092 B** = smallest (postcard 2640 · protobuf 3420). Decode **887 ns** vs bincode
 5155 / protobuf 7678 → **6–8× faster**.
 
-### Strings — **A**
+### Strings — **A+**
 logos BEST **2192 B** beats postcard 3387 (**35% smaller**). Decode **318 ns** vs capnp 1380 /
-bincode 4166 → **4–13× faster**.
+bincode 4166 → **4–13× faster**. The string column also ships **generators**, not just bytes:
+- `T_STRINGS_TEMPLATE` — a sequential-id column (`https://…/items/0…999`, `file_0.txt…`, generated
+  labels) is `prefix + (base + i·stride) + suffix`; ship the two affixes once + the affine index. A
+  1000-URL column goes out in **~40 B vs ~37 KB flat**, reconstructed byte-exact (exact-decimal guard
+  refuses zero-padding / `+sign`, so it never mis-fires).
+- `T_STRINGS_FRONT` — front-coding for sorted / hierarchical columns the dictionary can't help (all
+  distinct) and the template can't (non-affine / zero-padded): each string ships
+  `(shared-prefix-len, suffix)`, cut on a UTF-8 boundary. Sorted log paths / object-store keys crush
+  **3×+ below flat**; no shared prefix ⇒ `consider` keeps the flat form (never a loss).
+- `T_STRINGS_AFFIX` — common **prefix AND suffix** with arbitrary middles: the one case the other
+  four miss because the shared part is a *suffix* — emails `…@example.com`, extensions `…​.log`,
+  wrapped ids `https://cdn/v2/<x>/asset.json`. Ships both affixes once + each middle (**2×+ below
+  flat**).
+- plus the existing **dictionary** for low-cardinality categorical labels.
+The five string forms (flat · dictionary · front-code · template · affix) are all bake-off
+candidates; `consider` ships only the smallest, so the column is never larger than plain `T_STRINGS`.
 
 ### Exact numbers (i64 > 2^53, BigInt, 1/3) — **A++ (only us)**
 We ship `T_BIGINT` / `T_RATIONAL` losslessly. JSON corrupts any `i64 > 2^53` and cannot represent
@@ -66,6 +81,26 @@ Three forms, each a candidate the size-menu only keeps when it wins, so never la
 - `T_INTS_POLY` — a polynomial column ships its finite-difference **generator** (degree + a few
   seeds). A 10,000-value `3i² − 5i + 7` goes out as **9 bytes vs 39,625 raw — 4402× smaller**,
   reconstructed bit-exact by a difference engine. Any degree ≤ 4.
+- `T_INTS_GEOMETRIC` — exponential growth (doubling, powers, compounding) is neither affine nor
+  polynomial, so it ships `(base, ratio, n)` — **3 numbers regardless of length**. A 40-value `3·2ⁱ`
+  doubling column goes out in **~4 B vs 139 B raw (≈35×)**, and stays bit-exact **even when the
+  sequence overflows i64** — the encoder verifies reconstruction by replaying the SAME `wrapping_mul`
+  the decoder uses, so the win never costs correctness.
+- `T_INTS_PERIODIC` — an arbitrary cyclic column (`pattern[i mod p]` — weekly schedules, repeating
+  categories, sawtooth) ships **ONE period block, regardless of n** — and the block is itself run
+  through the whole menu (a byte block → raw, an affine block → 3 numbers), so periodic *composes*
+  with every other generator. A 1001-value 7-element-block column ships in **~14 B vs 391 B raw
+  (≈28×)**; because the descriptor is n-independent, the same 7-value block describes a million rows.
+- **Float generators** — the same idea on `f64`, always BIT-exact (`to_bits` verified, so it fires
+  only when reconstruction is perfect — never a lossy quantizer): constant, affine (`base + i·stride`
+  linspace / integer-valued JSON floats), sparse (one dominant value + outliers), periodic (cyclic
+  waveforms), geometric (compounding / exponential decay, replayed by the same accumulation). A
+  1000-element constant or linear float column ships in **tens of bytes, not 8 KB**.
+- **Bool generators** — the bool column ships its shape too, not just 1 bit/flag: `T_BOOLS_PERIODIC`
+  (constant all-true/all-false at p=1, alternating at p=2, weekly flag at p=7 → one tiny period block)
+  and `T_BOOLS_RLE` (two big runs or a handful of clustered flips → a few varints). A 1000-flag
+  constant column goes out in **~5 B vs 125 packed bytes**; a random column correctly keeps the
+  bit-pack. So *every* column kind — int, float, string, bool — now ships a generator when one fits.
 - `T_GEN` — a general sandboxed **generator expression** over the index (`a + b·(i mod p)` sawtooth
   auto-detected; total, bounded, hostile-tree-safe).
 - `T_FUNC` — a **shipped callable function**: a user's pure single-arg arithmetic function lowers to
@@ -79,12 +114,20 @@ Three forms, each a candidate the size-menu only keeps when it wins, so never la
 protobuf/capnp/arrow/msgpack all ship the n raw values; none ship the computation — and none can
 ship it *safely*.
 
-### Robustness — knobs compose, nothing crashes
+### Robustness — knobs compose, nothing crashes, every data shape round-trips
 A **matrix blast** (`wire_matrix_blast_every_knob_combo_composes`) proves every combination of
 numerics × structure × floats × compression × integrity × struct-view — **4,896 chained-knob
 round-trips over 17 payload shapes** — is canonically identical end to end, so no knob silently
-corrupts another. Cyclic/pathological values return a clean `Err`, never a stack overflow. Adding a
-knob is one new matrix dimension; the tag-dispatch decoder makes every addition purely additive.
+corrupts another. A **spectrum sweep** (`wire_spectrum.rs`) then attacks from the data side: **46
+payloads from perfectly ordered (constant / affine / geometric / polynomial / periodic) through
+structured (runs / clustered / low-cardinality / shared-prefix) to literally random**, plus the
+common workflows people actually transmit (timestamps, status codes, latencies, prices, counters,
+geo floats, sensor walks, flags, categorical labels, record tables, id→record maps) — each round-
+tripped across **54 dial combinations (≈2,500 round-trips)** AND proven `Auto ≤ plain-varint` on
+*every* shape (the menu never loses to doing nothing), with the ordered columns crushing far below
+their random peers (the generators provably firing). Cyclic/pathological values return a clean
+`Err`, never a stack overflow. Adding a knob is one new matrix dimension; the tag-dispatch decoder
+makes every addition purely additive.
 
 ---
 
@@ -97,6 +140,8 @@ knob is one new matrix dimension; the tag-dispatch decoder makes every addition 
 | sequential ints | 9 B | postcard 3002 B | **333×** | ship the affine generator `(base,stride,n)` |
 | repetitive ints | 49 B | rival 7002 B | **143×** | per-column RLE/dict + Zstd menu |
 | polynomial column | 9 B | 39,625 B raw | **4402×** | ship the finite-difference generator (`T_INTS_POLY`) |
+| geometric column | ~4 B | 139 B raw | **≈35×** | ship `(base, ratio, n)` — overflow-exact (`T_INTS_GEOMETRIC`) |
+| periodic column | ~14 B | 391 B raw | **≈28×** | ship one period block, recursively best-encoded (`T_INTS_PERIODIC`) |
 | bit-packed bools | 130 B | 1002 B | **7.7×** | 1 bit/flag |
 | methods (low-cardinality str) | 923 B | 4714 B | **5.1×** | dictionary |
 | http status | 497 B | 2002 B | **4.0×** | FOR bit-pack |
@@ -178,10 +223,64 @@ stack overflow).
    touched (`rows`' fields resolve O(1) through `WireView::structs_row_field`); an untouched row/field
    is never decoded. The drain path defers self-describing record lists (`peek_record_list_sender`)
    while still decoding cached/compressed/scalar messages eagerly in arrival order (schema-cache
-   ordering preserved); plain `Await` stays eager and byte-for-byte unchanged. So zero-copy is no
-   longer test-only — it's the live receive. Tests: `wireview_decode_and_schema`, `lazy_wirestructs_*`,
-   `message_from_wire_view_*`, `production_receive_path_defers_then_reads_record_list_lazily`
-   (`concurrency::marshal::tests`); 91/91 concurrency e2e + 795/795 compile-lib green (no regression).
+   ordering preserved); plain `Await` stays eager and byte-for-byte unchanged. It covers BOTH record
+   lists (`ListRepr::WireStructs`) AND aligned numeric columns (`ListRepr::WireColumn` — a received
+   `Seq of Int`/`Seq of Float` read straight out of the borrowed `&[i64]`/`&[f64]`, capnp's
+   `List<i64>` read-in-place). PROVEN LIVE: `interp_await_view_zerocopy` runs a real interpreter over
+   a loopback relay — a peer publishes a record list, the program `Await view`s it and reads
+   `first's score` → `11`, no decode. Tests: `wireview_decode_and_schema`, `lazy_wirestructs_*`,
+   `lazy_wirecolumn_*`, `message_from_wire_view_*`, `production_receive_path_defers_*`
+   (`concurrency::marshal::tests`) + the live e2e; 92/92 concurrency e2e + 796/796 compile-lib green.
+
+9. **Streaming — CLOSED (capnp's streaming/incremental-reads home).** `concurrency::stream`:
+   `frame_for_stream` (LEB128-length-delimited) + `StreamDeframer` process a byte STREAM of messages
+   INCREMENTALLY as bytes arrive — any chunking (byte-at-a-time, frame split mid-body OR mid-length-
+   varint, many frames per chunk) — and hand back each complete frame ZERO-COPY (a borrowed body
+   slice) the instant it is buffered, never holding more than one partial frame. Paired with
+   `view_message`, a streamed message is read IN PLACE with no per-frame decode and no whole-stream
+   buffering — the gRPC/Arrow-Flight/Kafka framing every streaming protocol is built on. Lock-in
+   `we_stream_with_protobuf_framing_constant_memory_and_zero_copy` (superiority.rs) streams 10k
+   messages and asserts: framing byte-identical to protobuf length-delimited (LEB128 prefix),
+   **constant memory** (peak buffered < 1% of stream length — never the whole stream), and every
+   message read zero-copy. The LANGUAGE surface is live too: `Stream <list> to <peer>` batches a
+   list into one framed message and `Await stream from <peer> into <var>` deframes it back —
+   Kafka-style batch streaming proven end-to-end through the running interpreter over a loopback
+   relay (`interp_stream_surface.rs`, both send + receive). The TRANSPORT is a one-word knob (like
+   `Send`): `Stream <list> to <peer>` = the relay/NETWORK pro (tree-walker async tier); `Stream
+   <list> into <pipe>` = an in-process channel send that's CROSS-TIER (lowers to `SendPipe` → runs
+   identically on the bytecode VM, AOT, and tree-walker — `diff_stream_into_pipe_is_cross_tier`
+   proves VM≡tree-walker). The knob exposes the full union of pros; network I/O is un-bytecodeable,
+   so no single execution has both — you pick. 5/5 `concurrency::stream::tests` + the superiority
+   lock-in + 3 e2e/differential + framing round-trip green.
+
+10. **Capability handshake — CLOSED (zero-config "beat raw varint by default").** A peer's
+    acceptance profile — receive limits, type-registry epoch, supported feature flags
+    (`deflate`/`lz4`/`zstd`/`type-id`/`computed`/`fec`) — rides a dedicated `<peer>#hs` sub-topic on
+    first contact, so a raw consumer on the data topic is unaffected (that separation is why the
+    byte-identical data path is untouched). `negotiate(mine, theirs)` is **conservative — a knob is
+    used only if BOTH ends expose it** — so the sender automatically stays inside exactly what the
+    receiver can decode, and **type-id name elision turns on by itself** when the two epochs match
+    (two peers running the same program), with a safe self-describing fallback otherwise. The
+    receiver also gets an **admission contract**: a `DecodeDepthGuard` (stack-smash DoS), a bounded
+    generator-expansion count (a 12-byte `T_GEN`/affine descriptor can't inflate to gigabytes), a
+    max-bytes ceiling, and an explicit `accept_computed` gate (an executable `T_FUNC` is refused at
+    decode unless the receiver opted in — the first of the three gates, with the C2 contract gating
+    invocation and the sandbox bounding the call). PROVEN on BOTH tiers byte-identically:
+    `typeid_name_elision_fires_end_to_end_on_both_tiers` (a struct's type/field names vanish from the
+    wire once the peers handshake) + `program_advertises_its_profile_on_first_contact_on_both_tiers`,
+    over a live loopback relay through the running interpreter AND the bytecode VM.
+
+11. **Rc-dedup of shared subtrees — CLOSED (the all-types-completeness tail).** A subtree the SAME
+    `Rc` reaches more than once (a shared lookup table referenced by N records, one big object aliased
+    across a structure) ships ONCE — `T_SHARED_DEF id + value` on first sight, a tiny `T_SHARED_REF id`
+    on every repeat — and the **decoder rebuilds the SHARING**: the decoded copies alias ONE `Rc`
+    (proven by `Rc::ptr_eq`), not N heap copies. capnp/protobuf/bincode/postcard all explode a shared
+    subtree into N independent copies; we ship the reference graph itself. Opt-in (`with_dedup`), so
+    the default wire is byte-unchanged — and a value with NO sharing is byte-identical even with the
+    knob on (no def/ref tag is emitted). Cycle-safe (the gather descends a pointer only on its first
+    sighting) and panic-safe under every truncation / single-byte mutation. Complementary to the G5
+    string **dictionary** (which already dedups a homogeneous string column); Rc-dedup owns the shared
+    *containers* and shared values spread through heterogeneous structure. Tests: `wire_dedup.rs`.
 
 ## How you turn the knobs (shipped)
 One word on `Send`, all shipped: `fast` (memcpy / fixed-width) · `compact` (varint) · `packed`
@@ -192,10 +291,9 @@ One word on `Send`, all shipped: `fast` (memcpy / fixed-width) · `compact` (var
 which knobs the sender turned.
 
 ## Win even harder (next levers)
-1. **Capability handshake (D2).** On `Connect`/`Listen`, peers advertise their type-registry epoch +
-   supported codecs, so `shared` name-elision and `computed` can be turned on **automatically** when
-   both ends agree — and fall back safely when they don't. Turns "beat raw varint by default" into a
-   zero-config default.
+1. **Language `Send deduped` surface + cyclic-graph decode.** Rc-dedup ships as a codec knob today
+   (`with_dedup`); the one-word `Send deduped` surface + a pre-order-shell decode that rebuilds true
+   CYCLES (not just DAGs) finish the structure-sharing story.
 2. **Word-level BV / SIMD on the wide-integer path.** Group-varint already SIMD-decodes; extend the
    shuffle path and the FOR bit-packer to AVX-512 for the wide-column decode floor.
 3. **`computed` over multi-arg + the rational/float sandbox.** The `GenExpr` sandbox is single-arg
@@ -204,5 +302,3 @@ which knobs the sender turned.
 4. **`Send best` cost amortization.** The auto-tuner pays N encode passes for the true minimum; a
    cheap cost-model pre-filter (skip dominated candidates by a size estimate) would make `best` the
    effortless default even on the hot path.
-5. **Rc-dedup of shared subtrees (G8 tail).** Pointer-identity backrefs (`T_REF`) so a value that
-   appears N times ships once — the last "all-types completeness" gap.

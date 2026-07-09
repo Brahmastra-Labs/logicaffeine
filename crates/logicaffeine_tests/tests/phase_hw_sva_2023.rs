@@ -1,7 +1,7 @@
 //! SVA 2023 Upgrade — IEEE 1800-2023 Compliance Tests
 //!
 //! Sprint-organized tests for upgrading from IEEE 1800-2017 to IEEE 1800-2023.
-//! Spec: SVA_2023_UPGRADE.md. All existing 858 tests must pass unchanged.
+//! Spec: work/SVA_2023_UPGRADE.md. All existing 858 tests must pass unchanged.
 
 use logicaffeine_compile::codegen_sva::sva_model::{
     parse_sva, parse_sva_directive, sva_expr_to_string, sva_exprs_structurally_equivalent,

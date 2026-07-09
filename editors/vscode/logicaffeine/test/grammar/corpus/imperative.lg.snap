@@ -1,0 +1,342 @@
+># Imperative core: functions, bindings, loops, collections, interpolation.
+#^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ source.logicaffeine comment.line.number-sign.logicaffeine
+>
+>## To native args () -> Seq of Text
+#^^ source.logicaffeine punctuation.definition.heading.logicaffeine
+#  ^ source.logicaffeine
+#   ^^ source.logicaffeine keyword.control.section.logicaffeine
+#     ^ source.logicaffeine
+#      ^^^^^^^ source.logicaffeine storage.modifier.native.logicaffeine
+#             ^^^^ source.logicaffeine entity.name.function.logicaffeine
+#                 ^^^^ source.logicaffeine
+#                     ^^ source.logicaffeine keyword.operator.arrow.logicaffeine
+#                       ^ source.logicaffeine
+#                        ^^^ source.logicaffeine entity.name.type.logicaffeine
+#                           ^ source.logicaffeine
+#                            ^^ source.logicaffeine keyword.control.logicaffeine
+#                              ^ source.logicaffeine
+#                               ^^^^ source.logicaffeine entity.name.type.logicaffeine
+>## To native parseInt (s: Text) -> Int
+#^^ source.logicaffeine punctuation.definition.heading.logicaffeine
+#  ^ source.logicaffeine
+#   ^^ source.logicaffeine keyword.control.section.logicaffeine
+#     ^ source.logicaffeine
+#      ^^^^^^^ source.logicaffeine storage.modifier.native.logicaffeine
+#             ^^^^^^^^ source.logicaffeine entity.name.function.logicaffeine
+#                     ^^ source.logicaffeine
+#                       ^ source.logicaffeine variable.parameter.logicaffeine
+#                        ^ source.logicaffeine punctuation.separator.annotation.logicaffeine
+#                         ^ source.logicaffeine
+#                          ^^^^ source.logicaffeine entity.name.type.logicaffeine
+#                              ^^ source.logicaffeine
+#                                ^^ source.logicaffeine keyword.operator.arrow.logicaffeine
+#                                  ^ source.logicaffeine
+#                                   ^^^ source.logicaffeine entity.name.type.logicaffeine
+>
+>## To qs (arr: Seq of Int, lo: Int, hi: Int) -> Seq of Int:
+#^^ source.logicaffeine punctuation.definition.heading.logicaffeine
+#  ^ source.logicaffeine
+#   ^^ source.logicaffeine keyword.control.section.logicaffeine
+#     ^ source.logicaffeine
+#      ^^ source.logicaffeine entity.name.function.logicaffeine
+#        ^^ source.logicaffeine
+#          ^^^ source.logicaffeine variable.parameter.logicaffeine
+#             ^ source.logicaffeine punctuation.separator.annotation.logicaffeine
+#              ^ source.logicaffeine
+#               ^^^ source.logicaffeine entity.name.type.logicaffeine
+#                  ^ source.logicaffeine
+#                   ^^ source.logicaffeine keyword.control.logicaffeine
+#                     ^ source.logicaffeine
+#                      ^^^ source.logicaffeine entity.name.type.logicaffeine
+#                         ^^ source.logicaffeine
+#                           ^^ source.logicaffeine variable.parameter.logicaffeine
+#                             ^ source.logicaffeine punctuation.separator.annotation.logicaffeine
+#                              ^ source.logicaffeine
+#                               ^^^ source.logicaffeine entity.name.type.logicaffeine
+#                                  ^^ source.logicaffeine
+#                                    ^^ source.logicaffeine variable.parameter.logicaffeine
+#                                      ^ source.logicaffeine punctuation.separator.annotation.logicaffeine
+#                                       ^ source.logicaffeine
+#                                        ^^^ source.logicaffeine entity.name.type.logicaffeine
+#                                           ^^ source.logicaffeine
+#                                             ^^ source.logicaffeine keyword.operator.arrow.logicaffeine
+#                                               ^ source.logicaffeine
+#                                                ^^^ source.logicaffeine entity.name.type.logicaffeine
+#                                                   ^ source.logicaffeine
+#                                                    ^^ source.logicaffeine keyword.control.logicaffeine
+#                                                      ^ source.logicaffeine
+#                                                       ^^^ source.logicaffeine entity.name.type.logicaffeine
+#                                                          ^^ source.logicaffeine
+>    If lo is at least hi:
+#^^^^ source.logicaffeine
+#    ^^ source.logicaffeine keyword.control.logicaffeine
+#      ^^^^ source.logicaffeine
+#          ^^^^^^^^^^^ source.logicaffeine keyword.operator.word.comparison.logicaffeine
+#                     ^^^^^ source.logicaffeine
+>        Return arr.
+#^^^^^^^^ source.logicaffeine
+#        ^^^^^^ source.logicaffeine keyword.control.logicaffeine
+#              ^^^^^^ source.logicaffeine
+>    Let pivot be item hi of arr.
+#^^^^ source.logicaffeine
+#    ^^^ source.logicaffeine keyword.control.logicaffeine
+#       ^ source.logicaffeine
+#        ^^^^^ source.logicaffeine variable.other.readwrite.definition.logicaffeine
+#             ^ source.logicaffeine
+#              ^^ source.logicaffeine keyword.control.logicaffeine
+#                ^ source.logicaffeine
+#                 ^^^^ source.logicaffeine keyword.operator.word.logicaffeine
+#                     ^^^^ source.logicaffeine
+#                         ^^ source.logicaffeine keyword.control.logicaffeine
+#                           ^^^^^^ source.logicaffeine
+>    Let mutable result be arr.
+#^^^^ source.logicaffeine
+#    ^^^ source.logicaffeine keyword.control.logicaffeine
+#       ^ source.logicaffeine
+#        ^^^^^^^^ source.logicaffeine storage.modifier.logicaffeine
+#                ^^^^^^ source.logicaffeine variable.other.readwrite.definition.logicaffeine
+#                      ^ source.logicaffeine
+#                       ^^ source.logicaffeine keyword.control.logicaffeine
+#                         ^^^^^^ source.logicaffeine
+>    Let mutable i be lo.
+#^^^^ source.logicaffeine
+#    ^^^ source.logicaffeine keyword.control.logicaffeine
+#       ^ source.logicaffeine
+#        ^^^^^^^^ source.logicaffeine storage.modifier.logicaffeine
+#                ^ source.logicaffeine variable.other.readwrite.definition.logicaffeine
+#                 ^ source.logicaffeine
+#                  ^^ source.logicaffeine keyword.control.logicaffeine
+#                    ^^^^^ source.logicaffeine
+>    While i is less than hi:
+#^^^^ source.logicaffeine
+#    ^^^^^ source.logicaffeine keyword.control.logicaffeine
+#         ^^^ source.logicaffeine
+#            ^^^^^^^^^^^^ source.logicaffeine keyword.operator.word.comparison.logicaffeine
+#                        ^^^^^ source.logicaffeine
+>        If item i of result is at most pivot:
+#^^^^^^^^ source.logicaffeine
+#        ^^ source.logicaffeine keyword.control.logicaffeine
+#          ^ source.logicaffeine
+#           ^^^^ source.logicaffeine keyword.operator.word.logicaffeine
+#               ^^^ source.logicaffeine
+#                  ^^ source.logicaffeine keyword.control.logicaffeine
+#                    ^^^^^^^^ source.logicaffeine
+#                            ^^^^^^^^^^ source.logicaffeine keyword.operator.word.comparison.logicaffeine
+#                                      ^^^^^^^^ source.logicaffeine
+>            Set item i of result to item hi of result.
+#^^^^^^^^^^^^ source.logicaffeine
+#            ^^^ source.logicaffeine keyword.control.logicaffeine
+#               ^ source.logicaffeine
+#                ^^^^ source.logicaffeine keyword.operator.word.logicaffeine
+#                    ^^^ source.logicaffeine
+#                       ^^ source.logicaffeine keyword.control.logicaffeine
+#                         ^^^^^^^^ source.logicaffeine
+#                                 ^^ source.logicaffeine keyword.control.logicaffeine
+#                                   ^ source.logicaffeine
+#                                    ^^^^ source.logicaffeine keyword.operator.word.logicaffeine
+#                                        ^^^^ source.logicaffeine
+#                                            ^^ source.logicaffeine keyword.control.logicaffeine
+#                                              ^^^^^^^^^ source.logicaffeine
+>        Set i to i + 1.
+#^^^^^^^^ source.logicaffeine
+#        ^^^ source.logicaffeine keyword.control.logicaffeine
+#           ^ source.logicaffeine
+#            ^ source.logicaffeine variable.other.readwrite.logicaffeine
+#             ^ source.logicaffeine
+#              ^^ source.logicaffeine keyword.control.logicaffeine
+#                ^^^ source.logicaffeine
+#                   ^ source.logicaffeine keyword.operator.logicaffeine
+#                    ^ source.logicaffeine
+#                     ^ source.logicaffeine constant.numeric.logicaffeine
+#                      ^^ source.logicaffeine
+>    Return qs(result, lo, i - 1).
+#^^^^ source.logicaffeine
+#    ^^^^^^ source.logicaffeine keyword.control.logicaffeine
+#          ^ source.logicaffeine
+#           ^^ source.logicaffeine entity.name.function.logicaffeine
+#             ^^^^^^^^^^^^^^^ source.logicaffeine
+#                            ^ source.logicaffeine keyword.operator.logicaffeine
+#                             ^ source.logicaffeine
+#                              ^ source.logicaffeine constant.numeric.logicaffeine
+#                               ^^^ source.logicaffeine
+>
+>## Main
+#^^ source.logicaffeine punctuation.definition.heading.logicaffeine
+#  ^ source.logicaffeine
+#   ^^^^ source.logicaffeine keyword.control.section.logicaffeine
+>Let arguments be args().
+#^^^ source.logicaffeine keyword.control.logicaffeine
+#   ^ source.logicaffeine
+#    ^^^^^^^^^ source.logicaffeine variable.other.readwrite.definition.logicaffeine
+#             ^ source.logicaffeine
+#              ^^ source.logicaffeine keyword.control.logicaffeine
+#                ^ source.logicaffeine
+#                 ^^^^ source.logicaffeine entity.name.function.logicaffeine
+#                     ^^^^ source.logicaffeine
+>Let n be parseInt(item 2 of arguments).
+#^^^ source.logicaffeine keyword.control.logicaffeine
+#   ^ source.logicaffeine
+#    ^ source.logicaffeine variable.other.readwrite.definition.logicaffeine
+#     ^ source.logicaffeine
+#      ^^ source.logicaffeine keyword.control.logicaffeine
+#        ^ source.logicaffeine
+#         ^^^^^^^^ source.logicaffeine entity.name.function.logicaffeine
+#                 ^ source.logicaffeine
+#                  ^^^^ source.logicaffeine keyword.operator.word.logicaffeine
+#                      ^ source.logicaffeine
+#                       ^ source.logicaffeine constant.numeric.logicaffeine
+#                        ^ source.logicaffeine
+#                         ^^ source.logicaffeine keyword.control.logicaffeine
+#                           ^^^^^^^^^^^^^ source.logicaffeine
+>Let mutable arr be a new Seq of Int with capacity n.
+#^^^ source.logicaffeine keyword.control.logicaffeine
+#   ^ source.logicaffeine
+#    ^^^^^^^^ source.logicaffeine storage.modifier.logicaffeine
+#            ^^^ source.logicaffeine variable.other.readwrite.definition.logicaffeine
+#               ^ source.logicaffeine
+#                ^^ source.logicaffeine keyword.control.logicaffeine
+#                  ^ source.logicaffeine
+#                   ^ source.logicaffeine keyword.control.logicaffeine
+#                    ^ source.logicaffeine
+#                     ^^^ source.logicaffeine keyword.control.logicaffeine
+#                        ^ source.logicaffeine
+#                         ^^^ source.logicaffeine entity.name.type.logicaffeine
+#                            ^ source.logicaffeine
+#                             ^^ source.logicaffeine keyword.control.logicaffeine
+#                               ^ source.logicaffeine
+#                                ^^^ source.logicaffeine entity.name.type.logicaffeine
+#                                   ^ source.logicaffeine
+#                                    ^^^^ source.logicaffeine keyword.control.logicaffeine
+#                                        ^^^^^^^^^^^^^ source.logicaffeine
+>Let mutable seed be 42.
+#^^^ source.logicaffeine keyword.control.logicaffeine
+#   ^ source.logicaffeine
+#    ^^^^^^^^ source.logicaffeine storage.modifier.logicaffeine
+#            ^^^^ source.logicaffeine variable.other.readwrite.definition.logicaffeine
+#                ^ source.logicaffeine
+#                 ^^ source.logicaffeine keyword.control.logicaffeine
+#                   ^ source.logicaffeine
+#                    ^^ source.logicaffeine constant.numeric.logicaffeine
+#                      ^^ source.logicaffeine
+>While seed is less than n:
+#^^^^^ source.logicaffeine keyword.control.logicaffeine
+#     ^^^^^^ source.logicaffeine
+#           ^^^^^^^^^^^^ source.logicaffeine keyword.operator.word.comparison.logicaffeine
+#                       ^^^^ source.logicaffeine
+>    Set seed to (seed * 1103515245 + 12345) % 2147483648.
+#^^^^ source.logicaffeine
+#    ^^^ source.logicaffeine keyword.control.logicaffeine
+#       ^ source.logicaffeine
+#        ^^^^ source.logicaffeine variable.other.readwrite.logicaffeine
+#            ^ source.logicaffeine
+#             ^^ source.logicaffeine keyword.control.logicaffeine
+#               ^^^^^^^ source.logicaffeine
+#                      ^ source.logicaffeine keyword.operator.logicaffeine
+#                       ^ source.logicaffeine
+#                        ^^^^^^^^^^ source.logicaffeine constant.numeric.logicaffeine
+#                                  ^ source.logicaffeine
+#                                   ^ source.logicaffeine keyword.operator.logicaffeine
+#                                    ^ source.logicaffeine
+#                                     ^^^^^ source.logicaffeine constant.numeric.logicaffeine
+#                                          ^^ source.logicaffeine
+#                                            ^ source.logicaffeine keyword.operator.logicaffeine
+#                                             ^ source.logicaffeine
+#                                              ^^^^^^^^^^ source.logicaffeine constant.numeric.logicaffeine
+#                                                        ^^ source.logicaffeine
+>    Push (seed / 65536) % 32768 to arr.
+#^^^^ source.logicaffeine
+#    ^^^^ source.logicaffeine keyword.control.logicaffeine
+#        ^^^^^^^ source.logicaffeine
+#               ^ source.logicaffeine keyword.operator.logicaffeine
+#                ^ source.logicaffeine
+#                 ^^^^^ source.logicaffeine constant.numeric.logicaffeine
+#                      ^^ source.logicaffeine
+#                        ^ source.logicaffeine keyword.operator.logicaffeine
+#                         ^ source.logicaffeine
+#                          ^^^^^ source.logicaffeine constant.numeric.logicaffeine
+#                               ^ source.logicaffeine
+#                                ^^ source.logicaffeine keyword.control.logicaffeine
+#                                  ^^^^^^ source.logicaffeine
+>Let m be a new Map of Text to Int.
+#^^^ source.logicaffeine keyword.control.logicaffeine
+#   ^ source.logicaffeine
+#    ^ source.logicaffeine variable.other.readwrite.definition.logicaffeine
+#     ^ source.logicaffeine
+#      ^^ source.logicaffeine keyword.control.logicaffeine
+#        ^ source.logicaffeine
+#         ^ source.logicaffeine keyword.control.logicaffeine
+#          ^ source.logicaffeine
+#           ^^^ source.logicaffeine keyword.control.logicaffeine
+#              ^ source.logicaffeine
+#               ^^^ source.logicaffeine entity.name.type.logicaffeine
+#                  ^ source.logicaffeine
+#                   ^^ source.logicaffeine keyword.control.logicaffeine
+#                     ^ source.logicaffeine
+#                      ^^^^ source.logicaffeine entity.name.type.logicaffeine
+#                          ^ source.logicaffeine
+#                           ^^ source.logicaffeine keyword.control.logicaffeine
+#                             ^ source.logicaffeine
+#                              ^^^ source.logicaffeine entity.name.type.logicaffeine
+#                                 ^^ source.logicaffeine
+>Set m at "answer" to 42.
+#^^^ source.logicaffeine keyword.control.logicaffeine
+#   ^ source.logicaffeine
+#    ^ source.logicaffeine variable.other.readwrite.logicaffeine
+#     ^ source.logicaffeine
+#      ^^ source.logicaffeine keyword.control.logicaffeine
+#        ^ source.logicaffeine
+#         ^ source.logicaffeine string.quoted.double.logicaffeine
+#          ^^^^^^ source.logicaffeine string.quoted.double.logicaffeine
+#                ^ source.logicaffeine string.quoted.double.logicaffeine
+#                 ^ source.logicaffeine
+#                  ^^ source.logicaffeine keyword.control.logicaffeine
+#                    ^ source.logicaffeine
+#                     ^^ source.logicaffeine constant.numeric.logicaffeine
+#                       ^^ source.logicaffeine
+>Let total be length of arr.
+#^^^ source.logicaffeine keyword.control.logicaffeine
+#   ^ source.logicaffeine
+#    ^^^^^ source.logicaffeine variable.other.readwrite.definition.logicaffeine
+#         ^ source.logicaffeine
+#          ^^ source.logicaffeine keyword.control.logicaffeine
+#            ^ source.logicaffeine
+#             ^^^^^^^^^ source.logicaffeine keyword.operator.word.logicaffeine
+#                      ^^^^^^ source.logicaffeine
+>Show "sorted {total} items, first is {seed:.2}".
+#^^^^ source.logicaffeine keyword.control.logicaffeine
+#    ^ source.logicaffeine
+#     ^ source.logicaffeine string.quoted.double.logicaffeine
+#      ^^^^^^^ source.logicaffeine string.quoted.double.logicaffeine
+#             ^ source.logicaffeine string.quoted.double.logicaffeine punctuation.section.interpolation.begin.logicaffeine
+#              ^^^^^ source.logicaffeine string.quoted.double.logicaffeine variable.other.interpolated.logicaffeine
+#                   ^ source.logicaffeine string.quoted.double.logicaffeine punctuation.section.interpolation.end.logicaffeine
+#                    ^^^^^^^^^^^^^^^^^ source.logicaffeine string.quoted.double.logicaffeine
+#                                     ^ source.logicaffeine string.quoted.double.logicaffeine punctuation.section.interpolation.begin.logicaffeine
+#                                      ^^^^ source.logicaffeine string.quoted.double.logicaffeine variable.other.interpolated.logicaffeine
+#                                          ^^^ source.logicaffeine string.quoted.double.logicaffeine constant.other.format.logicaffeine
+#                                             ^ source.logicaffeine string.quoted.double.logicaffeine punctuation.section.interpolation.end.logicaffeine
+#                                              ^ source.logicaffeine string.quoted.double.logicaffeine
+#                                               ^^ source.logicaffeine
+>Show "" + item 1 of arr + " " + checksum.
+#^^^^ source.logicaffeine keyword.control.logicaffeine
+#    ^ source.logicaffeine
+#     ^ source.logicaffeine string.quoted.double.logicaffeine
+#      ^ source.logicaffeine string.quoted.double.logicaffeine
+#       ^ source.logicaffeine
+#        ^ source.logicaffeine keyword.operator.logicaffeine
+#         ^ source.logicaffeine
+#          ^^^^ source.logicaffeine keyword.operator.word.logicaffeine
+#              ^ source.logicaffeine
+#               ^ source.logicaffeine constant.numeric.logicaffeine
+#                ^ source.logicaffeine
+#                 ^^ source.logicaffeine keyword.control.logicaffeine
+#                   ^^^^^ source.logicaffeine
+#                        ^ source.logicaffeine keyword.operator.logicaffeine
+#                         ^ source.logicaffeine
+#                          ^ source.logicaffeine string.quoted.double.logicaffeine
+#                           ^ source.logicaffeine string.quoted.double.logicaffeine
+#                            ^ source.logicaffeine string.quoted.double.logicaffeine
+#                             ^ source.logicaffeine
+#                              ^ source.logicaffeine keyword.operator.logicaffeine
+#                               ^^^^^^^^^^^ source.logicaffeine
+>

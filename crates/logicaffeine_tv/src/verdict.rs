@@ -12,7 +12,7 @@ pub enum TvError {
 }
 
 /// Outcome of cross-validating the LOGOS encoder against the tree-walking interpreter
-/// on one program (the meta-soundness check, `PE_IMPROVE.md §4.2`).
+/// on one program (the meta-soundness check, `work/PE_IMPROVE.md §4.2`).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum SoundnessReport {
     /// The encoder's symbolic summary provably matches the interpreter's observable

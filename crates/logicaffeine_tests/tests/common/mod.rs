@@ -1141,6 +1141,52 @@ pub fn assert_compiled_equals_interpreted_seeded(source: &str, seed: u64) {
     }
 }
 
+/// EQUIVALENCE PROOF, strong form: two spellings of the same construct must
+/// lower to BYTE-IDENTICAL generated Rust. This is the gate every
+/// parser-tier desugaring ships with — if the old and new spellings build the
+/// same AST, the emitted program is the same string, which proves the sugar
+/// added zero new runtime surface.
+#[allow(dead_code)]
+pub fn assert_identical_lowering(old_src: &str, new_src: &str) {
+    let old = compile_program_full(old_src).unwrap_or_else(|e| {
+        panic!("old spelling failed to compile: {:?}\nSource:\n{}", e, old_src)
+    });
+    let new = compile_program_full(new_src).unwrap_or_else(|e| {
+        panic!("new spelling failed to compile: {:?}\nSource:\n{}", e, new_src)
+    });
+    assert_eq!(
+        old.rust_code, new.rust_code,
+        "LOWERING MISMATCH: the two spellings did not produce identical Rust\n\
+         Old source:\n{}\n\nNew source:\n{}",
+        old_src, new_src
+    );
+}
+
+/// EQUIVALENCE PROOF, behavioral form: for sugar that cannot promise identical
+/// lowering (a new builtin or runtime node), both spellings must produce the
+/// same interpreter outcome (tree-walker + VM, cross-checked by the shadow
+/// oracle), and the new spelling must hold the compiled-vs-interpreted
+/// differential in its own right.
+#[allow(dead_code)]
+pub fn assert_same_meaning(old_src: &str, new_src: &str) {
+    let old = run_interpreter(old_src);
+    let new = run_interpreter(new_src);
+    assert_eq!(
+        old.success, new.success,
+        "MEANING MISMATCH: old.success={} but new.success={}\n\
+         Old source:\n{}\n\nNew source:\n{}\n\nold error: {}\nnew error: {}",
+        old.success, new.success, old_src, new_src, old.error, new.error
+    );
+    assert_eq!(
+        old.output.trim(),
+        new.output.trim(),
+        "MEANING MISMATCH: the two spellings produced different output\n\
+         Old source:\n{}\n\nNew source:\n{}",
+        old_src, new_src
+    );
+    assert_compiled_equals_interpreted(new_src);
+}
+
 /// Differential gate + an expected value, so a regression in BOTH engines (they
 /// agree but on the wrong answer) is still caught.
 #[allow(dead_code)]

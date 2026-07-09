@@ -1,0 +1,5 @@
+# Fixture: uses a helper defined in lib.lg (cross-file resolution target).
+
+## Main
+Let result be triple(14).
+Show result.

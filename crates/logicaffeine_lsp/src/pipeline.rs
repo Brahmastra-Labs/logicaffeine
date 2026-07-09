@@ -13,7 +13,7 @@ use logicaffeine_language::{
     lexer::Lexer,
     mwe,
     parser::Parser,
-    token::{Token, BlockType, TokenType},
+    token::{Token, BlockType, Span, TokenType},
 };
 
 use crate::index::SymbolIndex;
@@ -29,6 +29,10 @@ pub struct AnalysisError {
     pub code: &'static str,
     /// Optional cause context for related information
     pub cause_context: Option<String>,
+    /// The erring statement's span (from `Parser::stmt_spans`), when known.
+    pub use_span: Option<Span>,
+    /// The causing statement's span (the Give that moved it), when known.
+    pub cause_span: Option<Span>,
 }
 
 /// Result of running the full analysis pipeline on a document.
@@ -71,8 +75,8 @@ pub fn analyze(source: &str) -> AnalysisResult {
         &mut interner,
     ) {
         Ok(result) => {
-            let idx = SymbolIndex::build(&result.owned_stmts, &tokens, &type_registry, result.interner);
-            (vec![], idx, result.escape_errors, result.ownership_errors, result.ownership_states)
+            let idx = SymbolIndex::build(&result.owned_stmts, &tokens, &type_registry, result.interner, source);
+            (result.type_errors, idx, result.escape_errors, result.ownership_errors, result.ownership_states)
         }
         Err(first_error) => {
             // Fall through to block-level recovery
@@ -88,7 +92,24 @@ pub fn analyze(source: &str) -> AnalysisResult {
             let func_defs = extract_function_defs_from_tokens(&tokens, &interner);
             recovery.stmts.extend(func_defs);
 
-            if recovery.parse_errors.is_empty() {
+            // The full parse saw the whole program; its error is the truest
+            // diagnosis for the region it names. The per-sentence reparse
+            // only sees the excised sentence and can degrade a specific
+            // teaching (IsValueEquality) to a generic ExpectedStatement —
+            // swap the same-line generic back for the specific one (the two
+            // anchor differently within the sentence, so lines, not spans,
+            // are the join).
+            let line_of = |offset: usize| {
+                source[..offset.min(source.len())].bytes().filter(|&b| b == b'\n').count()
+            };
+            let first_error_line = line_of(first_error.span.start);
+            let same_line = recovery
+                .parse_errors
+                .iter_mut()
+                .find(|e| line_of(e.span.start) == first_error_line);
+            if let Some(slot) = same_line {
+                *slot = first_error;
+            } else if recovery.parse_errors.is_empty() {
                 // Only report the first_error if it didn't originate from a
                 // function definition block that the parser can't handle
                 let has_function_blocks = tokens.iter().any(|t| {
@@ -98,7 +119,7 @@ pub fn analyze(source: &str) -> AnalysisResult {
                     recovery.parse_errors.push(first_error);
                 }
             }
-            let idx = SymbolIndex::build(&recovery.stmts, &tokens, &type_registry, &interner);
+            let idx = SymbolIndex::build(&recovery.stmts, &tokens, &type_registry, &interner, source);
             (recovery.parse_errors, idx, recovery.escape_errors, recovery.ownership_errors, recovery.ownership_states)
         }
     };
@@ -120,6 +141,8 @@ pub fn analyze(source: &str) -> AnalysisResult {
 struct FullParseResult<'a> {
     owned_stmts: Vec<OwnedStmt>,
     interner: &'a Interner,
+    /// Typechecker findings mapped onto real statement spans.
+    type_errors: Vec<ParseError>,
     escape_errors: Vec<AnalysisError>,
     ownership_errors: Vec<AnalysisError>,
     ownership_states: HashMap<String, VarState>,
@@ -156,13 +179,49 @@ fn try_full_parse<'a>(
     let mut world_state = WorldState::new();
     let mut parser = Parser::new(tokens, &mut world_state, interner, ctx, type_registry.clone());
     let stmts = parser.parse_program()?;
+    let stmt_spans = parser.stmt_spans().to_vec();
+
+    // Typecheck while the arena AST is alive; every failing top-level
+    // statement reports, anchored on its span from the parser's side-table.
+    let type_errors = {
+        let (_env, indexed) = logicaffeine_compile::analysis::check_program_collect(
+            &stmts,
+            interner,
+            type_registry,
+        );
+        indexed
+            .into_iter()
+            .map(|found| {
+                let mut kind = found.error.to_parse_error_kind(interner);
+                // The bridge cannot see the registry; fill in the fields that
+                // DO exist so the message and quickfix can name them.
+                if let logicaffeine_language::error::ParseErrorKind::FieldNotFound {
+                    type_name,
+                    available,
+                    ..
+                } = &mut kind
+                {
+                    *available = fields_of_type(type_registry, type_name, interner);
+                }
+                ParseError {
+                    kind,
+                    span: found
+                        .stmt_index
+                        .and_then(|i| stmt_spans.get(i))
+                        .copied()
+                        .unwrap_or_default(),
+                }
+            })
+            .collect()
+    };
 
     // Run escape analysis while arena-allocated AST is still alive
     let escape_errors = {
         let mut checker = EscapeChecker::new(interner);
-        match checker.check_program(&stmts) {
-            Ok(()) => vec![],
-            Err(e) => {
+        checker
+            .check_program_collect(&stmts)
+            .into_iter()
+            .map(|(stmt_index, e)| {
                 let (code, cause_context) = match &e.kind {
                     logicaffeine_compile::analysis::EscapeErrorKind::ReturnEscape { zone_name, .. } => {
                         ("escape-return", Some(format!("zone '{}'", zone_name)))
@@ -175,22 +234,26 @@ fn try_full_parse<'a>(
                     logicaffeine_compile::analysis::EscapeErrorKind::ReturnEscape { variable, .. } => variable.clone(),
                     logicaffeine_compile::analysis::EscapeErrorKind::AssignmentEscape { variable, .. } => variable.clone(),
                 };
-                vec![AnalysisError {
+                AnalysisError {
                     message: e.to_string(),
                     variable,
                     code,
                     cause_context,
-                }]
-            }
-        }
+                    use_span: stmt_spans.get(stmt_index).copied(),
+                    cause_span: None,
+                }
+            })
+            .collect()
     };
 
     // Run ownership analysis while arena-allocated AST is still alive
     let (ownership_errors, ownership_states) = {
         let mut checker = OwnershipChecker::new(interner);
-        let errors = match checker.check_program(&stmts) {
-            Ok(()) => vec![],
-            Err(e) => {
+        let errors = checker
+            .check_program_collect(&stmts)
+            .into_iter()
+            .map(|finding| {
+                let e = &finding.error;
                 let (code, variable, cause_context) = match &e.kind {
                     logicaffeine_compile::analysis::OwnershipErrorKind::UseAfterMove { variable } => {
                         ("use-after-move", variable.clone(), Some(format!("'{}' was given away here", variable)))
@@ -202,14 +265,19 @@ fn try_full_parse<'a>(
                         ("double-move", variable.clone(), Some(format!("'{}' was first given away here", variable)))
                     }
                 };
-                vec![AnalysisError {
+                AnalysisError {
                     message: e.to_string(),
                     variable,
                     code,
                     cause_context,
-                }]
-            }
-        };
+                    use_span: stmt_spans.get(finding.stmt_index).copied(),
+                    cause_span: finding
+                        .cause_stmt_index
+                        .and_then(|i| stmt_spans.get(i))
+                        .copied(),
+                }
+            })
+            .collect();
 
         // Extract ownership states, resolving symbols to strings
         let states: HashMap<String, VarState> = checker
@@ -226,10 +294,26 @@ fn try_full_parse<'a>(
     Ok(FullParseResult {
         owned_stmts: owned,
         interner,
+        type_errors,
         escape_errors,
         ownership_errors,
         ownership_states,
     })
+}
+
+/// The field names a struct type declares, for did-you-mean and message text.
+fn fields_of_type(registry: &TypeRegistry, type_name: &str, interner: &Interner) -> Vec<String> {
+    for (sym, typedef) in registry.iter_types() {
+        if interner.resolve(*sym) == type_name {
+            if let logicaffeine_language::analysis::TypeDef::Struct { fields, .. } = typedef {
+                return fields
+                    .iter()
+                    .map(|f| interner.resolve(f.name).to_string())
+                    .collect();
+            }
+        }
+    }
+    Vec::new()
 }
 
 /// Lightweight summary of a statement for symbol indexing.
@@ -348,6 +432,9 @@ fn format_type_expr(ty: &TypeExpr, interner: &Interner) -> String {
         TypeExpr::Persistent { inner } => {
             format!("Persistent {}", format_type_expr(inner, interner))
         }
+        TypeExpr::Mutable { inner } => {
+            format!("mutable {}", format_type_expr(inner, interner))
+        }
     }
 }
 
@@ -398,14 +485,14 @@ fn parse_with_recovery(
         }
         // Non-function single block: attempt to parse for partial recovery
         let block_tokens: Vec<Token> = tokens.to_vec();
-        match try_parse_block(block_tokens, type_registry, interner) {
-            Ok(block) => {
-                result.stmts = block.owned_stmts;
-                result.escape_errors = block.escape_errors;
-                result.ownership_errors = block.ownership_errors;
-                result.ownership_states = block.ownership_states;
-            }
-            Err(e) => result.parse_errors.push(e),
+        let (block, errors) =
+            parse_block_excising_bad_sentences(block_tokens, type_registry, interner);
+        result.parse_errors.extend(errors);
+        if let Some(block) = block {
+            result.stmts = block.owned_stmts;
+            result.escape_errors = block.escape_errors;
+            result.ownership_errors = block.ownership_errors;
+            result.ownership_states = block.ownership_states;
         }
         return result;
     }
@@ -416,14 +503,14 @@ fn parse_with_recovery(
             return;
         }
         let block_tokens: Vec<Token> = tokens[start..end_excl].to_vec();
-        match try_parse_block(block_tokens, type_registry, interner) {
-            Ok(block) => {
-                result.stmts.extend(block.owned_stmts);
-                result.escape_errors.extend(block.escape_errors);
-                result.ownership_errors.extend(block.ownership_errors);
-                result.ownership_states.extend(block.ownership_states);
-            }
-            Err(e) => result.parse_errors.push(e),
+        let (block, errors) =
+            parse_block_excising_bad_sentences(block_tokens, type_registry, interner);
+        result.parse_errors.extend(errors);
+        if let Some(block) = block {
+            result.stmts.extend(block.owned_stmts);
+            result.escape_errors.extend(block.escape_errors);
+            result.ownership_errors.extend(block.ownership_errors);
+            result.ownership_states.extend(block.ownership_states);
         }
     };
 
@@ -500,6 +587,14 @@ fn extract_function_defs_from_tokens(
                     TokenType::And | TokenType::Comma => {
                         // Parameter separator
                     }
+                    TokenType::LParen => {
+                        // `(n: Int)` groups open the parameter list exactly
+                        // like the prose `with` does.
+                        if func_name.is_some() {
+                            after_with = true;
+                        }
+                    }
+                    TokenType::RParen => {}
                     _ => {
                         let text = interner.resolve(tokens[j].lexeme);
                         if text == "with" && func_name.is_some() {
@@ -531,6 +626,39 @@ fn extract_function_defs_from_tokens(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn recovery_keeps_the_full_parses_specific_error() {
+        // The full parse diagnosed IsValueEquality for `x is 5.`; the
+        // per-sentence reparse only sees the excised sentence and degrades
+        // it to a generic ExpectedStatement. The specific teaching must win.
+        let result = analyze("## Main\nLet x be 5.\nx is 5.\n");
+        assert!(
+            result
+                .errors
+                .iter()
+                .any(|e| matches!(e.kind, logicaffeine_language::error::ParseErrorKind::IsValueEquality { .. })),
+            "the specific IsValueEquality must survive recovery: {:?}",
+            result.errors
+        );
+    }
+
+    #[test]
+    fn recovered_function_defs_keep_parenthesized_params() {
+        // A theorem block sends the document down the recovery path, where
+        // function definitions come from token extraction — which must read
+        // the parenthesized `(n: Int)` form, not just the `with n: Int` prose.
+        let result = analyze(
+            "## To double (n: Int) -> Int:\n    Return n * 2.\n\n## Main\nLet x be double(3).\n\n## Theorem: Socrates\nGiven: All men are mortal. Socrates is a man.\nProve: Socrates is mortal.\nProof: Auto.\n",
+        );
+        let defs = result.symbol_index.definitions_of("double");
+        assert!(
+            defs.iter()
+                .any(|d| d.detail.as_deref() == Some("To double(n: Int) -> Int")),
+            "the recovered signature must keep its parameter: {:?}",
+            defs.iter().map(|d| d.detail.clone()).collect::<Vec<_>>()
+        );
+    }
 
     #[test]
     fn analyze_simple_let() {
@@ -717,6 +845,91 @@ mod tests {
 }
 
 /// Result of parsing a single recovered block, including analysis errors.
+/// Parse a block, excising broken SENTENCES one at a time so every
+/// independently bad statement reports and the good ones stay analyzed.
+///
+/// On failure the sentence containing the error span (a `Period`-delimited
+/// token run) is removed — spans on the surviving tokens are original, so
+/// later errors and the symbol index stay source-accurate — and the block is
+/// reparsed. Excision stops when a failing sentence carries block structure
+/// (`Indent`/`Dedent`, where cutting would unbalance the tree), when the
+/// error lies outside any sentence, or after a hard iteration cap.
+fn parse_block_excising_bad_sentences(
+    mut block_tokens: Vec<Token>,
+    type_registry: &TypeRegistry,
+    interner: &mut Interner,
+) -> (Option<BlockParseResult>, Vec<ParseError>) {
+    const MAX_EXCISIONS: usize = 32;
+    let mut errors = Vec::new();
+
+    // Mid-stream block slices carry no EOF; the parser walks off the end of
+    // an EOF-less stream, so terminate the slice before any parse attempt.
+    if !matches!(block_tokens.last().map(|t| &t.kind), Some(TokenType::EOF)) {
+        let end = block_tokens.last().map(|t| t.span.end).unwrap_or(0);
+        let empty = interner.intern("");
+        block_tokens.push(Token::new(
+            TokenType::EOF,
+            empty,
+            logicaffeine_language::token::Span::new(end, end),
+        ));
+    }
+
+    for _ in 0..=MAX_EXCISIONS {
+        match try_parse_block(block_tokens.clone(), type_registry, interner) {
+            Ok(block) => return (Some(block), errors),
+            Err(e) => {
+                let sentence = sentence_token_range(&block_tokens, e.span.start);
+                errors.push(e);
+                match sentence {
+                    Some((start, end)) => {
+                        let cuts_structure = block_tokens[start..=end].iter().any(|t| {
+                            matches!(t.kind, TokenType::Indent | TokenType::Dedent)
+                        });
+                        if cuts_structure {
+                            return (None, errors);
+                        }
+                        block_tokens.drain(start..=end);
+                    }
+                    None => return (None, errors),
+                }
+            }
+        }
+    }
+    (None, errors)
+}
+
+/// The token range (inclusive) of the `Period`-delimited sentence containing
+/// `offset`. Sentences start after the previous `Period` (or the block
+/// header) and end at their own `Period`.
+fn sentence_token_range(tokens: &[Token], offset: usize) -> Option<(usize, usize)> {
+    let mut start = None;
+    for (i, token) in tokens.iter().enumerate() {
+        if matches!(
+            token.kind,
+            TokenType::Indent | TokenType::Dedent | TokenType::Newline | TokenType::EOF
+        ) || matches!(token.kind, TokenType::BlockHeader { .. })
+        {
+            continue;
+        }
+        if start.is_none() {
+            start = Some(i);
+        }
+        if matches!(token.kind, TokenType::Period) {
+            let s = start.take().unwrap();
+            if tokens[s].span.start <= offset && offset <= token.span.end {
+                return Some((s, i));
+            }
+        }
+    }
+    // An error past the last period belongs to the trailing unterminated run.
+    if let Some(s) = start {
+        if tokens[s].span.start <= offset {
+            return Some((s, tokens.len().saturating_sub(1)));
+        }
+    }
+    None
+}
+
 struct BlockParseResult {
     owned_stmts: Vec<OwnedStmt>,
     escape_errors: Vec<AnalysisError>,
@@ -772,7 +985,7 @@ fn try_parse_block(
                     logicaffeine_compile::analysis::EscapeErrorKind::ReturnEscape { variable, .. } => variable.clone(),
                     logicaffeine_compile::analysis::EscapeErrorKind::AssignmentEscape { variable, .. } => variable.clone(),
                 };
-                vec![AnalysisError { message: e.to_string(), variable, code, cause_context }]
+                vec![AnalysisError { message: e.to_string(), variable, code, cause_context, use_span: None, cause_span: None }]
             }
         }
     };
@@ -793,7 +1006,7 @@ fn try_parse_block(
                         ("double-move", variable.clone(), Some(format!("'{}' was first given away here", variable)))
                     }
                 };
-                vec![AnalysisError { message: e.to_string(), variable, code, cause_context }]
+                vec![AnalysisError { message: e.to_string(), variable, code, cause_context, use_span: None, cause_span: None }]
             }
         };
         let states: HashMap<String, VarState> = checker

@@ -30,12 +30,14 @@
 //! All AST nodes are arena-allocated using `bumpalo` for efficient memory management.
 //! The `'a` lifetime parameter tracks the arena lifetime.
 
+pub mod axiom;
 pub mod definition;
 pub mod logic;
 pub mod stmt;
 pub mod theorem;
 
+pub use axiom::{AxiomBlock, TheoryBlock};
 pub use definition::DefinitionBlock;
 pub use logic::*;
-pub use stmt::{Stmt, Expr, Literal, Block, BinaryOpKind, CompressionCodec, SendLayout, TypeExpr, MatchArm};
+pub use stmt::{Stmt, Expr, Literal, Block, BinaryOpKind, CompressionCodec, SendLayout, TypeExpr, MatchArm, SecurePad, SecureRole};
 pub use theorem::{TheoremBlock, ProofStrategy};

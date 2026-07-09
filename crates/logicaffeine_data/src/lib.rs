@@ -1,54 +1,12 @@
 #![cfg_attr(docsrs, feature(doc_cfg))]
-
-//! WASM-safe data structures and CRDTs
-//!
-//! The value layer shared by the rest of the workspace: the runtime [`Value`]
-//! types LOGOS programs manipulate, the conflict-free replicated data types
-//! (CRDTs) that let those values converge across replicas, and the indexing
-//! traits that make them subscriptable. Everything here is pure — it compiles
-//! identically for native and `wasm32-unknown-unknown` because it never touches
-//! the clock, the network, or the filesystem.
-//!
-//! # Modules
-//!
-//! - [`types`] — the runtime value universe ([`Value`], [`Int`], [`Nat`],
-//!   [`Real`], [`Text`], [`Seq`], [`Map`], [`Set`], [`Tuple`], [`Unit`], …)
-//!   plus the [`LogosContains`] membership trait.
-//! - [`crdt`] — replicated state: counters ([`GCounter`], [`PNCounter`]),
-//!   registers ([`LWWRegister`], [`MVRegister`]), sets and maps ([`ORSet`],
-//!   [`ORMap`]), sequences ([`RGA`], [`YATA`]), and the causal machinery
-//!   ([`Dot`], [`DotContext`], [`VClock`]) they share. All converge through the
-//!   [`Merge`] trait.
-//! - [`indexing`] — the [`LogosIndex`], [`LogosIndexMut`], and [`LogosGetChar`]
-//!   traits backing indexed access into sequences, maps, and text.
-//!
-//! # Example
-//!
-//! Two replicas increment a grow-only counter independently, then converge by
-//! merging. [`Merge`] is commutative, associative, and idempotent, so the order
-//! and number of merges never changes the result:
-//!
-//! ```
-//! use logicaffeine_data::{GCounter, Merge};
-//!
-//! let mut replica_a = GCounter::with_replica_id(1);
-//! let mut replica_b = GCounter::with_replica_id(2);
-//!
-//! replica_a.increment(3);
-//! replica_b.increment(5);
-//!
-//! replica_a.merge(&replica_b);
-//! assert_eq!(replica_a.value(), 8);
-//! ```
-//!
-//! # LAMPORT INVARIANT
-//!
-//! This crate has NO path to system IO. No tokio, no libp2p, no SystemTime.
-//! Timestamps are injected by callers (typically from `logicaffeine_system`).
+#![doc = include_str!("../README.md")]
 
 pub mod crdt;
+pub mod fmt;
 pub mod indexing;
+pub mod ops;
 pub mod types;
+pub mod wire;
 
 // Re-export commonly used types
 pub use crdt::{
@@ -56,9 +14,12 @@ pub use crdt::{
     MVRegister, Merge, ORMap, ORSet, PNCounter, RemoveWins, ReplicaId, SetBias, VClock, RGA, YATA,
 };
 pub use types::{
-    Bool, Byte, Char, Int, LogosContains, LogosDenseI64Map, LogosDenseI64MapNoPresence,
+    Bool, Byte, Char, FillClone, FxIndexMap, FxIndexSet, Int, LogosContains, LogosDenseI64Map, LogosDenseI64MapNoPresence,
     LogosDenseI64Set, LogosDivU64, LogosI32Map, LogosI32Set, LogosI64Map, LogosI64Set, LogosMap,
-    LogosRational, Map, Nat, Real, Seq, Set, Text, Tuple, Unit, Value, LogosSeq,
+    LogosComplex, LogosDecimal, LogosInt, LogosModular, LogosMoney, LogosQuantity, LogosRational, Map, Nat, Real, Seq, Set, Text, Tuple,
+    Unit, Value, LogosSeq, LogosUuid, IntoRate, set_rate, set_rates, to_currency,
+    text_bytes, text_from_bytes,
 };
 pub use rustc_hash::{FxHashMap, FxHashSet};
 pub use indexing::{LogosGetChar, LogosIndex, LogosIndexMut};
+pub use ops::{logos_add_exact, logos_add_i64, logos_approx_eq, logos_cmp_i64_f64, logos_div_exact, logos_div_i128, logos_div_i64, logos_floordiv_exact, logos_i64_eq_f64, logos_i64_key_of_f64, logos_mul_exact, logos_mul_i64, logos_narrow_i128, logos_pow_exact, logos_rem_exact, logos_rem_i128, logos_rem_i64, logos_sub_exact, logos_sub_i64, logos_truthy, Truthy};

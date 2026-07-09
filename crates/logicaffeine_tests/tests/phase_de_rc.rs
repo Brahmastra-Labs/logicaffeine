@@ -168,21 +168,21 @@ Show total.
 // Phase 1, so reference semantics are preserved).
 // =============================================================================
 
-/// An aliased Seq (`Let ys be xs`, then mutate through ys) MUST keep reference
-/// semantics: the mutation through the alias is visible through the original.
-/// De-Rc must refuse, or the output breaks.
+/// A `Let ys be xs` binding is an INDEPENDENT value under value semantics:
+/// pushing through `ys` grows only `ys`, never the original `xs`. Whether or
+/// not de-Rc fires, both engines must isolate.
 #[test]
-fn aliased_seq_keeps_reference_semantics() {
+fn aliased_seq_isolates_under_value_semantics() {
     let source = r#"## Main
 Let mutable xs be a new Seq of Int.
 Push 1 to xs.
-Let ys be xs.
+Let mutable ys be xs.
 Push 2 to ys.
 Push 3 to ys.
 Show length of xs.
 "#;
-    // ys aliases xs; pushing through ys grows xs. length of xs == 3.
-    common::assert_exact_output(source, "3");
+    // ys is an independent value; pushing through it leaves xs at length 1.
+    common::assert_exact_output(source, "1");
 }
 
 /// A Seq passed to a user function escapes. Phase 1 must keep it sound
@@ -328,6 +328,13 @@ Show sumSeq(xs).
 /// site passes `&mut xs`, with no RefCell borrow anywhere.
 #[test]
 fn de_rc_seq_passed_to_mut_borrow_param() {
+    // The mut-borrow de-Rc is a REFERENCE-semantics optimization: it would let
+    // `sortStep` mutate the caller's `xs` in place through a plain param, which
+    // the value-semantics liveness gate forbids. The opt remains valuable when
+    // value semantics is off ("fastest when we don't need value semantics"), so
+    // this test pins it in reference mode. nextest runs it process-isolated, so
+    // the flag set here is local to this test.
+    std::env::set_var("LOGOS_VALUE_SEMANTICS", "0");
     let source = r#"## To sortStep (arr: Seq of Int) -> Seq of Int:
     Let mutable result be arr.
     Let mutable i be 1.

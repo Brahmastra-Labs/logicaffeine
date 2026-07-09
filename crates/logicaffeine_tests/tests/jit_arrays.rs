@@ -101,11 +101,12 @@ fn float_array_accumulation_tiers() {
     );
 }
 
-/// Aliasing: two names for the same list — native writes through one are
-/// visible through the other (same buffer; the entry borrow dedups by Rc
-/// identity so the RefCell is borrowed exactly once).
+/// Value semantics: two names are INDEPENDENT values — native writes through one
+/// are NOT visible through the other. The JIT declines the in-place-mutation
+/// region (deopt) so it runs on the value-semantic VM, whose copy-on-write
+/// isolates `a` from `b`. (Was the reference-semantics `..._share_native_writes`.)
 #[test]
-fn aliased_arrays_share_native_writes() {
+fn aliased_arrays_isolate_under_value_semantics() {
     let src = "## Main\n\
                Let mutable a be a new Seq of Int.\n\
                Let mutable i be 0.\n\
@@ -121,7 +122,8 @@ fn aliased_arrays_share_native_writes() {
                Show item 1 of a.\n";
     let (out, err, _) = tiered(src);
     assert_eq!(err, None);
-    assert_eq!(out, "500\n1");
+    // `b` keeps the original zeros; `a` is isolated, a[1]=b[1]+1=1.
+    assert_eq!(out, "0\n1");
 }
 
 /// Out-of-bounds at a data-dependent iteration: the bounds side-exit fires

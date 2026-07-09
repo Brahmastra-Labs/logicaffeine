@@ -50,8 +50,7 @@ impl FnBytecode {
             match *op {
                 Op::Jump { target }
                 | Op::JumpIfFalse { target, .. }
-                | Op::JumpIfTrue { target, .. }
-                | Op::JumpIfInt { target, .. } => {
+                | Op::JumpIfTrue { target, .. } => {
                     if target >= self.code.len() {
                         return false;
                     }
@@ -71,7 +70,7 @@ impl FnBytecode {
     }
 }
 
-/// Shift one op's jump target by `delta` (signed). Only the four control-flow ops
+/// Shift one op's jump target by `delta` (signed). Only the three control-flow ops
 /// carry an absolute pc target; the `target: Reg` ops (`TestArm`/`BindArm`/…) name a
 /// register, not a pc, and are left untouched.
 pub(crate) fn rebase(op: Op, delta: isize) -> Op {
@@ -80,7 +79,6 @@ pub(crate) fn rebase(op: Op, delta: isize) -> Op {
         Op::Jump { target } => Op::Jump { target: shift(target) },
         Op::JumpIfFalse { cond, target } => Op::JumpIfFalse { cond, target: shift(target) },
         Op::JumpIfTrue { cond, target } => Op::JumpIfTrue { cond, target: shift(target) },
-        Op::JumpIfInt { cond, target } => Op::JumpIfInt { cond, target: shift(target) },
         other => other,
     }
 }
@@ -125,8 +123,7 @@ mod tests {
         match *op {
             Op::Jump { target }
             | Op::JumpIfFalse { target, .. }
-            | Op::JumpIfTrue { target, .. }
-            | Op::JumpIfInt { target, .. } => Some(target),
+            | Op::JumpIfTrue { target, .. } => Some(target),
             _ => None,
         }
     }
@@ -156,6 +153,9 @@ mod tests {
                 named_regs: vec![true],
                 param_kinds: vec![],
                 ret_kind: None,
+                param_types: vec![],
+                return_type: None,
+                mutable_param_regs: vec![],
             }],
             ..Default::default()
         };

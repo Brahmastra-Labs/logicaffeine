@@ -481,4 +481,57 @@ mod tests {
         let p = lower_bool(&eq).unwrap();
         assert_eq!(prove_unsat(&ProofExpr::Not(Box::new(p))), UnsatOutcome::Refuted);
     }
+
+    #[test]
+    fn rotl_is_a_bit_permutation_at_full_32_bits() {
+        // The word-width proof wall closes: rotl over the FULL 32-bit width is proven a
+        // bit-permutation (injective) by our OWN certified CDCL — no Z3, and not a ≤16-bit
+        // exhaustive sample. rotl is pure wiring, so plain `prove_unsat` discharges it; the
+        // lex-leader symmetry-breaking layer (`logicaffeine_proof::symmetry`) is the lever
+        // reserved for the carry-heavy datapaths (wide add/mul) whose CNF would blow up.
+        const WW: u32 = 32;
+        // rotl(name, k) = (v << k) | (v >> (32 - k)) over a fresh 32-bit variable `name`.
+        fn rotl(name: &str, k: u32) -> BoundedExpr {
+            let v = || Box::new(BoundedExpr::BitVecVar(name.to_string(), WW));
+            let kc = |s: u32| Box::new(BoundedExpr::BitVecConst { width: WW, value: s as u64 });
+            let hi = Box::new(BoundedExpr::BitVecBinary { op: BitVecBoundedOp::Shl, left: v(), right: kc(k) });
+            let lo =
+                Box::new(BoundedExpr::BitVecBinary { op: BitVecBoundedOp::Shr, left: v(), right: kc(WW - k) });
+            BoundedExpr::BitVecBinary { op: BitVecBoundedOp::Or, left: hi, right: lo }
+        }
+        let var = |n: &str| Box::new(BoundedExpr::BitVecVar(n.to_string(), WW));
+
+        // The ChaCha20 rotation amounts — the ones the quarter-round actually uses.
+        for k in [7u32, 8, 12, 16] {
+            // Injectivity: rotl(x,k) == rotl(y,k)  ⟹  x == y. The counterexample (equal
+            // rotations, unequal inputs) must be REFUTED over all 32-bit inputs.
+            let eq_rot = lower_bool(&BoundedExpr::Eq(Box::new(rotl("x", k)), Box::new(rotl("y", k))))
+                .expect("rotation equality lowered");
+            let eq_in = lower_bool(&BoundedExpr::Eq(var("x"), var("y"))).expect("input equality lowered");
+            let counter = ProofExpr::And(Box::new(eq_rot), Box::new(ProofExpr::Not(Box::new(eq_in))));
+            assert_eq!(
+                prove_unsat(&counter),
+                UnsatOutcome::Refuted,
+                "rotl by {k} must be injective (a bit-permutation) over all 32-bit inputs"
+            );
+        }
+
+        // Non-vacuity: a NON-permutation (`x & 0`, which collapses every input to 0) must NOT
+        // be refuted — distinct inputs with equal images genuinely exist, so a sound prover
+        // finds the counterexample rather than vacuously "proving" injectivity.
+        let zero_and = |n: &str| BoundedExpr::BitVecBinary {
+            op: BitVecBoundedOp::And,
+            left: Box::new(BoundedExpr::BitVecVar(n.to_string(), WW)),
+            right: Box::new(BoundedExpr::BitVecConst { width: WW, value: 0 }),
+        };
+        let eq_img = lower_bool(&BoundedExpr::Eq(Box::new(zero_and("x")), Box::new(zero_and("y"))))
+            .expect("image equality lowered");
+        let eq_in = lower_bool(&BoundedExpr::Eq(var("x"), var("y"))).expect("input equality lowered");
+        let counter = ProofExpr::And(Box::new(eq_img), Box::new(ProofExpr::Not(Box::new(eq_in))));
+        assert_ne!(
+            prove_unsat(&counter),
+            UnsatOutcome::Refuted,
+            "x & 0 is NOT injective — the prover must not vacuously refute its counterexample"
+        );
+    }
 }

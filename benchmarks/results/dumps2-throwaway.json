@@ -1,0 +1,119 @@
+{
+  "schema_version": 1,
+  "metadata": {
+    "date": "2026-06-17T10:40:23Z",
+    "commit": "4d31c18",
+    "logos_version": "0.9.17",
+    "cpu": "Intel(R) Core(TM) i9-14900K",
+    "os": "Ubuntu 24.04.2 LTS x86_64",
+    "warmup": 2,
+    "runs": 10,
+    "versions": {
+      "c": "gcc (Ubuntu 13.3.0-6ubuntu2~24.04.1) 13.3.0"
+    }
+  },
+  "languages": [
+    {
+      "id": "c",
+      "label": "C",
+      "color": "#555555",
+      "tier": "systems"
+    },
+    {
+      "id": "logos_release",
+      "label": "LOGOS",
+      "color": "#00d4ff",
+      "tier": "systems"
+    }
+  ],
+  "benchmarks": [
+    {
+      "id": "quicksort",
+      "name": "Quicksort",
+      "description": "Lomuto-partition quicksort. Measures in-place swap-heavy recursion.",
+      "reference_size": "6534564",
+      "sizes": [
+        "50000",
+        "100000",
+        "3000000"
+      ],
+      "logos_source": "## To native args () -> Seq of Text\n## To native parseInt (s: Text) -> Int\n\n## To qs (arr: Seq of Int, lo: Int, hi: Int) -> Seq of Int:\n    If lo is at least hi:\n        Return arr.\n    Let pivot be item hi of arr.\n    Let mutable result be arr.\n    Let mutable i be lo.\n    Let mutable j be lo.\n    While j is less than hi:\n        If item j of result is at most pivot:\n            Let tmp be item i of result.\n            Set item i of result to item j of result.\n            Set item j of result to tmp.\n            Set i to i + 1.\n        Set j to j + 1.\n    Let tmp be item i of result.\n    Set item i of result to item hi of result.\n    Set item hi of result to tmp.\n    Set result to qs(result, lo, i - 1).\n    Set result to qs(result, i + 1, hi).\n    Return result.\n\n## Main\nLet arguments be args().\nLet n be parseInt(item 2 of arguments).\nLet mutable arr be a new Seq of Int.\nLet mutable seed be 42.\nLet mutable i be 0.\nWhile i is less than n:\n    Set seed to (seed * 1103515245 + 12345) % 2147483648.\n    Push (seed / 65536) % 32768 to arr.\n    Set i to i + 1.\nSet arr to qs(arr, 1, n).\nLet mutable checksum be 0.\nSet i to 1.\nWhile i is at most n:\n    Set checksum to (checksum + item i of arr) % 1000000007.\n    Set i to i + 1.\nShow \"\" + item 1 of arr + \" \" + item n of arr + \" \" + checksum.",
+      "generated_rust": "#[allow(unused_imports)]\nuse std::fmt::Write as _;\nuse logicaffeine_data::*;\nuse logicaffeine_system::*;\n\nfn args() -> LogosSeq<String> {\n    logicaffeine_system::env::args()\n}\n\nfn parseInt(s: String) -> i64 {\n    logicaffeine_system::text::parseInt(s)\n}\n\nfn qs(arr: &mut [i64], lo: i64, hi: i64) {\n    if (lo >= hi) {\n        return;\n    }\n    let pivot = arr[(hi - 1) as usize];\n    let mut result = arr;\n    let mut i = lo;\n    let __result_bhl = result.len() as i64;\n    for j in lo..hi {\n        debug_assert!((hi - 1) <= __result_bhl, \"LOGOS bounds hint violated: loop indexes `result` past its length\");\n        unsafe { std::hint::assert_unchecked((hi - 1) <= __result_bhl); }\n        if (result[(j - 1) as usize] <= pivot) {\n            let tmp = result[(i - 1) as usize];\n            result[(i - 1) as usize] = result[(j - 1) as usize];\n            result[(j - 1) as usize] = tmp;\n            i = (i + 1);\n        }\n    }\n    let __swap_tmp = result[(i - 1) as usize];\n    result[(i - 1) as usize] = result[(hi - 1) as usize];\n    result[(hi - 1) as usize] = __swap_tmp;\n    qs(result, lo, (i - 1));\n    qs(result, (i + 1), hi);\n    return;\n}\n\nfn main() {\n    std::thread::Builder::new()\n        .stack_size(67_108_864)\n        .spawn(_logos_main)\n        .unwrap().join().unwrap();\n}\nfn _logos_main() {\n    let arguments = args();\n    let n = parseInt(arguments.borrow()[1].clone());\n    let mut arr: Vec<i64> = Vec::with_capacity((n as usize) as usize);\n    let mut seed = 42;\n    {\n        let mut arr = &mut arr;\n    for i in 0..n {\n        seed = (((seed * 1103515245) + 12345) % 2147483648_i64);\n        arr.push(((seed / 65536) % 32768));\n    }\n    }\n    let mut i = (0_i64).max(n);\n    qs(&mut arr, 1, n);\n    let mut checksum = 0;\n    let __arr_bhl = arr.len() as i64;\n    {\n        let arr = &arr[..];\n    for i in 0..n {\n        debug_assert!(n <= __arr_bhl, \"LOGOS bounds hint violated: loop indexes `arr` past its length\");\n        unsafe { std::hint::assert_unchecked(n <= __arr_bhl); }\n        checksum = ((checksum + arr[i as usize]) % 1000000007);\n    }\n    }\n    show(&format!(\"{}{}{}{}{}{}\", \"\", arr[0], \" \", arr[(n - 1) as usize], \" \", checksum));\n}",
+      "scaling": {
+        "6534564": {
+          "c": {
+            "mean_ms": 521.00489218000,
+            "median_ms": 520.92023558000,
+            "stddev_ms": 5.146938482919404000,
+            "min_ms": 514.77641758000,
+            "max_ms": 526.98918758000,
+            "cv": 0.00987886785742734981,
+            "runs": 10,
+            "user_ms": 505.3814799999999000,
+            "system_ms": 15.298299999999997000
+          },
+          "logos_release": {
+            "mean_ms": 589.72677112000,
+            "median_ms": 588.73950022000,
+            "stddev_ms": 5.587478478980534000,
+            "min_ms": 583.82214172000,
+            "max_ms": 602.81470072000,
+            "cv": 0.00947469023386691592,
+            "runs": 10,
+            "user_ms": 576.21472000,
+            "system_ms": 13.10982000
+          }
+        }
+      },
+      "compilation": {},
+      "timeouts": {}
+    },
+    {
+      "id": "graph_bfs",
+      "name": "Graph BFS",
+      "description": "BFS on generated graph. Measures queue operations and random access.",
+      "reference_size": "5352511",
+      "sizes": [
+        "50000",
+        "100000",
+        "3000000"
+      ],
+      "logos_source": "## To native args () -> Seq of Text\n## To native parseInt (s: Text) -> Int\n\n## Main\nLet arguments be args().\nLet n be parseInt(item 2 of arguments).\nLet mutable adj be a new Seq of Int.\nLet mutable adjStarts be a new Seq of Int.\nLet mutable adjCounts be a new Seq of Int.\nLet mutable i be 0.\nWhile i is less than n:\n    Push i * 5 to adjStarts.\n    Push 0 to adjCounts.\n    Push 0 to adj. Push 0 to adj. Push 0 to adj. Push 0 to adj. Push 0 to adj.\n    Set i to i + 1.\nLet mutable primes be a new Seq of Int.\nPush 31 to primes. Push 37 to primes. Push 41 to primes. Push 43 to primes. Push 47 to primes.\nLet mutable offsets be a new Seq of Int.\nPush 7 to offsets. Push 13 to offsets. Push 17 to offsets. Push 23 to offsets. Push 29 to offsets.\nLet mutable p be 1.\nWhile p is at most 5:\n    Set i to 0.\n    While i is less than n:\n        Let neighbor be (i * item p of primes + item p of offsets) % n.\n        If neighbor is not i:\n            Let start be item (i + 1) of adjStarts.\n            Let cnt be item (i + 1) of adjCounts.\n            Set item (start + cnt + 1) of adj to neighbor.\n            Set item (i + 1) of adjCounts to cnt + 1.\n        Set i to i + 1.\n    Set p to p + 1.\nLet mutable queue be a new Seq of Int.\nLet mutable dist be a new Seq of Int.\nSet i to 0.\nWhile i is less than n:\n    Push 0 - 1 to dist.\n    Set i to i + 1.\nPush 0 to queue.\nSet item 1 of dist to 0.\nLet mutable front be 1.\nWhile front is at most length of queue:\n    Let v be item front of queue.\n    Let start be item (v + 1) of adjStarts.\n    Let cnt be item (v + 1) of adjCounts.\n    Let mutable e be 0.\n    While e is less than cnt:\n        Let u be item (start + e + 1) of adj.\n        If item (u + 1) of dist equals 0 - 1:\n            Set item (u + 1) of dist to item (v + 1) of dist + 1.\n            Push u to queue.\n        Set e to e + 1.\n    Set front to front + 1.\nLet mutable reachable be 0.\nLet mutable totalDist be 0.\nSet i to 0.\nWhile i is less than n:\n    If item (i + 1) of dist is at least 0:\n        Set reachable to reachable + 1.\n        Set totalDist to totalDist + item (i + 1) of dist.\n    Set i to i + 1.\nShow \"\" + reachable + \" \" + totalDist.",
+      "generated_rust": "#[allow(unused_imports)]\nuse std::fmt::Write as _;\nuse logicaffeine_data::*;\nuse logicaffeine_system::*;\n\nfn args() -> LogosSeq<String> {\n    logicaffeine_system::env::args()\n}\n\nfn parseInt(s: String) -> i64 {\n    logicaffeine_system::text::parseInt(s)\n}\n\nfn main() {\n    std::thread::Builder::new()\n        .stack_size(67_108_864)\n        .spawn(_logos_main)\n        .unwrap().join().unwrap();\n}\nfn _logos_main() {\n    let arguments = args();\n    let n = parseInt(arguments.borrow()[1].clone());\n    let mut adj: Vec<i64> = Vec::with_capacity((n as usize) as usize);\n    let mut adjStarts: Vec<i64> = Vec::with_capacity((n as usize) as usize);\n    let mut adjCounts: Vec<i64> = Vec::with_capacity((n as usize) as usize);\n    {\n        let mut adjStarts = &mut adjStarts;\n        let mut adjCounts = &mut adjCounts;\n        let mut adj = &mut adj;\n    for i in 0..n {\n        adjStarts.push((i * 5));\n        adjCounts.push(0);\n        adj.push(0);\n        adj.push(0);\n        adj.push(0);\n        adj.push(0);\n        adj.push(0);\n    }\n    }\n    let mut i = (0_i64).max(n);\n    let mut primes: [i64; 5] = [0i64; 5];\n    primes[0] = 31;\n    primes[1] = 37;\n    primes[2] = 41;\n    primes[3] = 43;\n    primes[4] = 47;\n    let mut offsets: [i64; 5] = [0i64; 5];\n    offsets[0] = 7;\n    offsets[1] = 13;\n    offsets[2] = 17;\n    offsets[3] = 23;\n    offsets[4] = 29;\n    {\n        let adjStarts = &adjStarts[..];\n        let adjCounts = &mut adjCounts[..];\n        let adj = &mut adj[..];\n    for p in 0..5 {\n        for i in 0..n {\n            debug_assert!((p) >= 0 && (p) < (primes.len() as i64), \"LOGOS oracle bounds hint violated: indexing `primes` out of range\");\n            unsafe { std::hint::assert_unchecked((p) >= 0 && (p) < (primes.len() as i64)); }\n            debug_assert!((p) >= 0 && (p) < (offsets.len() as i64), \"LOGOS oracle bounds hint violated: indexing `offsets` out of range\");\n            unsafe { std::hint::assert_unchecked((p) >= 0 && (p) < (offsets.len() as i64)); }\n            let neighbor = (((i * primes[p as usize]) + offsets[p as usize]) % n);\n            if (neighbor != i) {\n                debug_assert!((i) >= 0 && (i) < (adjStarts.len() as i64), \"LOGOS oracle bounds hint violated: indexing `adjStarts` out of range\");\n                unsafe { std::hint::assert_unchecked((i) >= 0 && (i) < (adjStarts.len() as i64)); }\n                let start = adjStarts[i as usize];\n                debug_assert!((i) >= 0 && (i) < (adjCounts.len() as i64), \"LOGOS oracle bounds hint violated: indexing `adjCounts` out of range\");\n                unsafe { std::hint::assert_unchecked((i) >= 0 && (i) < (adjCounts.len() as i64)); }\n                let cnt = adjCounts[i as usize];\n                adj[((start + cnt)) as usize] = neighbor;\n                debug_assert!((i) >= 0 && (i) < (adjCounts.len() as i64), \"LOGOS oracle bounds hint violated: indexing `adjCounts` out of range\");\n                unsafe { std::hint::assert_unchecked((i) >= 0 && (i) < (adjCounts.len() as i64)); }\n                adjCounts[(i) as usize] = (cnt + 1);\n            }\n        }\n    }\n    }\n    let mut queue: Vec<i64> = vec![0i64; ((n as i64).max(0) as usize) + 1];\n    let mut __queue_tail: usize = 0;\n    let mut dist: Vec<i64> = vec![-1; n as usize];\n    i = 0;\n    unsafe { std::hint::assert_unchecked(__queue_tail < queue.len()); }\n    queue[__queue_tail] = 0;\n    __queue_tail += 1;\n    dist[0] = 0;\n    let mut front = 1;\n    {\n        let adjStarts = &adjStarts[..];\n        let adjCounts = &adjCounts[..];\n        let adj = &adj[..];\n        let dist = &mut dist[..];\n    while (front <= (__queue_tail as i64)) {\n        debug_assert!(((front - 1)) >= 0 && ((front - 1)) < (queue.len() as i64), \"LOGOS oracle bounds hint violated: indexing `queue` out of range\");\n        unsafe { std::hint::assert_unchecked(((front - 1)) >= 0 && ((front - 1)) < (queue.len() as i64)); }\n        let v = queue[(front - 1) as usize];\n        assert!((n) > 0, \"LOGOS positivity guard: element bound on `% n` requires n > 0\");\n        debug_assert!((v) >= 0 && (v) < (adjStarts.len() as i64), \"LOGOS oracle bounds hint violated: indexing `adjStarts` out of range\");\n        unsafe { std::hint::assert_unchecked((v) >= 0 && (v) < (adjStarts.len() as i64)); }\n        let start = adjStarts[v as usize];\n        assert!((n) > 0, \"LOGOS positivity guard: element bound on `% n` requires n > 0\");\n        debug_assert!((v) >= 0 && (v) < (adjCounts.len() as i64), \"LOGOS oracle bounds hint violated: indexing `adjCounts` out of range\");\n        unsafe { std::hint::assert_unchecked((v) >= 0 && (v) < (adjCounts.len() as i64)); }\n        let cnt = adjCounts[v as usize];\n        assert!((start) >= 0 && ((start) + (cnt) - 1) < (adj.len() as i64), \"LOGOS bounds guard: indexing `adj` (row-major) out of range\");\n        for e in 0..cnt {\n            unsafe { std::hint::assert_unchecked(((start + e)) >= 0 && ((start + e)) < (adj.len() as i64)); }\n            let u = adj[((start + e)) as usize];\n            assert!((n) > 0, \"LOGOS positivity guard: element bound on `% n` requires n > 0\");\n            debug_assert!((u) >= 0 && (u) < (dist.len() as i64), \"LOGOS oracle bounds hint violated: indexing `dist` out of range\");\n            unsafe { std::hint::assert_unchecked((u) >= 0 && (u) < (dist.len() as i64)); }\n            if (dist[u as usize] == -1) {\n                assert!((n) > 0, \"LOGOS positivity guard: element bound on `% n` requires n > 0\");\n                debug_assert!((u) >= 0 && (u) < (dist.len() as i64), \"LOGOS oracle bounds hint violated: indexing `dist` out of range\");\n                unsafe { std::hint::assert_unchecked((u) >= 0 && (u) < (dist.len() as i64)); }\n                assert!((n) > 0, \"LOGOS positivity guard: element bound on `% n` requires n > 0\");\n                debug_assert!((v) >= 0 && (v) < (dist.len() as i64), \"LOGOS oracle bounds hint violated: indexing `dist` out of range\");\n                unsafe { std::hint::assert_unchecked((v) >= 0 && (v) < (dist.len() as i64)); }\n                dist[(u) as usize] = (dist[v as usize] + 1);\n                unsafe { std::hint::assert_unchecked(__queue_tail < queue.len()); }\n                queue[__queue_tail] = u;\n                __queue_tail += 1;\n            }\n        }\n        front = (front + 1);\n    }\n    }\n    let mut reachable = 0;\n    let mut totalDist = 0;\n    let __dist_bhl = dist.len() as i64;\n    {\n        let dist = &dist[..];\n    for i in 0..n {\n        debug_assert!(n <= __dist_bhl, \"LOGOS bounds hint violated: loop indexes `dist` past its length\");\n        unsafe { std::hint::assert_unchecked(n <= __dist_bhl); }\n        debug_assert!((i) >= 0 && (i) < (dist.len() as i64), \"LOGOS oracle bounds hint violated: indexing `dist` out of range\");\n        unsafe { std::hint::assert_unchecked((i) >= 0 && (i) < (dist.len() as i64)); }\n        if (dist[i as usize] >= 0) {\n            reachable = (reachable + 1);\n            debug_assert!((i) >= 0 && (i) < (dist.len() as i64), \"LOGOS oracle bounds hint violated: indexing `dist` out of range\");\n            unsafe { std::hint::assert_unchecked((i) >= 0 && (i) < (dist.len() as i64)); }\n            totalDist = (totalDist + dist[i as usize]);\n        }\n    }\n    }\n    show(&format!(\"{}{}{}{}\", \"\", reachable, \" \", totalDist));\n}",
+      "scaling": {
+        "5352511": {
+          "c": {
+            "mean_ms": 518.0991952599999000,
+            "median_ms": 505.47723996000,
+            "stddev_ms": 26.26364119363886000,
+            "min_ms": 492.09722196000005000,
+            "max_ms": 557.98171396000,
+            "cv": 0.05069230262065716274,
+            "runs": 10,
+            "user_ms": 432.84472000,
+            "system_ms": 84.99649999999999000
+          },
+          "logos_release": {
+            "mean_ms": 692.20003658000,
+            "median_ms": 692.03321258000,
+            "stddev_ms": 10.619410753251358000,
+            "min_ms": 675.26794908000,
+            "max_ms": 713.56192108000,
+            "cv": 0.01534153451611965530,
+            "runs": 10,
+            "user_ms": 597.2789199999998000,
+            "system_ms": 94.59029999999999000
+          }
+        }
+      },
+      "compilation": {},
+      "timeouts": {}
+    }
+  ],
+  "summary": {
+    "geometric_mean_speedup_vs_c": {
+      "c": 1.000,
+      "logos_release": 0.813
+    }
+  }
+}

@@ -426,6 +426,27 @@ pub fn certify(tree: &DerivationTree, ctx: &CertificationContext) -> KernelResul
             Ok(Term::App(Box::new(forall_proof), Box::new(witness_term)))
         }
 
+        // Universal Instantiation at an arbitrary witness TERM: the same
+        // Curry-Howard application, with the witness converted as a full term
+        // (compound witnesses like `add(a, Zero)` included).
+        InferenceRule::UniversalInstTerm(witness) => {
+            if tree.premises.len() != 1 {
+                return Err(KernelError::CertificationError(
+                    "UniversalInstTerm requires exactly 1 premise".to_string(),
+                ));
+            }
+            let forall_proof = certify(&tree.premises[0], ctx)?;
+            let witness_term = match witness {
+                ProofTerm::Constant(name) | ProofTerm::Variable(name)
+                    if ctx.is_local(name) =>
+                {
+                    Term::Var(name.clone())
+                }
+                _ => proof_term_to_kernel_term(witness)?,
+            };
+            Ok(Term::App(Box::new(forall_proof), Box::new(witness_term)))
+        }
+
         // Universal Introduction: Γ, x:T ⊢ P(x) implies Γ ⊢ ∀x:T. P(x)
         // Curry-Howard: Wrap the body proof in a Lambda
         InferenceRule::UniversalIntro { variable, var_type } => {
@@ -807,10 +828,12 @@ pub fn certify(tree: &DerivationTree, ctx: &CertificationContext) -> KernelResul
             let premise_proof = certify(&tree.premises[0], ctx)?;
 
             // Extract x and y from the premise conclusion (x = y)
-            let (x, y) = match &tree.premises[0].conclusion {
-                ProofExpr::Identity(l, r) => {
-                    (proof_term_to_kernel_term(l)?, proof_term_to_kernel_term(r)?)
-                }
+            let (x, y, domain) = match &tree.premises[0].conclusion {
+                ProofExpr::Identity(l, r) => (
+                    proof_term_to_kernel_term(l)?,
+                    proof_term_to_kernel_term(r)?,
+                    Term::Global(identity_domain(l, r).to_string()),
+                ),
                 _ => {
                     return Err(KernelError::CertificationError(
                         "EqualitySymmetry premise must be an Identity".to_string(),
@@ -819,14 +842,14 @@ pub fn certify(tree: &DerivationTree, ctx: &CertificationContext) -> KernelResul
             };
 
             // Eq_sym : Π(A:Type). Π(x:A). Π(y:A). Eq A x y → Eq A y x
-            // Build: Eq_sym Entity x y proof
+            // Build: Eq_sym D x y proof, with D the operands' domain
+            // (Int for arithmetic, Bool for comparisons, else Entity).
             let eq_sym = Term::Global("Eq_sym".to_string());
-            let entity = Term::Global("Entity".to_string());
 
             Ok(Term::App(
                 Box::new(Term::App(
                     Box::new(Term::App(
-                        Box::new(Term::App(Box::new(eq_sym), Box::new(entity))),
+                        Box::new(Term::App(Box::new(eq_sym), Box::new(domain))),
                         Box::new(x),
                     )),
                     Box::new(y),
@@ -848,10 +871,12 @@ pub fn certify(tree: &DerivationTree, ctx: &CertificationContext) -> KernelResul
             let proof2 = certify(&tree.premises[1], ctx)?;
 
             // Extract x, y from first premise (x = y)
-            let (x, y) = match &tree.premises[0].conclusion {
-                ProofExpr::Identity(l, r) => {
-                    (proof_term_to_kernel_term(l)?, proof_term_to_kernel_term(r)?)
-                }
+            let (x, y, domain) = match &tree.premises[0].conclusion {
+                ProofExpr::Identity(l, r) => (
+                    proof_term_to_kernel_term(l)?,
+                    proof_term_to_kernel_term(r)?,
+                    Term::Global(identity_domain(l, r).to_string()),
+                ),
                 _ => {
                     return Err(KernelError::CertificationError(
                         "EqualityTransitivity first premise must be Identity".to_string(),
@@ -870,16 +895,16 @@ pub fn certify(tree: &DerivationTree, ctx: &CertificationContext) -> KernelResul
             };
 
             // Eq_trans : Π(A:Type). Π(x:A). Π(y:A). Π(z:A). Eq A x y → Eq A y z → Eq A x z
-            // Build: Eq_trans Entity x y z proof1 proof2
+            // Build: Eq_trans D x y z proof1 proof2, with D the operands' domain
+            // (Int for arithmetic, Bool for comparisons, else Entity).
             let eq_trans = Term::Global("Eq_trans".to_string());
-            let entity = Term::Global("Entity".to_string());
 
             Ok(Term::App(
                 Box::new(Term::App(
                     Box::new(Term::App(
                         Box::new(Term::App(
                             Box::new(Term::App(
-                                Box::new(Term::App(Box::new(eq_trans), Box::new(entity))),
+                                Box::new(Term::App(Box::new(eq_trans), Box::new(domain))),
                                 Box::new(x),
                             )),
                             Box::new(y),
@@ -1008,6 +1033,43 @@ pub fn certify(tree: &DerivationTree, ctx: &CertificationContext) -> KernelResul
             Ok(t)
         }
 
+        // `a < b` ⊢ `(a + 1) ≤ b` — integer discreteness. The conclusion is
+        // `le(add a 1, b) = true`, so `a` is the first summand of the sum and `b`
+        // the right operand; `premise[0]` proves `lt(a, b) = true`. Certifies to
+        // `lt_succ_le a b p₀` — the kernel axiom application.
+        InferenceRule::LtSuccLe => {
+            if tree.premises.len() != 1 {
+                return Err(KernelError::CertificationError(
+                    "LtSuccLe requires exactly 1 premise".to_string(),
+                ));
+            }
+            let (succ_a, b) = le_terms(&tree.conclusion)?;
+            let (a, _one) = binop_terms("add", &succ_a)?;
+            let p0 = certify(&tree.premises[0], ctx)?;
+            let mut t = Term::Global("lt_succ_le".to_string());
+            for arg in [proof_term_to_kernel_term(&a)?, proof_term_to_kernel_term(&b)?, p0] {
+                t = Term::App(Box::new(t), Box::new(arg));
+            }
+            Ok(t)
+        }
+
+        // `a < b + 1` ⊢ `a ≤ b`. The conclusion is `le(a, b) = true`; `premise[0]`
+        // proves `lt(a, add b 1) = true`. Certifies to `lt_add1_le a b p₀`.
+        InferenceRule::LtAdd1Le => {
+            if tree.premises.len() != 1 {
+                return Err(KernelError::CertificationError(
+                    "LtAdd1Le requires exactly 1 premise".to_string(),
+                ));
+            }
+            let (a, b) = le_terms(&tree.conclusion)?;
+            let p0 = certify(&tree.premises[0], ctx)?;
+            let mut t = Term::Global("lt_add1_le".to_string());
+            for arg in [proof_term_to_kernel_term(&a)?, proof_term_to_kernel_term(&b)?, p0] {
+                t = Term::App(Box::new(t), Box::new(arg));
+            }
+            Ok(t)
+        }
+
         // Arithmetic decision: discharge an Int equality with the proof-producing
         // oracle. The oracle is untrusted — the term it returns is type-checked by
         // the kernel (here, by the caller's `infer_type`), so a wrong proof is
@@ -1026,6 +1088,30 @@ pub fn certify(tree: &DerivationTree, ctx: &CertificationContext) -> KernelResul
                 "ArithDecision conclusion must be an Identity".to_string(),
             )),
         },
+
+        // Proof by kernel evaluation: the leaf carries only the claim. Build
+        // the kernel proposition and its `Decidable` instance, then let
+        // `native_decide` construct the `of_decide_eq_true`-shaped term — the
+        // kernel re-checks it (via the `reduceBool` hook), so a false claim
+        // certifies to nothing.
+        InferenceRule::NativeDecide => {
+            if !tree.premises.is_empty() {
+                return Err(KernelError::CertificationError(
+                    "NativeDecide is a leaf (no premises)".to_string(),
+                ));
+            }
+            let prop = proof_expr_to_type_ctx(&tree.conclusion, ctx.kernel_ctx)?;
+            let inst = decidable_instance_for(&prop).ok_or_else(|| {
+                KernelError::CertificationError(
+                    "NativeDecide: no Decidable instance for this proposition".to_string(),
+                )
+            })?;
+            logicaffeine_kernel::native_decide(ctx.kernel_ctx, &prop, &inst).ok_or_else(|| {
+                KernelError::CertificationError(
+                    "NativeDecide: evaluation did not decide the goal true".to_string(),
+                )
+            })
+        }
 
         // Contradiction: P and ¬P jointly yield ⊥.
         // Curry-Howard: ¬P is `P → False`, so applying the proof of ¬P to the
@@ -1430,6 +1516,12 @@ pub fn certify(tree: &DerivationTree, ctx: &CertificationContext) -> KernelResul
             let conj_premise = &tree.premises[0];
             let (a, b) = match &conj_premise.conclusion {
                 ProofExpr::And(l, r) => (l.as_ref().clone(), r.as_ref().clone()),
+                // Iff P Q ≡ And (P → Q) (Q → P) in the kernel encoding, so an
+                // Iff premise projects to either implication.
+                ProofExpr::Iff(l, r) => (
+                    ProofExpr::Implies(l.clone(), r.clone()),
+                    ProofExpr::Implies(r.clone(), l.clone()),
+                ),
                 other => {
                     return Err(KernelError::CertificationError(format!(
                         "ConjunctionElim premise must conclude a conjunction, got {:?}",
@@ -1659,10 +1751,12 @@ fn certify_hypothesis(conclusion: &ProofExpr, ctx: &CertificationContext) -> Ker
         }
         // For predicate hypotheses, look up by type in kernel context
         ProofExpr::Predicate { name, args, .. } => {
-            // Build the target type: P(a, b, ...) as nested application
+            // Build the target type: P(a, b, ...) as nested application. Entity-position
+            // lowering (predicate arguments are entities) so the lookup type matches the
+            // hypothesis as registered — a numeric label `2004` is `Global`, not `Int`.
             let mut target_type = Term::Global(name.clone());
             for arg in args {
-                let arg_term = proof_term_to_kernel_term(arg)?;
+                let arg_term = proof_term_to_kernel_term_entity(arg)?;
                 target_type = Term::App(Box::new(target_type), Box::new(arg_term));
             }
 
@@ -1682,7 +1776,9 @@ fn certify_hypothesis(conclusion: &ProofExpr, ctx: &CertificationContext) -> Ker
         // convert to its kernel type and look it up among the registered
         // hypotheses by structural match.
         _ => {
-            let target_type = proof_expr_to_type(conclusion).map_err(|_| {
+            // Context-aware so a `∀`-premise registered with a `Nat` binder (induction)
+            // is found — its lookup type must match the binder domain it was declared with.
+            let target_type = proof_expr_to_type_ctx(conclusion, ctx.kernel_ctx).map_err(|_| {
                 KernelError::CertificationError(format!(
                     "Cannot certify hypothesis: {:?}",
                     conclusion
@@ -1796,7 +1892,116 @@ fn extract_and_types(conclusion: &ProofExpr) -> KernelResult<(Term, Term)> {
     }
 }
 
-/// Convert a ProofExpr (proposition) to a kernel Term (type).
+/// The domain (the `Global` type name) of parameter `pos` in the registered
+/// signature of `name`: peel its `Π`s and return the `pos`-th parameter type when it
+/// is a `Global`. The seam that lets binder typing read a symbol's declared shape
+/// instead of hardcoding constructor names.
+fn param_domain(ctx: &Context, name: &str, pos: usize) -> Option<String> {
+    let mut ty = ctx.get_global(name)?;
+    let mut i = 0;
+    while let Term::Pi { param_type, body_type, .. } = ty {
+        if i == pos {
+            return match param_type.as_ref() {
+                Term::Global(g) => Some(g.clone()),
+                _ => None,
+            };
+        }
+        ty = body_type;
+        i += 1;
+    }
+    None
+}
+
+/// Collect every kernel domain `variable` is constrained to within `t`: a DIRECT
+/// argument at position `j` of a function/constructor whose signature types that
+/// parameter `Global(g)` contributes `g`. Recurses through nested arguments, so a
+/// variable under `Succ` (⇒ `Nat`) or in `Cons`'s tail (⇒ `List`) is found.
+fn collect_var_domains_term(t: &ProofTerm, variable: &str, ctx: &Context, out: &mut Vec<String>) {
+    match t {
+        ProofTerm::Function(name, args) => {
+            for (j, a) in args.iter().enumerate() {
+                if matches!(a, ProofTerm::Variable(v) | ProofTerm::BoundVarRef(v) if v == variable) {
+                    if let Some(g) = param_domain(ctx, name, j) {
+                        out.push(g);
+                    }
+                }
+                collect_var_domains_term(a, variable, ctx, out);
+            }
+        }
+        ProofTerm::Group(args) => {
+            for a in args {
+                collect_var_domains_term(a, variable, ctx, out);
+            }
+        }
+        _ => {}
+    }
+}
+
+/// Like [`collect_var_domains_term`] but over a proposition: a variable fed DIRECTLY
+/// to a predicate at position `j` is constrained to that predicate's `j`-th parameter
+/// domain (so `P(t)` with `P : List → Prop` makes `t` a `List`).
+fn collect_var_domains_expr(e: &ProofExpr, variable: &str, ctx: &Context, out: &mut Vec<String>) {
+    match e {
+        ProofExpr::Predicate { name, args, .. } => {
+            for (j, a) in args.iter().enumerate() {
+                if matches!(a, ProofTerm::Variable(v) | ProofTerm::BoundVarRef(v) if v == variable) {
+                    if let Some(g) = param_domain(ctx, name, j) {
+                        out.push(g);
+                    }
+                }
+                collect_var_domains_term(a, variable, ctx, out);
+            }
+        }
+        ProofExpr::Identity(l, r) => {
+            collect_var_domains_term(l, variable, ctx, out);
+            collect_var_domains_term(r, variable, ctx, out);
+        }
+        ProofExpr::And(l, r)
+        | ProofExpr::Or(l, r)
+        | ProofExpr::Implies(l, r)
+        | ProofExpr::Iff(l, r) => {
+            collect_var_domains_expr(l, variable, ctx, out);
+            collect_var_domains_expr(r, variable, ctx, out);
+        }
+        ProofExpr::Not(p)
+        | ProofExpr::ForAll { body: p, .. }
+        | ProofExpr::Exists { body: p, .. } => collect_var_domains_expr(p, variable, ctx, out),
+        _ => {}
+    }
+}
+
+/// Infer the kernel domain of a `∀`-bound `variable` from how `body` uses it, by
+/// reading the registered signatures of the predicates/constructors it is an argument
+/// of: an inductive constraint (`Nat` from `Succ` or a `Nat`-predicate, `List` from a
+/// `List`-predicate or `Cons`'s tail) wins over the `Entity` default, while `Cons`'s
+/// head position correctly stays `Entity`. The slice of elaboration that lets a
+/// context-free proposition acquire the binder type its symbols imply.
+fn binder_domain(variable: &str, body: &ProofExpr, ctx: &Context) -> String {
+    let mut domains = Vec::new();
+    collect_var_domains_expr(body, variable, ctx, &mut domains);
+    domains
+        .into_iter()
+        .find(|d| d != "Entity")
+        .unwrap_or_else(|| "Entity".to_string())
+}
+
+/// Like [`proof_expr_to_type`] but resolves `∀`-binder domains against `ctx` (so a
+/// quantifier over a `Nat`-used variable types as `Π(n:Nat). …`). Used where the
+/// binder type is load-bearing — premise registration and the goal-type check —
+/// while the context-free version still serves the inner certifier arms.
+pub(crate) fn proof_expr_to_type_ctx(expr: &ProofExpr, ctx: &Context) -> KernelResult<Term> {
+    if let ProofExpr::ForAll { variable, body } = expr {
+        let dom = binder_domain(variable, body, ctx);
+        let body_type = proof_expr_to_type_ctx(body, ctx)?;
+        return Ok(Term::Pi {
+            param: variable.clone(),
+            param_type: Box::new(Term::Global(dom)),
+            body_type: Box::new(body_type),
+        });
+    }
+    proof_expr_to_type(expr)
+}
+
 pub(crate) fn proof_expr_to_type(expr: &ProofExpr) -> KernelResult<Term> {
     match expr {
         // Falsum maps to the kernel's `False : Prop`; other atoms are
@@ -1862,11 +2067,13 @@ pub(crate) fn proof_expr_to_type(expr: &ProofExpr) -> KernelResult<Term> {
                 body_type: Box::new(body_type),
             })
         }
-        // Predicate P(x, y, ...) becomes (P x y ...)
+        // Predicate P(x, y, ...) becomes (P x y ...). A predicate is an uninterpreted
+        // `Entity → … → Prop` relation, so its arguments are entities — a numeric
+        // argument is an opaque label (a grid year `2004`), not an arithmetic literal.
         ProofExpr::Predicate { name, args, .. } => {
             let mut result = Term::Global(name.clone());
             for arg in args {
-                let arg_term = proof_term_to_kernel_term(arg)?;
+                let arg_term = proof_term_to_kernel_term_entity(arg)?;
                 result = Term::App(Box::new(result), Box::new(arg_term));
             }
             Ok(result)
@@ -1912,6 +2119,15 @@ pub(crate) fn proof_expr_to_type(expr: &ProofExpr) -> KernelResult<Term> {
                 Box::new(predicate),
             ))
         }
+        // A temporal modality `Op(P)` — "he was seen" is `Past(see(butler))` —
+        // is an opaque unary operator on propositions. It lowers to `(Op P)` with
+        // `Op : Prop → Prop` (registered by the symbol collector), keeping
+        // `Past(P)` a distinct proposition from `P` so a modus-tollens chain over
+        // tensed premises certifies without conflating the two.
+        ProofExpr::Temporal { operator, body } => Ok(Term::App(
+            Box::new(Term::Global(operator.clone())),
+            Box::new(proof_expr_to_type(body)?),
+        )),
         _ => Err(KernelError::CertificationError(format!(
             "Cannot convert {:?} to kernel type",
             expr
@@ -1935,6 +2151,51 @@ fn kernel_arith_name(name: &str) -> &str {
         "Mul" => "mul",
         "Div" => "div",
         other => other,
+    }
+}
+
+/// Is `name` an arithmetic or comparison builtin? Its operands are `Int` (so the
+/// kernel's δ-rules compute on them — `add 2 3 ⇝ 5`, `le 2 5 ⇝ true`); every other
+/// function is uninterpreted and `Entity`-valued. Mirrors the operand classification in
+/// `verify::SymbolCollector` so registration and lowering agree on which numerics are Int.
+fn is_arith_builtin(name: &str) -> bool {
+    matches!(
+        name,
+        "le" | "lt" | "ge" | "gt" | "add" | "sub" | "mul" | "div" | "mod" | "Add" | "Sub"
+            | "Mul" | "Div"
+    )
+}
+
+/// Lower a proof term at an ENTITY position — a predicate argument, an uninterpreted
+/// function's argument, an entity-domain identity operand. A bare numeric constant here
+/// is an opaque `Entity` LABEL (a grid year `2004`, a jersey number) carried by a
+/// first-order relation, NOT an arithmetic literal: it lowers to `Global "2004"` (which
+/// resolves to the `Entity` constant `verify.rs` registers for it) so a monomorphic
+/// relation like `in : Entity → Entity → Prop` — shared by a grid's year and state
+/// columns — stays well-typed. A numeric nested under an arithmetic builtin still lowers
+/// to an `Int` literal so the δ-rules fire. The position chooses the sort; the same
+/// constant is one or the other by where it sits, never both. The entity-position dual of
+/// [`proof_term_to_kernel_term`] (which lowers numerics as `Int`).
+fn proof_term_to_kernel_term_entity(term: &ProofTerm) -> KernelResult<Term> {
+    match term {
+        ProofTerm::Constant(name) => Ok(Term::Global(name.clone())),
+        ProofTerm::Variable(name) | ProofTerm::BoundVarRef(name) => Ok(Term::Var(name.clone())),
+        ProofTerm::Function(name, args) => {
+            let arith = is_arith_builtin(name);
+            let mut result = Term::Global(kernel_arith_name(name).to_string());
+            for arg in args {
+                let arg_term = if arith {
+                    proof_term_to_kernel_term(arg)?
+                } else {
+                    proof_term_to_kernel_term_entity(arg)?
+                };
+                result = Term::App(Box::new(result), Box::new(arg_term));
+            }
+            Ok(result)
+        }
+        ProofTerm::Group(_) => Err(KernelError::CertificationError(
+            "Cannot convert Group to kernel term".to_string(),
+        )),
     }
 }
 
@@ -1963,6 +2224,32 @@ pub(crate) fn proof_term_to_kernel_term(term: &ProofTerm) -> KernelResult<Term> 
             "Cannot convert Group to kernel term".to_string(),
         )),
     }
+}
+
+/// The `Decidable` instance term for a kernel proposition, when one is
+/// registered: `Eq Bool a b ↦ decEqBool a b`, `Eq Nat a b ↦ decEqNat a b`.
+/// (Comparisons arrive here already lowered to `Eq Bool (le a b) true`.)
+fn decidable_instance_for(prop: &Term) -> Option<Term> {
+    let Term::App(f1, b) = prop else { return None };
+    let Term::App(f2, a) = f1.as_ref() else { return None };
+    let Term::App(eq, dom) = f2.as_ref() else { return None };
+    let Term::Global(eq_name) = eq.as_ref() else { return None };
+    if eq_name != "Eq" {
+        return None;
+    }
+    let Term::Global(domain) = dom.as_ref() else { return None };
+    let inst = match domain.as_str() {
+        "Bool" => "decEqBool",
+        "Nat" => "decEqNat",
+        _ => return None,
+    };
+    Some(Term::App(
+        Box::new(Term::App(
+            Box::new(Term::Global(inst.to_string())),
+            a.clone(),
+        )),
+        b.clone(),
+    ))
 }
 
 /// Infer the `Eq` domain for an `Identity` from its operands (see the `Identity`
@@ -2278,6 +2565,92 @@ mod canonical_arith_boundary_tests {
                 other => panic!("expected a nested App, got {:?}", other),
             },
             other => panic!("expected an App, got {:?}", other),
+        }
+    }
+
+    // A numeric constant is ambiguous: an arithmetic `Int` literal in an Int position,
+    // an opaque `Entity` LABEL (a grid year `2004`) in a relation position. The position
+    // decides — this is what keeps a monomorphic relation (`in : Entity → Entity → Prop`,
+    // shared by a logic grid's year and state columns) well-typed. These pin both arms;
+    // the regression they guard froze the Studio's Simon puzzle by making `in(Beta, 2002)`
+    // fail certification (`expected Entity, found Int`), which fell through to an unbounded
+    // backward-chainer grind.
+
+    /// The second argument of `in(Beta, 2002)` is the YEAR ENTITY `2002`, so it must lower
+    /// to `Global("2002")` (resolving to the `Entity` constant `verify.rs` registers),
+    /// never an `Int` literal — otherwise it clashes with `in : Entity → Entity → Prop`.
+    #[test]
+    fn numeric_predicate_argument_lowers_to_entity_label() {
+        let in_beta_2002 = ProofExpr::Predicate {
+            name: "in".to_string(),
+            args: vec![
+                ProofTerm::Constant("Beta".to_string()),
+                ProofTerm::Constant("2002".to_string()),
+            ],
+            world: None,
+        };
+        let t = proof_expr_to_type(&in_beta_2002).expect("predicate lowers to a kernel type");
+        // (in Beta) 2002 — the outer App's argument is the year term.
+        match t {
+            Term::App(_, year) => assert!(
+                matches!(*year, Term::Global(ref n) if n == "2002"),
+                "year `2002` in a relation must be an Entity Global, got {:?}",
+                year
+            ),
+            other => panic!("expected `(in Beta) 2002` application, got {:?}", other),
+        }
+    }
+
+    /// The dual: a numeric under an arithmetic builtin stays an `Int` literal so the
+    /// kernel's δ-rules fire (`le 2 5 ⇝ true`). The fix must not touch this path.
+    #[test]
+    fn numeric_arithmetic_operand_stays_int_literal() {
+        use logicaffeine_kernel::Literal;
+        let le_2_5 = ProofTerm::Function(
+            "le".to_string(),
+            vec![
+                ProofTerm::Constant("2".to_string()),
+                ProofTerm::Constant("5".to_string()),
+            ],
+        );
+        let t = proof_term_to_kernel_term(&le_2_5).expect("le term converts");
+        match t {
+            Term::App(_, five) => assert!(
+                matches!(*five, Term::Lit(Literal::Int(5))),
+                "an arithmetic operand must stay an Int literal, got {:?}",
+                five
+            ),
+            other => panic!("expected `(le 2) 5` application, got {:?}", other),
+        }
+    }
+
+    /// Entity-position lowering keeps arithmetic builtins nested inside it on the `Int`
+    /// path (their operands still compute), while a bare numeric becomes an Entity label.
+    #[test]
+    fn entity_lowering_is_numeric_aware_but_arith_preserving() {
+        use logicaffeine_kernel::Literal;
+        assert!(
+            matches!(
+                proof_term_to_kernel_term_entity(&ProofTerm::Constant("2004".to_string())).unwrap(),
+                Term::Global(ref n) if n == "2004"
+            ),
+            "a bare numeric in an entity position is an Entity label"
+        );
+        // add(2, 3) under an entity position still lowers its operands as Int literals.
+        let add = ProofTerm::Function(
+            "add".to_string(),
+            vec![
+                ProofTerm::Constant("2".to_string()),
+                ProofTerm::Constant("3".to_string()),
+            ],
+        );
+        match proof_term_to_kernel_term_entity(&add).unwrap() {
+            Term::App(_, three) => assert!(
+                matches!(*three, Term::Lit(Literal::Int(3))),
+                "an arithmetic operand stays Int even inside an entity position, got {:?}",
+                three
+            ),
+            other => panic!("expected `(add 2) 3`, got {:?}", other),
         }
     }
 }

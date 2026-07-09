@@ -9,9 +9,9 @@ LOGICAFFEINE is an English-to-First-Order-Logic transpiler and full programming 
 The tool helps users:
 - Debug arguments and reasoning with formal logic
 - Learn formal logic interactively through a gamified curriculum
-- Verify logical structures with Z3-powered proof assistance
+- Prove logical structures with a pure-Rust, kernel-certified prover (runs in the browser, no Z3 required; Z3-backed static verification is available natively)
 - Translate between natural language and formal notation
-- Write full programs in English that compile to Rust/WASM
+- Write full programs in English that compile to Rust/WASM and run at 2.5x the speed of C (2.544x geometric-mean speedup vs C, fastest in an 11-language benchmark suite — see /benchmarks)
 
 ## Key Features
 
@@ -31,10 +31,11 @@ Example:
 Progressive curriculum from basic syllogisms to advanced modal logic. Gamified with XP, streaks, achievements, and adaptive difficulty. Four eras covering 20+ modules.
 
 ### Studio Playground
-Real-time translation with three modes:
+Real-time translation with four modes:
 - **Logic Mode**: English to FOL with AST visualization
 - **Code Mode**: Imperative LOGOS programs with REPL and Rust codegen
 - **Math Mode**: Vernacular theorem proving with tactic guidance
+- **Hardware Mode**: English hardware specs to SystemVerilog Assertions (SVA + PSL + Rust monitors) with in-browser, Z3-free certified proving, BMC/k-induction, and counterexample waveforms
 
 ### Full Programming Language
 LOGOS extends beyond logic into a complete language with:
@@ -101,11 +102,14 @@ Development roadmap with 9 milestones:
 8. Proof Assistant (Complete) - Curry-Howard, Z3 verification
 9. Universal Compilation (In Progress) - WASM target, Live Codex IDE
 
+### /benchmarks
+Live benchmark results with full methodology: 32 programs across 11 languages (C, C++, Rust, Zig, Go, Java, JavaScript, Python, Ruby, Nim, LOGOS), the certified-solver-vs-the-field comparison (Z3, Kissat, SaDiCaL, CaDiCaL, CryptoMiniSat), and the wire-codec head-to-head (Protobuf, Cap'n Proto, MessagePack, bincode, postcard, CBOR, Arrow, JSON). Every number links to raw JSON and reproducible harnesses.
+
 ### /registry
 Package registry for community-contributed logic modules. Search, browse, and publish packages with GitHub authentication.
 
 ### /news
-Release notes, tutorials, and announcements.
+Release notes, tutorials, and announcements — one article per release with engineering deep-dives (each article is statically served at /news/<slug>; the full list is in /sitemap.xml).
 
 ### /profile
 User profile with XP, level, streaks, module progress, and achievements.
@@ -127,10 +131,17 @@ Terms of service. Business Source License (BUSL-1.1).
 - Temporal logic (past, future, always)
 
 ### Architecture
-- **Frontend**: Dioxus 0.6 (Rust) compiled to WebAssembly
+- **Frontend**: Dioxus 0.7 (Rust) compiled to WebAssembly; content pages are statically prerendered for crawlers
 - **Backend**: Rust with arena-allocated AST, symbol interning
-- **Pipeline**: Input → Lexer → Parser → AST → Transpiler → FOL Output
-- **Proof Engine**: Backward chaining with Z3 integration
+- **Logic pipeline**: Input → Lexer → Parser → AST → Transpiler → FOL Output
+- **Imperative pipeline**: five execution tiers — tree-walking interpreter, register bytecode VM, copy-and-patch JIT, AOT-to-Rust, and a direct WASM backend
+- **Proof Engine**: pure-Rust certified prover (SAT/CDCL, GF(2)/GF(p) algebraic routes, SR symmetry proofs) checked by a CoC proof kernel; Z3 powers the optional native static-verification tier
+
+### Performance
+Measured by the open benchmark suite (32 programs x 11 languages, results at /benchmarks):
+- LOGOS release binaries: 2.544x geometric-mean speedup vs C — faster than Rust (1.21x), Zig (1.157x), and C++ (1.033x) on the same suite
+- The certified solver beats Z3, Kissat, CaDiCaL, and CryptoMiniSat by orders of magnitude on structured UNSAT families (pigeonhole, Tseitin parity, mod-p counting)
+- The wire codec produces the smallest encoding on every fair workload vs Protobuf, Cap'n Proto, MessagePack, bincode, postcard, and CBOR
 
 ### Lexicon System
 Vocabulary database (lexicon.json) defining:
@@ -148,6 +159,9 @@ Vocabulary database (lexicon.json) defining:
 - API Crates: https://logicaffeine.com/crates
 - Studio: https://logicaffeine.com/studio
 - Learn: https://logicaffeine.com/learn
+- Benchmarks: https://logicaffeine.com/benchmarks
+- News: https://logicaffeine.com/news
+- All indexable pages: https://logicaffeine.com/sitemap.xml
 
 ## Contact
 

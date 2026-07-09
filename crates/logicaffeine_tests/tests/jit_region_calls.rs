@@ -156,12 +156,13 @@ fn callee_error_mid_region_is_exact() {
 }
 
 /// SOUNDNESS BOUNDARY: a region whose loop calls a LIST-MUTATING (mode B)
-/// function must not inline that call into the region — replay would
-/// double-apply the callee's writes. Exactness is the assertion; the
-/// region may simply not tier.
+/// function — here a `mutable`-param callee that writes through to the caller's
+/// list — must not inline that call into the region, or replay would
+/// double-apply the callee's writes. Exactness is the assertion; the region may
+/// simply not tier.
 #[test]
 fn region_never_inlines_list_mutating_callee() {
-    let src = "## To bump (xs: Seq of Int, k: Int) -> Int:\n\
+    let src = "## To bump (xs: mutable Seq of Int, k: Int) -> Int:\n\
                \x20   Set item 1 of xs to item 1 of xs + k.\n\
                \x20   Return item 1 of xs.\n\
                \n\

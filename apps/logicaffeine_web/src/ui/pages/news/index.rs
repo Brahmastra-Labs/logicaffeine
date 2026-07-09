@@ -1,6 +1,8 @@
 //! News index page - displays list of all articles.
 
 use dioxus::prelude::*;
+#[cfg(all(feature = "split", target_arch = "wasm32"))]
+use dioxus::wasm_split;
 use crate::ui::components::main_nav::{MainNav, ActivePage};
 use crate::ui::components::footer::Footer;
 use crate::ui::seo::{JsonLdMultiple, PageHead, organization_schema, breadcrumb_schema, BreadcrumbItem, pages as seo_pages};
@@ -379,27 +381,20 @@ const NEWS_STYLES: &str = r#"
 }
 "#;
 
-#[component]
-pub fn News() -> Element {
-    // Read tag from URL query parameter
-    let initial_tag = {
-        #[cfg(target_arch = "wasm32")]
-        {
-            web_sys::window()
-                .and_then(|w| w.location().search().ok())
-                .and_then(|s| {
-                    s.strip_prefix("?tag=")
-                        .or_else(|| s.strip_prefix("?").and_then(|q| q.split('&').find_map(|p| p.strip_prefix("tag="))))
-                        .map(|t| t.to_string())
-                })
-        }
-        #[cfg(not(target_arch = "wasm32"))]
-        {
-            None::<String>
-        }
-    };
+#[component(lazy)]
+pub fn News(tag: Option<String>) -> Element {
+    // Untagged visits serialize as `/news?` — keep the bar on the canonical path.
+    #[cfg(target_arch = "wasm32")]
+    {
+        let untagged = tag.is_none();
+        use_effect(move || {
+            if untagged {
+                crate::ui::router::replace_bar_url("/news");
+            }
+        });
+    }
 
-    let mut active_tag = use_signal(move || initial_tag.clone());
+    let mut active_tag = use_signal(move || tag.clone());
     let mut search_query = use_signal(|| String::new());
 
     let all_tags = get_all_tags();

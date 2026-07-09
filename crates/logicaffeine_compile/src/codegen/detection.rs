@@ -682,6 +682,7 @@ fn is_directly_impure_stmt(stmt: &Stmt) -> bool {
         | Stmt::Listen { .. }
         | Stmt::ConnectTo { .. }
         | Stmt::SendMessage { .. }
+        | Stmt::StreamMessage { .. }
         | Stmt::AwaitMessage { .. }
         | Stmt::Sleep { .. }
         | Stmt::Sync { .. }
@@ -1191,7 +1192,7 @@ pub(super) fn symbol_appears_in_stmts(sym: Symbol, stmts: &[&Stmt]) -> bool {
     stmts.iter().any(|s| symbol_appears_in_stmt(sym, s))
 }
 
-fn symbol_appears_in_stmt(sym: Symbol, stmt: &Stmt) -> bool {
+pub(super) fn symbol_appears_in_stmt(sym: Symbol, stmt: &Stmt) -> bool {
     match stmt {
         Stmt::Let { value, .. } => symbol_appears_in_expr(sym, value),
         Stmt::Set { target, value, .. } => *target == sym || symbol_appears_in_expr(sym, value),
@@ -1235,7 +1236,7 @@ fn symbol_appears_in_stmt(sym: Symbol, stmt: &Stmt) -> bool {
     }
 }
 
-fn symbol_appears_in_expr(sym: Symbol, expr: &Expr) -> bool {
+pub(super) fn symbol_appears_in_expr(sym: Symbol, expr: &Expr) -> bool {
     match expr {
         Expr::Identifier(s) => *s == sym,
         Expr::BinaryOp { left, right, .. } => {
@@ -1297,7 +1298,7 @@ fn symbol_appears_in_expr(sym: Symbol, expr: &Expr) -> bool {
 }
 
 /// Check if a TypeExpr is a Vec/Seq/List type (collection that could be borrowed as &[T]).
-pub(super) fn is_vec_type_expr(ty: &TypeExpr, interner: &Interner) -> bool {
+pub(crate) fn is_vec_type_expr(ty: &TypeExpr, interner: &Interner) -> bool {
     match ty {
         TypeExpr::Generic { base, .. } => {
             let name = interner.resolve(*base);
@@ -2012,6 +2013,30 @@ fn derc_scan_expr(
     }
 }
 
+/// Rust element type of a homogeneous **scalar-literal** list, or `None` when the list is
+/// empty, mixed-kind, or has any non-scalar-literal element. `[1,2,3]`→`i64`, `[1.0,…]`→`f64`,
+/// `[true,…]`→`bool`, `['a',…]`→`char`. Such a list is a uniquely-owned fresh value with no
+/// borrowed handle inside it, so it de-Rc's from `LogosSeq<T>` to a plain `Vec<T>`. Detection
+/// (`fresh_scalar_seq_elem`) and codegen (`derc_vec_decl`) BOTH route through this one helper
+/// so their eligibility can never drift.
+pub(crate) fn homogeneous_scalar_literal_elem(items: &[&Expr]) -> Option<String> {
+    fn elem_ty(e: &Expr) -> Option<&'static str> {
+        match e {
+            Expr::Literal(Literal::Number(_)) => Some("i64"),
+            Expr::Literal(Literal::Float(_)) => Some("f64"),
+            Expr::Literal(Literal::Boolean(_)) => Some("bool"),
+            Expr::Literal(Literal::Char(_)) => Some("char"),
+            _ => None,
+        }
+    }
+    let first = elem_ty(items.first()?)?;
+    if items.iter().all(|i| elem_ty(i) == Some(first)) {
+        Some(first.to_string())
+    } else {
+        None
+    }
+}
+
 /// The Rust element type string if `value` freshly allocates a Seq of scalars.
 fn fresh_scalar_seq_elem(value: &Expr, interner: &Interner) -> Option<String> {
     match value {
@@ -2026,6 +2051,11 @@ fn fresh_scalar_seq_elem(value: &Expr, interner: &Interner) -> Option<String> {
             }
         }
         Expr::WithCapacity { value: inner, .. } => fresh_scalar_seq_elem(inner, interner),
+        // A homogeneous SCALAR-literal list (`[1,2,3]`, `[1.0,…]`, `[true,…]`, `['a',…]`) is a
+        // uniquely-owned fresh Seq — de-Rc it to a plain `Vec<T>` so indexed access skips the
+        // RefCell borrow + the Rc box. The use-scan still disqualifies any occurrence that
+        // escapes a Vec-safe slot.
+        Expr::List(items) => homogeneous_scalar_literal_elem(items),
         _ => None,
     }
 }
@@ -2036,6 +2066,8 @@ fn is_scalar_elem_type(ty: &str) -> bool {
         ty,
         "i64" | "i32" | "i16" | "i8" | "u64" | "u32" | "u16" | "u8" | "usize" | "isize"
             | "f64" | "f32" | "bool" | "char" | "String"
+            // Fixed-width word newtypes are Copy scalars (repr(transparent)) → de-Rc to `Vec<WordN>`.
+            | "Word8" | "Word16" | "Word32" | "Word64"
     )
 }
 

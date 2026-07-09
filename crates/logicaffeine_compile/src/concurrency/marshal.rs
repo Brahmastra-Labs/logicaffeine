@@ -13,6 +13,16 @@ use std::rc::Rc;
 
 use logicaffeine_runtime::RtPayload;
 
+// The integer-sequence description-length codec (the Auto column menu) lives in the leaf crate so
+// the wire layer and the proof layer share one implementation of the format. `describe::` is used
+// for the encode/decode entry points; the generator IR and shared helpers are re-imported so their
+// existing call sites (and downstream `marshal::GenExpr` references) resolve unchanged.
+pub use logicaffeine_base::describe::{gen_eval, GenCmp, GenExpr};
+use logicaffeine_base::describe::{
+    self, consider, deserialize_gen, detect_affine, emit_best_int_column, serialize_gen,
+    MAX_GEN_DEPTH, MAX_GEN_NODES,
+};
+
 use crate::interpreter::{ClosureValue, InductiveValue, ListRepr, MapStorage, RuntimeValue, StructValue};
 
 /// Why a value could not be marshalled across a task boundary.
@@ -36,6 +46,27 @@ pub fn materialize(value: &RuntimeValue) -> Result<RtPayload, MarshalError> {
             let (_den_sign, den_magnitude) = r.denominator().to_le_bytes();
             RtPayload::Rational { num_negative, num_magnitude, den_magnitude }
         }
+        RuntimeValue::Decimal(d) => {
+            let (negative, magnitude, scale) = d.to_le_bytes();
+            RtPayload::Decimal { negative, magnitude, scale }
+        }
+        RuntimeValue::Money(m) => {
+            let (negative, magnitude, scale) = m.amount.to_le_bytes();
+            RtPayload::Money { negative, magnitude, scale, currency: m.currency.code.to_string() }
+        }
+        RuntimeValue::Uuid(u) => RtPayload::Uuid(u.to_bytes()),
+        RuntimeValue::Complex(c) => {
+            let (re_negative, re_num) = c.re().numerator().to_le_bytes();
+            let (_, re_den) = c.re().denominator().to_le_bytes();
+            let (im_negative, im_num) = c.im().numerator().to_le_bytes();
+            let (_, im_den) = c.im().denominator().to_le_bytes();
+            RtPayload::Complex { re_negative, re_num, re_den, im_negative, im_num, im_den }
+        }
+        RuntimeValue::Modular(m) => {
+            let (_, value) = m.value().to_le_bytes();
+            let (_, modulus) = m.modulus().to_le_bytes();
+            RtPayload::Modular { value, modulus }
+        }
         RuntimeValue::Float(f) => RtPayload::Float(*f),
         RuntimeValue::Bool(b) => RtPayload::Bool(*b),
         RuntimeValue::Char(c) => RtPayload::Char(*c),
@@ -46,6 +77,10 @@ pub fn materialize(value: &RuntimeValue) -> Result<RtPayload, MarshalError> {
         RuntimeValue::Moment(n) => RtPayload::Moment(*n),
         RuntimeValue::Span { months, days } => RtPayload::Span { months: *months, days: *days },
         RuntimeValue::Time(n) => RtPayload::Time(*n),
+        RuntimeValue::Word(w) => RtPayload::Word { width: w.width(), bits: w.to_u64() },
+        // A SIMD lane vector is a transient compute value (a register), not a wire type — like a
+        // closure, it does not cross a task boundary. (A future increment can serialize its lanes.)
+        RuntimeValue::Lanes(_) => return Err(MarshalError::NotSendable("Lanes8Word32")),
         RuntimeValue::List(items) => {
             let vals = items.borrow().to_values();
             RtPayload::List(vals.iter().map(materialize).collect::<Result<_, _>>()?)
@@ -86,6 +121,28 @@ pub fn materialize(value: &RuntimeValue) -> Result<RtPayload, MarshalError> {
         // A live CRDT shares convergent state via Merge/Sync (the relay wire), not by
         // moving its handle across a task heap — that would alias the same replica.
         RuntimeValue::Crdt(_) => return Err(MarshalError::NotSendable("Crdt")),
+        // A Quantity travels as its exact SI magnitude (a rational), its dimension (the exponent
+        // vector), and the display unit's symbol — reconstructed losslessly on the far side.
+        RuntimeValue::Quantity(qv) => {
+            let (num_negative, num_magnitude) = qv.q.magnitude_si().numerator().to_le_bytes();
+            let (_den_sign, den_magnitude) = qv.q.magnitude_si().denominator().to_le_bytes();
+            let dim = qv.q.dimension();
+            let mut dim_num = Vec::with_capacity(logicaffeine_base::BaseDim::COUNT);
+            let mut dim_den = Vec::with_capacity(logicaffeine_base::BaseDim::COUNT);
+            for d in logicaffeine_base::BaseDim::ALL {
+                let e = dim.exponent(d);
+                dim_num.push(e.numerator());
+                dim_den.push(e.denominator());
+            }
+            RtPayload::Quantity {
+                num_negative,
+                num_magnitude,
+                den_magnitude,
+                dim_num,
+                dim_den,
+                unit_symbol: qv.unit.symbol.to_string(),
+            }
+        }
     })
 }
 
@@ -107,6 +164,61 @@ pub fn rebuild(payload: RtPayload) -> RuntimeValue {
                 None => RuntimeValue::from_bigint(num),
             }
         }
+        RtPayload::Decimal { negative, magnitude, scale } => RuntimeValue::Decimal(Rc::new(
+            logicaffeine_base::Decimal::from_le_bytes(negative, &magnitude, scale),
+        )),
+        RtPayload::Money { negative, magnitude, scale, currency } => {
+            let amount = logicaffeine_base::Decimal::from_le_bytes(negative, &magnitude, scale);
+            let currency = logicaffeine_base::money::currency::by_code(&currency)
+                .unwrap_or(logicaffeine_base::Currency { code: "XXX", scale: 0 });
+            RuntimeValue::Money(Rc::new(logicaffeine_base::Money { amount, currency }))
+        }
+        RtPayload::Uuid(bytes) => {
+            RuntimeValue::Uuid(Rc::new(logicaffeine_base::Uuid::from_bytes(bytes)))
+        }
+        RtPayload::Complex { re_negative, re_num, re_den, im_negative, im_num, im_den } => {
+            let mk = |neg: bool, num: &[u8], den: &[u8]| {
+                logicaffeine_base::Rational::new(
+                    logicaffeine_base::BigInt::from_le_bytes(neg, num),
+                    logicaffeine_base::BigInt::from_le_bytes(false, den),
+                )
+                .unwrap_or_else(logicaffeine_base::Rational::zero)
+            };
+            let re = mk(re_negative, &re_num, &re_den);
+            let im = mk(im_negative, &im_num, &im_den);
+            RuntimeValue::Complex(Rc::new(logicaffeine_base::Complex::new(re, im)))
+        }
+        RtPayload::Modular { value, modulus } => {
+            let v = logicaffeine_base::BigInt::from_le_bytes(false, &value);
+            let n = logicaffeine_base::BigInt::from_le_bytes(false, &modulus);
+            match logicaffeine_base::Modular::new(v, n) {
+                Some(m) => RuntimeValue::Modular(Rc::new(m)),
+                None => RuntimeValue::Nothing, // a corrupt (non-positive) modulus degrades gracefully
+            }
+        }
+        RtPayload::Quantity { num_negative, num_magnitude, den_magnitude, dim_num, dim_den, unit_symbol } => {
+            let num = logicaffeine_base::BigInt::from_le_bytes(num_negative, &num_magnitude);
+            let den = logicaffeine_base::BigInt::from_le_bytes(false, &den_magnitude);
+            let magnitude = logicaffeine_base::Rational::new(num, den)
+                .unwrap_or_else(logicaffeine_base::Rational::zero);
+            // Rebuild the dimension from its exponent vector (BaseDim::ALL order).
+            let mut exps = [logicaffeine_base::Exp::ZERO; logicaffeine_base::BaseDim::COUNT];
+            for (i, slot) in exps.iter_mut().enumerate() {
+                let n = dim_num.get(i).copied().unwrap_or(0);
+                let d = dim_den.get(i).copied().unwrap_or(1);
+                *slot = logicaffeine_base::Exp::new(n, if d == 0 { 1 } else { d });
+            }
+            let dim = logicaffeine_base::Dimension::from_exps(exps);
+            // Resolve the display unit by its symbol; a compound or unknown symbol falls back to the
+            // SI/dimension display (a synthetic empty-symbol unit at the SI base).
+            let unit = logicaffeine_base::quantity::units::by_name(&unit_symbol)
+                .filter(|u| u.dimension == dim)
+                .unwrap_or_else(|| {
+                    logicaffeine_base::Unit::linear("", dim, logicaffeine_base::Rational::one())
+                });
+            let q = logicaffeine_base::Quantity::si(magnitude, dim);
+            RuntimeValue::Quantity(Rc::new(crate::interpreter::QuantityValue { q, unit }))
+        }
         RtPayload::Float(f) => RuntimeValue::Float(f),
         RtPayload::Bool(b) => RuntimeValue::Bool(b),
         RtPayload::Char(c) => RuntimeValue::Char(c),
@@ -116,6 +228,11 @@ pub fn rebuild(payload: RtPayload) -> RuntimeValue {
         RtPayload::Moment(n) => RuntimeValue::Moment(n),
         RtPayload::Span { months, days } => RuntimeValue::Span { months, days },
         RtPayload::Time(n) => RuntimeValue::Time(n),
+        RtPayload::Word { width, bits } => match logicaffeine_base::WordVal::from_u64(width, bits) {
+            Some(w) => RuntimeValue::Word(w),
+            // A well-formed payload always carries width 32/64; degrade a corrupt one to its value.
+            None => RuntimeValue::Int(bits as i64),
+        },
         RtPayload::List(items) => {
             let vals: Vec<RuntimeValue> = items.into_iter().map(rebuild).collect();
             RuntimeValue::List(Rc::new(RefCell::new(ListRepr::from_values(vals))))
@@ -173,6 +290,26 @@ enum WireValue {
     Int(i64),
     BigInt { negative: bool, magnitude: Vec<u8> },
     Rational { num_negative: bool, num_magnitude: Vec<u8>, den_magnitude: Vec<u8> },
+    Decimal { negative: bool, magnitude: Vec<u8>, scale: u32 },
+    Money { negative: bool, magnitude: Vec<u8>, scale: u32, currency: std::string::String },
+    Uuid([u8; 16]),
+    Complex {
+        re_negative: bool,
+        re_num: Vec<u8>,
+        re_den: Vec<u8>,
+        im_negative: bool,
+        im_num: Vec<u8>,
+        im_den: Vec<u8>,
+    },
+    Modular { value: Vec<u8>, modulus: Vec<u8> },
+    Quantity {
+        num_negative: bool,
+        num_magnitude: Vec<u8>,
+        den_magnitude: Vec<u8>,
+        dim_num: Vec<i32>,
+        dim_den: Vec<i32>,
+        unit_symbol: String,
+    },
     Float(f64),
     Bool(bool),
     Char(char),
@@ -182,6 +319,7 @@ enum WireValue {
     Moment(i64),
     Span { months: i32, days: i32 },
     Time(i64),
+    Word { width: u32, bits: u64 },
     Peer(String),
     List(Vec<WireValue>),
     Tuple(Vec<WireValue>),
@@ -212,6 +350,39 @@ fn rt_to_wire(p: &RtPayload) -> Option<WireValue> {
             num_magnitude: num_magnitude.clone(),
             den_magnitude: den_magnitude.clone(),
         },
+        RtPayload::Decimal { negative, magnitude, scale } => {
+            WireValue::Decimal { negative: *negative, magnitude: magnitude.clone(), scale: *scale }
+        }
+        RtPayload::Money { negative, magnitude, scale, currency } => WireValue::Money {
+            negative: *negative,
+            magnitude: magnitude.clone(),
+            scale: *scale,
+            currency: currency.clone(),
+        },
+        RtPayload::Uuid(bytes) => WireValue::Uuid(*bytes),
+        RtPayload::Complex { re_negative, re_num, re_den, im_negative, im_num, im_den } => {
+            WireValue::Complex {
+                re_negative: *re_negative,
+                re_num: re_num.clone(),
+                re_den: re_den.clone(),
+                im_negative: *im_negative,
+                im_num: im_num.clone(),
+                im_den: im_den.clone(),
+            }
+        }
+        RtPayload::Modular { value, modulus } => {
+            WireValue::Modular { value: value.clone(), modulus: modulus.clone() }
+        }
+        RtPayload::Quantity { num_negative, num_magnitude, den_magnitude, dim_num, dim_den, unit_symbol } => {
+            WireValue::Quantity {
+                num_negative: *num_negative,
+                num_magnitude: num_magnitude.clone(),
+                den_magnitude: den_magnitude.clone(),
+                dim_num: dim_num.clone(),
+                dim_den: dim_den.clone(),
+                unit_symbol: unit_symbol.clone(),
+            }
+        }
         RtPayload::Float(f) => WireValue::Float(*f),
         RtPayload::Bool(b) => WireValue::Bool(*b),
         RtPayload::Char(c) => WireValue::Char(*c),
@@ -221,6 +392,7 @@ fn rt_to_wire(p: &RtPayload) -> Option<WireValue> {
         RtPayload::Moment(n) => WireValue::Moment(*n),
         RtPayload::Span { months, days } => WireValue::Span { months: *months, days: *days },
         RtPayload::Time(n) => WireValue::Time(*n),
+        RtPayload::Word { width, bits } => WireValue::Word { width: *width, bits: *bits },
         RtPayload::Peer(topic) => WireValue::Peer(topic.clone()),
         RtPayload::List(items) => WireValue::List(rt_seq_to_wire(items)?),
         RtPayload::Tuple(items) => WireValue::Tuple(rt_seq_to_wire(items)?),
@@ -267,6 +439,20 @@ fn wire_to_rt(w: WireValue) -> RtPayload {
         WireValue::Rational { num_negative, num_magnitude, den_magnitude } => {
             RtPayload::Rational { num_negative, num_magnitude, den_magnitude }
         }
+        WireValue::Decimal { negative, magnitude, scale } => {
+            RtPayload::Decimal { negative, magnitude, scale }
+        }
+        WireValue::Money { negative, magnitude, scale, currency } => {
+            RtPayload::Money { negative, magnitude, scale, currency }
+        }
+        WireValue::Uuid(bytes) => RtPayload::Uuid(bytes),
+        WireValue::Complex { re_negative, re_num, re_den, im_negative, im_num, im_den } => {
+            RtPayload::Complex { re_negative, re_num, re_den, im_negative, im_num, im_den }
+        }
+        WireValue::Modular { value, modulus } => RtPayload::Modular { value, modulus },
+        WireValue::Quantity { num_negative, num_magnitude, den_magnitude, dim_num, dim_den, unit_symbol } => {
+            RtPayload::Quantity { num_negative, num_magnitude, den_magnitude, dim_num, dim_den, unit_symbol }
+        }
         WireValue::Float(f) => RtPayload::Float(f),
         WireValue::Bool(b) => RtPayload::Bool(b),
         WireValue::Char(c) => RtPayload::Char(c),
@@ -276,6 +462,7 @@ fn wire_to_rt(w: WireValue) -> RtPayload {
         WireValue::Moment(n) => RtPayload::Moment(n),
         WireValue::Span { months, days } => RtPayload::Span { months, days },
         WireValue::Time(n) => RtPayload::Time(n),
+        WireValue::Word { width, bits } => RtPayload::Word { width, bits },
         WireValue::Peer(topic) => RtPayload::Peer(topic),
         WireValue::List(items) => RtPayload::List(items.into_iter().map(wire_to_rt).collect()),
         WireValue::Tuple(items) => RtPayload::Tuple(items.into_iter().map(wire_to_rt).collect()),
@@ -346,6 +533,35 @@ pub fn message_to_wire(from: &str, value: &RuntimeValue) -> Result<Vec<u8>, Stri
     message_to_wire_with(from, value, WireCodec::Native, current_integrity())
 }
 
+/// Encode ONE value as the plain, self-describing recursive wire form — no envelope, no
+/// framing, no columnar/compression/dedup transforms. This is the exact format the shared
+/// [`logicaffeine_data::wire`] core decodes, so a `RuntimeValue` encoded here round-trips
+/// through an AOT-generated type's `wire_decode` (and vice versa). The speed-first form used
+/// to hand a program AST to a compile-once native partial evaluator.
+pub fn encode_value_raw(v: &RuntimeValue) -> Result<Vec<u8>, String> {
+    with_flat_lists(true, || {
+        with_structure(WireStructure::Off, || {
+            with_dedup(false, || {
+                let mut out = Vec::new();
+                native_encode(v, &mut out)?;
+                Ok(out)
+            })
+        })
+    })
+}
+
+/// Decode a value produced by [`encode_value_raw`] (or by an AOT-generated `wire_encode`)
+/// back into a `RuntimeValue`. `None` on any malformed or trailing-byte input.
+pub fn decode_value_raw(buf: &[u8]) -> Option<RuntimeValue> {
+    let mut pos = 0usize;
+    let v = native_decode(buf, &mut pos)?;
+    if pos == buf.len() {
+        Some(v)
+    } else {
+        None
+    }
+}
+
 /// What the [`message_to_wire_best`] auto-tuner optimizes for.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum WireGoal {
@@ -377,34 +593,330 @@ pub fn message_to_wire_best(from: &str, value: &RuntimeValue, goal: WireGoal) ->
                 })
             })
         }),
-        WireGoal::Smallest => {
-            let mut best: Option<Vec<u8>> = None;
-            for num in [WireNumerics::Varint, WireNumerics::Fixed, WireNumerics::GroupVarint] {
-                for st in [WireStructure::Off, WireStructure::Affine, WireStructure::Auto] {
-                    for fl in [WireFloats::Memcpy, WireFloats::XorDelta] {
-                        for comp in [
-                            WireCompression::None,
-                            WireCompression::Deflate,
-                            WireCompression::Lz4,
-                            WireCompression::Zstd,
-                        ] {
-                            let bytes = with_numerics(num, || {
+        WireGoal::Smallest => smallest_over(
+            from,
+            value,
+            &[WireCompression::None, WireCompression::Deflate, WireCompression::Lz4, WireCompression::Zstd],
+        ),
+    }
+}
+
+/// The size bake-off, parameterized by the compression codecs allowed (so a negotiated send only tries
+/// what the receiver can decode). Measures the FULL cross product of the size-affecting dials
+/// (numerics × structure/G5 × float-coding) against each allowed compression and returns the smallest —
+/// the maximal crush. Runs under whatever type registry is in scope (so name elision composes when the
+/// caller enabled it). Every form is self-describing, so the decoder needs no hint.
+fn smallest_over(
+    from: &str,
+    value: &RuntimeValue,
+    compressions: &[WireCompression],
+) -> Result<Vec<u8>, String> {
+    let mut best: Option<Vec<u8>> = None;
+    // Structure-sharing dimension: if the SAME subtree is reached more than once, Rc-dedup ships it
+    // ONCE + backrefs. It competes as just another bake-off candidate (each is a single dedup-scoped
+    // encode, so the per-encode id table never leaks across passes), so it wins ONLY when it actually
+    // beats the backref-tag overhead. The gather runs once HERE; no sharing → no dedup pass, no cost.
+    let dedup_opts: &[bool] = if value_has_sharing(value) { &[false, true] } else { &[false] };
+    for num in [WireNumerics::Varint, WireNumerics::Fixed, WireNumerics::GroupVarint] {
+        for st in [WireStructure::Off, WireStructure::Affine, WireStructure::Auto] {
+            for fl in [WireFloats::Memcpy, WireFloats::XorDelta] {
+                for &comp in compressions {
+                    for &dedup in dedup_opts {
+                        let bytes = with_dedup(dedup, || {
+                            with_numerics(num, || {
                                 with_structure(st, || {
                                     with_floats(fl, || {
                                         with_compression_codec(comp, || message_to_wire(from, value))
                                     })
                                 })
-                            })?;
-                            if best.as_ref().map_or(true, |b| bytes.len() < b.len()) {
-                                best = Some(bytes);
-                            }
+                            })
+                        })?;
+                        if best.as_ref().map_or(true, |b| bytes.len() < b.len()) {
+                            best = Some(bytes);
                         }
                     }
                 }
             }
-            best.ok_or_else(|| "no encoding produced".to_string())
         }
     }
+    best.ok_or_else(|| "no encoding produced".to_string())
+}
+
+/// Encode a message TO a peer using EVERYTHING both sides support — the negotiated maximal crush.
+/// Applies all the self-describing dials (any peer decodes them) via the size bake-off, but restricts
+/// the receiver-capability knobs to the negotiated surface: only compression codecs the receiver can
+/// decode, and type-id NAME ELISION only when epochs matched (`neg.use_type_id`). Refuses to ship a
+/// computation the receiver declined. Stays MINIMAL in cost too: a tiny message that name-elision can't
+/// help ships the plain default without paying for the search. Never larger than the default; always
+/// self-describing, so it round-trips on the receiver with no hint.
+pub fn message_to_wire_negotiated(
+    from: &str,
+    value: &RuntimeValue,
+    neg: &Negotiated,
+    registry: WireTypeRegistry,
+) -> Result<Vec<u8>, String> {
+    if matches!(value, RuntimeValue::Function(_)) && !neg.may_send_computed {
+        return Err("the receiver does not accept computed (shipped-function) sends".to_string());
+    }
+    let default = message_to_wire(from, value)?;
+    // Minimal cost: a small message that type-id can't shrink skips the bake-off entirely.
+    if default.len() <= AUTO_SEARCH_THRESHOLD && !neg.use_type_id {
+        return Ok(default);
+    }
+    let codecs: Vec<WireCompression> = if neg.compression == WireCompression::None {
+        vec![WireCompression::None]
+    } else {
+        vec![WireCompression::None, neg.compression]
+    };
+    let search = || smallest_over(from, value, &codecs);
+    // Name elision only fires when the receiver shares our type registry (negotiated epoch match).
+    let best = if neg.use_type_id { with_type_registry(registry, search) } else { search() }?;
+    Ok(if best.len() < default.len() { best } else { default })
+}
+
+/// Below this default-encoding size the `Smallest` search cannot meaningfully shrink a message (the
+/// envelope + a scalar / short string is already near-minimal), so [`message_to_wire_auto`] skips the
+/// N-pass bake-off and ships the default. Tuned so a scalar / short message never pays for the search.
+const AUTO_SEARCH_THRESHOLD: usize = 64;
+
+/// The genuine no-brainer — "just send it." Runs the full [`WireGoal::Smallest`] bake-off ONLY when the
+/// payload is large enough for it to matter, and otherwise ships the plain default (so calling this on
+/// every message — including scalars and short strings — costs a single encode pass, not the N-pass
+/// search). The result is NEVER larger than the default, ALWAYS self-describing (so it interoperates
+/// with every peer, no hint), and round-trips exactly. This is the recommended default sender.
+pub fn message_to_wire_auto(from: &str, value: &RuntimeValue) -> Result<Vec<u8>, String> {
+    let default = message_to_wire(from, value)?;
+    if default.len() <= AUTO_SEARCH_THRESHOLD {
+        return Ok(default);
+    }
+    // The bake-off includes the default dial set as one candidate, so its winner is ≤ `default`.
+    let best = message_to_wire_best(from, value, WireGoal::Smallest)?;
+    Ok(if best.len() < default.len() { best } else { default })
+}
+
+/// A receiver's admission-control budget — the limits it will accept from a sender, so a malicious or
+/// buggy peer cannot exhaust the receiver's memory, stack, or CPU. Enforced DURING decode, BEFORE the
+/// offending allocation or recursion happens, so an over-budget message is refused cleanly (the decode
+/// returns `None`) rather than processed. A receiver advertises these in the capability handshake so a
+/// cooperative sender stays within them; an uncooperative one is still bounded by the enforcement.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ReceiveLimits {
+    /// Largest message body (post-decompress framing aside) the receiver will decode, in bytes.
+    pub max_bytes: usize,
+    /// Maximum container-nesting depth. Bounds decode RECURSION, so a deeply-nested but byte-small
+    /// message cannot overflow the receiver's stack (a remote crash).
+    pub max_depth: usize,
+    /// Maximum element count for any single decoded collection (list / map / set / struct-list /
+    /// numeric column). A claimed count above this is refused before the elements are read.
+    pub max_elements: usize,
+    /// Maximum byte length of any single decoded string.
+    pub max_string_bytes: usize,
+    /// Whether to accept a SHIPPED computation (`T_FUNC`) at all. When `false`, a computed send is
+    /// refused at decode — independent of (and prior to) the C2 acceptance contract that gates whether
+    /// an accepted computation may be EVALUATED.
+    pub accept_computed: bool,
+}
+
+/// Generous-but-finite defaults: every real message passes (genuine nesting is almost always < 10
+/// deep); only the pathological / adversarial ones are refused. `max_depth` sits BELOW
+/// [`MAX_ENCODE_DEPTH`] on purpose — the recursive DECODER's stack frame is heavier than the encoder's
+/// (one giant `match`), so the depth that is safe to recurse on a small (wasm ~1 MiB) stack is lower
+/// than what we allow ourselves to encode. A deployment tightens these per peer through the handshake.
+pub const DEFAULT_RECEIVE_LIMITS: ReceiveLimits = ReceiveLimits {
+    max_bytes: 64 << 20,
+    max_depth: 64,
+    max_elements: 1 << 24,
+    max_string_bytes: 1 << 24,
+    accept_computed: true,
+};
+
+impl Default for ReceiveLimits {
+    fn default() -> Self {
+        DEFAULT_RECEIVE_LIMITS
+    }
+}
+
+thread_local! {
+    static RECEIVE_LIMITS: std::cell::Cell<ReceiveLimits> =
+        const { std::cell::Cell::new(DEFAULT_RECEIVE_LIMITS) };
+    static DECODE_DEPTH: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
+
+/// Decode under `limits` for the duration of `f` — the receiver's admission gate. Restores the prior
+/// limits afterward (so it nests). Pair with [`message_from_wire`].
+pub fn with_receive_limits<T>(limits: ReceiveLimits, f: impl FnOnce() -> T) -> T {
+    let prev = RECEIVE_LIMITS.with(|c| c.replace(limits));
+    let r = f();
+    RECEIVE_LIMITS.with(|c| c.set(prev));
+    r
+}
+
+/// The limits in force on this thread (default [`DEFAULT_RECEIVE_LIMITS`] outside a
+/// [`with_receive_limits`] scope).
+fn receive_limits() -> ReceiveLimits {
+    RECEIVE_LIMITS.with(std::cell::Cell::get)
+}
+
+// ── Optional-capability feature bits a peer advertises in its [`PeerProfile`]. Unknown bits are
+//    ignored on receipt, so the set grows forward/backward-compatibly. ──
+/// The peer understands DEFLATE-compressed frames.
+pub const FEAT_DEFLATE: u32 = 1 << 0;
+/// The peer understands LZ4-compressed frames.
+pub const FEAT_LZ4: u32 = 1 << 1;
+/// The peer understands Zstd-compressed frames.
+pub const FEAT_ZSTD: u32 = 1 << 2;
+/// The peer can resolve type-id name elision against a shared type registry.
+pub const FEAT_TYPE_ID: u32 = 1 << 3;
+/// The peer is willing to receive a shipped computation (subject to its acceptance contracts).
+pub const FEAT_COMPUTED: u32 = 1 << 4;
+/// The peer can reconstruct FEC / erasure-coded redundant frames.
+pub const FEAT_FEC: u32 = 1 << 5;
+
+/// A peer's PUBLISHED acceptance surface — the single declarative object it EXPOSES to the other side
+/// AND that its own decoder ENFORCES. Declare it once: it is both advertised (in the handshake) and the
+/// budget the decode path checks, so the two can never drift. Carries the resource budget
+/// ([`ReceiveLimits`]), the peer's type-registry epoch (a content hash of its type table — when both
+/// peers' epochs match, struct/enum NAMES need not travel, since both derive the same ids), and a
+/// feature bitset (`FEAT_*`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct PeerProfile {
+    /// What this peer will accept — enforced on decode, advertised so a cooperative sender stays within it.
+    pub limits: ReceiveLimits,
+    /// Content hash of this peer's type table (0 = none). Equal non-zero epochs on both sides unlock
+    /// name elision.
+    pub registry_epoch: u64,
+    /// `FEAT_*` capability bits this peer understands.
+    pub features: u32,
+}
+
+impl Default for PeerProfile {
+    fn default() -> Self {
+        Self {
+            limits: ReceiveLimits::default(),
+            registry_epoch: 0,
+            features: FEAT_DEFLATE | FEAT_LZ4 | FEAT_ZSTD | FEAT_TYPE_ID | FEAT_COMPUTED | FEAT_FEC,
+        }
+    }
+}
+
+impl PeerProfile {
+    /// The profile to ASSUME for a peer we have NOT yet heard from — NO optional capabilities and NO
+    /// shared type registry. Negotiating against it yields a plain, uncompressed, self-describing send
+    /// that ANY receiver (even a non-Logos relay consumer) can decode. A capability turns on only once
+    /// the peer ADVERTISES it in its handshake. (`Default` is the opposite — the FULL profile a Logos
+    /// node advertises for ITSELF.)
+    pub const fn conservative() -> Self {
+        Self { limits: DEFAULT_RECEIVE_LIMITS, registry_epoch: 0, features: 0 }
+    }
+}
+
+const PEER_PROFILE_VERSION: u8 = 1;
+
+/// Serialize a [`PeerProfile`] for the handshake — a version byte (so a future layout is recognized,
+/// not mis-parsed) followed by the budget, epoch, and feature bits.
+pub fn encode_peer_profile(p: &PeerProfile) -> Vec<u8> {
+    let mut out = Vec::with_capacity(32);
+    out.push(PEER_PROFILE_VERSION);
+    write_uvarint(p.limits.max_bytes as u64, &mut out);
+    write_uvarint(p.limits.max_depth as u64, &mut out);
+    write_uvarint(p.limits.max_elements as u64, &mut out);
+    write_uvarint(p.limits.max_string_bytes as u64, &mut out);
+    out.push(p.limits.accept_computed as u8);
+    write_uvarint(p.registry_epoch, &mut out);
+    write_uvarint(p.features as u64, &mut out);
+    out
+}
+
+/// Parse a peer's advertised [`PeerProfile`]. A version this build does not understand, or a truncated
+/// blob, yields `None` — the caller then falls back to the conservative defaults (never mis-decodes).
+pub fn decode_peer_profile(buf: &[u8]) -> Option<PeerProfile> {
+    let mut pos = 0;
+    let version = *buf.get(pos)?;
+    pos += 1;
+    if version != PEER_PROFILE_VERSION {
+        return None;
+    }
+    let max_bytes = read_uvarint(buf, &mut pos)? as usize;
+    let max_depth = read_uvarint(buf, &mut pos)? as usize;
+    let max_elements = read_uvarint(buf, &mut pos)? as usize;
+    let max_string_bytes = read_uvarint(buf, &mut pos)? as usize;
+    let accept_computed = *buf.get(pos)? != 0;
+    pos += 1;
+    let registry_epoch = read_uvarint(buf, &mut pos)?;
+    let features = read_uvarint(buf, &mut pos)? as u32;
+    Some(PeerProfile {
+        limits: ReceiveLimits { max_bytes, max_depth, max_elements, max_string_bytes, accept_computed },
+        registry_epoch,
+        features,
+    })
+}
+
+/// The encoding choices negotiated for sending TO a peer, from my profile and the peer's advertised one.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Negotiated {
+    /// Elide type NAMES from the wire — only when both sides speak type-id AND share the same non-zero
+    /// registry epoch (so the receiver can resolve the ids).
+    pub use_type_id: bool,
+    /// Ship a computed function — only when the receiver both accepts computed sends and advertises the
+    /// capability. (The receiver still gates INVOCATION through its acceptance contracts.)
+    pub may_send_computed: bool,
+    /// The strongest compression BOTH peers understand (`None` if they share none).
+    pub compression: WireCompression,
+    /// The receiver's byte budget — keep each message under this so it is not refused.
+    pub peer_max_bytes: usize,
+}
+
+/// Negotiate how to send TO a peer from my profile + the peer's advertised one. CONSERVATIVE: a
+/// capability is used only when BOTH sides expose it. This is where "expose properly" pays off — the
+/// sender automatically restricts itself to exactly the surface the receiver published, so it never
+/// ships a form the receiver can't decode, won't run code the receiver declined, and stays under the
+/// receiver's size budget.
+pub fn negotiate(mine: &PeerProfile, theirs: &PeerProfile) -> Negotiated {
+    let both = |bit: u32| mine.features & bit != 0 && theirs.features & bit != 0;
+    let compression = if both(FEAT_ZSTD) {
+        WireCompression::Zstd
+    } else if both(FEAT_LZ4) {
+        WireCompression::Lz4
+    } else if both(FEAT_DEFLATE) {
+        WireCompression::Deflate
+    } else {
+        WireCompression::None
+    };
+    Negotiated {
+        use_type_id: both(FEAT_TYPE_ID)
+            && mine.registry_epoch != 0
+            && mine.registry_epoch == theirs.registry_epoch,
+        may_send_computed: theirs.limits.accept_computed && both(FEAT_COMPUTED),
+        compression,
+        peer_max_bytes: theirs.limits.max_bytes,
+    }
+}
+
+/// Magic prefix that marks a frame as a capability HANDSHAKE rather than a data message. A data frame
+/// begins with a 1-byte header in the small `H_KNOWN` range, so this ASCII prefix can never collide
+/// with one — the receiver tells them apart unambiguously.
+const HANDSHAKE_MAGIC: &[u8; 4] = b"LCHS";
+
+/// Build a handshake frame advertising `from`'s [`PeerProfile`]: the magic prefix, the sender identity,
+/// then the serialized profile. Published like any message but recognized + absorbed (not delivered as
+/// data) by the receiver.
+pub fn make_handshake_frame(from: &str, profile: &PeerProfile) -> Vec<u8> {
+    let mut out = Vec::with_capacity(8 + from.len() + 16);
+    out.extend_from_slice(HANDSHAKE_MAGIC);
+    write_str(from, &mut out);
+    out.extend_from_slice(&encode_peer_profile(profile));
+    out
+}
+
+/// Parse a handshake frame → `(sender, advertised profile)`. `None` when `data` is not a handshake (no
+/// magic) or is malformed — so a data message is never mistaken for one, and an unknown/garbage profile
+/// is ignored rather than mis-applied.
+pub fn parse_handshake_frame(data: &[u8]) -> Option<(String, PeerProfile)> {
+    let rest = data.strip_prefix(HANDSHAKE_MAGIC.as_slice())?;
+    let mut pos = 0;
+    let from = read_str(rest, &mut pos)?;
+    let profile = decode_peer_profile(rest.get(pos..)?)?;
+    Some((from, profile))
 }
 
 /// As [`message_to_wire`], with an explicit codec and integrity mode.
@@ -452,6 +964,13 @@ pub fn message_to_wire_with(
 /// inflate, trailing bytes, or any malformed input all return `None` — never a
 /// panic, never a half-rebuilt value.
 pub fn message_from_wire(bytes: &[u8]) -> Option<(String, RuntimeValue)> {
+    // Admission gate: refuse a message larger than the receiver's byte budget BEFORE decompressing or
+    // decoding it — a hostile peer cannot make the receiver spend memory/CPU on an over-budget frame.
+    if bytes.len() > receive_limits().max_bytes {
+        return None;
+    }
+    // Fresh dedup memo per top-level message (ids are message-local; never leak across messages).
+    DECODE_MEMO.with(|c| c.borrow_mut().clear());
     let (codec, compression, framed) = unframe(bytes)?;
     // Inflate first if needed (the checksum, already verified, covered the
     // compressed bytes — so we never spend CPU inflating a corrupt message). The
@@ -475,6 +994,88 @@ pub fn message_from_wire(bytes: &[u8]) -> Option<(String, RuntimeValue)> {
             Some((from, rebuild(wire_to_rt(msg))))
         }
     }
+}
+
+/// The plain-words name of the structural encoding a column tag selects — the codec's own
+/// dial vocabulary, for surfacing *which* encoding actually won (benchmarks, docs, debug).
+/// A non-column or unknown tag reads as the generic `"value"`.
+fn column_tag_name(tag: u8) -> &'static str {
+    match tag {
+        T_INTS => "varint",
+        T_INTS_FIXED => "fixed (memcpy)",
+        T_INTS_GV => "group-varint",
+        T_INTS_ALIGNED => "fixed-aligned",
+        T_INTS_AFFINE => "affine (base,stride,n)",
+        T_INTS_DELTA => "delta",
+        T_INTS_DOD => "delta-of-delta",
+        T_INTS_FOR => "FOR bit-pack",
+        T_INTS_RLE => "run-length",
+        T_INTS_DICT => "dictionary",
+        T_INTS_POLY => "polynomial",
+        T_INTS_GEOMETRIC => "geometric",
+        T_INTS_PERIODIC => "periodic",
+        T_INTS_SPARSE => "sparse",
+        T_GEN => "generator",
+        T_BYTES => "byte column",
+        describe::T_INTS_LRECUR => "linear-recurrence",
+        describe::T_INTS_LFSR => "LFSR",
+        describe::T_INTS_FCSR => "FCSR",
+        T_FLOATS => "memcpy floats",
+        T_FLOATS_XOR => "xor-delta floats",
+        T_FLOATS_CONST => "constant floats",
+        T_FLOATS_AFFINE => "affine floats",
+        T_FLOATS_SPARSE => "sparse floats",
+        T_FLOATS_PERIODIC => "periodic floats",
+        T_FLOATS_GEOMETRIC => "geometric floats",
+        T_FLOATS_ALIGNED => "aligned floats",
+        T_BOOLS => "bit-packed bools",
+        T_BOOLS_PERIODIC => "periodic bools",
+        T_BOOLS_RLE => "run-length bools",
+        T_STRINGS => "flat strings",
+        T_STRINGS_TEMPLATE => "templated strings",
+        T_STRINGS_FRONT => "front-coded strings",
+        T_STRINGS_AFFIX => "affix strings",
+        T_STRINGS_DICT => "dictionary strings",
+        T_SET_INTS => "int set (column menu)",
+        T_SET_STRINGS => "string set (front-coded)",
+        T_MAP_INTKEY => "int-keyed map (columnar)",
+        _ => "value",
+    }
+}
+
+/// Name the structural encoding of each column in a native wire message — the codec
+/// explaining its own output, so "which dial won" is legible to a human. A single-column
+/// message (int / float / string / bool list, a set, an int-keyed map) yields one name; a
+/// record list (`T_STRUCTS`) yields one `"field: encoding"` per field. Empty for a shape it
+/// does not model (compressed, JSON, a bare scalar, or a malformed frame) — the caller then
+/// shows a generic label. It reuses the real decode dispatch to skip each column body, so it
+/// can never drift from the format it reports on.
+pub fn describe_columns(bytes: &[u8]) -> Vec<String> {
+    describe_columns_inner(bytes).unwrap_or_default()
+}
+
+fn describe_columns_inner(bytes: &[u8]) -> Option<Vec<String>> {
+    let (codec, compression, body) = unframe(bytes)?;
+    if !matches!(codec, WireCodec::Native) || compression != WireCompression::None {
+        return None; // callers inspect the uncompressed native bytes
+    }
+    DECODE_MEMO.with(|c| c.borrow_mut().clear());
+    let mut pos = 0;
+    let _from = read_str(body, &mut pos)?;
+    let tag = *body.get(pos)?;
+    if tag == T_STRUCTS {
+        let mut p = pos + 1;
+        let (_type_name, field_names) = read_struct_schema(body, &mut p)?;
+        let _rows = read_uvarint(body, &mut p)?;
+        let mut out = Vec::with_capacity(field_names.len());
+        for name in &field_names {
+            let col_tag = *body.get(p)?;
+            native_decode(body, &mut p)?; // advance past the column via the real decoder
+            out.push(format!("{name}: {}", column_tag_name(col_tag)));
+        }
+        return Some(out);
+    }
+    Some(vec![column_tag_name(tag).to_string()])
 }
 
 /// How a connection-scoped schema dictionary identifies a struct schema on the wire.
@@ -712,7 +1313,7 @@ fn schema_recv_lookup_ca(fp: u64) -> Option<(String, Vec<String>)> {
 /// irrelevant and sender + receiver always agree. The codec ships the id instead of the
 /// type/field NAMES, and the receiver — running the same program — resolves it. This is
 /// the "duh, you use that" default that drops names off the wire entirely.
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Clone)]
 pub struct WireTypeRegistry {
     by_id: Vec<(String, Vec<String>)>,
     by_fp: std::collections::HashMap<u64, u32>,
@@ -758,6 +1359,25 @@ impl WireTypeRegistry {
             .collect();
         self.enums_by_id = canon;
         self
+    }
+
+    /// A content hash of this registry's WHOLE type set — the registry EPOCH advertised in the
+    /// handshake. Two peers that declared the SAME struct + enum types (in any order) compute the same
+    /// epoch, so when their epochs MATCH they may elide type NAMES from the wire (type-id). `0` for an
+    /// empty registry — no shared types, so never elide. Deterministic: folds the per-type
+    /// fingerprints, which are already in canonical fingerprint order.
+    pub fn epoch(&self) -> u64 {
+        if self.by_id.is_empty() && self.enums_by_id.is_empty() {
+            return 0;
+        }
+        let mut acc: u64 = 0xcbf2_9ce4_8422_2325;
+        for (n, f) in &self.by_id {
+            acc = acc.rotate_left(5) ^ schema_fingerprint(n, f);
+        }
+        for (n, c) in &self.enums_by_id {
+            acc = acc.rotate_left(7) ^ schema_fingerprint(n, c).wrapping_mul(0x0000_0100_0000_01b3);
+        }
+        acc.max(1) // a non-empty registry is never epoch 0 (0 means "no registry")
     }
 
     fn id_of(&self, type_name: &str, field_names: &[String]) -> Option<u32> {
@@ -817,6 +1437,164 @@ fn type_registry_enum_schema(id: u32) -> Option<(String, Vec<String>)> {
 }
 
 thread_local! {
+    // Rc-DEDUP (G8): when enabled, a subtree that the SAME `Rc` reaches more than once on the value
+    // graph ships ONCE (`T_SHARED_DEF id + value`) and every later occurrence ships a tiny backref
+    // (`T_SHARED_REF id`) — and the decoder rebuilds the SHARING (one `Rc`, aliased), not N copies.
+    // Off by default, so every existing byte-stream is untouched; a value with no actual sharing is
+    // byte-identical even with the knob on (nothing is in `ENCODE_SHARED`, so no tag is emitted).
+    static DEDUP_ENABLED: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+    // The set of `Rc` pointers that occur ≥2× — computed once at the root encode. `None` until the
+    // root gathers it (the lazy-init signal).
+    static ENCODE_SHARED: RefCell<Option<std::collections::HashSet<usize>>> = const { RefCell::new(None) };
+    // Shared pointer → the id assigned at its first occurrence (so later occurrences reference it).
+    static ENCODE_WRITTEN: RefCell<std::collections::HashMap<usize, u64>> =
+        RefCell::new(std::collections::HashMap::new());
+    // Decode side: id → the value first decoded under it, so a `T_SHARED_REF` resolves to the SAME
+    // `Rc` (sharing preserved). Reset at the top of every top-level `message_from_wire`.
+    static DECODE_MEMO: RefCell<std::collections::HashMap<u64, RuntimeValue>> =
+        RefCell::new(std::collections::HashMap::new());
+}
+
+/// Encode `f`'s value with Rc-dedup ON: shared subtrees ship once + backrefs. Self-describing by tag,
+/// so the receiver rebuilds the sharing with no knob of its own. The default (OFF) is byte-unchanged.
+pub fn with_dedup<T>(enabled: bool, f: impl FnOnce() -> T) -> T {
+    let prev = DEDUP_ENABLED.with(|c| c.replace(enabled));
+    ENCODE_SHARED.with(|c| *c.borrow_mut() = None);
+    ENCODE_WRITTEN.with(|c| c.borrow_mut().clear());
+    let r = f();
+    DEDUP_ENABLED.with(|c| c.set(prev));
+    ENCODE_SHARED.with(|c| *c.borrow_mut() = None);
+    ENCODE_WRITTEN.with(|c| c.borrow_mut().clear());
+    r
+}
+
+/// The `Rc`-backed value types whose pointer identity can be shared — the dedup candidates. A
+/// `usize` address uniquely keys an allocation (two `Rc`s of one allocation share it; distinct
+/// allocations never collide, even across types).
+fn shareable_ptr(v: &RuntimeValue) -> Option<usize> {
+    match v {
+        RuntimeValue::List(rc) => Some(Rc::as_ptr(rc) as *const () as usize),
+        RuntimeValue::Tuple(rc) => Some(Rc::as_ptr(rc) as *const () as usize),
+        RuntimeValue::Set(rc) => Some(Rc::as_ptr(rc) as *const () as usize),
+        RuntimeValue::Map(rc) => Some(Rc::as_ptr(rc) as *const () as usize),
+        RuntimeValue::Text(rc) => Some(Rc::as_ptr(rc) as *const () as usize),
+        RuntimeValue::BigInt(rc) => Some(Rc::as_ptr(rc) as *const () as usize),
+        RuntimeValue::Rational(rc) => Some(Rc::as_ptr(rc) as *const () as usize),
+        RuntimeValue::Decimal(rc) => Some(Rc::as_ptr(rc) as *const () as usize),
+        RuntimeValue::Money(rc) => Some(Rc::as_ptr(rc) as *const () as usize),
+        RuntimeValue::Complex(rc) => Some(Rc::as_ptr(rc) as *const () as usize),
+        RuntimeValue::Modular(rc) => Some(Rc::as_ptr(rc) as *const () as usize),
+        RuntimeValue::Quantity(rc) => Some(Rc::as_ptr(rc) as *const () as usize),
+        _ => None,
+    }
+}
+
+/// Walk the value graph counting `Rc` occurrences; any pointer seen ≥2× goes in `shared`. Cycle-safe
+/// (a pointer is descended into only on its FIRST sighting; the 2nd marks it shared and stops) and
+/// depth-bounded (deep non-cyclic nesting just stops gathering — missing a share only costs a little
+/// size, never correctness).
+fn gather_shared(
+    v: &RuntimeValue,
+    seen: &mut std::collections::HashMap<usize, u32>,
+    shared: &mut std::collections::HashSet<usize>,
+    depth: u32,
+) {
+    if depth >= MAX_ENCODE_DEPTH {
+        return;
+    }
+    if let Some(p) = shareable_ptr(v) {
+        let c = seen.entry(p).or_insert(0);
+        *c += 1;
+        if *c >= 2 {
+            shared.insert(p);
+            return; // already descended on the first sighting — stop (this is the cycle guard too)
+        }
+    }
+    match v {
+        RuntimeValue::List(rc) => {
+            if let ListRepr::Boxed(items) = &*rc.borrow() {
+                for x in items {
+                    gather_shared(x, seen, shared, depth + 1);
+                }
+            }
+        }
+        RuntimeValue::Tuple(rc) => {
+            for x in rc.iter() {
+                gather_shared(x, seen, shared, depth + 1);
+            }
+        }
+        RuntimeValue::Set(rc) => {
+            for x in rc.borrow().iter() {
+                gather_shared(x, seen, shared, depth + 1);
+            }
+        }
+        RuntimeValue::Map(rc) => {
+            for (k, val) in rc.borrow().iter() {
+                gather_shared(k, seen, shared, depth + 1);
+                gather_shared(val, seen, shared, depth + 1);
+            }
+        }
+        RuntimeValue::Struct(b) => {
+            for val in b.fields.values() {
+                gather_shared(val, seen, shared, depth + 1);
+            }
+        }
+        RuntimeValue::Inductive(b) => {
+            for x in &b.args {
+                gather_shared(x, seen, shared, depth + 1);
+            }
+        }
+        _ => {}
+    }
+}
+
+/// Does `v` actually alias a subtree — the same `Rc` reached more than once? The auto-tuner asks this
+/// (one cheap graph walk) to decide whether the dedup candidate is even worth trying; a tree-shaped
+/// value answers `false` and pays nothing more.
+fn value_has_sharing(v: &RuntimeValue) -> bool {
+    let mut seen = std::collections::HashMap::new();
+    let mut shared = std::collections::HashSet::new();
+    gather_shared(v, &mut seen, &mut shared, 0);
+    !shared.is_empty()
+}
+
+/// At the encoder's entry for `v`: if dedup is on, lazily gather the shared set at the root, then —
+/// for a shared value — emit a backref (and signal `caller returns`) or stamp a fresh def id (and
+/// let the caller fall through to encode the value normally). Returns `Some(true)` = "I wrote a
+/// backref, return now", `Some(false)`/`None` = "keep encoding".
+fn dedup_encode_prefix(v: &RuntimeValue, out: &mut Vec<u8>) -> bool {
+    if !DEDUP_ENABLED.with(|c| c.get()) {
+        return false;
+    }
+    if ENCODE_SHARED.with(|c| c.borrow().is_none()) {
+        let mut seen = std::collections::HashMap::new();
+        let mut shared = std::collections::HashSet::new();
+        gather_shared(v, &mut seen, &mut shared, 0);
+        ENCODE_SHARED.with(|c| *c.borrow_mut() = Some(shared));
+        ENCODE_WRITTEN.with(|c| c.borrow_mut().clear());
+    }
+    let Some(p) = shareable_ptr(v) else { return false };
+    let is_shared = ENCODE_SHARED.with(|c| c.borrow().as_ref().is_some_and(|s| s.contains(&p)));
+    if !is_shared {
+        return false;
+    }
+    if let Some(id) = ENCODE_WRITTEN.with(|c| c.borrow().get(&p).copied()) {
+        out.push(T_SHARED_REF);
+        write_uvarint(id, out);
+        return true; // a backref — caller returns
+    }
+    let id = ENCODE_WRITTEN.with(|c| {
+        let mut m = c.borrow_mut();
+        let id = m.len() as u64;
+        m.insert(p, id);
+        id
+    });
+    out.push(T_SHARED_DEF);
+    write_uvarint(id, out);
+    false // first occurrence — caller encodes the value normally after this def header
+}
+
+thread_local! {
     static STRUCT_VIEW: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
     // Current value-recursion depth of the encoder — bounds nesting so a cyclic value
     // (only constructible via the `Rc<RefCell<…>>` a List wraps) returns a clean Err
@@ -850,6 +1628,30 @@ impl DepthGuard {
 impl Drop for DepthGuard {
     fn drop(&mut self) {
         ENCODE_DEPTH.with(|d| d.set(d.get().saturating_sub(1)));
+    }
+}
+
+/// RAII depth counter for the recursive DECODER — the admission gate against a stack-smashing message.
+/// `enter()` returns `None` (so `native_decode` rejects cleanly via `?`) once nesting reaches the
+/// receiver's [`ReceiveLimits::max_depth`], instead of recursing into a stack overflow on a crafted
+/// deeply-nested payload. `Drop` unwinds the count on every path — normal return, `?`-`None`, and panic
+/// unwind — so a fresh top-level decode always starts at zero.
+struct DecodeDepthGuard;
+impl DecodeDepthGuard {
+    fn enter() -> Option<DecodeDepthGuard> {
+        DECODE_DEPTH.with(|d| {
+            let n = d.get();
+            if n >= receive_limits().max_depth {
+                return None;
+            }
+            d.set(n + 1);
+            Some(DecodeDepthGuard)
+        })
+    }
+}
+impl Drop for DecodeDepthGuard {
+    fn drop(&mut self) {
+        DECODE_DEPTH.with(|d| d.set(d.get().saturating_sub(1)));
     }
 }
 
@@ -899,17 +1701,22 @@ fn skip_str(buf: &[u8], pos: &mut usize) -> Option<()> {
 /// Cap'n Proto's home). Any other shape (scalars, maps, single structs, cached/compressed bodies)
 /// falls back to a full [`message_from_wire`] decode, so every message still round-trips. The
 /// receiver opts in with the `view` knob; without it, the eager path is used exactly as before.
-/// Peek a frame: if its top-level value is a self-describing record-list view (so its decode can be
-/// safely DEFERRED — no schema-cache dependency), return the sender. `None` for anything else
-/// (scalars, structs, maps, cached, or compressed bodies), which must decode eagerly in arrival
-/// order. The drain loop uses this to split deferrable record lists from order-sensitive messages.
-pub fn peek_record_list_sender(bytes: &[u8]) -> Option<String> {
-    if view_message(bytes).and_then(|v| v.structs_schema()).is_some() {
-        let (_, _, body) = unframe_with(bytes, false)?;
-        let mut p = 0;
-        return read_str(body, &mut p);
+/// Peek a frame: if its top-level value is a self-describing DEFERRABLE view — a record list
+/// (`T_STRUCTS_VIEW`) or an aligned numeric column (`T_INTS_ALIGNED`/`T_FLOATS_ALIGNED`), all of
+/// which have no schema-cache dependency — return the sender so its decode can be deferred to
+/// `Await` (lazy under `view`, eager otherwise). `None` for anything else (scalars, single structs,
+/// maps, cached, or compressed bodies), which must decode eagerly in arrival order. The drain loop
+/// uses this to split deferrable views from order-sensitive messages.
+pub fn peek_deferrable_sender(bytes: &[u8]) -> Option<String> {
+    let view = view_message(bytes)?;
+    let deferrable =
+        view.structs_schema().is_some() || matches!(view.tag(), Some(T_INTS_ALIGNED) | Some(T_FLOATS_ALIGNED));
+    if !deferrable {
+        return None;
     }
-    None
+    let (_, _, body) = unframe_with(bytes, false)?;
+    let mut p = 0;
+    read_str(body, &mut p)
 }
 
 pub fn message_from_wire_view(bytes: &[u8]) -> Option<(String, RuntimeValue)> {
@@ -922,6 +1729,55 @@ pub fn message_from_wire_view(bytes: &[u8]) -> Option<(String, RuntimeValue)> {
         return Some((sender, RuntimeValue::List(Rc::new(RefCell::new(lazy)))));
     }
     message_from_wire(bytes)
+}
+
+/// The leading marker of a batch STREAM message — distinct from any normal frame header (those use
+/// only the low bits 0x01/0x02/0x10 + a 2-bit compression id) and from a FEC shard (0xFE), so the
+/// drain loop tells the three apart by the first byte alone.
+const STREAM_MAGIC: u8 = 0xFD;
+
+/// Frame a sequence of values as one batch STREAM message: `[magic][sender][framed value-message]*`,
+/// each value length-delimited (via [`crate::concurrency::stream::frame_for_stream`]) so the
+/// receiver deframes them incrementally and reads each in place. ONE relay publish ships the whole
+/// batch — Kafka-style streaming that amortizes per-message overhead — and `Await stream` reassembles
+/// the list. Each value is encoded self-describingly so it round-trips without the type registry.
+pub fn frame_stream_message(from: &str, values: &[RuntimeValue]) -> Result<Vec<u8>, String> {
+    let mut out = vec![STREAM_MAGIC];
+    write_str(from, &mut out);
+    for v in values {
+        let elem = message_to_wire("", v)?;
+        crate::concurrency::stream::frame_for_stream(&elem, &mut out);
+    }
+    Ok(out)
+}
+
+/// Is `bytes` a batch stream message? If so, return its sender (so `Await stream … from <peer>`
+/// matches it). `None` for a normal message / FEC shard / anything else.
+pub fn peek_stream_sender(bytes: &[u8]) -> Option<String> {
+    if bytes.first() != Some(&STREAM_MAGIC) {
+        return None;
+    }
+    let mut p = 1;
+    read_str(bytes, &mut p)
+}
+
+/// Deframe a batch stream message into its values, in order. `None` if `bytes` is not a stream
+/// message; a frame that fails to decode is skipped (never a panic).
+pub fn deframe_stream_message(bytes: &[u8]) -> Option<Vec<RuntimeValue>> {
+    if bytes.first() != Some(&STREAM_MAGIC) {
+        return None;
+    }
+    let mut p = 1;
+    read_str(bytes, &mut p)?;
+    let mut deframer = crate::concurrency::stream::StreamDeframer::new();
+    deframer.push(bytes.get(p..)?);
+    let mut values = Vec::new();
+    deframer.drain_frames(|frame| {
+        if let Some((_, v)) = message_from_wire(frame) {
+            values.push(v);
+        }
+    });
+    Some(values)
 }
 
 /// A borrowed view over one wire message's top-level value. Holds no owned data and never
@@ -1044,6 +1900,45 @@ impl<'a> WireView<'a> {
         Some(unsafe { std::slice::from_raw_parts(blob.as_ptr().cast::<f64>(), n) })
     }
 
+    /// Read field `fi` of a COLUMNAR fixed struct list (`T_STRUCTS` whose every column is a
+    /// `T_INTS_FIXED` blob) as its contiguous little-endian `i64` bytes — zero-copy, no per-cell
+    /// navigation and no materialization. Because the layout is columnar, ALL of field `fi` is
+    /// adjacent, so summing/scanning it is one CACHE-FRIENDLY contiguous pass — the columnar-
+    /// analytics win over a row-major reader's strided walk (Cap'n Proto interleaves the fields).
+    /// `None` if the value is not a columnar all-fixed struct list, or `fi` is out of range.
+    pub fn structs_fixed_i64_col(&self, fi: usize) -> Option<&'a [u8]> {
+        if self.tag()? != T_STRUCTS {
+            return None;
+        }
+        let mut p = 1;
+        skip_str(self.val, &mut p)?; // type_name
+        let k = read_uvarint(self.val, &mut p)? as usize;
+        if fi >= k {
+            return None;
+        }
+        for _ in 0..k {
+            skip_str(self.val, &mut p)?; // field names
+        }
+        let n = read_uvarint(self.val, &mut p)? as usize;
+        for c in 0..=fi {
+            if *self.val.get(p)? != T_INTS_FIXED {
+                return None; // a non-fixed column — this fast path needs all columns fixed-width
+            }
+            p += 1;
+            let cnt = read_uvarint(self.val, &mut p)? as usize;
+            if cnt != n {
+                return None;
+            }
+            let nbytes = n.checked_mul(8)?;
+            let blob = self.val.get(p..p.checked_add(nbytes)?)?;
+            if c == fi {
+                return Some(blob);
+            }
+            p += nbytes;
+        }
+        None
+    }
+
     /// Read a byte column (`T_BYTES`) as `&[u8]` with ZERO copy — binary data (hashes, file
     /// chunks, crypto) read in place: no decode, no allocation, no `i64` expansion, and
     /// (unlike the i64/f64 columns) no alignment requirement, since a `u8` slice is always
@@ -1058,9 +1953,11 @@ impl<'a> WireView<'a> {
         self.val.get(p..p.checked_add(n)?)
     }
 
-    /// Row count of a record-list view (`T_STRUCTS_VIEW`), or `None` if not one.
+    /// Row count of a record-list view (variable `T_STRUCTS_VIEW` or fixed `T_STRUCTS_FVIEW`),
+    /// or `None` if not one.
     pub fn structs_len(&self) -> Option<usize> {
-        if self.tag()? != T_STRUCTS_VIEW {
+        let tag = self.tag()?;
+        if tag != T_STRUCTS_VIEW && tag != T_STRUCTS_FVIEW {
             return None;
         }
         let mut p = 1;
@@ -1069,6 +1966,9 @@ impl<'a> WireView<'a> {
         for _ in 0..f {
             let nlen = read_uvarint(self.val, &mut p)? as usize;
             p = p.checked_add(nlen)?;
+        }
+        if tag == T_STRUCTS_FVIEW {
+            p = p.checked_add(f)?; // skip the F kind bytes
         }
         Some(read_uvarint(self.val, &mut p)? as usize)
     }
@@ -1113,6 +2013,48 @@ impl<'a> WireView<'a> {
         Some(WireView { val: self.val.get(values_start.checked_add(field_off)?..)? })
     }
 
+    /// Read field `name` of row `row` as an owned value for EITHER record-list view: the variable
+    /// offset-table view (`T_STRUCTS_VIEW`) or the fixed-stride view (`T_STRUCTS_FVIEW`). Both are
+    /// O(1) random access — the fixed view by pure arithmetic (no offset tables). Numeric/bool
+    /// reads allocate nothing; a text read materializes the one string. The unified read the lazy
+    /// `Await view` backing uses, so a peer's `Send indexed` (either layout) reads the same way.
+    /// `None` if this is not a record view, the row is out of range, or there is no such field.
+    pub fn structs_row_field_value(&self, row: usize, name: &str) -> Option<RuntimeValue> {
+        match self.tag()? {
+            T_STRUCTS_VIEW => self.structs_row_field(row, name)?.decode(),
+            T_STRUCTS_FVIEW => {
+                let mut p = 1;
+                skip_str(self.val, &mut p)?; // type_name
+                let f = read_uvarint(self.val, &mut p)? as usize;
+                let mut field_idx = None;
+                for i in 0..f {
+                    let nlen = read_uvarint(self.val, &mut p)? as usize;
+                    let nbytes = self.val.get(p..p.checked_add(nlen)?)?;
+                    if nbytes == name.as_bytes() {
+                        field_idx = Some(i);
+                    }
+                    p += nlen;
+                }
+                let fi = field_idx?;
+                let kinds = self.val.get(p..p.checked_add(f)?)?;
+                p += f;
+                let n = read_uvarint(self.val, &mut p)? as usize;
+                if row >= n {
+                    return None;
+                }
+                let (offsets, stride) = fview_layout(kinds);
+                let rows_start = p;
+                let cell_pos = rows_start.checked_add(row.checked_mul(stride)?)?.checked_add(offsets[fi])?;
+                // The string blob follows the fixed rows; its length varint sits right after them.
+                let mut bp = rows_start.checked_add(n.checked_mul(stride)?)?;
+                let blob_len = read_uvarint(self.val, &mut bp)? as usize;
+                let blob = self.val.get(bp..bp.checked_add(blob_len)?)?;
+                fview_read_cell(kinds[fi], self.val.get(cell_pos..)?, blob)
+            }
+            _ => None,
+        }
+    }
+
     /// Fully decode the ONE value this view points at (a cell / field / element) into an owned
     /// `RuntimeValue` — the materialize-on-touch step a lazy reader runs after locating a field in
     /// place. Decodes only this value, never the rest of the message; the bytes outside it stay
@@ -1127,7 +2069,8 @@ impl<'a> WireView<'a> {
     /// schema + length while the row bytes stay un-decoded until a field is touched. `None` if this
     /// is not a record-list view.
     pub fn structs_schema(&self) -> Option<(String, Vec<String>, usize)> {
-        if self.tag()? != T_STRUCTS_VIEW {
+        let tag = self.tag()?;
+        if tag != T_STRUCTS_VIEW && tag != T_STRUCTS_FVIEW {
             return None;
         }
         let mut p = 1;
@@ -1136,6 +2079,9 @@ impl<'a> WireView<'a> {
         let mut field_names = Vec::with_capacity(f);
         for _ in 0..f {
             field_names.push(read_str(self.val, &mut p)?);
+        }
+        if tag == T_STRUCTS_FVIEW {
+            p = p.checked_add(f)?; // skip the F kind bytes
         }
         let n = read_uvarint(self.val, &mut p)? as usize;
         Some((type_name, field_names, n))
@@ -1215,6 +2161,169 @@ impl<'a> WireView<'a> {
         let b = self.val.get(off..off + 8)?;
         Some(f64::from_le_bytes(b.try_into().ok()?))
     }
+
+    /// Open a parse-ONCE bulk cursor over a record-list view (either layout). `None` if this is not
+    /// a record-list view. Use it to read a WHOLE list as fast as Cap'n Proto's lazy reader:
+    /// `structs_row_field_value` re-parses the header on every call (fine for one read, O(n·f) for a
+    /// full scan), whereas the cursor parses the schema/tables once and every access is O(1).
+    pub fn structs_cursor(&self) -> Option<WireStructsCursor<'a>> {
+        let tag = self.tag()?;
+        if tag != T_STRUCTS_VIEW && tag != T_STRUCTS_FVIEW {
+            return None;
+        }
+        let val = self.val;
+        let mut p = 1;
+        let tn_len = read_uvarint(val, &mut p)? as usize; // type_name (skipped)
+        p = p.checked_add(tn_len)?;
+        let f = read_uvarint(val, &mut p)? as usize;
+        let mut field_names = Vec::with_capacity(f);
+        for _ in 0..f {
+            let nlen = read_uvarint(val, &mut p)? as usize;
+            field_names.push(val.get(p..p.checked_add(nlen)?)?);
+            p += nlen;
+        }
+        if tag == T_STRUCTS_FVIEW {
+            let field_kinds = val.get(p..p.checked_add(f)?)?;
+            p += f;
+            let n = read_uvarint(val, &mut p)? as usize;
+            let (field_offsets, stride) = fview_layout(field_kinds);
+            let rows_start = p;
+            let mut bp = rows_start.checked_add(n.checked_mul(stride)?)?;
+            let blob_len = read_uvarint(val, &mut bp)? as usize;
+            let blob = val.get(bp..bp.checked_add(blob_len)?)?;
+            Some(WireStructsCursor {
+                val,
+                field_names,
+                n,
+                kind: CursorKind::Fixed { field_kinds, field_offsets, stride, rows_start, blob },
+            })
+        } else {
+            let n = read_uvarint(val, &mut p)? as usize;
+            let row_table_pos = p;
+            let rows_start = row_table_pos.checked_add(n.checked_mul(4)?)?;
+            Some(WireStructsCursor { val, field_names, n, kind: CursorKind::Variable { row_table_pos, rows_start } })
+        }
+    }
+}
+
+/// A parse-once cursor over a record-list view (`T_STRUCTS_VIEW` / `T_STRUCTS_FVIEW`): the schema
+/// and tables are read ONCE at open, then every `(row, field)` access is O(1) — pure arithmetic for
+/// the fixed-stride view, a two-`u32` offset jump for the variable view — with no per-call re-scan.
+pub struct WireStructsCursor<'a> {
+    val: &'a [u8],
+    field_names: Vec<&'a [u8]>,
+    n: usize,
+    kind: CursorKind<'a>,
+}
+
+enum CursorKind<'a> {
+    Variable { row_table_pos: usize, rows_start: usize },
+    Fixed { field_kinds: &'a [u8], field_offsets: Vec<usize>, stride: usize, rows_start: usize, blob: &'a [u8] },
+}
+
+impl<'a> WireStructsCursor<'a> {
+    pub fn len(&self) -> usize {
+        self.n
+    }
+    pub fn is_empty(&self) -> bool {
+        self.n == 0
+    }
+    pub fn field_count(&self) -> usize {
+        self.field_names.len()
+    }
+    /// Index of the field named `name`, scanned once by the caller and then reused for every row.
+    pub fn field_index(&self, name: &str) -> Option<usize> {
+        self.field_names.iter().position(|&n| n == name.as_bytes())
+    }
+
+    /// Byte slice at the start of cell `(row, fi)` — the one arithmetic/offset step both layouts share.
+    fn cell_slice(&self, row: usize, fi: usize) -> Option<&'a [u8]> {
+        if row >= self.n || fi >= self.field_names.len() {
+            return None;
+        }
+        match &self.kind {
+            CursorKind::Fixed { field_offsets, stride, rows_start, .. } => {
+                let pos = rows_start.checked_add(row.checked_mul(*stride)?)?.checked_add(field_offsets[fi])?;
+                self.val.get(pos..)
+            }
+            CursorKind::Variable { row_table_pos, rows_start } => {
+                let f = self.field_names.len();
+                let row_off_at = row_table_pos.checked_add(row.checked_mul(4)?)?;
+                let row_off =
+                    u32::from_le_bytes(self.val.get(row_off_at..row_off_at.checked_add(4)?)?.try_into().ok()?) as usize;
+                let field_table_pos = rows_start.checked_add(row_off)?;
+                let values_start = field_table_pos.checked_add(f.checked_mul(4)?)?;
+                let field_off_at = field_table_pos.checked_add(fi.checked_mul(4)?)?;
+                let field_off =
+                    u32::from_le_bytes(self.val.get(field_off_at..field_off_at.checked_add(4)?)?.try_into().ok()?) as usize;
+                self.val.get(values_start.checked_add(field_off)?..)
+            }
+        }
+    }
+
+    /// The `(row, field)` value as an owned `RuntimeValue` — O(1), no header re-scan.
+    pub fn value(&self, row: usize, fi: usize) -> Option<RuntimeValue> {
+        match &self.kind {
+            CursorKind::Fixed { field_kinds, blob, .. } => {
+                fview_read_cell(*field_kinds.get(fi)?, self.cell_slice(row, fi)?, blob)
+            }
+            CursorKind::Variable { .. } => {
+                let cell = self.cell_slice(row, fi)?;
+                let mut q = 0;
+                native_decode(cell, &mut q)
+            }
+        }
+    }
+
+    /// Read an ENTIRE int field of the fixed-stride view as a `Vec<i64>` in one tight pass — the
+    /// Cap'n-Proto-class read-all: the cells are at a fixed `offset` every `stride` bytes, so after
+    /// one bounds check on the last cell, the reads are unchecked raw 8-byte loads (no per-read
+    /// bounds check, no slice indirection, no `RuntimeValue` box). `None` for the variable view
+    /// (varint cells aren't strided) or a non-int field.
+    pub fn i64_column(&self, fi: usize) -> Option<Vec<i64>> {
+        let CursorKind::Fixed { field_kinds, field_offsets, stride, rows_start, .. } = &self.kind else {
+            return None;
+        };
+        if *field_kinds.get(fi)? != FK_INT {
+            return None;
+        }
+        let base = rows_start.checked_add(field_offsets[fi])?;
+        let mut out = Vec::with_capacity(self.n);
+        if self.n > 0 {
+            // The extreme cell `base + (n-1)*stride .. +8` ⊆ val; every earlier cell is below it,
+            // so this single check makes every loop read in-bounds.
+            let last = base.checked_add((self.n - 1).checked_mul(*stride)?)?;
+            self.val.get(last..last.checked_add(8)?)?;
+            let ptr = self.val.as_ptr();
+            for r in 0..self.n {
+                let p = base + r * stride;
+                // SAFETY: `p..p+8` ⊆ `[rows_start, rows_start + n*stride)` ⊆ `val` (checked above).
+                let b = unsafe { std::slice::from_raw_parts(ptr.add(p), 8) };
+                out.push(i64::from_le_bytes(b.try_into().unwrap()));
+            }
+        }
+        Some(out)
+    }
+
+    /// Fast integer read of an int cell — the Cap'n-Proto-class random read: pure arithmetic + a
+    /// raw 8-byte read (fixed view) or a tagged-varint decode (variable view), NO `RuntimeValue` box.
+    /// `None` if the cell is not an integer.
+    pub fn i64(&self, row: usize, fi: usize) -> Option<i64> {
+        let cell = self.cell_slice(row, fi)?;
+        match &self.kind {
+            CursorKind::Fixed { field_kinds, .. } => match *field_kinds.get(fi)? {
+                FK_INT => Some(i64::from_le_bytes(cell.get(0..8)?.try_into().ok()?)),
+                _ => None,
+            },
+            CursorKind::Variable { .. } => {
+                if *cell.first()? != T_INT {
+                    return None;
+                }
+                let mut q = 1;
+                Some(unzigzag(read_uvarint(cell, &mut q)?))
+            }
+        }
+    }
 }
 
 const T_NOTHING: u8 = 0;
@@ -1257,6 +2366,12 @@ const T_FLOATS_XOR: u8 = 31; // lossless XOR-delta + varint float array (Gorilla
 const T_INTS_AFFINE: u8 = 32; // closed-form: base + stride*i for all i (3 numbers, no data)
 const T_BIGINT: u8 = 33; // exact out-of-i64 integer: sign byte + length + little-endian magnitude
 const T_RATIONAL: u8 = 34; // exact fraction: signed numerator (sign+len+LE) then positive denominator (len+LE)
+const T_DECIMAL: u8 = 75; // exact base-10 fixed-point (money): sign + coefficient magnitude (len+LE) + base-10 scale (uvarint)
+const T_COMPLEX: u8 = 76; // exact complex re+im·i: two rationals back to back, each as sign + numerator (len+LE) + denominator (len+LE)
+const T_MODULAR: u8 = 77; // ℤ/nℤ element: residue magnitude (len+LE) then modulus magnitude (len+LE), both non-negative
+const T_QUANTITY: u8 = 79; // dimensioned quantity: SI magnitude (sign + num len+LE + den len+LE), 10 exponent (num,den) zigzag-varint pairs, then the unit symbol (len+UTF-8)
+const T_MONEY: u8 = 80; // money: amount as Decimal (sign + coefficient len+LE + base-10 scale uvarint) then the ISO-4217 currency code (len + UTF-8)
+const T_UUID: u8 = 81; // uuid: 16 big-endian bytes verbatim (fixed width, no length prefix)
 // Schema-dictionary forms of a SINGLE struct (cross-message, connection-scoped cache),
 // the lone-struct analog of the T_STRUCTS_* list forms: once both peers know a schema,
 // a struct message ships its values in canonical field order with NO inline field-name
@@ -1279,10 +2394,88 @@ const T_GEN: u8 = 51; // serialized GenExpr + count — a sandboxed pure generat
 const T_FUNC: u8 = 52; // arity + serialized GenExpr — a SHIPPED CALLABLE pure function (the receiver evaluates it in the sandbox)
 const T_BYTES: u8 = 53; // count + raw 1-byte-per-element blob — a byte column; memcpy in/out and readable in place as &[u8] (zero-copy, no alignment)
 const T_STRUCTS_TID: u8 = 54; // shared-registry struct LIST: type-id(varint) + N + columns — type/field NAMES elided (the struct-list analog of T_STRUCT_TID)
+const T_SET_INTS: u8 = 55; // homogeneous int SET: the SORTED-canonical members shipped through the G5 int-column menu (delta/affine/RLE) — a consecutive set {1..n} collapses to base+stride+count, no data
+const T_STRUCTS_FVIEW: u8 = 56; // FIXED-stride record-list view: type + F + names + F kind-bytes + N + [n×stride fixed rows] + blob_len + string blob. Random access = pure arithmetic (no offset tables): the `indexed fast` form — composes the struct-view with the fixed numeric dial.
+const T_SET_STRINGS: u8 = 57; // homogeneous string SET, FRONT-CODED: members sorted to canonical order, each shipped as (shared-prefix-len-with-previous, suffix) — sorted similar strings share long prefixes so only the deltas go on the wire
+const T_MAP_INTKEY: u8 = 58; // INT-KEYED map, COLUMNAR: entries sorted by numeric key → keys as a best int column (G5 menu: affine/delta/RLE) + values as a best-encoded list (reuses the full column menu). An affine int→int map {i↦2i} collapses BOTH columns to closed forms — ~no data. Canonical (insertion-order-invariant).
+const T_STRINGS_DICT: u8 = 59; // DICTIONARY string column (low cardinality / categorical labels): dict-len + distinct strings (len+bytes) once + count + index-width + bit-packed per-row indices. The string twin of T_INTS_DICT — a handful of distinct labels repeated N times ships the labels once.
+
+// Fixed-view field kinds (1 byte each in the schema): the wire width of a cell.
+const FK_INT: u8 = 0; // 8 bytes, raw i64 little-endian (NOT zig-zag — memcpy, like T_INTS_FIXED)
+const FK_FLOAT: u8 = 1; // 8 bytes, f64 little-endian
+const FK_BOOL: u8 = 2; // 1 byte (0/1)
+const FK_TEXT: u8 = 3; // 8 bytes: u32 offset + u32 length, into the trailing string blob
+
+/// The byte width of one fixed-view cell of `kind`.
+fn fview_width(kind: u8) -> usize {
+    match kind {
+        FK_BOOL => 1,
+        _ => 8, // FK_INT / FK_FLOAT / FK_TEXT(ref)
+    }
+}
+
+/// Per-field byte offsets within a fixed-view row, and the row stride (their sum).
+fn fview_layout(kinds: &[u8]) -> (Vec<usize>, usize) {
+    let mut offsets = Vec::with_capacity(kinds.len());
+    let mut cur = 0usize;
+    for &k in kinds {
+        offsets.push(cur);
+        cur += fview_width(k);
+    }
+    (offsets, cur)
+}
+
+/// The fixed-view kind for each column, or `None` if any column is not a fixed-width-encodable
+/// leaf (Int/Float/Bool/Text) — then the caller keeps the variable offset-table view.
+fn columns_fview_kinds(columns: &[ListRepr]) -> Option<Vec<u8>> {
+    let mut kinds = Vec::with_capacity(columns.len());
+    for col in columns {
+        kinds.push(match col {
+            ListRepr::Ints(_) | ListRepr::IntsI32(_) => FK_INT,
+            ListRepr::Floats(_) => FK_FLOAT,
+            ListRepr::Bools(_) => FK_BOOL,
+            ListRepr::Strings { .. } => FK_TEXT,
+            _ => return None,
+        });
+    }
+    Some(kinds)
+}
+
+/// Read one fixed-view cell (`kind` bytes at `cell`) into an owned value; `blob` backs FK_TEXT.
+fn fview_read_cell(kind: u8, cell: &[u8], blob: &[u8]) -> Option<RuntimeValue> {
+    match kind {
+        FK_INT => Some(RuntimeValue::Int(i64::from_le_bytes(cell.get(0..8)?.try_into().ok()?))),
+        FK_FLOAT => Some(RuntimeValue::Float(f64::from_le_bytes(cell.get(0..8)?.try_into().ok()?))),
+        FK_BOOL => Some(RuntimeValue::Bool(*cell.first()? != 0)),
+        FK_TEXT => {
+            let off = u32::from_le_bytes(cell.get(0..4)?.try_into().ok()?) as usize;
+            let len = u32::from_le_bytes(cell.get(4..8)?.try_into().ok()?) as usize;
+            let s = blob.get(off..off.checked_add(len)?)?;
+            Some(RuntimeValue::Text(Rc::new(String::from_utf8(s.to_vec()).ok()?)))
+        }
+        _ => None,
+    }
+}
 // Type-id elided struct: when both ends share a program type registry, ship the type's
 // small registry id + the values only — type/field NAMES never go on the wire (the
 // Logos↔Logos default that beats raw varint). Falls back to T_STRUCT when unknown.
 const T_STRUCT_TID: u8 = 44; // registry-id(varint) + values in canonical field order
+const T_WORD: u8 = 60; // fixed-width wrapping int: width byte (32|64) + uvarint value (zero-extended to u64)
+const T_INTS_GEOMETRIC: u8 = 61; // closed-form: base * ratio^i for all i (3 numbers, no data) — wrapping-exact
+const T_INTS_PERIODIC: u8 = 62; // cyclic: period p + count + one block of p values → pattern[i % p]
+const T_SHARED_DEF: u8 = 63; // dedup: id(uvarint) + the value — registers a shared subtree at `id`
+const T_SHARED_REF: u8 = 64; // dedup: id(uvarint) — a backref to an already-shipped shared subtree
+const T_FLOATS_CONST: u8 = 65; // closed-form: one f64 (8 LE bytes) + count — every element identical
+const T_FLOATS_AFFINE: u8 = 66; // closed-form: base + i·stride (2 f64 + count), BIT-EXACT or not used
+const T_INTS_SPARSE: u8 = 67; // dominant value + count + (delta-index, value) exceptions — sparse/default columns
+const T_FLOATS_SPARSE: u8 = 68; // dominant f64 + count + (delta-index, f64) exceptions — sparse float columns
+const T_FLOATS_PERIODIC: u8 = 69; // cyclic: period p + count + one block of p f64 → pattern[i % p]
+const T_FLOATS_GEOMETRIC: u8 = 70; // closed-form: base * ratio^i (2 f64 + count), BIT-EXACT or not used
+const T_STRINGS_TEMPLATE: u8 = 71; // templated: prefix + suffix + affine(base,stride) + count → prefix+(base+i·stride)+suffix
+const T_STRINGS_FRONT: u8 = 72; // front-coded COLUMN (order-preserving): each string = (shared-prefix-len-with-previous, suffix); sorted/hierarchical columns share long prefixes
+const T_BOOLS_PERIODIC: u8 = 73; // cyclic bool column: period p + count + one p-bit block → block[i % p] (covers const all-true/all-false at p=1, alternating at p=2)
+const T_BOOLS_RLE: u8 = 74; // run-length bool column: first value + run lengths (alternating) → big runs ([F×n, T×m] / clustered flags) collapse to a few varints
+const T_STRINGS_AFFIX: u8 = 78; // common prefix + common suffix + per-row ARBITRARY middle → emails (…@host), extensions (….log), wrapped ids; the non-affine sibling of T_STRINGS_TEMPLATE
 // Type-id elided enum: ship the enum's registry id + the constructor INDEX (into the
 // type's ordered constructor list) + the args — type and constructor names elided.
 const T_INDUCTIVE_TID: u8 = 45; // enum-id(varint) + ctor-index(varint) + arg-count + args
@@ -1363,6 +2556,24 @@ thread_local! {
     static NUMERICS: std::cell::Cell<WireNumerics> = const { std::cell::Cell::new(WireNumerics::Varint) };
     static FLOATS: std::cell::Cell<WireFloats> = const { std::cell::Cell::new(WireFloats::Memcpy) };
     static STRUCTURE: std::cell::Cell<WireStructure> = const { std::cell::Cell::new(WireStructure::Off) };
+    /// When on, EVERY list encodes as the plain, self-describing `T_LIST` (count + per-element
+    /// tagged values) — no columnar string/struct/inductive packing. This is the flat, fastest-to-
+    /// decode form the shared [`logicaffeine_data::wire`] core reads. Off by default so the peer
+    /// codec's columnar wins are untouched; opt-in via [`with_flat_lists`] (used by [`encode_value_raw`]).
+    static FLAT_LISTS: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+
+/// Run `f` with flat (columnar-free) list encoding forced on/off, restoring the prior value.
+pub fn with_flat_lists<T>(on: bool, f: impl FnOnce() -> T) -> T {
+    let prev = FLAT_LISTS.with(|c| c.replace(on));
+    let out = f();
+    FLAT_LISTS.with(|c| c.set(prev));
+    out
+}
+
+#[inline]
+fn flat_lists() -> bool {
+    FLAT_LISTS.with(|c| c.get())
 }
 
 /// Encode integer arrays under `n` for the duration of `f`. Scoped — never leaks.
@@ -1395,215 +2606,9 @@ fn structure() -> WireStructure {
     STRUCTURE.with(std::cell::Cell::get)
 }
 
-/// If `v` is an exact affine progression `v[i] = v[0] + i·stride`, return
-/// `(base, stride)`. Requires ≥2 elements and uses *wrapping* i64 arithmetic, so a
-/// match certifies the reconstruction is bijective across all of i64 (the decoder
-/// replays the identical wrapping ops) — the soundness gate for [`T_INTS_AFFINE`].
-fn detect_affine(v: &[i64]) -> Option<(i64, i64)> {
-    if v.len() < 2 {
-        return None;
-    }
-    let base = v[0];
-    let stride = v[1].wrapping_sub(v[0]);
-    for (i, &x) in v.iter().enumerate() {
-        if base.wrapping_add((i as i64).wrapping_mul(stride)) != x {
-            return None;
-        }
-    }
-    Some((base, stride))
-}
-
-/// The highest polynomial degree the generator detector will fit. Degree 1 is the affine
-/// case; beyond a handful, the finite differences widen toward overflow and the win shrinks.
-const MAX_POLY_DEGREE: usize = 4;
-
-/// Recognize `v` as a polynomial sequence via finite differences: if the k-th differences
-/// are constant (k ≤ [`MAX_POLY_DEGREE`]), it is a degree-k polynomial, and we can ship the
-/// k+1 leading-edge seeds (Δ⁰[0]…Δᵏ[0]) instead of all n values — the GENERATOR, not the
-/// data. Generalizes [`detect_affine`] (degree 1). A difference that overflows i64 bails
-/// (the column falls back to the menu), and the fit is confirmed by exact reconstruction,
-/// so a match certifies a bit-exact decode. Returns `(degree, seeds)`.
-fn detect_poly_generator(v: &[i64]) -> Option<(u8, Vec<i64>)> {
-    if v.len() < 3 {
-        return None; // too short to confirm a pattern (and never a size win)
-    }
-    let mut levels: Vec<Vec<i64>> = Vec::with_capacity(MAX_POLY_DEGREE + 1);
-    levels.push(v.to_vec());
-    for d in 0..MAX_POLY_DEGREE {
-        let prev = &levels[d];
-        if prev.len() < 2 {
-            break;
-        }
-        let mut next = Vec::with_capacity(prev.len() - 1);
-        for w in prev.windows(2) {
-            next.push(w[1].checked_sub(w[0])?); // a difference overflow → fall back to the menu
-        }
-        // A real (non-over-fit) constant level needs ≥2 equal elements.
-        if next.len() >= 2 && next.iter().all(|&x| x == next[0]) {
-            let degree = (d + 1) as u8;
-            let mut seeds: Vec<i64> = levels.iter().map(|lvl| lvl[0]).collect(); // Δ⁰[0]…Δᵈ[0]
-            seeds.push(next[0]); // Δᵈ⁺¹[0]
-            // Confirm bit-exact reconstruction before committing to the generator.
-            if reconstruct_poly(&seeds, v.len()) == v {
-                return Some((degree, seeds));
-            }
-            return None;
-        }
-        levels.push(next);
-    }
-    None
-}
-
-/// Replay a polynomial column from its finite-difference seeds via a difference engine:
-/// emit `diffs[0]`, then propagate `diffs[j] += diffs[j+1]` to advance. Wrapping arithmetic
-/// (matches the detector, so a confirmed fit is exact across all of i64). `n` values out.
-fn reconstruct_poly(seeds: &[i64], n: usize) -> Vec<i64> {
-    let mut diffs = seeds.to_vec();
-    let mut out = Vec::with_capacity(n.min(PREALLOC_CAP));
-    for _ in 0..n {
-        out.push(diffs[0]);
-        for j in 0..diffs.len().saturating_sub(1) {
-            diffs[j] = diffs[j].wrapping_add(diffs[j + 1]);
-        }
-    }
-    out
-}
-
-// ---- C2: the sandboxed generator IR (ship the computation, not the data) --------------
-//
-// `GenExpr` is a restricted, pure, TOTAL expression over the element index `i`. It is the
-// substrate for "ship the computation": the codec SYNTHESIZES it for detectable column
-// shapes, and a user's pure arithmetic function LOWERS to it — so a receiver never runs
-// arbitrary code, only this bounded mini-evaluator. Every op is total (div/mod by zero is
-// 0, wrapping i64 arithmetic), and a malformed/hostile tree is bounded at decode by a node
-// budget + depth cap, so evaluation can never panic, diverge, overflow, or escape.
-
-const MAX_GEN_NODES: u32 = 256; // a hostile/garbage tree is rejected past this many nodes
-const MAX_GEN_DEPTH: u32 = 32; // …or this deep — bounds both decode recursion and eval
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum GenCmp {
-    Eq,
-    Ne,
-    Lt,
-    Le,
-    Gt,
-    Ge,
-}
-
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub enum GenExpr {
-    Index,
-    Const(i64),
-    Add(Box<GenExpr>, Box<GenExpr>),
-    Sub(Box<GenExpr>, Box<GenExpr>),
-    Mul(Box<GenExpr>, Box<GenExpr>),
-    Div(Box<GenExpr>, Box<GenExpr>),
-    Mod(Box<GenExpr>, Box<GenExpr>),
-    Select { op: GenCmp, lhs: Box<GenExpr>, rhs: Box<GenExpr>, then: Box<GenExpr>, els: Box<GenExpr> },
-}
-
-/// Evaluate a generator at index `i`. TOTAL: div/mod by zero is 0; all arithmetic wraps
-/// (so `i64::MIN / -1` is defined, not a panic). Recursion is bounded by the decode-time
-/// depth cap, so this never overflows the stack.
-pub fn gen_eval(e: &GenExpr, i: i64) -> i64 {
-    match e {
-        GenExpr::Index => i,
-        GenExpr::Const(c) => *c,
-        GenExpr::Add(a, b) => gen_eval(a, i).wrapping_add(gen_eval(b, i)),
-        GenExpr::Sub(a, b) => gen_eval(a, i).wrapping_sub(gen_eval(b, i)),
-        GenExpr::Mul(a, b) => gen_eval(a, i).wrapping_mul(gen_eval(b, i)),
-        GenExpr::Div(a, b) => {
-            let d = gen_eval(b, i);
-            if d == 0 { 0 } else { gen_eval(a, i).wrapping_div(d) }
-        }
-        GenExpr::Mod(a, b) => {
-            let d = gen_eval(b, i);
-            if d == 0 { 0 } else { gen_eval(a, i).wrapping_rem(d) }
-        }
-        GenExpr::Select { op, lhs, rhs, then, els } => {
-            let (l, r) = (gen_eval(lhs, i), gen_eval(rhs, i));
-            let c = match op {
-                GenCmp::Eq => l == r,
-                GenCmp::Ne => l != r,
-                GenCmp::Lt => l < r,
-                GenCmp::Le => l <= r,
-                GenCmp::Gt => l > r,
-                GenCmp::Ge => l >= r,
-            };
-            if c { gen_eval(then, i) } else { gen_eval(els, i) }
-        }
-    }
-}
-
-/// Serialize a generator pre-order: a 1-byte node tag, then children (and a zig-zag varint
-/// for `Const`, a compare-op byte for `Select`). Self-delimiting — no lengths needed.
-pub(crate) fn serialize_gen(e: &GenExpr, out: &mut Vec<u8>) {
-    match e {
-        GenExpr::Index => out.push(0),
-        GenExpr::Const(c) => {
-            out.push(1);
-            write_uvarint(zigzag(*c), out);
-        }
-        GenExpr::Add(a, b) => { out.push(2); serialize_gen(a, out); serialize_gen(b, out); }
-        GenExpr::Sub(a, b) => { out.push(3); serialize_gen(a, out); serialize_gen(b, out); }
-        GenExpr::Mul(a, b) => { out.push(4); serialize_gen(a, out); serialize_gen(b, out); }
-        GenExpr::Div(a, b) => { out.push(5); serialize_gen(a, out); serialize_gen(b, out); }
-        GenExpr::Mod(a, b) => { out.push(6); serialize_gen(a, out); serialize_gen(b, out); }
-        GenExpr::Select { op, lhs, rhs, then, els } => {
-            out.push(7);
-            out.push(*op as u8);
-            serialize_gen(lhs, out);
-            serialize_gen(rhs, out);
-            serialize_gen(then, out);
-            serialize_gen(els, out);
-        }
-    }
-}
-
-/// Parse a generator under a node `budget` and `depth` cap — any garbage/hostile tree that
-/// would be too big or too deep returns `None` (never a panic or a huge allocation).
-pub(crate) fn deserialize_gen(buf: &[u8], pos: &mut usize, budget: &mut u32, depth: u32) -> Option<GenExpr> {
-    if depth > MAX_GEN_DEPTH || *budget == 0 {
-        return None;
-    }
-    *budget -= 1;
-    let tag = *buf.get(*pos)?;
-    *pos += 1;
-    Some(match tag {
-        0 => GenExpr::Index,
-        1 => GenExpr::Const(unzigzag(read_uvarint(buf, pos)?)),
-        2..=6 => {
-            let a = Box::new(deserialize_gen(buf, pos, budget, depth + 1)?);
-            let b = Box::new(deserialize_gen(buf, pos, budget, depth + 1)?);
-            match tag {
-                2 => GenExpr::Add(a, b),
-                3 => GenExpr::Sub(a, b),
-                4 => GenExpr::Mul(a, b),
-                5 => GenExpr::Div(a, b),
-                _ => GenExpr::Mod(a, b),
-            }
-        }
-        7 => {
-            let op = match *buf.get(*pos)? {
-                0 => GenCmp::Eq,
-                1 => GenCmp::Ne,
-                2 => GenCmp::Lt,
-                3 => GenCmp::Le,
-                4 => GenCmp::Gt,
-                5 => GenCmp::Ge,
-                _ => return None,
-            };
-            *pos += 1;
-            let lhs = Box::new(deserialize_gen(buf, pos, budget, depth + 1)?);
-            let rhs = Box::new(deserialize_gen(buf, pos, budget, depth + 1)?);
-            let then = Box::new(deserialize_gen(buf, pos, budget, depth + 1)?);
-            let els = Box::new(deserialize_gen(buf, pos, budget, depth + 1)?);
-            GenExpr::Select { op, lhs, rhs, then, els }
-        }
-        _ => return None,
-    })
-}
+/// The longest repeating block the periodic detector will consider. A period beyond this is an
+/// unusual "pattern" whose block barely beats storing the data, and it bounds the search cost.
+const PERIOD_CAP: usize = 512;
 
 /// Lower a pure single-parameter arithmetic expression into a [`GenExpr`] over the index —
 /// the bridge that lets a user's pure function be SHIPPED as the sandboxed generator (it
@@ -1630,41 +2635,6 @@ pub(crate) fn lower_expr_to_genexpr(e: &crate::ast::stmt::Expr<'_>, param: logic
         _ => None,
     }
 }
-
-/// Recognize `v[i] = a + b·(i mod p)` for a small period `p` — a cyclic/sawtooth column the
-/// polynomial detector can't capture — and synthesize the generator. One concrete shape the
-/// codec AUTO-GENERATES beyond polynomials; confirmed by exact check over the whole column.
-fn detect_modular_affine(v: &[i64]) -> Option<GenExpr> {
-    const MAX_PERIOD: usize = 16;
-    if v.len() < 4 {
-        return None;
-    }
-    for p in 2..=MAX_PERIOD.min(v.len() / 2) {
-        let a = v[0];
-        let b = v[1].wrapping_sub(v[0]);
-        if b != 0 && (0..v.len()).all(|i| v[i] == a.wrapping_add(b.wrapping_mul((i % p) as i64))) {
-            return Some(GenExpr::Add(
-                Box::new(GenExpr::Const(a)),
-                Box::new(GenExpr::Mul(
-                    Box::new(GenExpr::Const(b)),
-                    Box::new(GenExpr::Mod(Box::new(GenExpr::Index), Box::new(GenExpr::Const(p as i64)))),
-                )),
-            ));
-        }
-    }
-    None
-}
-
-// ---- The per-column compression menu (WireStructure::Auto) ---------------------------
-//
-// Each encoder appends a complete `T_INTS_*` tag + payload; the selector builds every
-// applicable one plus the plain-varint baseline and keeps the SMALLEST, so the chosen
-// form is never larger than `Off`. The decode arms for these tags live in `native_decode`.
-
-/// A decode cap so a corrupt run-length can't ask for terabytes of output. RLE is the
-/// one form whose output isn't bounded by its input length, so it needs an explicit cap;
-/// every realistic column is far below it.
-const RLE_MAX_TOTAL: usize = 1 << 28;
 
 /// Pack `vals` LSB-first at `width` bits each (1..=64). The inverse of [`bitunpack`].
 fn bitpack(vals: &[u64], width: u8) -> Vec<u8> {
@@ -1720,179 +2690,6 @@ fn bitunpack(bytes: &[u8], count: usize, width: u8) -> Option<Vec<u64>> {
     Some(out)
 }
 
-/// Delta: first value then zig-zag successive differences. Wins on monotone columns.
-fn delta_encode(out: &mut Vec<u8>, v: &[i64]) {
-    out.push(T_INTS_DELTA);
-    write_uvarint(v.len() as u64, out);
-    if let Some(&first) = v.first() {
-        write_uvarint(zigzag(first), out);
-        let mut prev = first;
-        for &x in &v[1..] {
-            write_uvarint(zigzag(x.wrapping_sub(prev)), out);
-            prev = x;
-        }
-    }
-}
-
-/// Delta-of-delta: first value, first delta, then zig-zag second differences. Wins on
-/// near-linear progressions (timestamps with jitter) where the deltas are near-constant.
-fn dod_encode(out: &mut Vec<u8>, v: &[i64]) {
-    out.push(T_INTS_DOD);
-    write_uvarint(v.len() as u64, out);
-    if v.is_empty() {
-        return;
-    }
-    write_uvarint(zigzag(v[0]), out);
-    if v.len() == 1 {
-        return;
-    }
-    let mut prev_delta = v[1].wrapping_sub(v[0]);
-    write_uvarint(zigzag(prev_delta), out);
-    let mut prev = v[1];
-    for &x in &v[2..] {
-        let d = x.wrapping_sub(prev);
-        write_uvarint(zigzag(d.wrapping_sub(prev_delta)), out);
-        prev_delta = d;
-        prev = x;
-    }
-}
-
-/// Frame-of-reference: subtract the column minimum, bit-pack the residuals at the width
-/// of the widest one. Wins on clustered columns (a small range around any base).
-fn for_encode(out: &mut Vec<u8>, v: &[i64]) {
-    out.push(T_INTS_FOR);
-    write_uvarint(v.len() as u64, out);
-    let min = v.iter().copied().min().unwrap_or(0);
-    write_uvarint(zigzag(min), out);
-    if v.is_empty() {
-        out.push(0);
-        return;
-    }
-    let max = v.iter().copied().max().unwrap();
-    let range = (max as u64).wrapping_sub(min as u64);
-    let width = if range == 0 { 0 } else { (64 - range.leading_zeros()) as u8 };
-    out.push(width);
-    if width > 0 {
-        let residuals: Vec<u64> = v.iter().map(|&x| (x as u64).wrapping_sub(min as u64)).collect();
-        out.extend_from_slice(&bitpack(&residuals, width));
-    }
-}
-
-/// Run-length: (value, run-length) pairs. Wins on columns of repeated runs.
-fn rle_encode(out: &mut Vec<u8>, v: &[i64]) {
-    let mut runs: Vec<(i64, u64)> = Vec::new();
-    for &x in v {
-        match runs.last_mut() {
-            Some(last) if last.0 == x => last.1 += 1,
-            _ => runs.push((x, 1)),
-        }
-    }
-    out.push(T_INTS_RLE);
-    write_uvarint(runs.len() as u64, out);
-    for (val, len) in runs {
-        write_uvarint(zigzag(val), out);
-        write_uvarint(len, out);
-    }
-}
-
-/// Dictionary: distinct values (first-seen order) then a bit-packed index column. Wins
-/// on low-cardinality columns (few distinct values, many repeats).
-fn dict_encode(v: &[i64]) -> Vec<u8> {
-    let mut dict: Vec<i64> = Vec::new();
-    let mut index_of: std::collections::HashMap<i64, u64> = std::collections::HashMap::new();
-    let mut indices: Vec<u64> = Vec::with_capacity(v.len());
-    for &x in v {
-        let idx = *index_of.entry(x).or_insert_with(|| {
-            dict.push(x);
-            (dict.len() - 1) as u64
-        });
-        indices.push(idx);
-    }
-    let mut out = vec![T_INTS_DICT];
-    write_uvarint(dict.len() as u64, &mut out);
-    for &d in &dict {
-        write_uvarint(zigzag(d), &mut out);
-    }
-    write_uvarint(v.len() as u64, &mut out);
-    let iw = if dict.len() <= 1 { 0 } else { (64 - ((dict.len() - 1) as u64).leading_zeros()) as u8 };
-    out.push(iw);
-    if iw > 0 {
-        out.extend_from_slice(&bitpack(&indices, iw));
-    }
-    out
-}
-
-/// Keep `cand` if it is smaller than the current `best`.
-fn consider(best: &mut Vec<u8>, cand: Vec<u8>) {
-    if cand.len() < best.len() {
-        *best = cand;
-    }
-}
-
-/// Build every applicable column encoding and emit the smallest. The plain-varint
-/// baseline is always a candidate, so the result is never larger than `Off`'s varint.
-fn emit_best_int_column(v: &[i64], out: &mut Vec<u8>) {
-    let mut best = Vec::new();
-    best.push(T_INTS);
-    leb128_encode(&mut best, v.iter().copied(), v.len());
-
-    if let Some((base, stride)) = detect_affine(v) {
-        let mut c = vec![T_INTS_AFFINE];
-        write_uvarint(zigzag(base), &mut c);
-        write_uvarint(zigzag(stride), &mut c);
-        write_uvarint(v.len() as u64, &mut c);
-        consider(&mut best, c);
-    }
-    // Ship the GENERATOR, not the data: a polynomial column (degree ≤ 4) becomes its
-    // finite-difference seeds — a handful of numbers regardless of n.
-    if let Some((degree, seeds)) = detect_poly_generator(v) {
-        let mut c = vec![T_INTS_POLY, degree];
-        write_uvarint(v.len() as u64, &mut c);
-        for &s in &seeds {
-            write_uvarint(zigzag(s), &mut c);
-        }
-        consider(&mut best, c);
-    }
-    // The general generator form: a cyclic/sawtooth column ships a sandboxed `GenExpr`.
-    if let Some(expr) = detect_modular_affine(v) {
-        let mut c = vec![T_GEN];
-        serialize_gen(&expr, &mut c);
-        write_uvarint(v.len() as u64, &mut c);
-        consider(&mut best, c);
-    }
-    let mut delta = Vec::new();
-    delta_encode(&mut delta, v);
-    consider(&mut best, delta);
-
-    let mut dod = Vec::new();
-    dod_encode(&mut dod, v);
-    consider(&mut best, dod);
-
-    // A byte column (every value fits in a u8) ships as a raw 1-byte-per-element blob — the
-    // tight memcpy form AND the only one a `WireView` reads in place as `&[u8]` (no decode,
-    // no alignment). Considered BEFORE `for_encode`, so on a size tie with FOR's 8-bit
-    // packing the byte blob wins (memcpy + zero-copy); a NARROW range still picks FOR's
-    // sub-byte packing when it is strictly smaller.
-    if !v.is_empty() && v.iter().all(|&x| (0..256).contains(&x)) {
-        let mut b = vec![T_BYTES];
-        write_uvarint(v.len() as u64, &mut b);
-        b.extend(v.iter().map(|&x| x as u8));
-        consider(&mut best, b);
-    }
-
-    let mut for_c = Vec::new();
-    for_encode(&mut for_c, v);
-    consider(&mut best, for_c);
-
-    let mut rle = Vec::new();
-    rle_encode(&mut rle, v);
-    consider(&mut best, rle);
-
-    consider(&mut best, dict_encode(v));
-
-    out.extend_from_slice(&best);
-}
-
 /// Encode float arrays under `mode` for the duration of `f`. Scoped — never leaks.
 pub fn with_floats<T>(mode: WireFloats, f: impl FnOnce() -> T) -> T {
     let prev = FLOATS.with(|c| c.replace(mode));
@@ -1903,6 +2700,113 @@ pub fn with_floats<T>(mode: WireFloats, f: impl FnOnce() -> T) -> T {
 
 fn floats_mode() -> WireFloats {
     FLOATS.with(std::cell::Cell::get)
+}
+
+/// If every element is BIT-IDENTICAL (compared by `to_bits`, so `-0.0`/`+0.0`/`NaN` are exact, not
+/// `==`), return its bit pattern — the column ships as one f64 + a count (constant readings, padding,
+/// defaults). `None` for an empty or non-constant column.
+fn detect_float_const(v: &[f64]) -> Option<u64> {
+    let bits = v.first()?.to_bits();
+    v.iter().all(|x| x.to_bits() == bits).then_some(bits)
+}
+
+/// If `v` is BIT-EXACTLY the closed form `base + i·stride` evaluated the SAME way the decoder will,
+/// return `(base, stride)` — so it ships THREE numbers, not `n`. The bit-exact check (never `==`) means
+/// it fires only when reconstruction is perfect: integer-valued float columns (ids/indices from JSON,
+/// `0.0,1.0,2.0,…`), power-of-two-stride axes, exact linspace. Real noisy float data simply isn't
+/// recognized and falls through to XOR-delta / memcpy — so the generator is a pure, lossless win.
+fn detect_float_affine(v: &[f64]) -> Option<(f64, f64)> {
+    if v.len() < 3 {
+        return None;
+    }
+    let base = v[0];
+    let stride = v[1] - v[0];
+    for (i, &x) in v.iter().enumerate() {
+        if (base + (i as f64) * stride).to_bits() != x.to_bits() {
+            return None;
+        }
+    }
+    Some((base, stride))
+}
+
+/// The float twin of [`detect_sparse`]: if ONE f64 (by bit pattern) dominates ≥ ¾ of the column,
+/// return its bits and the sorted `(index, value)` exceptions — a mostly-default/constant-with-
+/// outliers float column (sparse telemetry, a mostly-zero signal). Boyer–Moore over `to_bits`, so a
+/// column with no dominant value pays only the O(1)-memory pass.
+fn detect_float_sparse(v: &[f64]) -> Option<(u64, Vec<(usize, u64)>)> {
+    if v.len() < 8 {
+        return None;
+    }
+    let mut cand = v[0].to_bits();
+    let mut count: i64 = 0;
+    for x in v {
+        let b = x.to_bits();
+        if count == 0 {
+            cand = b;
+            count = 1;
+        } else if b == cand {
+            count += 1;
+        } else {
+            count -= 1;
+        }
+    }
+    let occ = v.iter().filter(|x| x.to_bits() == cand).count();
+    if v.len() - occ > v.len() / 4 {
+        return None;
+    }
+    let exceptions: Vec<(usize, u64)> = v
+        .iter()
+        .enumerate()
+        .filter(|(_, x)| x.to_bits() != cand)
+        .map(|(i, x)| (i, x.to_bits()))
+        .collect();
+    Some((cand, exceptions))
+}
+
+/// The float twin of [`detect_period`]: the minimal period `2 ≤ p ≤ min(len/2, PERIOD_CAP)` such that
+/// `v[i]` BIT-equals `v[i % p]` (a cyclic waveform / repeated frame). Pure bit-equality, so always
+/// exact — ship one block of `p` f64 + the count, not all `n`.
+fn detect_float_period(v: &[f64]) -> Option<usize> {
+    let n = v.len();
+    if n < 4 {
+        return None;
+    }
+    let cap = (n / 2).min(PERIOD_CAP);
+    'p: for p in 2..=cap {
+        for i in p..n {
+            if v[i].to_bits() != v[i - p].to_bits() {
+                continue 'p;
+            }
+        }
+        return Some(p);
+    }
+    None
+}
+
+/// The float twin of [`detect_geometric`]: if `v` is BIT-EXACTLY `base · ratio^i` replayed by the same
+/// `cur *= ratio` accumulation the decoder uses, return `(base, ratio)`. Float multiply rounds, so this
+/// fires only when reconstruction is perfect — power-of-two ratios (doubling, halving / exponential
+/// decay), which ARE exact in f64. Everything else falls through, so it is a pure lossless win.
+fn detect_float_geometric(v: &[f64]) -> Option<(f64, f64)> {
+    if v.len() < 3 {
+        return None;
+    }
+    let base = v[0];
+    if base == 0.0 || !base.is_finite() {
+        return None;
+    }
+    let ratio = v[1] / base;
+    if !ratio.is_finite() || ratio == 1.0 {
+        return None; // ratio 1 → constant, handled by `detect_float_const`
+    }
+    let mut cur = base;
+    for &x in v {
+        if cur.to_bits() != x.to_bits() {
+            return None;
+        }
+        cur *= ratio;
+    }
+    Some((base, ratio))
 }
 
 /// XOR-delta encode a float column: count, then the LEB128 varint of each value's
@@ -2046,6 +2950,18 @@ fn compress_body(codec: WireCompression, body: &[u8]) -> Option<(WireCompression
             }
         }
     }
+}
+
+/// The smallest `body` compresses to across the built-in compressors (deflate / lz4 / zstd), or its
+/// raw length when none helps — the "fair fight" size for an arbitrary byte string. This is the same
+/// shop-every-compressor rule [`message_to_wire_best`]'s `Smallest` goal applies to the LOGOS wire,
+/// exposed so a benchmark can grant a COMPETITOR codec the identical compression opportunity: then a
+/// size comparison is compressed-vs-compressed (fair), not compressed-LOGOS-vs-raw-competitor.
+pub fn best_compressed_len(body: &[u8]) -> usize {
+    [WireCompression::Deflate, WireCompression::Lz4, WireCompression::Zstd]
+        .into_iter()
+        .filter_map(|c| compress_body(c, body).map(|(_, z)| z.len()))
+        .fold(body.len(), usize::min)
 }
 
 /// Inflate `body` that was compressed with `codec`. `None` on any malformed input.
@@ -2323,6 +3239,318 @@ fn read_str(buf: &[u8], pos: &mut usize) -> Option<String> {
 
 /// Write a flat string array: count, each element's byte length (varint, derived
 /// from the cumulative `ends`), then the whole bytes blob in one copy.
+/// Dictionary-encode a string column (`T_STRINGS_DICT`): each distinct string is shipped once,
+/// then a bit-packed per-row index into that dictionary — the string twin of [`dict_encode`].
+/// A win exactly when cardinality is low (categorical labels); `emit_best_string_column` keeps
+/// it only if it beats the plain flat array, so it is never larger.
+fn dict_encode_strings(data: &[u8], ends: &[u32]) -> Vec<u8> {
+    let n = ends.len();
+    let mut dict: Vec<&[u8]> = Vec::new();
+    let mut index_of: std::collections::HashMap<&[u8], u64> = std::collections::HashMap::new();
+    let mut indices: Vec<u64> = Vec::with_capacity(n);
+    let mut prev = 0u32;
+    for &e in ends {
+        let s = &data[prev as usize..e as usize];
+        prev = e;
+        let idx = *index_of.entry(s).or_insert_with(|| {
+            dict.push(s);
+            (dict.len() - 1) as u64
+        });
+        indices.push(idx);
+    }
+    let mut out = vec![T_STRINGS_DICT];
+    write_uvarint(dict.len() as u64, &mut out);
+    for d in &dict {
+        write_uvarint(d.len() as u64, &mut out);
+        out.extend_from_slice(d);
+    }
+    write_uvarint(n as u64, &mut out);
+    let iw = if dict.len() <= 1 { 0 } else { (64 - ((dict.len() - 1) as u64).leading_zeros()) as u8 };
+    out.push(iw);
+    if iw > 0 {
+        out.extend_from_slice(&bitpack(&indices, iw));
+    }
+    out
+}
+
+/// Emit the smaller of the plain flat string array and the dictionary form. The flat array is
+/// always a candidate, so the result is never larger than `T_STRINGS`.
+/// The `(start, end)` byte range of each string in a flat `data`/`ends` column.
+fn string_slices<'a>(data: &'a [u8], ends: &[u32]) -> Vec<&'a [u8]> {
+    let mut out = Vec::with_capacity(ends.len());
+    let mut prev = 0usize;
+    for &e in ends {
+        out.push(&data[prev..e as usize]);
+        prev = e as usize;
+    }
+    out
+}
+
+/// If every string is `<prefix><n><suffix>` for a common `prefix`/`suffix` and an AFFINE sequence of
+/// integers `n = base + i·stride` whose EXACT decimal spelling is the middle (so reconstruction is
+/// byte-perfect — no zero-padding / `+` quirks), return the templated encoding: the two affixes once +
+/// `(base, stride, count)`. Sequential-id URLs / paths / labels (`item_0…item_999`, `…/items/0…`)
+/// collapse from O(n) to a handful of bytes — the string twin of the affine int generator.
+fn try_template_encode(data: &[u8], ends: &[u32]) -> Option<Vec<u8>> {
+    let n = ends.len();
+    if n < 3 {
+        return None;
+    }
+    let strs = string_slices(data, ends);
+    let first = strs[0];
+    // Common prefix (byte-wise).
+    let mut prefix_len = first.len();
+    for s in &strs[1..] {
+        let lim = prefix_len.min(s.len());
+        let mut i = 0;
+        while i < lim && first[i] == s[i] {
+            i += 1;
+        }
+        prefix_len = i;
+    }
+    // Common suffix of the PREFIX-STRIPPED remainders (so prefix and suffix never overlap).
+    let mut suffix_len = first.len() - prefix_len;
+    for s in &strs[1..] {
+        let lim = suffix_len.min(s.len() - prefix_len);
+        let mut i = 0;
+        while i < lim && first[first.len() - 1 - i] == s[s.len() - 1 - i] {
+            i += 1;
+        }
+        suffix_len = i;
+    }
+    // Parse each middle as an i64 whose canonical decimal spelling is exactly the middle bytes.
+    let mut nums = Vec::with_capacity(n);
+    for s in &strs {
+        let mid = &s[prefix_len..s.len() - suffix_len];
+        let mid_str = std::str::from_utf8(mid).ok()?;
+        let num: i64 = mid_str.parse().ok()?;
+        if num.to_string().as_bytes() != mid {
+            return None;
+        }
+        nums.push(num);
+    }
+    let (base, stride) = detect_affine(&nums)?;
+    let mut c = vec![T_STRINGS_TEMPLATE];
+    write_uvarint(prefix_len as u64, &mut c);
+    c.extend_from_slice(&first[..prefix_len]);
+    write_uvarint(suffix_len as u64, &mut c);
+    c.extend_from_slice(&first[first.len() - suffix_len..]);
+    write_uvarint(zigzag(base), &mut c);
+    write_uvarint(zigzag(stride), &mut c);
+    write_uvarint(n as u64, &mut c);
+    Some(c)
+}
+
+/// Front-code the column IN ORDER: each string ships `(shared-prefix-len-with-the-previous, suffix)`.
+/// Sorted or hierarchical columns — file paths, object-store keys, zero-padded ids, sorted labels —
+/// have adjacent strings that share long prefixes, so only the per-row delta goes on the wire. Order
+/// is preserved (a column, not a set), so it round-trips a column the dictionary can't crush (all
+/// strings distinct) and the template can't (non-affine / zero-padded middles). When no two adjacent
+/// strings share a prefix it costs ~1 extra byte per row over flat — `emit_best_string_column`'s
+/// `consider` then keeps the flat form, so this is never a loss.
+fn front_code_strings(data: &[u8], ends: &[u32]) -> Vec<u8> {
+    let strs = string_slices(data, ends);
+    let mut out = vec![T_STRINGS_FRONT];
+    write_uvarint(strs.len() as u64, &mut out);
+    let mut prev: &[u8] = &[];
+    for s in &strs {
+        let lim = prev.len().min(s.len());
+        let mut common = 0usize;
+        while common < lim && prev[common] == s[common] {
+            common += 1;
+        }
+        // Back off to a UTF-8 char boundary so the shipped suffix is itself valid UTF-8.
+        while common > 0 && common < s.len() && (s[common] & 0xC0) == 0x80 {
+            common -= 1;
+        }
+        write_uvarint(common as u64, &mut out);
+        write_uvarint((s.len() - common) as u64, &mut out);
+        out.extend_from_slice(&s[common..]);
+        prev = s;
+    }
+    out
+}
+
+/// The bit-packed bool baseline: `T_BOOLS` + count + 8 booleans per byte (LSB-first).
+fn bool_bitpack(v: &[bool], out: &mut Vec<u8>) {
+    out.push(T_BOOLS);
+    write_uvarint(v.len() as u64, out);
+    let mut cur = 0u8;
+    let mut nbits = 0u8;
+    for &b in v {
+        cur |= u8::from(b) << nbits;
+        nbits += 1;
+        if nbits == 8 {
+            out.push(cur);
+            cur = 0;
+            nbits = 0;
+        }
+    }
+    if nbits > 0 {
+        out.push(cur);
+    }
+}
+
+/// Bound on the cyclic period a bool column is probed for — small, since real bool cycles are tiny
+/// (1 = constant, 2 = alternating, 7 = a weekly flag); a 256-bit block is still only 32 bytes.
+const BOOL_PERIOD_CAP: usize = 256;
+
+/// The MINIMAL period `1 ≤ p ≤ n/2` such that `v[i] == v[i-p]` everywhere (so the column is exactly
+/// `block[i % p]`). `p == 1` is a constant column (all-true / all-false); `p == 2` is alternating.
+fn detect_bool_period(v: &[bool]) -> Option<usize> {
+    let n = v.len();
+    let cap = (n / 2).min(BOOL_PERIOD_CAP);
+    'p: for p in 1..=cap {
+        for i in p..n {
+            if v[i] != v[i - p] {
+                continue 'p;
+            }
+        }
+        return Some(p);
+    }
+    None
+}
+
+/// Ship `period p + count + one p-bit block`; the decoder replays `block[i % p]`.
+fn bool_periodic_encode(v: &[bool], p: usize) -> Vec<u8> {
+    let mut c = vec![T_BOOLS_PERIODIC];
+    write_uvarint(p as u64, &mut c);
+    write_uvarint(v.len() as u64, &mut c);
+    let mut cur = 0u8;
+    let mut nbits = 0u8;
+    for &b in &v[..p] {
+        cur |= u8::from(b) << nbits;
+        nbits += 1;
+        if nbits == 8 {
+            c.push(cur);
+            cur = 0;
+            nbits = 0;
+        }
+    }
+    if nbits > 0 {
+        c.push(cur);
+    }
+    c
+}
+
+/// Ship `first value + the run lengths` (runs alternate). One big run, or a handful of clustered
+/// flips, collapses to a few varints; a high-flip column makes this larger than bit-pack, and
+/// `emit_best_bool_column`'s `consider` then keeps the bit-packed form.
+fn bool_rle_encode(v: &[bool]) -> Vec<u8> {
+    let mut c = vec![T_BOOLS_RLE];
+    write_uvarint(v.len() as u64, &mut c);
+    if v.is_empty() {
+        c.push(0); // `first` placeholder so the frame layout matches the decoder (bit-pack wins anyway)
+        write_uvarint(0, &mut c);
+        return c;
+    }
+    c.push(v[0] as u8);
+    let mut runs: Vec<u64> = Vec::new();
+    let mut cur = v[0];
+    let mut len = 0u64;
+    for &b in v {
+        if b == cur {
+            len += 1;
+        } else {
+            runs.push(len);
+            cur = b;
+            len = 1;
+        }
+    }
+    runs.push(len);
+    write_uvarint(runs.len() as u64, &mut c);
+    for r in runs {
+        write_uvarint(r, &mut c);
+    }
+    c
+}
+
+fn emit_best_bool_column(v: &[bool], out: &mut Vec<u8>) {
+    let mut best = Vec::new();
+    bool_bitpack(v, &mut best);
+    if let Some(p) = detect_bool_period(v) {
+        consider(&mut best, bool_periodic_encode(v, p));
+    }
+    consider(&mut best, bool_rle_encode(v));
+    out.extend_from_slice(&best);
+}
+
+/// The longest common BYTE prefix and the longest common BYTE suffix (of the prefix-stripped
+/// remainders, so they never overlap) shared by EVERY string, each clamped back to a UTF-8 char
+/// boundary. Shared by the affix and template encoders.
+fn common_affix_lens(strs: &[&[u8]]) -> (usize, usize) {
+    let first = strs[0];
+    let mut prefix_len = first.len();
+    for s in &strs[1..] {
+        let lim = prefix_len.min(s.len());
+        let mut i = 0;
+        while i < lim && first[i] == s[i] {
+            i += 1;
+        }
+        prefix_len = i;
+    }
+    while prefix_len > 0 && prefix_len < first.len() && (first[prefix_len] & 0xC0) == 0x80 {
+        prefix_len -= 1;
+    }
+    let mut suffix_len = first.len() - prefix_len;
+    for s in &strs[1..] {
+        let lim = suffix_len.min(s.len() - prefix_len);
+        let mut i = 0;
+        while i < lim && first[first.len() - 1 - i] == s[s.len() - 1 - i] {
+            i += 1;
+        }
+        suffix_len = i;
+    }
+    while suffix_len > 0 && (first[first.len() - suffix_len] & 0xC0) == 0x80 {
+        suffix_len -= 1;
+    }
+    (prefix_len, suffix_len)
+}
+
+/// If every string is `<prefix><middle><suffix>` for a common `prefix`/`suffix` (ARBITRARY middles —
+/// no affine constraint), ship the two affixes ONCE + each middle. Catches the column the dictionary
+/// can't (all distinct), the template can't (non-affine middles), and front-coding can't (the shared
+/// part is a SUFFIX): emails `…@example.com`, files `…​.log`, wrapped ids `v…​.json`. Worthwhile only
+/// when there's a shared affix; `consider` keeps the flat form otherwise.
+fn try_affix_encode(data: &[u8], ends: &[u32]) -> Option<Vec<u8>> {
+    let n = ends.len();
+    if n < 2 {
+        return None;
+    }
+    let strs = string_slices(data, ends);
+    let (prefix_len, suffix_len) = common_affix_lens(&strs);
+    if prefix_len + suffix_len == 0 {
+        return None;
+    }
+    let first = strs[0];
+    let mut c = vec![T_STRINGS_AFFIX];
+    write_uvarint(prefix_len as u64, &mut c);
+    c.extend_from_slice(&first[..prefix_len]);
+    write_uvarint(suffix_len as u64, &mut c);
+    c.extend_from_slice(&first[first.len() - suffix_len..]);
+    write_uvarint(n as u64, &mut c);
+    for s in &strs {
+        let mid = &s[prefix_len..s.len() - suffix_len];
+        write_uvarint(mid.len() as u64, &mut c);
+        c.extend_from_slice(mid);
+    }
+    Some(c)
+}
+
+fn emit_best_string_column(data: &[u8], ends: &[u32], out: &mut Vec<u8>) {
+    let mut best = Vec::new();
+    write_string_array_from_ends(&mut best, data, ends);
+    consider(&mut best, dict_encode_strings(data, ends));
+    consider(&mut best, front_code_strings(data, ends));
+    if let Some(tpl) = try_template_encode(data, ends) {
+        consider(&mut best, tpl);
+    }
+    if let Some(affix) = try_affix_encode(data, ends) {
+        consider(&mut best, affix);
+    }
+    out.extend_from_slice(&best);
+}
+
 fn write_string_array_from_ends(out: &mut Vec<u8>, data: &[u8], ends: &[u32]) {
     out.push(T_STRINGS);
     write_uvarint(ends.len() as u64, out);
@@ -2333,7 +3561,6 @@ fn write_string_array_from_ends(out: &mut Vec<u8>, data: &[u8], ends: &[u32]) {
     }
     out.extend_from_slice(data);
 }
-
 
 /// If `v` is a non-empty run of structs that all share one `type_name` and the
 /// same field-name set, return `(type_name, sorted_field_names)` — the schema for a
@@ -2363,7 +3590,6 @@ fn struct_schema(v: &[RuntimeValue]) -> Option<(String, Vec<String>)> {
     }
     Some((first.type_name.clone(), names))
 }
-
 
 /// Emit a homogeneous struct list: the schema (type name + field names) followed by
 /// `encode_columns`. With no schema cache active it is the self-describing `T_STRUCTS`
@@ -2474,6 +3700,132 @@ fn emit_structs_view(
     Ok(())
 }
 
+/// The columnar fast path for [`emit_structs_view`]: writes each (row, field) cell straight
+/// from the typed column instead of materializing a `RuntimeValue` per cell (the boxed `get`
+/// allocates a fresh `Rc<String>` for every text cell — the dominant cost on record lists).
+/// Byte-identical to `emit_structs_view` for the same logical data.
+fn emit_structs_view_columnar(
+    type_name: &str,
+    field_names: &[String],
+    columns: &[ListRepr],
+    out: &mut Vec<u8>,
+) -> Result<(), String> {
+    let f = field_names.len();
+    let n = columns.first().map_or(0, |c| c.len());
+    out.push(T_STRUCTS_VIEW);
+    write_str(type_name, out);
+    write_uvarint(f as u64, out);
+    for name in field_names {
+        write_str(name, out);
+    }
+    write_uvarint(n as u64, out);
+    let row_table_pos = out.len();
+    out.resize(row_table_pos + n * 4, 0);
+    let rows_start = out.len();
+    let mut row_offsets: Vec<u32> = Vec::with_capacity(n);
+    let mut field_offsets: Vec<u32> = Vec::with_capacity(f);
+    for r in 0..n {
+        row_offsets.push((out.len() - rows_start) as u32);
+        let field_table_pos = out.len();
+        out.resize(field_table_pos + f * 4, 0);
+        let values_start = out.len();
+        field_offsets.clear();
+        for col in columns {
+            field_offsets.push((out.len() - values_start) as u32);
+            write_view_cell(col, r, out)?;
+        }
+        for (i, off) in field_offsets.iter().enumerate() {
+            out[field_table_pos + i * 4..field_table_pos + i * 4 + 4].copy_from_slice(&off.to_le_bytes());
+        }
+    }
+    for (i, off) in row_offsets.iter().enumerate() {
+        out[row_table_pos + i * 4..row_table_pos + i * 4 + 4].copy_from_slice(&off.to_le_bytes());
+    }
+    Ok(())
+}
+
+/// Write one struct-view cell straight from its typed column, matching `native_encode`'s
+/// tagged bytes exactly. Uncommon column types fall back to materialize-then-encode.
+fn write_view_cell(col: &ListRepr, row: usize, out: &mut Vec<u8>) -> Result<(), String> {
+    match col {
+        ListRepr::Ints(v) => {
+            out.push(T_INT);
+            write_uvarint(zigzag(v[row]), out);
+        }
+        ListRepr::IntsI32(v) => {
+            out.push(T_INT);
+            write_uvarint(zigzag(v[row] as i64), out);
+        }
+        ListRepr::Floats(v) => {
+            out.push(T_FLOAT);
+            out.extend_from_slice(&v[row].to_le_bytes());
+        }
+        ListRepr::Bools(v) => out.push(if v[row] { T_TRUE } else { T_FALSE }),
+        ListRepr::Strings { data, ends, .. } => {
+            let start = if row == 0 { 0 } else { ends[row - 1] as usize };
+            let end = ends[row] as usize;
+            let s = &data[start..end];
+            out.push(T_TEXT);
+            write_uvarint(s.len() as u64, out);
+            out.extend_from_slice(s);
+        }
+        other => native_encode(&other.get(row).ok_or("struct-view column row out of bounds")?, out)?,
+    }
+    Ok(())
+}
+
+/// Encode a record list as a FIXED-stride view (`T_STRUCTS_FVIEW`): every row is the same width
+/// (Int/Float = 8 B raw, Bool = 1 B, Text = an 8 B (offset,len) into a trailing string blob), so a
+/// reader reaches any (row, field) by ARITHMETIC — no row/field offset tables at all. Smaller than
+/// the variable view and a near-memcpy encode, while still O(1) random-access. The `indexed fast`
+/// form: the struct-view composed with the fixed numeric dial. `None` (out untouched) if any column
+/// is not a fixed-width leaf, so the caller falls back to the variable offset-table view.
+fn emit_structs_view_fixed(
+    type_name: &str,
+    field_names: &[String],
+    columns: &[ListRepr],
+    out: &mut Vec<u8>,
+) -> Option<()> {
+    let kinds = columns_fview_kinds(columns)?; // checked BEFORE any write — out stays clean on None
+    let f = field_names.len();
+    let n = columns.first().map_or(0, |c| c.len());
+    let (_, stride) = fview_layout(&kinds);
+    out.push(T_STRUCTS_FVIEW);
+    write_str(type_name, out);
+    write_uvarint(f as u64, out);
+    for name in field_names {
+        write_str(name, out);
+    }
+    out.extend_from_slice(&kinds);
+    write_uvarint(n as u64, out);
+    out.reserve(n.saturating_mul(stride));
+    let mut blob: Vec<u8> = Vec::new();
+    for r in 0..n {
+        for col in columns {
+            match col {
+                ListRepr::Ints(v) => out.extend_from_slice(&v[r].to_le_bytes()),
+                ListRepr::IntsI32(v) => out.extend_from_slice(&(v[r] as i64).to_le_bytes()),
+                ListRepr::Floats(v) => out.extend_from_slice(&v[r].to_le_bytes()),
+                ListRepr::Bools(v) => out.push(v[r] as u8),
+                ListRepr::Strings { data, ends, .. } => {
+                    let start = if r == 0 { 0 } else { ends[r - 1] as usize };
+                    let end = ends[r] as usize;
+                    let off = blob.len() as u32;
+                    let len = (end - start) as u32;
+                    blob.extend_from_slice(&data[start..end]);
+                    out.extend_from_slice(&off.to_le_bytes());
+                    out.extend_from_slice(&len.to_le_bytes());
+                }
+                // `columns_fview_kinds` already proved every column is one of the above.
+                _ => unreachable!("non-fixed-viewable column passed the kind check"),
+            }
+        }
+    }
+    write_uvarint(blob.len() as u64, out);
+    out.extend_from_slice(&blob);
+    Some(())
+}
+
 /// Emit an 8-byte-aligned i64 column (`T_INTS_ALIGNED`) the receiver reads as `&[i64]` with no
 /// copy. The pad lands the blob's body offset ≡ 7 mod 8 → ≡ 0 mod 8 once the (≡ 1 mod 8) frame
 /// header is prepended, so the slice cast is sound. Shared by the `RuntimeValue` encode path and
@@ -2578,6 +3930,18 @@ pub fn build_columnar_record(from: &str, type_name: &str, fields: &[(&str, WireC
 /// `RuntimeValue::List` arm and, recursively, by struct columns.
 fn encode_list_repr(repr: &ListRepr, out: &mut Vec<u8>) -> Result<(), String> {
     let _depth = DepthGuard::enter()?;
+    // Flat mode: one uniform, columnar-free `T_LIST` regardless of the in-memory repr — the
+    // format the shared wire core decodes. Every element is a fully tagged value, so a native
+    // decoder needs no columnar/string/struct/inductive special cases.
+    if flat_lists() {
+        let values = repr.to_values();
+        out.push(T_LIST);
+        write_uvarint(values.len() as u64, out);
+        for x in &values {
+            native_encode(x, out)?;
+        }
+        return Ok(());
+    }
     match repr {
         // Integer arrays dispatch on the sender's numeric strategy; each lands on its
         // own tag, so the decoder reconstructs it regardless. First, if structural
@@ -2646,18 +4010,94 @@ fn encode_list_repr(repr: &ListRepr, out: &mut Vec<u8>) -> Result<(), String> {
                 emit_aligned_f64(v, out);
                 return Ok(());
             }
-            // In `XorDelta` mode, try the lossless XOR-delta codec and keep it only if
-            // it actually shrank the column (so it never grows a message); otherwise
-            // (and by default) the column is a single `memcpy` of the raw LE bytes.
-            if floats_mode() == WireFloats::XorDelta {
-                let mut xor = Vec::with_capacity(v.len() + 2);
-                floats_xor_encode(&mut xor, v);
-                // Both forms carry a 1-byte tag; compare their bodies exactly so the
-                // XOR column is kept ONLY when it is genuinely smaller (even at huge
-                // counts where the length varint widens).
-                if xor.len() < floats_memcpy_body_len(v.len()) {
-                    out.push(T_FLOATS_XOR);
-                    out.extend_from_slice(&xor);
+            // The float dial is decided AHEAD OF TIME: under `Off` this path is a pure memcpy and
+            // never inspects the data (the lightning-quick, know-the-shape-beforehand hot path). The
+            // closed-form generators and the shrinking menu below run ONLY when the caller opts into
+            // structural analysis (`Affine`/`Auto`) — mirroring the integer contract exactly.
+            let st = structure();
+            // Ship the GENERATOR, not the data — the float twin of the int closed-forms. A constant
+            // column is one f64 + count; a bit-exact `base + i·stride` column is three numbers. Both
+            // are LOSSLESS (constant by `to_bits`, affine verified bit-exact), so they only ever fire
+            // when reconstruction is perfect, and they are always smaller than the n×8 raw form.
+            if matches!(st, WireStructure::Affine | WireStructure::Auto) {
+                if let Some(bits) = detect_float_const(v) {
+                    out.push(T_FLOATS_CONST);
+                    out.extend_from_slice(&bits.to_le_bytes());
+                    write_uvarint(v.len() as u64, out);
+                    return Ok(());
+                }
+                if let Some((base, stride)) = detect_float_affine(v) {
+                    out.push(T_FLOATS_AFFINE);
+                    out.extend_from_slice(&base.to_le_bytes());
+                    out.extend_from_slice(&stride.to_le_bytes());
+                    write_uvarint(v.len() as u64, out);
+                    return Ok(());
+                }
+            }
+            // The `Auto` size-shrinking menu: a sparse / mostly-one-value column ships its dominant
+            // value + outliers; a `base·ratioⁱ` or a cyclic `pattern[i % p]` column ships the
+            // generator, not the samples. Each is an O(n) scan, so it runs ONLY under `Auto` — the
+            // default path never pays for it. Every candidate is kept only when genuinely smaller
+            // than the raw `memcpy` floor. XOR-delta is the separate `WireFloats::XorDelta` DIAL
+            // (independent of structure), so it is tried whenever that dial is selected.
+            let sparse: Option<Vec<u8>> = if st == WireStructure::Auto {
+                detect_float_sparse(v).map(|(dom, exc)| {
+                    let mut c = vec![T_FLOATS_SPARSE];
+                    c.extend_from_slice(&dom.to_le_bytes());
+                    write_uvarint(v.len() as u64, &mut c);
+                    write_uvarint(exc.len() as u64, &mut c);
+                    let mut prev = 0usize;
+                    for (i, bits) in &exc {
+                        write_uvarint((i - prev) as u64, &mut c);
+                        prev = *i;
+                        c.extend_from_slice(&bits.to_le_bytes());
+                    }
+                    c
+                })
+            } else {
+                None
+            };
+            let xor: Option<Vec<u8>> = if floats_mode() == WireFloats::XorDelta {
+                let mut body = Vec::with_capacity(v.len() + 2);
+                floats_xor_encode(&mut body, v);
+                if body.len() < floats_memcpy_body_len(v.len()) {
+                    let mut c = vec![T_FLOATS_XOR];
+                    c.extend_from_slice(&body);
+                    Some(c)
+                } else {
+                    None
+                }
+            } else {
+                None
+            };
+            let geometric: Option<Vec<u8>> = if st == WireStructure::Auto {
+                detect_float_geometric(v).map(|(base, ratio)| {
+                    let mut c = vec![T_FLOATS_GEOMETRIC];
+                    c.extend_from_slice(&base.to_le_bytes());
+                    c.extend_from_slice(&ratio.to_le_bytes());
+                    write_uvarint(v.len() as u64, &mut c);
+                    c
+                })
+            } else {
+                None
+            };
+            let periodic: Option<Vec<u8>> = if st == WireStructure::Auto {
+                detect_float_period(v).map(|p| {
+                    let mut c = vec![T_FLOATS_PERIODIC];
+                    write_uvarint(p as u64, &mut c);
+                    write_uvarint(v.len() as u64, &mut c);
+                    for &x in &v[..p] {
+                        c.extend_from_slice(&x.to_le_bytes());
+                    }
+                    c
+                })
+            } else {
+                None
+            };
+            if let Some(c) = [sparse, xor, geometric, periodic].into_iter().flatten().min_by_key(Vec::len) {
+                // The memcpy column is `1` (tag) + body; keep the candidate only if it is smaller.
+                if c.len() < floats_memcpy_body_len(v.len()) + 1 {
+                    out.extend_from_slice(&c);
                     return Ok(());
                 }
             }
@@ -2680,24 +4120,23 @@ fn encode_list_repr(repr: &ListRepr, out: &mut Vec<u8>) -> Result<(), String> {
             }
         }
         ListRepr::Bools(v) => {
-            out.push(T_BOOLS);
-            write_uvarint(v.len() as u64, out);
-            let mut cur = 0u8;
-            let mut nbits = 0u8;
-            for &b in v {
-                cur |= u8::from(b) << nbits;
-                nbits += 1;
-                if nbits == 8 {
-                    out.push(cur);
-                    cur = 0;
-                    nbits = 0;
-                }
-            }
-            if nbits > 0 {
-                out.push(cur);
+            // Under the `Auto` per-column menu, run the bool generator bake-off (periodic / RLE / bit-
+            // pack, smallest wins); otherwise the plain bit-packed array, byte-identical to before.
+            if structure() == WireStructure::Auto {
+                emit_best_bool_column(v, out);
+            } else {
+                bool_bitpack(v, out);
             }
         }
-        ListRepr::Strings { data, ends, .. } => write_string_array_from_ends(out, data, ends),
+        ListRepr::Strings { data, ends, .. } => {
+            // Under the `Auto` per-column menu, try the dictionary form (categorical labels) and
+            // ship the smaller; otherwise the plain flat array.
+            if structure() == WireStructure::Auto {
+                emit_best_string_column(data, ends, out);
+            } else {
+                write_string_array_from_ends(out, data, ends);
+            }
+        }
         // A columnar struct store: the schema (inline, or by reference when a schema
         // cache is active), then each in-memory column streamed straight out.
         ListRepr::Structs { type_name, field_names, columns } => {
@@ -2705,9 +4144,16 @@ fn encode_list_repr(repr: &ListRepr, out: &mut Vec<u8>) -> Result<(), String> {
             if struct_view_on() {
                 // Random-access record-list view: O(1) (row, field) reads. `field_names` is
                 // canonically sorted (from `struct_schema`) and `columns[fi]` is its column.
-                return emit_structs_view(type_name, field_names, n, out, |row, fi| {
-                    columns[fi].get(row).expect("struct column row in bounds")
-                });
+                // With the fixed numeric dial (`indexed fast`) over all-fixed-width columns, the
+                // FIXED-stride view drops the offset tables (smaller + pure-arithmetic O(1));
+                // otherwise the columnar offset-table view, written straight from the typed
+                // columns (no per-cell `RuntimeValue`), byte-identical to the boxed `get` path.
+                if numerics() == WireNumerics::Fixed
+                    && emit_structs_view_fixed(type_name, field_names, columns, out).is_some()
+                {
+                    return Ok(());
+                }
+                return emit_structs_view_columnar(type_name, field_names, columns, out);
             }
             emit_struct_list(type_name, field_names, n, out, |out| {
                 for col in columns {
@@ -2736,27 +4182,30 @@ fn encode_list_repr(repr: &ListRepr, out: &mut Vec<u8>) -> Result<(), String> {
                 }
             }
         }
-        // A received lazy view being re-sent: materialize its rows once, then encode through the
-        // normal struct-list path (re-columnarizes / re-views per the active dial).
-        ListRepr::WireStructs { .. } => {
+        // A received lazy view being re-sent: materialize its rows/elements once, then encode
+        // through the normal path (re-columnarizes / re-views per the active dial).
+        ListRepr::WireStructs { .. } | ListRepr::WireColumn { .. } => {
             let materialized = ListRepr::from_values(repr.to_values());
             return encode_list_repr(&materialized, out);
         }
         ListRepr::Boxed(v) => {
             if !v.is_empty() && v.iter().all(|x| matches!(x, RuntimeValue::Text(_))) {
-                // ALL strings but stored boxed (e.g. a string literal) still goes out
-                // flat — same wire shape, so it loads back flat too.
-                out.push(T_STRINGS);
-                write_uvarint(v.len() as u64, out);
+                // ALL strings (e.g. a string-literal list). Under the `Auto` per-column menu, run the
+                // FULL string-column menu — flat / dictionary / template — the same one the columnar
+                // `Strings` repr gets (so categorical labels dictionary and `item_0…item_n` collapses
+                // to a template); otherwise the plain flat array, byte-identical to the boxed path.
+                let mut sdata = Vec::new();
+                let mut sends = Vec::with_capacity(v.len());
                 for x in v {
                     if let RuntimeValue::Text(s) = x {
-                        write_uvarint(s.len() as u64, out);
+                        sdata.extend_from_slice(s.as_bytes());
+                        sends.push(sdata.len() as u32);
                     }
                 }
-                for x in v {
-                    if let RuntimeValue::Text(s) = x {
-                        out.extend_from_slice(s.as_bytes());
-                    }
+                if structure() == WireStructure::Auto {
+                    emit_best_string_column(&sdata, &sends, out);
+                } else {
+                    write_string_array_from_ends(out, &sdata, &sends);
                 }
             } else if let Some((type_name, field_names)) = struct_schema(v) {
                 if struct_view_on() {
@@ -2801,10 +4250,66 @@ fn encode_list_repr(repr: &ListRepr, out: &mut Vec<u8>) -> Result<(), String> {
     Ok(())
 }
 
+/// Encode a `Money` to the wire: its Decimal amount (sign + LE coefficient + scale) then the
+/// ISO-4217 code. `#[inline(never)]` so its locals stay out of the recursive `native_encode` frame.
+#[inline(never)]
+fn encode_money(m: &logicaffeine_base::Money, out: &mut Vec<u8>) {
+    out.push(T_MONEY);
+    let (negative, magnitude, scale) = m.amount.to_le_bytes();
+    out.push(negative as u8);
+    write_uvarint(magnitude.len() as u64, out);
+    out.extend_from_slice(&magnitude);
+    write_uvarint(scale as u64, out);
+    let code = m.currency.code.as_bytes();
+    write_uvarint(code.len() as u64, out);
+    out.extend_from_slice(code);
+}
+
+/// Decode a `Money` from the wire (inverse of [`encode_money`]). `#[inline(never)]` so its locals
+/// stay out of the recursive `native_decode` frame.
+#[inline(never)]
+fn decode_money(buf: &[u8], pos: &mut usize) -> Option<RuntimeValue> {
+    let negative = *buf.get(*pos)? != 0;
+    *pos += 1;
+    let len = read_uvarint(buf, pos)? as usize;
+    let bytes = buf.get(*pos..pos.checked_add(len)?)?;
+    *pos += len;
+    let scale = u32::try_from(read_uvarint(buf, pos)?).ok()?;
+    let amount = logicaffeine_base::Decimal::from_le_bytes(negative, bytes, scale);
+    let clen = read_uvarint(buf, pos)? as usize;
+    let cbytes = buf.get(*pos..pos.checked_add(clen)?)?;
+    *pos += clen;
+    let code = std::str::from_utf8(cbytes).ok()?;
+    let currency = logicaffeine_base::money::currency::by_code(code)
+        .unwrap_or(logicaffeine_base::Currency { code: "XXX", scale: 0 });
+    Some(RuntimeValue::Money(Rc::new(logicaffeine_base::Money { amount, currency })))
+}
+
+/// A UUID is a fixed 16 big-endian bytes — no length prefix needed.
+fn encode_uuid(u: &logicaffeine_base::Uuid, out: &mut Vec<u8>) {
+    out.push(T_UUID);
+    out.extend_from_slice(u.as_bytes());
+}
+
+/// Decode a `Uuid` from the wire (inverse of [`encode_uuid`]): the next 16 bytes verbatim.
+fn decode_uuid(buf: &[u8], pos: &mut usize) -> Option<RuntimeValue> {
+    let bytes = buf.get(*pos..pos.checked_add(16)?)?;
+    *pos += 16;
+    let mut arr = [0u8; 16];
+    arr.copy_from_slice(bytes);
+    Some(RuntimeValue::Uuid(Rc::new(logicaffeine_base::Uuid::from_bytes(arr))))
+}
+
 /// Write a value as tagged varint bytes. `Err` for a non-portable value (with the
 /// same messages the JSON path produces), caught at the exact offending node.
 fn native_encode(v: &RuntimeValue, out: &mut Vec<u8>) -> Result<(), String> {
     let _depth = DepthGuard::enter()?;
+    // Rc-dedup (G8): a shared subtree's repeat occurrences ship as a tiny backref; its first writes a
+    // `T_SHARED_DEF` header here and then falls through to encode the value normally. No-op when the
+    // dedup knob is off or the value isn't shared, so the default wire is byte-unchanged.
+    if dedup_encode_prefix(v, out) {
+        return Ok(());
+    }
     match v {
         RuntimeValue::Nothing => out.push(T_NOTHING),
         RuntimeValue::Bool(false) => out.push(T_FALSE),
@@ -2812,6 +4317,14 @@ fn native_encode(v: &RuntimeValue, out: &mut Vec<u8>) -> Result<(), String> {
         RuntimeValue::Int(n) => {
             out.push(T_INT);
             write_uvarint(zigzag(*n), out);
+        }
+        RuntimeValue::Word(w) => {
+            out.push(T_WORD);
+            out.push(w.width() as u8);
+            write_uvarint(w.to_u64(), out);
+        }
+        RuntimeValue::Lanes(_) => {
+            return Err("a SIMD lane vector is a transient compute value, not a wire type".to_string());
         }
         // An out-of-i64 integer: ship sign + length + little-endian magnitude bytes —
         // exact (no base conversion), the typed alternative to a lossy JSON number.
@@ -2833,6 +4346,45 @@ fn native_encode(v: &RuntimeValue, out: &mut Vec<u8>) -> Result<(), String> {
             let (_den_sign, den_magnitude) = r.denominator().to_le_bytes();
             write_uvarint(den_magnitude.len() as u64, out);
             out.extend_from_slice(&den_magnitude);
+        }
+        // An exact base-10 fixed-point (money): sign + coefficient magnitude + base-10
+        // scale — `19.99` survives bit-exact, scale and all (no lossy f64 round-trip).
+        RuntimeValue::Decimal(d) => {
+            out.push(T_DECIMAL);
+            let (negative, magnitude, scale) = d.to_le_bytes();
+            out.push(negative as u8);
+            write_uvarint(magnitude.len() as u64, out);
+            out.extend_from_slice(&magnitude);
+            write_uvarint(scale as u64, out);
+        }
+        // Money: its Decimal amount, then the ISO-4217 currency code. Body lives in an
+        // `#[inline(never)]` helper so its locals do not enlarge this RECURSIVE encoder's stack
+        // frame (the codec recurses per nesting level; a fat frame overflows deep-but-finite values).
+        RuntimeValue::Money(m) => encode_money(m, out),
+        RuntimeValue::Uuid(u) => encode_uuid(u, out),
+        // An exact complex number: its real then imaginary part, each shipped as a rational
+        // (sign + numerator len+LE + denominator len+LE). `i·i = −1` survives bit-exact.
+        RuntimeValue::Complex(c) => {
+            out.push(T_COMPLEX);
+            for part in [c.re(), c.im()] {
+                let (neg, num) = part.numerator().to_le_bytes();
+                out.push(neg as u8);
+                write_uvarint(num.len() as u64, out);
+                out.extend_from_slice(&num);
+                let (_den_sign, den) = part.denominator().to_le_bytes();
+                write_uvarint(den.len() as u64, out);
+                out.extend_from_slice(&den);
+            }
+        }
+        // A ℤ/nℤ element: its non-negative residue then its modulus, each len-prefixed LE.
+        RuntimeValue::Modular(m) => {
+            out.push(T_MODULAR);
+            let (_, value) = m.value().to_le_bytes();
+            write_uvarint(value.len() as u64, out);
+            out.extend_from_slice(&value);
+            let (_, modulus) = m.modulus().to_le_bytes();
+            write_uvarint(modulus.len() as u64, out);
+            out.extend_from_slice(&modulus);
         }
         RuntimeValue::Float(f) => {
             out.push(T_FLOAT);
@@ -2880,30 +4432,157 @@ fn native_encode(v: &RuntimeValue, out: &mut Vec<u8>) -> Result<(), String> {
             }
         }
         RuntimeValue::Set(items) => {
-            out.push(T_SET);
             let b = items.borrow();
-            write_uvarint(b.len() as u64, out);
-            for x in b.iter() {
-                native_encode(x, out)?;
+            if !b.is_empty() && b.iter().all(|x| matches!(x, RuntimeValue::Int(_))) {
+                // EXTREME SYMMETRY BREAKING: a homogeneous int set, sorted to its canonical
+                // representative, is a strictly-MONOTONE column — the ideal input to the G5 int menu.
+                // A consecutive set {1..n} collapses to T_INTS_AFFINE (base+stride+count, NO data); a
+                // clustered set to delta+RLE. Same members in any order → byte-identical wire.
+                let mut ints: Vec<i64> = b
+                    .iter()
+                    .map(|x| if let RuntimeValue::Int(n) = x { *n } else { unreachable!() })
+                    .collect();
+                ints.sort_unstable();
+                ints.dedup();
+                out.push(T_SET_INTS);
+                emit_best_int_column(&ints, out);
+            } else if !b.is_empty() && b.iter().all(|x| matches!(x, RuntimeValue::Text(_))) {
+                // EXTREME SYMMETRY BREAKING (strings): sort to canonical order, then FRONT-CODE each
+                // member as (shared-prefix-length-with-the-previous, suffix). Sorted similar strings
+                // share long prefixes — "apple"/"apply"/"apricot" or "user_1".."user_999" or URL paths
+                // — so only the deltas go on the wire. Same set in any order → byte-identical.
+                let mut strs: Vec<String> = b
+                    .iter()
+                    .map(|x| if let RuntimeValue::Text(t) = x { (**t).clone() } else { unreachable!() })
+                    .collect();
+                strs.sort_unstable();
+                strs.dedup();
+                out.push(T_SET_STRINGS);
+                write_uvarint(strs.len() as u64, out);
+                let mut prev: &str = "";
+                for s in &strs {
+                    // common char-prefix length in BYTES (char-boundary-safe by construction).
+                    let common: usize = s
+                        .chars()
+                        .zip(prev.chars())
+                        .take_while(|(a, b)| a == b)
+                        .map(|(a, _)| a.len_utf8())
+                        .sum();
+                    write_uvarint(common as u64, out);
+                    write_str(&s[common..], out);
+                    prev = s;
+                }
+            } else {
+                // SYMMETRY BREAKING ON THE WIRE (general case). A Set is ORDER-INVARIANT — the decoder
+                // rebuilds a Set, so element order carries NO information. Encode each element, then
+                // sort by encoded bytes to ship the CANONICAL representative. Same set in any insertion
+                // order → BYTE-IDENTICAL wire (content-addressing / dedup / cached keying / FEC hold).
+                // Mirrors the canonical `T_MAP` (sort-by-encoded-key) / `T_STRUCT` (sort-by-field-name).
+                out.push(T_SET);
+                let mut encoded: Vec<Vec<u8>> = Vec::with_capacity(b.len());
+                for x in b.iter() {
+                    let mut xb = Vec::new();
+                    native_encode(x, &mut xb)?;
+                    encoded.push(xb);
+                }
+                encoded.sort_unstable();
+                write_uvarint(encoded.len() as u64, out);
+                for xb in &encoded {
+                    out.extend_from_slice(xb);
+                }
             }
         }
         RuntimeValue::Map(m) => {
-            out.push(T_MAP);
-            // Canonical: encode each entry, then sort by encoded key.
             let b = m.borrow();
-            let mut entries: Vec<(Vec<u8>, Vec<u8>)> = Vec::with_capacity(b.len());
-            for (k, val) in b.iter() {
-                let mut kb = Vec::new();
-                native_encode(k, &mut kb)?;
-                let mut vb = Vec::new();
-                native_encode(val, &mut vb)?;
-                entries.push((kb, vb));
-            }
-            entries.sort_by(|a, b| a.0.cmp(&b.0));
-            write_uvarint(entries.len() as u64, out);
-            for (kb, vb) in entries {
-                out.extend_from_slice(&kb);
-                out.extend_from_slice(&vb);
+            if !b.is_empty() && b.keys().all(|k| matches!(k, RuntimeValue::Int(_))) {
+                // SYMMETRY BREAKING (int-keyed map → struct-of-arrays). Sort entries by NUMERIC key
+                // (canonical — insertion order carries nothing), then ship TWO columns: the keys as a
+                // best int column (G5 menu: a {0..n} key range collapses to affine base+stride+count,
+                // NO per-key data), and the values as a best-encoded LIST (composing the entire column
+                // menu — int/float/string/struct columns). An affine int→int map crushes BOTH sides.
+                let mut pairs: Vec<(i64, RuntimeValue)> = b
+                    .iter()
+                    .map(|(k, v)| match k {
+                        RuntimeValue::Int(n) => (*n, v.clone()),
+                        _ => unreachable!("all keys verified Int"),
+                    })
+                    .collect();
+                pairs.sort_by_key(|(k, _)| *k);
+                let keys: Vec<i64> = pairs.iter().map(|(k, _)| *k).collect();
+                let vals: Vec<RuntimeValue> = pairs.into_iter().map(|(_, v)| v).collect();
+                out.push(T_MAP_INTKEY);
+                emit_best_int_column(&keys, out);
+                // The value column crushes UNCONDITIONALLY (like the keys + the int-set), independent
+                // of the structure dial: a 1-byte value-kind selects an int column (the int→int crush)
+                // or the general per-value fallback. (kind 2+ — string/struct value columns — is a
+                // future additive refinement, never a re-encoding of existing kinds.)
+                if vals.iter().all(|v| matches!(v, RuntimeValue::Int(_))) {
+                    out.push(1u8);
+                    let int_vals: Vec<i64> = vals
+                        .iter()
+                        .map(|v| match v {
+                            RuntimeValue::Int(n) => *n,
+                            _ => unreachable!("all values verified Int"),
+                        })
+                        .collect();
+                    emit_best_int_column(&int_vals, out);
+                } else if vals.iter().all(|v| matches!(v, RuntimeValue::Text(_))) {
+                    // String value column, FRONT-CODED in key order: each value ships as the shared-
+                    // prefix length with the PREVIOUS value + the suffix. Sequential keys → sequential
+                    // values (URLs / paths / ids — the database-table case) share long prefixes, so only
+                    // the deltas go on the wire. Never worse than kind 0 (an unshared value just ships
+                    // common=0 + the string). Char-boundary-safe by construction.
+                    out.push(2u8);
+                    write_uvarint(vals.len() as u64, out);
+                    let mut prev: &str = "";
+                    for v in &vals {
+                        let s = match v {
+                            RuntimeValue::Text(t) => t.as_str(),
+                            _ => unreachable!("all values verified Text"),
+                        };
+                        let common: usize = s
+                            .chars()
+                            .zip(prev.chars())
+                            .take_while(|(a, b)| a == b)
+                            .map(|(a, _)| a.len_utf8())
+                            .sum();
+                        write_uvarint(common as u64, out);
+                        write_str(&s[common..], out);
+                        prev = s;
+                    }
+                } else if vals.iter().all(|v| matches!(v, RuntimeValue::Struct(_))) {
+                    // Struct value column → the database-table crush. A homogeneous struct list packs
+                    // COLUMNAR (the schema / field names ship ONCE, then one best-encoded column per
+                    // field — the id column compresses, a bool column bit-packs) via the existing
+                    // struct-list encoder; heterogeneous structs degrade to a tagged list. Either way it
+                    // decodes back to the same value sequence.
+                    out.push(3u8);
+                    let vlist = RuntimeValue::List(Rc::new(RefCell::new(ListRepr::from_values(vals.clone()))));
+                    native_encode(&vlist, out)?;
+                } else {
+                    out.push(0u8);
+                    write_uvarint(vals.len() as u64, out);
+                    for v in &vals {
+                        native_encode(v, out)?;
+                    }
+                }
+            } else {
+                out.push(T_MAP);
+                // Canonical (general): encode each entry, then sort by encoded key.
+                let mut entries: Vec<(Vec<u8>, Vec<u8>)> = Vec::with_capacity(b.len());
+                for (k, val) in b.iter() {
+                    let mut kb = Vec::new();
+                    native_encode(k, &mut kb)?;
+                    let mut vb = Vec::new();
+                    native_encode(val, &mut vb)?;
+                    entries.push((kb, vb));
+                }
+                entries.sort_by(|a, b| a.0.cmp(&b.0));
+                write_uvarint(entries.len() as u64, out);
+                for (kb, vb) in entries {
+                    out.extend_from_slice(&kb);
+                    out.extend_from_slice(&vb);
+                }
             }
         }
         RuntimeValue::Struct(s) => {
@@ -3028,6 +4707,27 @@ fn native_encode(v: &RuntimeValue, out: &mut Vec<u8>) -> Result<(), String> {
                 None => return Err("a Function cannot be sent over the network".to_string()),
             }
         }
+        // A dimensioned quantity: its SI magnitude (rational), its dimension (10 exponent pairs as
+        // zigzag varints), then the display unit symbol (len + UTF-8) — reconstructed exactly.
+        RuntimeValue::Quantity(qv) => {
+            out.push(T_QUANTITY);
+            let (num_negative, num_magnitude) = qv.q.magnitude_si().numerator().to_le_bytes();
+            out.push(num_negative as u8);
+            write_uvarint(num_magnitude.len() as u64, out);
+            out.extend_from_slice(&num_magnitude);
+            let (_den_sign, den_magnitude) = qv.q.magnitude_si().denominator().to_le_bytes();
+            write_uvarint(den_magnitude.len() as u64, out);
+            out.extend_from_slice(&den_magnitude);
+            let dim = qv.q.dimension();
+            for d in logicaffeine_base::BaseDim::ALL {
+                let e = dim.exponent(d);
+                write_uvarint(zigzag(e.numerator() as i64), out);
+                write_uvarint(zigzag(e.denominator() as i64), out);
+            }
+            let sym = qv.unit.symbol.as_bytes();
+            write_uvarint(sym.len() as u64, out);
+            out.extend_from_slice(sym);
+        }
     }
     Ok(())
 }
@@ -3036,14 +4736,45 @@ fn native_encode(v: &RuntimeValue, out: &mut Vec<u8>) -> Result<(), String> {
 /// for gigabytes up front; the actual reads still bound-check every element.
 const PREALLOC_CAP: usize = 4096;
 
+/// Reject a decoded element count that exceeds the receiver's `max_elements` budget BEFORE any
+/// `count`-sized materialization. This is the gate the byte budget cannot provide: a generator column
+/// (`T_INTS_AFFINE` / `T_INTS_POLY` / `T_GEN`) is a ~10-byte descriptor that expands to `count`
+/// elements, so a crafted `count = 10^9` is a few bytes on the wire but gigabytes in memory — the
+/// small-message-huge-output DoS. Returns the count as `usize` when within budget, else `None`.
+fn bounded_count(n: u64) -> Option<usize> {
+    let n = n as usize;
+    (n <= receive_limits().max_elements).then_some(n)
+}
+
 fn native_decode(buf: &[u8], pos: &mut usize) -> Option<RuntimeValue> {
+    // Bound recursion depth FIRST — a crafted deeply-nested message is refused here (clean `None`),
+    // never recursed into a stack overflow. Unwinds via `Drop` as the `?`s propagate back up.
+    let _depth = DecodeDepthGuard::enter()?;
     let tag = *buf.get(*pos)?;
     *pos += 1;
+    // Rc-dedup (G8): a backref resolves to the EXACT `Rc` first decoded under that id (sharing
+    // preserved); a def decodes the value once and registers it. A dangling ref → clean `None`.
+    if tag == T_SHARED_REF {
+        let id = read_uvarint(buf, pos)?;
+        return DECODE_MEMO.with(|c| c.borrow().get(&id).cloned());
+    }
+    if tag == T_SHARED_DEF {
+        let id = read_uvarint(buf, pos)?;
+        let v = native_decode(buf, pos)?;
+        DECODE_MEMO.with(|c| c.borrow_mut().insert(id, v.clone()));
+        return Some(v);
+    }
     Some(match tag {
         T_NOTHING => RuntimeValue::Nothing,
         T_FALSE => RuntimeValue::Bool(false),
         T_TRUE => RuntimeValue::Bool(true),
         T_INT => RuntimeValue::Int(unzigzag(read_uvarint(buf, pos)?)),
+        T_WORD => {
+            let width = *buf.get(*pos)? as u32;
+            *pos += 1;
+            let bits = read_uvarint(buf, pos)?;
+            RuntimeValue::Word(logicaffeine_base::WordVal::from_u64(width, bits)?)
+        }
         T_BIGINT => {
             let negative = *buf.get(*pos)? != 0;
             *pos += 1;
@@ -3066,6 +4797,90 @@ fn native_decode(buf: &[u8], pos: &mut usize) -> Option<RuntimeValue> {
             // A zero/garbage denominator is rejected (None) rather than panicking.
             RuntimeValue::from_rational(logicaffeine_base::Rational::new(num, den)?)
         }
+        T_DECIMAL => {
+            let negative = *buf.get(*pos)? != 0;
+            *pos += 1;
+            let len = read_uvarint(buf, pos)? as usize;
+            let bytes = buf.get(*pos..pos.checked_add(len)?)?;
+            *pos += len;
+            let scale = u32::try_from(read_uvarint(buf, pos)?).ok()?;
+            // Decimal does NOT downsize on a whole value (the scale is meaning), so build
+            // the variant directly rather than through a downsizing chokepoint.
+            RuntimeValue::Decimal(Rc::new(logicaffeine_base::Decimal::from_le_bytes(
+                negative, bytes, scale,
+            )))
+        }
+        // Body in an `#[inline(never)]` helper to keep this recursive decoder's frame small.
+        T_MONEY => decode_money(buf, pos)?,
+        T_UUID => decode_uuid(buf, pos)?,
+        T_COMPLEX => {
+            // Read the real part (a rational), then the imaginary part (a rational).
+            let re_neg = *buf.get(*pos)? != 0;
+            *pos += 1;
+            let re_nlen = read_uvarint(buf, pos)? as usize;
+            let re_nb = buf.get(*pos..pos.checked_add(re_nlen)?)?;
+            *pos += re_nlen;
+            let re_num = logicaffeine_base::BigInt::from_le_bytes(re_neg, re_nb);
+            let re_dlen = read_uvarint(buf, pos)? as usize;
+            let re_db = buf.get(*pos..pos.checked_add(re_dlen)?)?;
+            *pos += re_dlen;
+            let re = logicaffeine_base::Rational::new(re_num, logicaffeine_base::BigInt::from_le_bytes(false, re_db))?;
+            let im_neg = *buf.get(*pos)? != 0;
+            *pos += 1;
+            let im_nlen = read_uvarint(buf, pos)? as usize;
+            let im_nb = buf.get(*pos..pos.checked_add(im_nlen)?)?;
+            *pos += im_nlen;
+            let im_num = logicaffeine_base::BigInt::from_le_bytes(im_neg, im_nb);
+            let im_dlen = read_uvarint(buf, pos)? as usize;
+            let im_db = buf.get(*pos..pos.checked_add(im_dlen)?)?;
+            *pos += im_dlen;
+            let im = logicaffeine_base::Rational::new(im_num, logicaffeine_base::BigInt::from_le_bytes(false, im_db))?;
+            RuntimeValue::Complex(Rc::new(logicaffeine_base::Complex::new(re, im)))
+        }
+        T_MODULAR => {
+            let vlen = read_uvarint(buf, pos)? as usize;
+            let vb = buf.get(*pos..pos.checked_add(vlen)?)?;
+            *pos += vlen;
+            let v = logicaffeine_base::BigInt::from_le_bytes(false, vb);
+            let nlen = read_uvarint(buf, pos)? as usize;
+            let nb = buf.get(*pos..pos.checked_add(nlen)?)?;
+            *pos += nlen;
+            let n = logicaffeine_base::BigInt::from_le_bytes(false, nb);
+            RuntimeValue::Modular(Rc::new(logicaffeine_base::Modular::new(v, n)?))
+        }
+        T_QUANTITY => {
+            // SI magnitude (rational): sign + numerator (len+LE) + denominator (len+LE).
+            let num_neg = *buf.get(*pos)? != 0;
+            *pos += 1;
+            let nlen = read_uvarint(buf, pos)? as usize;
+            let nb = buf.get(*pos..pos.checked_add(nlen)?)?;
+            *pos += nlen;
+            let num = logicaffeine_base::BigInt::from_le_bytes(num_neg, nb);
+            let dlen = read_uvarint(buf, pos)? as usize;
+            let db = buf.get(*pos..pos.checked_add(dlen)?)?;
+            *pos += dlen;
+            let magnitude =
+                logicaffeine_base::Rational::new(num, logicaffeine_base::BigInt::from_le_bytes(false, db))?;
+            // Dimension: 10 exponent (numerator, denominator) pairs as zig-zag varints.
+            let mut exps = [logicaffeine_base::Exp::ZERO; logicaffeine_base::BaseDim::COUNT];
+            for slot in exps.iter_mut() {
+                let en = unzigzag(read_uvarint(buf, pos)?) as i32;
+                let ed = unzigzag(read_uvarint(buf, pos)?) as i32;
+                *slot = logicaffeine_base::Exp::new(en, if ed == 0 { 1 } else { ed });
+            }
+            let dim = logicaffeine_base::Dimension::from_exps(exps);
+            // Display unit symbol — resolve by name, else fall back to the SI/dimension display.
+            let sym = read_str(buf, pos)?;
+            let unit = logicaffeine_base::quantity::units::by_name(&sym)
+                .filter(|u| u.dimension == dim)
+                .unwrap_or_else(|| {
+                    logicaffeine_base::Unit::linear("", dim, logicaffeine_base::Rational::one())
+                });
+            RuntimeValue::Quantity(Rc::new(crate::interpreter::QuantityValue {
+                q: logicaffeine_base::Quantity::si(magnitude, dim),
+                unit,
+            }))
+        }
         T_FLOAT => {
             let b: [u8; 8] = buf.get(*pos..pos.checked_add(8)?)?.try_into().ok()?;
             *pos += 8;
@@ -3085,62 +4900,34 @@ fn native_decode(buf: &[u8], pos: &mut usize) -> Option<RuntimeValue> {
         // A mixed list rebuilds as `Boxed` directly — never re-specialized, so a
         // round-trip is byte-stable (only genuinely-homogeneous lists are packed).
         T_LIST => RuntimeValue::List(Rc::new(RefCell::new(ListRepr::Boxed(read_seq(buf, pos)?)))),
-        T_INTS => {
-            // Adaptive sign mode: the count's low bit says whether the column was zig-zag
-            // encoded (held a negative) or shipped as plain LEB128 (all non-negative).
-            let header = read_uvarint(buf, pos)?;
-            let signed = header & 1 == 1;
-            let n = header >> 1;
-            let mut v = Vec::with_capacity((n as usize).min(PREALLOC_CAP));
-            for _ in 0..n {
-                let u = read_uvarint(buf, pos)?;
-                v.push(if signed { unzigzag(u) } else { u as i64 });
-            }
+        T_INTS
+        | T_INTS_AFFINE
+        | T_INTS_GEOMETRIC
+        | T_INTS_PERIODIC
+        | T_INTS_SPARSE
+        | T_INTS_POLY
+        | T_GEN
+        | T_BYTES
+        | T_INTS_DELTA
+        | T_INTS_DOD
+        | T_INTS_FOR
+        | T_INTS_RLE
+        | T_INTS_DICT
+        | describe::T_INTS_LRECUR
+        | describe::T_INTS_LFSR
+        | describe::T_INTS_FCSR => {
+            // The Auto column menu decodes through the shared engine (single source of the format);
+            // the receiver's element budget is threaded in so the DoS gate is unchanged.
+            let v = describe::decode_int_column_body(tag, buf, pos, receive_limits().max_elements, 0)?;
             RuntimeValue::List(Rc::new(RefCell::new(ListRepr::Ints(v))))
         }
         T_INTS_GV => RuntimeValue::List(Rc::new(RefCell::new(ListRepr::Ints(gv_decode_dispatch(buf, pos)?)))),
-        // Closed-form column: reconstruct `base + stride*i` for `i in 0..n` with the
-        // SAME wrapping arithmetic the encoder verified against, so it is exact.
-        T_INTS_AFFINE => {
-            let base = unzigzag(read_uvarint(buf, pos)?);
-            let stride = unzigzag(read_uvarint(buf, pos)?);
-            let n = read_uvarint(buf, pos)? as usize;
-            let mut v = Vec::with_capacity(n.min(PREALLOC_CAP));
-            for i in 0..n {
-                v.push(base.wrapping_add((i as i64).wrapping_mul(stride)));
-            }
-            RuntimeValue::List(Rc::new(RefCell::new(ListRepr::Ints(v))))
-        }
-        // Polynomial generator: read the degree-bounded seeds, replay the difference engine.
-        T_INTS_POLY => {
-            let degree = *buf.get(*pos)? as usize;
-            *pos += 1;
-            if degree > MAX_POLY_DEGREE {
-                return None; // malformed / untrusted degree
-            }
-            let n = read_uvarint(buf, pos)? as usize;
-            let mut seeds = Vec::with_capacity(degree + 1);
-            for _ in 0..=degree {
-                seeds.push(unzigzag(read_uvarint(buf, pos)?));
-            }
-            RuntimeValue::List(Rc::new(RefCell::new(ListRepr::Ints(reconstruct_poly(&seeds, n)))))
-        }
-        // General generator: parse the bounded `GenExpr`, then evaluate it at 0..n in the
-        // sandbox. A malformed/hostile tree (too big/deep/garbage) → None (never panics).
-        T_GEN => {
-            let mut budget = MAX_GEN_NODES;
-            let expr = deserialize_gen(buf, pos, &mut budget, 0)?;
-            let n = read_uvarint(buf, pos)? as usize;
-            let mut v = Vec::with_capacity(n.min(PREALLOC_CAP));
-            for i in 0..n {
-                v.push(gen_eval(&expr, i as i64));
-            }
-            RuntimeValue::List(Rc::new(RefCell::new(ListRepr::Ints(v))))
-        }
-        // A shipped callable function: read the arity + the bounded generator tree, rebuild
-        // a self-contained closure the receiver can invoke (the body is the sandboxed
-        // generator — never arena AST). The arity is bounded; a hostile tree → None.
+        // A shipped callable function: read the arity + the bounded generator tree, rebuild a
+        // self-contained closure the receiver can invoke (the body is the sandboxed generator).
         T_FUNC => {
+            if !receive_limits().accept_computed {
+                return None;
+            }
             let arity = read_uvarint(buf, pos)? as usize;
             if arity > 16 {
                 return None;
@@ -3155,116 +4942,6 @@ fn native_decode(buf: &[u8], pos: &mut usize) -> Option<RuntimeValue> {
                 param_names,
                 generated: Some(Rc::new(expr)),
             }))
-        }
-        // Byte column: read the count, then widen each raw byte to an Int.
-        T_BYTES => {
-            let n = read_uvarint(buf, pos)? as usize;
-            let raw = buf.get(*pos..pos.checked_add(n)?)?;
-            *pos += n;
-            RuntimeValue::List(Rc::new(RefCell::new(ListRepr::Ints(raw.iter().map(|&b| b as i64).collect()))))
-        }
-        // Delta column: cumulative-sum the zig-zag differences.
-        T_INTS_DELTA => {
-            let n = read_uvarint(buf, pos)? as usize;
-            let mut v = Vec::with_capacity(n.min(PREALLOC_CAP));
-            if n > 0 {
-                let mut cur = unzigzag(read_uvarint(buf, pos)?);
-                v.push(cur);
-                for _ in 1..n {
-                    cur = cur.wrapping_add(unzigzag(read_uvarint(buf, pos)?));
-                    v.push(cur);
-                }
-            }
-            RuntimeValue::List(Rc::new(RefCell::new(ListRepr::Ints(v))))
-        }
-        // Delta-of-delta column: double cumulative sum (the inverse of `dod_encode`).
-        T_INTS_DOD => {
-            let n = read_uvarint(buf, pos)? as usize;
-            let mut v = Vec::with_capacity(n.min(PREALLOC_CAP));
-            if n > 0 {
-                let first = unzigzag(read_uvarint(buf, pos)?);
-                v.push(first);
-                if n > 1 {
-                    let mut prev_delta = unzigzag(read_uvarint(buf, pos)?);
-                    let mut prev = first.wrapping_add(prev_delta);
-                    v.push(prev);
-                    for _ in 2..n {
-                        prev_delta = prev_delta.wrapping_add(unzigzag(read_uvarint(buf, pos)?));
-                        prev = prev.wrapping_add(prev_delta);
-                        v.push(prev);
-                    }
-                }
-            }
-            RuntimeValue::List(Rc::new(RefCell::new(ListRepr::Ints(v))))
-        }
-        // Frame-of-reference column: unpack the bit-packed residuals, add the minimum.
-        T_INTS_FOR => {
-            let n = read_uvarint(buf, pos)? as usize;
-            let min = unzigzag(read_uvarint(buf, pos)?);
-            let width = *buf.get(*pos)?;
-            *pos += 1;
-            if width > 64 {
-                return None;
-            }
-            let mut v = Vec::with_capacity(n.min(PREALLOC_CAP));
-            if width == 0 {
-                for _ in 0..n {
-                    v.push(min);
-                }
-            } else {
-                let nbytes = n.checked_mul(width as usize)?.div_ceil(8);
-                let bytes = buf.get(*pos..pos.checked_add(nbytes)?)?;
-                *pos += nbytes;
-                for r in bitunpack(bytes, n, width)? {
-                    v.push(r.wrapping_add(min as u64) as i64);
-                }
-            }
-            RuntimeValue::List(Rc::new(RefCell::new(ListRepr::Ints(v))))
-        }
-        // Run-length column: expand each (value, run-length) pair, capped so a corrupt
-        // length cannot ask for an unbounded allocation.
-        T_INTS_RLE => {
-            let runs = read_uvarint(buf, pos)? as usize;
-            let mut v: Vec<i64> = Vec::new();
-            for _ in 0..runs {
-                let val = unzigzag(read_uvarint(buf, pos)?);
-                let len = read_uvarint(buf, pos)? as usize;
-                if v.len().checked_add(len)? > RLE_MAX_TOTAL {
-                    return None;
-                }
-                v.resize(v.len() + len, val);
-            }
-            RuntimeValue::List(Rc::new(RefCell::new(ListRepr::Ints(v))))
-        }
-        // Dictionary column: read the distinct values, then map the bit-packed indices
-        // back through them. An out-of-range index fails cleanly (never mis-decodes).
-        T_INTS_DICT => {
-            let d = read_uvarint(buf, pos)? as usize;
-            let mut dict = Vec::with_capacity(d.min(PREALLOC_CAP));
-            for _ in 0..d {
-                dict.push(unzigzag(read_uvarint(buf, pos)?));
-            }
-            let n = read_uvarint(buf, pos)? as usize;
-            let iw = *buf.get(*pos)?;
-            *pos += 1;
-            if iw > 64 {
-                return None;
-            }
-            let mut v = Vec::with_capacity(n.min(PREALLOC_CAP));
-            if iw == 0 {
-                if n > 0 {
-                    let val = *dict.first()?;
-                    v.resize(n, val);
-                }
-            } else {
-                let nbytes = n.checked_mul(iw as usize)?.div_ceil(8);
-                let bytes = buf.get(*pos..pos.checked_add(nbytes)?)?;
-                *pos += nbytes;
-                for ix in bitunpack(bytes, n, iw)? {
-                    v.push(*dict.get(ix as usize)?);
-                }
-            }
-            RuntimeValue::List(Rc::new(RefCell::new(ListRepr::Ints(v))))
         }
         T_INTS_FIXED => {
             let n = read_uvarint(buf, pos)? as usize;
@@ -3315,7 +4992,7 @@ fn native_decode(buf: &[u8], pos: &mut usize) -> Option<RuntimeValue> {
             RuntimeValue::List(Rc::new(RefCell::new(ListRepr::Ints(v))))
         }
         T_FLOATS => {
-            let n = read_uvarint(buf, pos)? as usize;
+            let n = bounded_count(read_uvarint(buf, pos)?)?;
             let nbytes = n.checked_mul(8)?;
             let raw = buf.get(*pos..pos.checked_add(nbytes)?)?;
             *pos += nbytes;
@@ -3338,6 +5015,81 @@ fn native_decode(buf: &[u8], pos: &mut usize) -> Option<RuntimeValue> {
                 .chunks_exact(8)
                 .map(|c| f64::from_le_bytes(c.try_into().unwrap()))
                 .collect();
+            RuntimeValue::List(Rc::new(RefCell::new(ListRepr::Floats(v))))
+        }
+        // Constant float column: one f64 + count → fill.
+        T_FLOATS_CONST => {
+            let bits = u64::from_le_bytes(buf.get(*pos..pos.checked_add(8)?)?.try_into().ok()?);
+            *pos += 8;
+            let n = bounded_count(read_uvarint(buf, pos)?)?;
+            let mut v = Vec::with_capacity(n.min(PREALLOC_CAP));
+            v.resize(n, f64::from_bits(bits));
+            RuntimeValue::List(Rc::new(RefCell::new(ListRepr::Floats(v))))
+        }
+        // Affine float column: reconstruct `base + i·stride` with the SAME f64 ops the encoder
+        // verified bit-exact against, so it round-trips perfectly.
+        T_FLOATS_AFFINE => {
+            let base = f64::from_le_bytes(buf.get(*pos..pos.checked_add(8)?)?.try_into().ok()?);
+            *pos += 8;
+            let stride = f64::from_le_bytes(buf.get(*pos..pos.checked_add(8)?)?.try_into().ok()?);
+            *pos += 8;
+            let n = bounded_count(read_uvarint(buf, pos)?)?;
+            let mut v = Vec::with_capacity(n.min(PREALLOC_CAP));
+            for i in 0..n {
+                v.push(base + (i as f64) * stride);
+            }
+            RuntimeValue::List(Rc::new(RefCell::new(ListRepr::Floats(v))))
+        }
+        // Sparse float column: fill with the dominant value, then patch the delta-indexed outliers.
+        T_FLOATS_SPARSE => {
+            let dom = f64::from_bits(u64::from_le_bytes(buf.get(*pos..pos.checked_add(8)?)?.try_into().ok()?));
+            *pos += 8;
+            let n = bounded_count(read_uvarint(buf, pos)?)?;
+            let num_exc = bounded_count(read_uvarint(buf, pos)?)?;
+            let mut v = Vec::with_capacity(n.min(PREALLOC_CAP));
+            v.resize(n, dom);
+            let mut idx = 0usize;
+            for _ in 0..num_exc {
+                idx = idx.checked_add(read_uvarint(buf, pos)? as usize)?;
+                let bits = u64::from_le_bytes(buf.get(*pos..pos.checked_add(8)?)?.try_into().ok()?);
+                *pos += 8;
+                *v.get_mut(idx)? = f64::from_bits(bits);
+            }
+            RuntimeValue::List(Rc::new(RefCell::new(ListRepr::Floats(v))))
+        }
+        // Cyclic float column: read the period block, then emit `block[i % p]` for `i in 0..n`.
+        T_FLOATS_PERIODIC => {
+            let p = bounded_count(read_uvarint(buf, pos)?)?;
+            if p == 0 {
+                return None;
+            }
+            let n = bounded_count(read_uvarint(buf, pos)?)?;
+            let mut block = Vec::with_capacity(p.min(PREALLOC_CAP));
+            for _ in 0..p {
+                let bits = u64::from_le_bytes(buf.get(*pos..pos.checked_add(8)?)?.try_into().ok()?);
+                *pos += 8;
+                block.push(f64::from_bits(bits));
+            }
+            let mut v = Vec::with_capacity(n.min(PREALLOC_CAP));
+            for i in 0..n {
+                v.push(block[i % p]);
+            }
+            RuntimeValue::List(Rc::new(RefCell::new(ListRepr::Floats(v))))
+        }
+        // Geometric float column: replay `base · ratio^i` with the SAME `cur *= ratio` accumulation
+        // the encoder verified bit-exact against.
+        T_FLOATS_GEOMETRIC => {
+            let base = f64::from_le_bytes(buf.get(*pos..pos.checked_add(8)?)?.try_into().ok()?);
+            *pos += 8;
+            let ratio = f64::from_le_bytes(buf.get(*pos..pos.checked_add(8)?)?.try_into().ok()?);
+            *pos += 8;
+            let n = bounded_count(read_uvarint(buf, pos)?)?;
+            let mut v = Vec::with_capacity(n.min(PREALLOC_CAP));
+            let mut cur = base;
+            for _ in 0..n {
+                v.push(cur);
+                cur *= ratio;
+            }
             RuntimeValue::List(Rc::new(RefCell::new(ListRepr::Floats(v))))
         }
         // 8-byte-aligned f64 blob: skip the pad, then the same memcpy as T_FLOATS.
@@ -3387,6 +5139,45 @@ fn native_decode(buf: &[u8], pos: &mut usize) -> Option<RuntimeValue> {
             }
             RuntimeValue::List(Rc::new(RefCell::new(ListRepr::Bools(v))))
         }
+        // Cyclic bool column: read the p-bit block, replay `block[i % p]` for `i in 0..n`.
+        T_BOOLS_PERIODIC => {
+            let p = bounded_count(read_uvarint(buf, pos)?)?;
+            if p == 0 {
+                return None;
+            }
+            let n = bounded_count(read_uvarint(buf, pos)?)?;
+            let block_bytes = p.div_ceil(8);
+            let raw = buf.get(*pos..pos.checked_add(block_bytes)?)?;
+            *pos += block_bytes;
+            let block: Vec<bool> = (0..p).map(|i| (raw[i / 8] >> (i % 8)) & 1 == 1).collect();
+            let mut v = Vec::with_capacity(n.min(PREALLOC_CAP));
+            for i in 0..n {
+                v.push(block[i % p]);
+            }
+            RuntimeValue::List(Rc::new(RefCell::new(ListRepr::Bools(v))))
+        }
+        // Run-length bool column: alternate from the first value, emitting each run length in turn.
+        T_BOOLS_RLE => {
+            let n = bounded_count(read_uvarint(buf, pos)?)?;
+            let first = *buf.get(*pos)? != 0;
+            *pos += 1;
+            let nruns = bounded_count(read_uvarint(buf, pos)?)?;
+            let mut v = Vec::with_capacity(n.min(PREALLOC_CAP));
+            let mut cur = first;
+            for _ in 0..nruns {
+                let runlen = bounded_count(read_uvarint(buf, pos)?)?;
+                // The runs must reconstruct EXACTLY `n` elements — a corrupt over-run is refused.
+                if v.len().checked_add(runlen)? > n {
+                    return None;
+                }
+                v.resize(v.len() + runlen, cur);
+                cur = !cur;
+            }
+            if v.len() != n {
+                return None;
+            }
+            RuntimeValue::List(Rc::new(RefCell::new(ListRepr::Bools(v))))
+        }
         T_STRINGS => {
             let n = read_uvarint(buf, pos)? as usize;
             let mut ends = Vec::with_capacity(n.min(PREALLOC_CAP));
@@ -3406,14 +5197,220 @@ fn native_decode(buf: &[u8], pos: &mut usize) -> Option<RuntimeValue> {
             }
             RuntimeValue::List(Rc::new(RefCell::new(ListRepr::strings(raw.to_vec(), ends))))
         }
+        // Templated string column: rebuild `prefix + (base + i·stride) + suffix` for `i in 0..n`.
+        T_STRINGS_TEMPLATE => {
+            let plen = bounded_count(read_uvarint(buf, pos)?)?;
+            let prefix = buf.get(*pos..pos.checked_add(plen)?)?.to_vec();
+            *pos += plen;
+            let slen = bounded_count(read_uvarint(buf, pos)?)?;
+            let suffix = buf.get(*pos..pos.checked_add(slen)?)?.to_vec();
+            *pos += slen;
+            let base = unzigzag(read_uvarint(buf, pos)?);
+            let stride = unzigzag(read_uvarint(buf, pos)?);
+            let n = bounded_count(read_uvarint(buf, pos)?)?;
+            // The affixes came from valid strings; a corrupt frame that isn't UTF-8 is refused.
+            if std::str::from_utf8(&prefix).is_err() || std::str::from_utf8(&suffix).is_err() {
+                return None;
+            }
+            let mut data = Vec::new();
+            let mut ends = Vec::with_capacity(n.min(PREALLOC_CAP));
+            for i in 0..n {
+                let num = base.wrapping_add((i as i64).wrapping_mul(stride));
+                data.extend_from_slice(&prefix);
+                data.extend_from_slice(num.to_string().as_bytes());
+                data.extend_from_slice(&suffix);
+                ends.push(u32::try_from(data.len()).ok()?);
+            }
+            RuntimeValue::List(Rc::new(RefCell::new(ListRepr::strings(data, ends))))
+        }
+        // Front-coded string column: rebuild each string as `prev[..common] + suffix`.
+        T_STRINGS_FRONT => {
+            let n = bounded_count(read_uvarint(buf, pos)?)?;
+            let mut data: Vec<u8> = Vec::new();
+            let mut ends = Vec::with_capacity(n.min(PREALLOC_CAP));
+            let mut prev: Vec<u8> = Vec::new();
+            for _ in 0..n {
+                let common = bounded_count(read_uvarint(buf, pos)?)?;
+                let suffix_len = bounded_count(read_uvarint(buf, pos)?)?;
+                // Can't share more prefix than the previous string has — a corrupt frame is refused.
+                if common > prev.len() {
+                    return None;
+                }
+                let suffix = buf.get(*pos..pos.checked_add(suffix_len)?)?;
+                *pos += suffix_len;
+                let mut s = Vec::with_capacity(common.checked_add(suffix_len)?);
+                s.extend_from_slice(&prev[..common]);
+                s.extend_from_slice(suffix);
+                data.extend_from_slice(&s);
+                ends.push(u32::try_from(data.len()).ok()?);
+                prev = s;
+            }
+            // The concatenation must be valid UTF-8 (front-coding cuts on char boundaries; a corrupt
+            // `common`/suffix that lands mid-char is rejected here rather than producing bad strings).
+            if std::str::from_utf8(&data).is_err() {
+                return None;
+            }
+            RuntimeValue::List(Rc::new(RefCell::new(ListRepr::strings(data, ends))))
+        }
+        // Affixed string column: rebuild each string as `prefix + middle_i + suffix`.
+        T_STRINGS_AFFIX => {
+            let plen = bounded_count(read_uvarint(buf, pos)?)?;
+            let prefix = buf.get(*pos..pos.checked_add(plen)?)?.to_vec();
+            *pos += plen;
+            let slen = bounded_count(read_uvarint(buf, pos)?)?;
+            let suffix = buf.get(*pos..pos.checked_add(slen)?)?.to_vec();
+            *pos += slen;
+            let n = bounded_count(read_uvarint(buf, pos)?)?;
+            let mut data: Vec<u8> = Vec::new();
+            let mut ends = Vec::with_capacity(n.min(PREALLOC_CAP));
+            for _ in 0..n {
+                let mid_len = bounded_count(read_uvarint(buf, pos)?)?;
+                let mid = buf.get(*pos..pos.checked_add(mid_len)?)?;
+                *pos += mid_len;
+                data.extend_from_slice(&prefix);
+                data.extend_from_slice(mid);
+                data.extend_from_slice(&suffix);
+                ends.push(u32::try_from(data.len()).ok()?);
+            }
+            // Affixes + middles all came from valid strings; reject a corrupt non-UTF-8 frame.
+            if std::str::from_utf8(&data).is_err() {
+                return None;
+            }
+            RuntimeValue::List(Rc::new(RefCell::new(ListRepr::strings(data, ends))))
+        }
+        // Dictionary string column: the distinct strings once, then a bit-packed index per row.
+        // Reconstruct the flat `Strings` buffer by replaying each row's dictionary entry.
+        T_STRINGS_DICT => {
+            let d = read_uvarint(buf, pos)? as usize;
+            let mut dict: Vec<&[u8]> = Vec::with_capacity(d.min(PREALLOC_CAP));
+            for _ in 0..d {
+                let len = read_uvarint(buf, pos)? as usize;
+                let s = buf.get(*pos..pos.checked_add(len)?)?;
+                if std::str::from_utf8(s).is_err() {
+                    return None;
+                }
+                dict.push(s);
+                *pos += len;
+            }
+            let n = read_uvarint(buf, pos)? as usize;
+            let iw = *buf.get(*pos)?;
+            *pos += 1;
+            if iw > 64 {
+                return None;
+            }
+            let mut out_data: Vec<u8> = Vec::new();
+            let mut out_ends: Vec<u32> = Vec::with_capacity(n.min(PREALLOC_CAP));
+            let mut push = |s: &[u8], out_data: &mut Vec<u8>, out_ends: &mut Vec<u32>| {
+                out_data.extend_from_slice(s);
+                out_ends.push(out_data.len() as u32);
+            };
+            if iw == 0 {
+                if n > 0 {
+                    let s = *dict.first()?;
+                    for _ in 0..n {
+                        push(s, &mut out_data, &mut out_ends);
+                    }
+                }
+            } else {
+                let nbytes = n.checked_mul(iw as usize)?.div_ceil(8);
+                let bytes = buf.get(*pos..pos.checked_add(nbytes)?)?;
+                *pos += nbytes;
+                for ix in bitunpack(bytes, n, iw)? {
+                    push(*dict.get(ix as usize)?, &mut out_data, &mut out_ends);
+                }
+            }
+            RuntimeValue::List(Rc::new(RefCell::new(ListRepr::strings(out_data, out_ends))))
+        }
         T_TUPLE => RuntimeValue::Tuple(Rc::new(read_seq(buf, pos)?)),
         T_SET => RuntimeValue::Set(Rc::new(RefCell::new(read_seq(buf, pos)?))),
+        T_SET_INTS => {
+            // The body is a best-encoded int column (any `T_INTS_*` form); decode it as a list —
+            // the recovered ints ARE the set's (already canonical-sorted) members.
+            let ints = match native_decode(buf, pos)? {
+                RuntimeValue::List(l) => l.borrow().to_values(),
+                _ => return None,
+            };
+            RuntimeValue::Set(Rc::new(RefCell::new(ints)))
+        }
+        T_SET_STRINGS => {
+            // Front-coded: reconstruct each member from `common` bytes of the previous + the suffix.
+            let n = read_uvarint(buf, pos)? as usize;
+            let mut items = Vec::with_capacity(n);
+            let mut prev = String::new();
+            for _ in 0..n {
+                let common = read_uvarint(buf, pos)? as usize;
+                if common > prev.len() || !prev.is_char_boundary(common) {
+                    return None;
+                }
+                let suffix = read_str(buf, pos)?;
+                let s = format!("{}{}", &prev[..common], suffix);
+                items.push(RuntimeValue::Text(Rc::new(s.clone())));
+                prev = s;
+            }
+            RuntimeValue::Set(Rc::new(RefCell::new(items)))
+        }
         T_MAP => {
             let n = read_uvarint(buf, pos)?;
             let mut m = MapStorage::default();
             for _ in 0..n {
                 let k = native_decode(buf, pos)?;
                 let v = native_decode(buf, pos)?;
+                m.insert(k, v);
+            }
+            RuntimeValue::Map(Rc::new(RefCell::new(m)))
+        }
+        T_MAP_INTKEY => {
+            // The int key column, a value-kind byte, then the values. Re-pair positionally — keys were
+            // written in numeric order, values in the corresponding order.
+            let keys = match native_decode(buf, pos)? {
+                RuntimeValue::List(l) => l.borrow().to_values(),
+                _ => return None,
+            };
+            let kind = *buf.get(*pos)?;
+            *pos += 1;
+            let vals: Vec<RuntimeValue> = match kind {
+                1 => match native_decode(buf, pos)? {
+                    RuntimeValue::List(l) => l.borrow().to_values(),
+                    _ => return None,
+                },
+                2 => {
+                    // Front-coded string column: reconstruct each value from `common` bytes of the
+                    // previous + the suffix (mirrors T_SET_STRINGS).
+                    let n = read_uvarint(buf, pos)? as usize;
+                    let mut vs = Vec::with_capacity(n.min(keys.len().saturating_add(1)));
+                    let mut prev = String::new();
+                    for _ in 0..n {
+                        let common = read_uvarint(buf, pos)? as usize;
+                        if common > prev.len() || !prev.is_char_boundary(common) {
+                            return None;
+                        }
+                        let suffix = read_str(buf, pos)?;
+                        let s = format!("{}{}", &prev[..common], suffix);
+                        vs.push(RuntimeValue::Text(Rc::new(s.clone())));
+                        prev = s;
+                    }
+                    vs
+                }
+                3 => match native_decode(buf, pos)? {
+                    // Columnar struct value list (or a tagged list for heterogeneous structs).
+                    RuntimeValue::List(l) => l.borrow().to_values(),
+                    _ => return None,
+                },
+                0 => {
+                    let n = read_uvarint(buf, pos)? as usize;
+                    let mut vs = Vec::with_capacity(n.min(keys.len().saturating_add(1)));
+                    for _ in 0..n {
+                        vs.push(native_decode(buf, pos)?);
+                    }
+                    vs
+                }
+                _ => return None,
+            };
+            if keys.len() != vals.len() {
+                return None;
+            }
+            let mut m = MapStorage::default();
+            for (k, v) in keys.into_iter().zip(vals.into_iter()) {
                 m.insert(k, v);
             }
             RuntimeValue::Map(Rc::new(RefCell::new(m)))
@@ -3511,6 +5508,78 @@ fn native_decode(buf: &[u8], pos: &mut usize) -> Option<RuntimeValue> {
                 rows.push(decode_struct_values(buf, pos, type_name.clone(), field_names.clone())?);
             }
             RuntimeValue::List(Rc::new(RefCell::new(ListRepr::from_values(rows))))
+        }
+        // FIXED-stride record-list view: read the shared schema + the F kind bytes, then read
+        // each row's cells by arithmetic (no offset tables), resolving FK_TEXT against the blob.
+        T_STRUCTS_FVIEW => {
+            let type_name = read_str(buf, pos)?;
+            let f = read_uvarint(buf, pos)? as usize;
+            let mut field_names = Vec::with_capacity(f.min(PREALLOC_CAP));
+            for _ in 0..f {
+                field_names.push(read_str(buf, pos)?);
+            }
+            let kinds = buf.get(*pos..pos.checked_add(f)?)?.to_vec();
+            *pos += f;
+            let n = read_uvarint(buf, pos)? as usize;
+            let (offsets, stride) = fview_layout(&kinds);
+            let rows_start = *pos;
+            let rows_len = n.checked_mul(stride)?;
+            let rows_bytes = buf.get(rows_start..rows_start.checked_add(rows_len)?)?;
+            *pos = rows_start.checked_add(rows_len)?;
+            let blob_len = read_uvarint(buf, pos)? as usize;
+            let blob = buf.get(*pos..pos.checked_add(blob_len)?)?;
+            *pos = pos.checked_add(blob_len)?;
+            // Decode each field STRAIGHT into a typed column (no per-row HashMap, no `from_values`
+            // re-scan) — the decode twin of the columnar encode. `field_names` is already the
+            // canonical sorted order, so this is the same `Structs` repr `from_values` would build.
+            let mut columns: Vec<ListRepr> = Vec::with_capacity(f);
+            for j in 0..f {
+                let off = offsets[j];
+                let col = match kinds[j] {
+                    FK_INT => {
+                        let mut v = Vec::with_capacity(n.min(PREALLOC_CAP));
+                        for r in 0..n {
+                            let base = r.checked_mul(stride)?.checked_add(off)?;
+                            v.push(i64::from_le_bytes(rows_bytes.get(base..base.checked_add(8)?)?.try_into().ok()?));
+                        }
+                        ListRepr::Ints(v)
+                    }
+                    FK_FLOAT => {
+                        let mut v = Vec::with_capacity(n.min(PREALLOC_CAP));
+                        for r in 0..n {
+                            let base = r.checked_mul(stride)?.checked_add(off)?;
+                            v.push(f64::from_le_bytes(rows_bytes.get(base..base.checked_add(8)?)?.try_into().ok()?));
+                        }
+                        ListRepr::Floats(v)
+                    }
+                    FK_BOOL => {
+                        let mut v = Vec::with_capacity(n.min(PREALLOC_CAP));
+                        for r in 0..n {
+                            let base = r.checked_mul(stride)?.checked_add(off)?;
+                            v.push(*rows_bytes.get(base)? != 0);
+                        }
+                        ListRepr::Bools(v)
+                    }
+                    FK_TEXT => {
+                        let mut data: Vec<u8> = Vec::new();
+                        let mut ends: Vec<u32> = Vec::with_capacity(n.min(PREALLOC_CAP));
+                        for r in 0..n {
+                            let base = r.checked_mul(stride)?.checked_add(off)?;
+                            let toff =
+                                u32::from_le_bytes(rows_bytes.get(base..base.checked_add(4)?)?.try_into().ok()?) as usize;
+                            let tlen = u32::from_le_bytes(
+                                rows_bytes.get(base.checked_add(4)?..base.checked_add(8)?)?.try_into().ok()?,
+                            ) as usize;
+                            data.extend_from_slice(blob.get(toff..toff.checked_add(tlen)?)?);
+                            ends.push(data.len() as u32);
+                        }
+                        ListRepr::strings(data, ends)
+                    }
+                    _ => return None,
+                };
+                columns.push(col);
+            }
+            RuntimeValue::List(Rc::new(RefCell::new(ListRepr::Structs { type_name, field_names, columns })))
         }
         T_INDUCTIVE => {
             let inductive_type = read_str(buf, pos)?;
@@ -3642,8 +5711,8 @@ fn native_decode(buf: &[u8], pos: &mut usize) -> Option<RuntimeValue> {
 }
 
 fn read_seq(buf: &[u8], pos: &mut usize) -> Option<Vec<RuntimeValue>> {
-    let n = read_uvarint(buf, pos)?;
-    let mut v = Vec::with_capacity((n as usize).min(PREALLOC_CAP));
+    let n = bounded_count(read_uvarint(buf, pos)?)?;
+    let mut v = Vec::with_capacity(n.min(PREALLOC_CAP));
     for _ in 0..n {
         v.push(native_decode(buf, pos)?);
     }
@@ -3855,6 +5924,120 @@ mod tests {
     use super::*;
     use crate::interpreter::ClosureValue;
     use std::collections::HashMap;
+
+    // ─────────────────────────────────────────────────────────────────────────────
+    // describe_columns — the codec naming its own output (the "which dial won" surface).
+    // ─────────────────────────────────────────────────────────────────────────────
+
+    fn ints_list(v: Vec<i64>) -> RuntimeValue {
+        RuntimeValue::List(Rc::new(RefCell::new(ListRepr::Ints(v))))
+    }
+
+    #[test]
+    fn describe_columns_names_the_numeric_dials() {
+        let ints = ints_list((0i64..64).map(|i| 3 + i * 7).collect());
+        let enc = |num: WireNumerics| {
+            with_structure(WireStructure::Off, || {
+                with_numerics(num, || {
+                    message_to_wire_with("", &ints, WireCodec::Native, WireIntegrity::Raw).unwrap()
+                })
+            })
+        };
+        assert_eq!(describe_columns(&enc(WireNumerics::Varint)), vec!["varint"]);
+        assert_eq!(describe_columns(&enc(WireNumerics::Fixed)), vec!["fixed (memcpy)"]);
+        assert_eq!(describe_columns(&enc(WireNumerics::GroupVarint)), vec!["group-varint"]);
+    }
+
+    #[test]
+    fn describe_columns_names_the_affine_structure() {
+        let ints = ints_list((0i64..64).map(|i| 5 + i * 3).collect());
+        let bytes = with_structure(WireStructure::Affine, || {
+            with_numerics(WireNumerics::Varint, || {
+                message_to_wire_with("", &ints, WireCodec::Native, WireIntegrity::Raw).unwrap()
+            })
+        });
+        assert_eq!(describe_columns(&bytes), vec!["affine (base,stride,n)"]);
+    }
+
+    #[test]
+    fn describe_columns_names_the_float_dials() {
+        // Slowly-varying floats: memcpy stays raw; xor-delta shrinks (the dial applies).
+        let floats = floats_list((0..256).map(|i| 20.0 + i as f64 * 0.01).collect());
+        let enc = |fl: WireFloats| {
+            with_structure(WireStructure::Off, || {
+                with_floats(fl, || {
+                    message_to_wire_with("", &floats, WireCodec::Native, WireIntegrity::Raw).unwrap()
+                })
+            })
+        };
+        assert_eq!(describe_columns(&enc(WireFloats::Memcpy)), vec!["memcpy floats"]);
+        assert_eq!(describe_columns(&enc(WireFloats::XorDelta)), vec!["xor-delta floats"]);
+    }
+
+    #[test]
+    fn describe_columns_names_strings_and_bools() {
+        let strings = RuntimeValue::List(Rc::new(RefCell::new(ListRepr::from_values(
+            (0..24).map(|i| RuntimeValue::Text(Rc::new(format!("host-{i}-{}", i * 31 % 7)))).collect(),
+        ))));
+        let bools = RuntimeValue::List(Rc::new(RefCell::new(ListRepr::from_values(
+            (0..40).map(|i| RuntimeValue::Bool(i * 5 % 3 == 0)).collect(),
+        ))));
+        let enc = |rv: &RuntimeValue| {
+            with_structure(WireStructure::Off, || {
+                message_to_wire_with("", rv, WireCodec::Native, WireIntegrity::Raw).unwrap()
+            })
+        };
+        assert_eq!(describe_columns(&enc(&strings)), vec!["flat strings"]);
+        assert_eq!(describe_columns(&enc(&bools)), vec!["bit-packed bools"]);
+    }
+
+    #[test]
+    fn describe_columns_names_each_record_field() {
+        let mut rows = Vec::new();
+        for i in 0..32i64 {
+            let mut f = HashMap::new();
+            f.insert("id".to_string(), RuntimeValue::Int(i * 3 + 1));
+            f.insert("name".to_string(), RuntimeValue::Text(Rc::new(format!("node-{i}"))));
+            f.insert("active".to_string(), RuntimeValue::Bool(i % 2 == 0));
+            rows.push(RuntimeValue::Struct(Box::new(StructValue { type_name: "Record".to_string(), fields: f })));
+        }
+        let rv = RuntimeValue::List(Rc::new(RefCell::new(ListRepr::from_values(rows))));
+        let bytes = with_structure(WireStructure::Off, || {
+            with_numerics(WireNumerics::Varint, || {
+                message_to_wire_with("", &rv, WireCodec::Native, WireIntegrity::Raw).unwrap()
+            })
+        });
+        // Field order is schema-defined; compare as a set so the test is order-robust.
+        let cols = describe_columns(&bytes);
+        let got: std::collections::BTreeSet<&str> = cols.iter().map(String::as_str).collect();
+        let want: std::collections::BTreeSet<&str> =
+            ["active: bit-packed bools", "id: varint", "name: flat strings"].into_iter().collect();
+        assert_eq!(got, want);
+    }
+
+    #[test]
+    fn column_tag_name_covers_the_structural_vocabulary() {
+        // Every dial the codec can select must carry a plain-words name — none may ship as the
+        // generic "value" fallback, or the benchmark card would hide which encoding actually won.
+        for (tag, want) in [
+            (T_INTS, "varint"),
+            (T_INTS_FIXED, "fixed (memcpy)"),
+            (T_INTS_GV, "group-varint"),
+            (T_INTS_AFFINE, "affine (base,stride,n)"),
+            (T_INTS_DELTA, "delta"),
+            (T_INTS_DOD, "delta-of-delta"),
+            (T_INTS_FOR, "FOR bit-pack"),
+            (T_INTS_RLE, "run-length"),
+            (T_INTS_DICT, "dictionary"),
+            (T_FLOATS, "memcpy floats"),
+            (T_FLOATS_XOR, "xor-delta floats"),
+            (T_BOOLS, "bit-packed bools"),
+            (T_STRINGS, "flat strings"),
+        ] {
+            assert_eq!(column_tag_name(tag), want, "tag {tag}");
+            assert_ne!(column_tag_name(tag), "value", "tag {tag} must not be the generic fallback");
+        }
+    }
 
     // ─────────────────────────────────────────────────────────────────────────────
     // Build-in-place columnar records — Cap'n Proto's home turf (zero-encode + zero-decode).
@@ -4199,7 +6382,7 @@ mod tests {
     #[test]
     fn production_receive_path_defers_then_reads_record_list_lazily() {
         // ZC5: mirror EXACTLY the interpreter's receive decisions for a record list:
-        //   drain      → `peek_record_list_sender` says "DEFER" (buffer raw, decode NOTHING)
+        //   drain      → `peek_deferrable_sender` says "DEFER" (buffer raw, decode NOTHING)
         //   Await view  → `from_record_list_view` (LAZY — no rows decoded until touched)
         //   Await       → `message_from_wire` (eager) — same values
         // and prove a scalar is NOT deferrable (decoded in order at drain). This is the
@@ -4217,7 +6400,7 @@ mod tests {
             with_struct_view(true, || message_to_wire_with("alice", &list, WireCodec::Native, WireIntegrity::Raw).unwrap());
 
         // 1) Drain: a record-list view is a DEFERRABLE message — peek yields the sender, no decode.
-        assert_eq!(peek_record_list_sender(&frame).as_deref(), Some("alice"), "record list defers at drain");
+        assert_eq!(peek_deferrable_sender(&frame).as_deref(), Some("alice"), "record list defers at drain");
 
         // 2) `Await view`: wrap the buffered frame LAZILY — a WireStructs, zero rows decoded.
         let lazy = ListRepr::from_record_list_view(Rc::new(frame.clone())).expect("lazy wrap");
@@ -4249,7 +6432,75 @@ mod tests {
 
         // 4) A scalar message is NOT a deferrable record list → decoded eagerly in arrival order.
         let sframe = message_to_wire_with("bob", &RuntimeValue::Int(7), WireCodec::Native, WireIntegrity::Raw).unwrap();
-        assert_eq!(peek_record_list_sender(&sframe), None, "a scalar is not deferred");
+        assert_eq!(peek_deferrable_sender(&sframe), None, "a scalar is not deferred");
+    }
+
+    #[test]
+    fn lazy_wirecolumn_reads_received_numeric_columns_zero_copy() {
+        // EXTEND: a received aligned NUMERIC column (`Seq of Int`/`Seq of Float` sent fast/aligned)
+        // is deferred at drain and read ZERO-COPY out of the borrowed `&[i64]`/`&[f64]` — capnp's
+        // `List<i64>` read-in-place. `len` O(1), `get(i)` reads one element, no eager decode.
+        use crate::interpreter::ListRepr;
+
+        let ints: Vec<i64> = (0..2000).collect();
+        let il = RuntimeValue::List(Rc::new(RefCell::new(ListRepr::Ints(ints.clone()))));
+        let ibytes =
+            with_struct_view(true, || message_to_wire_with("alice", &il, WireCodec::Native, WireIntegrity::Raw).unwrap());
+        assert_eq!(peek_deferrable_sender(&ibytes).as_deref(), Some("alice"), "aligned int column defers");
+        let lazy = ListRepr::from_received_view(Rc::new(ibytes)).expect("lazy int column");
+        assert!(matches!(lazy, ListRepr::WireColumn { floats: false, .. }), "held as a lazy int column");
+        assert_eq!(lazy.len(), 2000, "O(1) len, no decode");
+        assert_eq!(lazy.get(0), Some(RuntimeValue::Int(0)), "zero-copy element read");
+        assert_eq!(lazy.get(1999), Some(RuntimeValue::Int(1999)));
+        assert_eq!(lazy.get(2000), None, "out of range");
+        let vals = lazy.to_values();
+        assert_eq!(vals.len(), 2000);
+        assert_eq!(vals[500], RuntimeValue::Int(500));
+
+        let floats: Vec<f64> = (0..1000).map(|i| i as f64 * 0.25).collect();
+        let fl = RuntimeValue::List(Rc::new(RefCell::new(ListRepr::Floats(floats.clone()))));
+        let fbytes =
+            with_struct_view(true, || message_to_wire_with("bob", &fl, WireCodec::Native, WireIntegrity::Raw).unwrap());
+        assert_eq!(peek_deferrable_sender(&fbytes).as_deref(), Some("bob"), "aligned float column defers");
+        let lazyf = ListRepr::from_received_view(Rc::new(fbytes)).expect("lazy float column");
+        assert!(matches!(lazyf, ListRepr::WireColumn { floats: true, .. }), "held as a lazy float column");
+        assert_eq!(lazyf.len(), 1000);
+        assert_eq!(lazyf.get(4), Some(RuntimeValue::Float(1.0)), "zero-copy float read (0.25*4)");
+        assert_eq!(lazyf.to_values()[8], RuntimeValue::Float(2.0));
+    }
+
+    #[test]
+    fn batch_stream_message_round_trips() {
+        // The `Stream`/`Await stream` substrate: many values batched into ONE framed blob, deframed
+        // back in order, with the sender peekable and a normal message never mistaken for a stream.
+        let values = vec![
+            RuntimeValue::Int(1),
+            RuntimeValue::Int(-42),
+            RuntimeValue::Text(Rc::new("hi".to_string())),
+            RuntimeValue::Bool(true),
+        ];
+        let blob = frame_stream_message("alice", &values).expect("frames a stream");
+        assert_eq!(peek_stream_sender(&blob).as_deref(), Some("alice"), "sender peekable at drain");
+
+        let got = deframe_stream_message(&blob).expect("deframes the stream");
+        assert_eq!(got.len(), 4);
+        assert_eq!(got[0], RuntimeValue::Int(1));
+        assert_eq!(got[1], RuntimeValue::Int(-42));
+        match &got[2] {
+            RuntimeValue::Text(t) => assert_eq!(&**t, "hi"),
+            o => panic!("expected text, got {o:?}"),
+        }
+        assert_eq!(got[3], RuntimeValue::Bool(true));
+
+        // A normal message is NOT a stream (the 0xFD marker disambiguates).
+        let normal = message_to_wire("p", &RuntimeValue::Int(5)).unwrap();
+        assert_eq!(peek_stream_sender(&normal), None, "a normal message is not a stream");
+        assert_eq!(deframe_stream_message(&normal), None);
+
+        // An empty stream is valid (zero values).
+        let empty = frame_stream_message("bob", &[]).unwrap();
+        assert_eq!(peek_stream_sender(&empty).as_deref(), Some("bob"));
+        assert_eq!(deframe_stream_message(&empty), Some(vec![]));
     }
 
     #[test]
@@ -4402,6 +6653,591 @@ mod tests {
     }
 
     #[test]
+    fn wire_auto_geometric_ships_the_generator_not_the_data() {
+        // A geometric column `base * ratio^i` is NOT a polynomial (finite differences never
+        // settle) and NOT affine, so without a dedicated detector it costs ~1 varint PER
+        // element — the magnitude doubles every step. The generator ships THREE numbers
+        // (base, ratio, count) regardless of length, and reconstructs bit-exact.
+        let doubling: Vec<i64> = (0..40).map(|i| 3i64 * (1i64 << i)).collect();
+        let (bytes, got) = affine_roundtrip(&doubling, WireStructure::Auto);
+        assert_eq!(got, doubling, "a geometric column reconstructs bit-exact");
+        assert!(
+            bytes.len() < 20,
+            "the geometric GENERATOR ships ~3 numbers, not 40 growing values: {} bytes",
+            bytes.len()
+        );
+
+        // Negative ratio (alternating sign, growing magnitude) is geometric too.
+        let alternating: Vec<i64> = {
+            let mut c = 1i64;
+            (0..40)
+                .map(|_| {
+                    let v = c;
+                    c = c.wrapping_mul(-2);
+                    v
+                })
+                .collect()
+        };
+        let (bytes, got) = affine_roundtrip(&alternating, WireStructure::Auto);
+        assert_eq!(got, alternating, "a negative-ratio geometric column reconstructs bit-exact");
+        assert!(bytes.len() < 20, "negative-ratio geometric also ships the generator: {} bytes", bytes.len());
+
+        // SOUNDNESS under overflow: a doubling sequence that runs PAST i64 wraps deterministically
+        // — the detector verifies reproduction under the SAME `wrapping_mul` the decoder uses, so it
+        // is still recognized AND round-trips bit-exact across the wrap (2^63 → i64::MIN → 0 → 0…).
+        let wrapping: Vec<i64> = {
+            let mut c = 1i64;
+            (0..70)
+                .map(|_| {
+                    let v = c;
+                    c = c.wrapping_mul(2);
+                    v
+                })
+                .collect()
+        };
+        let (_, got) = affine_roundtrip(&wrapping, WireStructure::Auto);
+        assert_eq!(got, wrapping, "an overflowing geometric column still round-trips exactly");
+
+        // NO false positives: random noise, a near-geometric sequence with one perturbed element,
+        // and an affine column are NOT mis-encoded as geometric — each round-trips exactly.
+        let mut rng = SplitMix64 { state: 0x6E0_47E7 };
+        let noise: Vec<i64> = (0..500).map(|_| rng.next() as i64).collect();
+        let (_, got) = affine_roundtrip(&noise, WireStructure::Auto);
+        assert_eq!(got, noise, "random noise round-trips (no false geometric detection)");
+
+        let mut perturbed: Vec<i64> = (0..30).map(|i| 5i64 * (1i64 << i)).collect();
+        perturbed[17] += 1; // breaks the geometric law at one point
+        let (_, got) = affine_roundtrip(&perturbed, WireStructure::Auto);
+        assert_eq!(got, perturbed, "a perturbed near-geometric column round-trips (verification rejects it)");
+
+        let affine: Vec<i64> = (0..40).map(|i| 7 + 3 * i).collect();
+        let (_, got) = affine_roundtrip(&affine, WireStructure::Auto);
+        assert_eq!(got, affine, "an affine column round-trips (geometric does not steal it)");
+    }
+
+    #[test]
+    fn wire_auto_periodic_ships_the_repeating_block() {
+        // A cyclic column `pattern[i % p]` (weekly schedules, repeating categories, sawtooth
+        // bytes) is none of affine/geometric/polynomial — but it is fully described by ONE
+        // period's worth of values plus the count. Ship the block, not the 500 repeats.
+        let block = [10i64, 20, 30, 40, 50];
+        let cyclic: Vec<i64> = (0..500).map(|i| block[i % block.len()]).collect();
+        let (bytes, got) = affine_roundtrip(&cyclic, WireStructure::Auto);
+        assert_eq!(got, cyclic, "a periodic column reconstructs bit-exact");
+        assert!(
+            bytes.len() < 30,
+            "the periodic GENERATOR ships ONE period ({} values), not 500: {} bytes",
+            block.len(),
+            bytes.len()
+        );
+
+        // Negative / mixed-magnitude period, and a non-trivial period length.
+        let block2 = [-7i64, 0, 1000000, -3, 42, 42, -1];
+        let cyclic2: Vec<i64> = (0..1001).map(|i| block2[i % block2.len()]).collect();
+        let (bytes, got) = affine_roundtrip(&cyclic2, WireStructure::Auto);
+        assert_eq!(got, cyclic2, "a mixed-magnitude periodic column reconstructs bit-exact");
+        assert!(bytes.len() < 40, "still ships ONE period, not 1001 values: {} bytes", bytes.len());
+
+        // Minimal period wins: a column that is ALSO period-10 (because it is period-5) ships the
+        // SMALLER period-5 block — and round-trips.
+        let p5: Vec<i64> = (0..200).map(|i| block[i % 5]).collect();
+        let (_, got) = affine_roundtrip(&p5, WireStructure::Auto);
+        assert_eq!(got, p5, "the minimal period round-trips");
+
+        // NO false positives: random noise and an aperiodic column (period == length, no repeat)
+        // are NOT mis-encoded as periodic — each round-trips exactly.
+        let mut rng = SplitMix64 { state: 0x9E15_AB0 };
+        let noise: Vec<i64> = (0..500).map(|_| rng.next() as i64).collect();
+        let (_, got) = affine_roundtrip(&noise, WireStructure::Auto);
+        assert_eq!(got, noise, "random noise round-trips (no false periodic detection)");
+
+        let aperiodic: Vec<i64> = (0..50).map(|i| i * i + 1).collect();
+        let (_, got) = affine_roundtrip(&aperiodic, WireStructure::Auto);
+        assert_eq!(got, aperiodic, "an aperiodic column round-trips");
+    }
+
+    #[test]
+    fn wire_float_default_dial_is_pure_memcpy() {
+        // The lightning-quick contract: under the DEFAULT (`Off`) dial the float encoder never
+        // inspects the data — even a constant / affine / periodic column ships as the raw n×8 memcpy
+        // (`T_FLOATS`). Structural shrinking is opt-in via `Auto`/`Affine`. This mirrors the integer
+        // contract (Off = straight varint, no detection) and is what keeps the hot encode path fast:
+        // you pick the dial ahead of time, the encoder does not search on every send.
+        let shapes: Vec<(&str, Vec<f64>)> = vec![
+            ("constant", vec![3.14159f64; 1000]),
+            ("affine", (0..1000).map(|i| i as f64).collect()),
+            ("periodic", (0..1000).map(|i| [1.5f64, -2.25, 3.0, 0.0, 99.99][i % 5]).collect()),
+        ];
+        for (name, v) in &shapes {
+            let val = RuntimeValue::List(Rc::new(RefCell::new(ListRepr::Floats(v.clone()))));
+            let bytes = message_to_wire_with("", &val, WireCodec::Native, WireIntegrity::Raw).unwrap();
+            // The tag is the plain memcpy form and the body carries all n×8 raw bytes — NOT a tiny
+            // generator. (Framing adds a few bytes on top, so `>=` n×8 is the memcpy signature.)
+            assert!(
+                bytes.len() >= v.len() * 8,
+                "[{name}] the Off dial must ship the raw memcpy (≥ {} B), got {} B (detection leaked into the hot path)",
+                v.len() * 8,
+                bytes.len()
+            );
+            let got = match message_from_wire(&bytes).unwrap().1 {
+                RuntimeValue::List(l) => match &*l.borrow() {
+                    ListRepr::Floats(g) => g.clone(),
+                    _ => panic!("expected Floats"),
+                },
+                _ => panic!("expected List"),
+            };
+            assert_eq!(&got, v, "[{name}] memcpy float column round-trips bit-exact");
+        }
+        // The opt-in still works: the SAME constant column under `Auto` ships the tiny generator.
+        let c = vec![3.14159f64; 1000];
+        let val = RuntimeValue::List(Rc::new(RefCell::new(ListRepr::Floats(c))));
+        let small = with_structure(WireStructure::Auto, || {
+            message_to_wire_with("", &val, WireCodec::Native, WireIntegrity::Raw).unwrap()
+        });
+        assert!(small.len() < 30, "Auto still ships the generator (one f64 + count): {} B", small.len());
+    }
+
+    #[test]
+    fn wire_float_const_and_affine_ship_the_generator() {
+        // Ship the GENERATOR for floats too: a constant column = one f64 + count; a bit-exact
+        // `base + i·stride` column = three numbers. Both lossless; real noisy data falls through.
+        fn roundtrip(v: Vec<f64>) -> (Vec<u8>, Vec<f64>) {
+            let val = RuntimeValue::List(Rc::new(RefCell::new(ListRepr::Floats(v))));
+            // Structural float forms are `Auto`/`Affine`-only now (the default dial is a pure memcpy —
+            // see `wire_float_default_dial_is_pure_memcpy`); opt into the menu to exercise them.
+            let bytes = with_structure(WireStructure::Auto, || {
+                message_to_wire_with("", &val, WireCodec::Native, WireIntegrity::Raw).unwrap()
+            });
+            let got = match message_from_wire(&bytes).unwrap().1 {
+                RuntimeValue::List(l) => match &*l.borrow() {
+                    ListRepr::Floats(g) => g.clone(),
+                    _ => panic!("expected Floats"),
+                },
+                _ => panic!("expected List"),
+            };
+            (bytes, got)
+        }
+
+        // Constant — 1000 identical f64 ship in ~11 bytes.
+        let c = vec![3.14159f64; 1000];
+        let (bytes, got) = roundtrip(c.clone());
+        assert_eq!(got, c, "constant float column reconstructs");
+        assert!(bytes.len() < 30, "constant ships one f64 + count, not 8000 B: {} B", bytes.len());
+
+        // Affine — integer-valued floats (exact in f64) ship as base+stride+count.
+        let ints: Vec<f64> = (0..1000).map(|i| i as f64).collect();
+        let (bytes, got) = roundtrip(ints.clone());
+        assert_eq!(got, ints, "integer-valued float column reconstructs bit-exact");
+        assert!(bytes.len() < 40, "affine ships 3 numbers, not 8000 B: {} B", bytes.len());
+
+        // Affine with a power-of-two stride — `i·0.5` is bit-exact.
+        let half: Vec<f64> = (0..500).map(|i| (i as f64) * 0.5).collect();
+        let (bytes, got) = roundtrip(half.clone());
+        assert_eq!(got, half, "power-of-two-stride affine reconstructs bit-exact");
+        assert!(bytes.len() < 40, "still 3 numbers: {} B", bytes.len());
+
+        // NO false positives: noisy finite floats and a perturbed near-affine column round-trip
+        // exactly via the raw/XOR path (the bit-exact check refuses anything that isn't perfect).
+        let mut rng = SplitMix64 { state: 0xF10A7_C0DE };
+        let noise: Vec<f64> = (0..500).map(|_| (rng.next() % 10_000_000) as f64 / 13.0).collect();
+        let (_, got) = roundtrip(noise.clone());
+        assert_eq!(got, noise, "noisy floats round-trip (no false generator detection)");
+
+        let mut perturbed: Vec<f64> = (0..50).map(|i| i as f64).collect();
+        perturbed[37] = 36.9999999;
+        let (_, got) = roundtrip(perturbed.clone());
+        assert_eq!(got, perturbed, "a perturbed near-affine column round-trips");
+    }
+
+    #[test]
+    fn wire_auto_sparse_column_ships_dominant_plus_exceptions() {
+        // A mostly-one-value column with a handful of DIVERSE-valued exceptions ships the dominant
+        // value + a short (delta-index, value) list — beating dict (which would bit-pack 1000 indices
+        // over 11 distinct values) and RLE (two run-entries per isolated exception).
+        let mut v = vec![0i64; 1000];
+        for k in 0..10 {
+            v[k * 97] = (k as i64 + 1) * 12345;
+        }
+        let (bytes, got) = affine_roundtrip(&v, WireStructure::Auto);
+        assert_eq!(got, v, "sparse column reconstructs exactly");
+        assert!(bytes.len() < 80, "sparse ships ~10 exceptions, not 1000 values: {} bytes", bytes.len());
+
+        // A non-zero dominant value works too.
+        let mut v2 = vec![42i64; 500];
+        for k in 0..5 {
+            v2[k * 80 + 3] = -(k as i64 + 1) * 7_000_003;
+        }
+        let (bytes, got) = affine_roundtrip(&v2, WireStructure::Auto);
+        assert_eq!(got, v2, "non-zero-dominant sparse column reconstructs exactly");
+        assert!(bytes.len() < 80, "still ~5 exceptions: {} bytes", bytes.len());
+
+        // NO false positives: a column with NO dominant value (random) round-trips via the menu,
+        // not mis-encoded as sparse.
+        let mut rng = SplitMix64 { state: 0x5A95E_C0DE };
+        let noise: Vec<i64> = (0..500).map(|_| rng.next() as i64).collect();
+        let (_, got) = affine_roundtrip(&noise, WireStructure::Auto);
+        assert_eq!(got, noise, "random column round-trips (no false sparse detection)");
+    }
+
+    #[test]
+    fn wire_float_sparse_column_ships_dominant_plus_exceptions() {
+        // The float twin of sparse: a mostly-one-value f64 column (sparse telemetry, a mostly-zero
+        // signal with a few spikes) ships the dominant value + the outliers, not all n×8 bytes.
+        fn roundtrip(v: Vec<f64>) -> (Vec<u8>, Vec<f64>) {
+            let val = RuntimeValue::List(Rc::new(RefCell::new(ListRepr::Floats(v))));
+            // Structural float forms are `Auto`/`Affine`-only now (the default dial is a pure memcpy —
+            // see `wire_float_default_dial_is_pure_memcpy`); opt into the menu to exercise them.
+            let bytes = with_structure(WireStructure::Auto, || {
+                message_to_wire_with("", &val, WireCodec::Native, WireIntegrity::Raw).unwrap()
+            });
+            let got = match message_from_wire(&bytes).unwrap().1 {
+                RuntimeValue::List(l) => match &*l.borrow() {
+                    ListRepr::Floats(g) => g.clone(),
+                    _ => panic!("expected Floats"),
+                },
+                _ => panic!("expected List"),
+            };
+            (bytes, got)
+        }
+
+        let mut v = vec![0.0f64; 1000];
+        for k in 0..10 {
+            v[k * 97] = (k as f64 + 1.0) * 1234.5;
+        }
+        let (bytes, got) = roundtrip(v.clone());
+        assert_eq!(got, v, "sparse float column reconstructs exactly");
+        assert!(bytes.len() < 160, "sparse ships ~10 outliers, not 8000 B: {} B", bytes.len());
+
+        // Non-zero dominant, with negative outliers.
+        let mut v2 = vec![3.5f64; 500];
+        for k in 0..5 {
+            v2[k * 80 + 3] = -(k as f64 + 1.0) * 99.0;
+        }
+        let (_, got) = roundtrip(v2.clone());
+        assert_eq!(got, v2, "non-zero-dominant sparse float column reconstructs exactly");
+
+        // No dominant value (random finite floats) → not mis-encoded; round-trips via memcpy.
+        let mut rng = SplitMix64 { state: 0xF10A7_5A95E };
+        let noise: Vec<f64> = (0..500).map(|_| (rng.next() % 10_000_000) as f64 / 13.0).collect();
+        let (_, got) = roundtrip(noise.clone());
+        assert_eq!(got, noise, "random float column round-trips (no false sparse detection)");
+    }
+
+    #[test]
+    fn wire_float_periodic_and_geometric_ship_the_generator() {
+        fn roundtrip(v: Vec<f64>) -> (Vec<u8>, Vec<f64>) {
+            let val = RuntimeValue::List(Rc::new(RefCell::new(ListRepr::Floats(v))));
+            // Structural float forms are `Auto`/`Affine`-only now (the default dial is a pure memcpy —
+            // see `wire_float_default_dial_is_pure_memcpy`); opt into the menu to exercise them.
+            let bytes = with_structure(WireStructure::Auto, || {
+                message_to_wire_with("", &val, WireCodec::Native, WireIntegrity::Raw).unwrap()
+            });
+            let got = match message_from_wire(&bytes).unwrap().1 {
+                RuntimeValue::List(l) => match &*l.borrow() {
+                    ListRepr::Floats(g) => g.clone(),
+                    _ => panic!("expected Floats"),
+                },
+                _ => panic!("expected List"),
+            };
+            (bytes, got)
+        }
+
+        // Periodic — a repeating 5-float waveform ships ONE block, not 1000 samples.
+        let block = [1.5f64, -2.25, 3.0, 0.0, 99.99];
+        let cyclic: Vec<f64> = (0..1000).map(|i| block[i % 5]).collect();
+        let (bytes, got) = roundtrip(cyclic.clone());
+        assert_eq!(got, cyclic, "periodic float column reconstructs");
+        assert!(bytes.len() < 80, "ships one 5-float block, not 1000: {} B", bytes.len());
+
+        // Geometric — doubling and halving (power-of-two ratios) are bit-exact in f64.
+        let doubling: Vec<f64> = {
+            let mut c = 1.0f64;
+            (0..50).map(|_| { let x = c; c *= 2.0; x }).collect()
+        };
+        let (bytes, got) = roundtrip(doubling.clone());
+        assert_eq!(got, doubling, "doubling float column reconstructs bit-exact");
+        assert!(bytes.len() < 40, "geometric ships base+ratio+count: {} B", bytes.len());
+
+        let halving: Vec<f64> = {
+            let mut c = 1024.0f64;
+            (0..40).map(|_| { let x = c; c *= 0.5; x }).collect()
+        };
+        let (_, got) = roundtrip(halving.clone());
+        assert_eq!(got, halving, "halving (exponential decay) reconstructs bit-exact");
+
+        // NO false positives: random finite floats are neither periodic nor geometric — round-trip exact.
+        let mut rng = SplitMix64 { state: 0xC0FFEE_F10A7 };
+        let noise: Vec<f64> = (0..500).map(|_| (rng.next() % 9_999_991) as f64 / 7.0 - 1234.5).collect();
+        let (_, got) = roundtrip(noise.clone());
+        assert_eq!(got, noise, "random floats round-trip (no false periodic/geometric detection)");
+    }
+
+    #[test]
+    fn wire_string_template_ships_prefix_suffix_and_affine_index() {
+        // Sequential-id strings — REST URLs, file paths, generated labels — are `prefix + (base +
+        // i·stride) + suffix`. Ship the two affixes once + the affine index, not all n strings.
+        fn roundtrip(strings: &[String]) -> (Vec<u8>, Vec<String>) {
+            let items: Vec<RuntimeValue> =
+                strings.iter().map(|s| RuntimeValue::Text(Rc::new(s.clone()))).collect();
+            let val = RuntimeValue::List(Rc::new(RefCell::new(ListRepr::from_values(items))));
+            let bytes = with_structure(WireStructure::Auto, || {
+                message_to_wire_with("", &val, WireCodec::Native, WireIntegrity::Raw).unwrap()
+            });
+            let got = match message_from_wire(&bytes).unwrap().1 {
+                RuntimeValue::List(l) => {
+                    let b = l.borrow();
+                    (0..b.len())
+                        .map(|i| match b.get(i).unwrap() {
+                            RuntimeValue::Text(s) => (*s).clone(),
+                            other => panic!("expected Text, got {other:?}"),
+                        })
+                        .collect()
+                }
+                _ => panic!("expected List"),
+            };
+            (bytes, got)
+        }
+
+        // Sequential-id URLs (long shared prefix) → ~40 bytes, not 37 KB.
+        let urls: Vec<String> = (0..1000).map(|i| format!("https://api.example.com/v1/items/{i}")).collect();
+        let (bytes, got) = roundtrip(&urls);
+        assert_eq!(got, urls, "templated URLs reconstruct exactly");
+        assert!(bytes.len() < 80, "ships prefix + affine index, not 1000 URLs: {} bytes", bytes.len());
+
+        // Non-unit stride, and a prefix+suffix template (`file_<i>.txt`).
+        let stepped: Vec<String> = (0..500).map(|i| format!("row_{}", i * 2)).collect();
+        let (_, got) = roundtrip(&stepped);
+        assert_eq!(got, stepped, "stride-2 templated labels reconstruct exactly");
+
+        let files: Vec<String> = (0..300).map(|i| format!("file_{i}.txt")).collect();
+        let (bytes, got) = roundtrip(&files);
+        assert_eq!(got, files, "prefix+suffix template reconstructs exactly");
+        assert!(bytes.len() < 60, "prefix+suffix template stays tiny: {} bytes", bytes.len());
+
+        // NO false positives: non-affine ids and ZERO-PADDED ids (exact-decimal check) round-trip
+        // via the flat/dictionary path, never a wrong template.
+        let mut rng = SplitMix64 { state: 0x57117_C0DE };
+        let scattered: Vec<String> = (0..200).map(|_| format!("k{}", rng.next() % 1_000_000)).collect();
+        let (_, got) = roundtrip(&scattered);
+        assert_eq!(got, scattered, "non-affine ids round-trip (no false template)");
+
+        let padded: Vec<String> = (0..50).map(|i| format!("id_{i:03}")).collect();
+        let (_, got) = roundtrip(&padded);
+        assert_eq!(got, padded, "zero-padded ids round-trip (not templated — exact-decimal guard)");
+    }
+
+    #[test]
+    fn wire_string_front_coding_crushes_sorted_shared_prefix_columns() {
+        // The structural string compressor the dictionary (all-distinct → no win) and template
+        // (non-affine / zero-padded → bails) can't touch: a sorted or hierarchical column whose
+        // adjacent strings share long prefixes ships each as (shared-prefix-len, suffix).
+        fn roundtrip(strings: &[String]) -> (Vec<u8>, Vec<String>) {
+            let items: Vec<RuntimeValue> =
+                strings.iter().map(|s| RuntimeValue::Text(Rc::new(s.clone()))).collect();
+            let val = RuntimeValue::List(Rc::new(RefCell::new(ListRepr::from_values(items))));
+            let bytes = with_structure(WireStructure::Auto, || {
+                message_to_wire_with("", &val, WireCodec::Native, WireIntegrity::Raw).unwrap()
+            });
+            let got = match message_from_wire(&bytes).unwrap().1 {
+                RuntimeValue::List(l) => {
+                    let b = l.borrow();
+                    (0..b.len())
+                        .map(|i| match b.get(i).unwrap() {
+                            RuntimeValue::Text(s) => (*s).clone(),
+                            other => panic!("expected Text, got {other:?}"),
+                        })
+                        .collect()
+                }
+                _ => panic!("expected List"),
+            };
+            (bytes, got)
+        }
+        let flat_len = |v: &[String]| -> usize { v.iter().map(|s| s.len()).sum() };
+
+        // Zero-padded log paths (long shared prefix AND suffix; template bails on the zero-padding,
+        // the dictionary can't help 500 distinct strings — front-coding crushes them).
+        let paths: Vec<String> = (0..500).map(|i| format!("/var/log/app/2026/06/service-{i:04}.log")).collect();
+        let (bytes, got) = roundtrip(&paths);
+        assert_eq!(got, paths, "front-coded log paths reconstruct exactly");
+        assert!(
+            bytes.len() * 3 < flat_len(&paths),
+            "front-coding crushes the shared path prefix: {} vs flat {}",
+            bytes.len(),
+            flat_len(&paths)
+        );
+
+        // Sorted hierarchical object-store keys — non-affine, all distinct, deep shared prefixes.
+        let mut keys: Vec<String> = Vec::new();
+        for user in ["alice", "bob", "carol", "dave"] {
+            for kind in ["profile", "settings", "avatar", "session"] {
+                keys.push(format!("users/{user}/{kind}/data.json"));
+            }
+        }
+        keys.sort();
+        let (bytes, got) = roundtrip(&keys);
+        assert_eq!(got, keys, "front-coded hierarchical keys reconstruct exactly");
+        assert!(bytes.len() < flat_len(&keys), "front-coding beats flat on hierarchical keys");
+
+        // MULTI-BYTE UTF-8 shared prefix: the `café` prefix (é = 2 bytes) must be cut on a char
+        // boundary so the suffix stays valid UTF-8 — round-trips bit-exact.
+        let unicode: Vec<String> = (0..100).map(|i| format!("café/naïve/Москва/key-{i:03}")).collect();
+        let (_, got) = roundtrip(&unicode);
+        assert_eq!(got, unicode, "front-coding cuts on UTF-8 char boundaries (no corruption)");
+
+        // NO false win / NO corruption on a column with NO shared prefixes (high-entropy, unsorted):
+        // `consider` keeps flat, and it still round-trips.
+        let mut rng = SplitMix64 { state: 0xF20D_C0DE };
+        let scattered: Vec<String> = (0..200)
+            .map(|_| {
+                let len = 6 + (rng.next() % 10) as usize;
+                (0..len).map(|_| (b'a' + (rng.next() % 26) as u8) as char).collect()
+            })
+            .collect();
+        let (_, got) = roundtrip(&scattered);
+        assert_eq!(got, scattered, "prefix-free random strings round-trip (front-coding not falsely applied)");
+    }
+
+    #[test]
+    fn wire_bool_generators_ship_constant_alternating_and_run_columns() {
+        // The generator theme completed for the LAST column type: a constant / alternating / cyclic
+        // bool column ships its tiny period, a run-structured one ships its runs — none of which the
+        // 1-bit bit-pack (≈ n/8 bytes) can touch — while a random column correctly falls back.
+        fn roundtrip(v: &[bool]) -> (Vec<u8>, Vec<bool>) {
+            let val = RuntimeValue::List(Rc::new(RefCell::new(ListRepr::Bools(v.to_vec()))));
+            let bytes = with_structure(WireStructure::Auto, || {
+                message_to_wire_with("", &val, WireCodec::Native, WireIntegrity::Raw).unwrap()
+            });
+            let got = match message_from_wire(&bytes).unwrap().1 {
+                RuntimeValue::List(l) => match &*l.borrow() {
+                    ListRepr::Bools(b) => b.clone(),
+                    other => panic!("expected Bools, got {other:?}"),
+                },
+                _ => panic!("expected List"),
+            };
+            (bytes, got)
+        }
+
+        // Constant columns (all-true / all-false) → period-1 generator, not 125 packed bytes.
+        for constant in [true, false] {
+            let col = vec![constant; 1000];
+            let (bytes, got) = roundtrip(&col);
+            assert_eq!(got, col, "constant bool column reconstructs exactly");
+            assert!(bytes.len() < 20, "constant={constant} ships a period-1 generator: {} bytes", bytes.len());
+        }
+
+        // Alternating → period-2; a weekly (period-7) flag → period-7.
+        let alt: Vec<bool> = (0..1000).map(|i| i % 2 == 0).collect();
+        let (bytes, got) = roundtrip(&alt);
+        assert_eq!(got, alt, "alternating reconstructs exactly");
+        assert!(bytes.len() < 20, "alternating ships a period-2 generator: {} bytes", bytes.len());
+
+        let weekly: Vec<bool> = (0..700).map(|i| [true, true, true, true, true, false, false][i % 7]).collect();
+        let (bytes, got) = roundtrip(&weekly);
+        assert_eq!(got, weekly, "weekly flag reconstructs exactly");
+        assert!(bytes.len() < 20, "period-7 weekly flag ships as periodic: {} bytes", bytes.len());
+
+        // Two big runs ([F×500, T×500]) have NO short period → RLE crushes them.
+        let runs: Vec<bool> = (0..1000).map(|i| i >= 500).collect();
+        let (bytes, got) = roundtrip(&runs);
+        assert_eq!(got, runs, "two big runs reconstruct exactly");
+        assert!(bytes.len() < 20, "two big runs ship as RLE: {} bytes", bytes.len());
+
+        // Mostly-true with a few scattered flips → RLE beats the 125-byte bit-pack.
+        let mut mostly = vec![true; 1000];
+        for k in [37, 199, 450, 777, 988] {
+            mostly[k] = false;
+        }
+        let (bytes, got) = roundtrip(&mostly);
+        assert_eq!(got, mostly, "mostly-true-with-flips reconstructs exactly");
+        assert!(bytes.len() < 60, "a handful of flips ships as RLE, not 125 packed bytes: {} bytes", bytes.len());
+
+        // Random → NO false generator: falls back to the bit-pack (~125 B) and round-trips.
+        let mut rng = SplitMix64 { state: 0xB001_C0DE_F00D };
+        let random: Vec<bool> = (0..1000).map(|_| rng.next() & 1 == 0).collect();
+        let (bytes, got) = roundtrip(&random);
+        assert_eq!(got, random, "random bools round-trip (no false generator detection)");
+        assert!(bytes.len() >= 100, "random bools fall back to the bit-pack, not a false generator: {} bytes", bytes.len());
+
+        // Edges: empty + single element round-trip cleanly.
+        for edge in [vec![], vec![true], vec![false], vec![true, false], vec![false, false, false]] {
+            let (_, got) = roundtrip(&edge);
+            assert_eq!(got, edge, "bool edge case {edge:?} round-trips");
+        }
+    }
+
+    #[test]
+    fn wire_string_affix_ships_common_prefix_and_suffix_with_arbitrary_middles() {
+        // The last string-column gap: a column sharing a common PREFIX and/or SUFFIX with ARBITRARY
+        // middles — what the dictionary (all distinct), the template (non-affine middles), and front-
+        // coding (shares only a PREFIX, pairwise) all miss.
+        fn roundtrip(strings: &[String]) -> (Vec<u8>, Vec<String>) {
+            let items: Vec<RuntimeValue> =
+                strings.iter().map(|s| RuntimeValue::Text(Rc::new(s.clone()))).collect();
+            let val = RuntimeValue::List(Rc::new(RefCell::new(ListRepr::from_values(items))));
+            let bytes = with_structure(WireStructure::Auto, || {
+                message_to_wire_with("", &val, WireCodec::Native, WireIntegrity::Raw).unwrap()
+            });
+            let got = match message_from_wire(&bytes).unwrap().1 {
+                RuntimeValue::List(l) => {
+                    let b = l.borrow();
+                    (0..b.len())
+                        .map(|i| match b.get(i).unwrap() {
+                            RuntimeValue::Text(s) => (*s).clone(),
+                            other => panic!("expected Text, got {other:?}"),
+                        })
+                        .collect()
+                }
+                _ => panic!("expected List"),
+            };
+            (bytes, got)
+        }
+        let flat_len = |v: &[String]| -> usize { v.iter().map(|s| s.len()).sum() };
+
+        // Emails — common SUFFIX `@example.com`, arbitrary names (front-coding shares only prefixes,
+        // so it can't crush the repeated suffix; affix ships the suffix ONCE).
+        let names = ["alice", "bob", "charlie", "dave", "erin", "frank", "grace", "heidi"];
+        let emails: Vec<String> = (0..400)
+            .map(|i| format!("{}{}@example.com", names[i % names.len()], i))
+            .collect();
+        let (bytes, got) = roundtrip(&emails);
+        assert_eq!(got, emails, "affixed emails reconstruct exactly");
+        assert!(
+            bytes.len() * 2 < flat_len(&emails),
+            "affix ships the shared @example.com suffix once: {} vs flat {}",
+            bytes.len(),
+            flat_len(&emails)
+        );
+
+        // Common extension `.log` (suffix only, arbitrary stems that don't sort-share prefixes).
+        let stems = ["app", "db", "auth", "cache", "queue", "web", "cron", "mail"];
+        let files: Vec<String> = (0..400).map(|i| format!("{}-{}.log", stems[i % stems.len()], i * 7)).collect();
+        let (bytes, got) = roundtrip(&files);
+        assert_eq!(got, files, "affixed log files reconstruct exactly");
+        assert!(bytes.len() < flat_len(&files), "affix beats flat on a shared extension");
+
+        // Both prefix AND suffix, arbitrary (non-affine) middle → wrapped versioned ids.
+        let mut rng = SplitMix64 { state: 0xAFF1_C0DE };
+        let wrapped: Vec<String> = (0..300)
+            .map(|_| format!("https://cdn.example.com/v2/{}/asset.json", rng.next() % 1_000_000))
+            .collect();
+        let (bytes, got) = roundtrip(&wrapped);
+        assert_eq!(got, wrapped, "prefix+suffix wrapped ids reconstruct exactly");
+        assert!(bytes.len() * 2 < flat_len(&wrapped), "affix crushes the shared URL wrapper");
+
+        // NO false win: a column with NO shared affix round-trips via flat/dict (affix returns None
+        // when prefix+suffix is empty).
+        let mut rng2 = SplitMix64 { state: 0x0FF1_DEAD };
+        let scattered: Vec<String> = (0..200)
+            .map(|_| {
+                let len = 5 + (rng2.next() % 8) as usize;
+                (0..len).map(|_| (b'a' + (rng2.next() % 26) as u8) as char).collect()
+            })
+            .collect();
+        let (_, got) = roundtrip(&scattered);
+        assert_eq!(got, scattered, "affix-free random strings round-trip (no false affix)");
+    }
+
+    #[test]
     fn wire_gen_expr_substrate_round_trips_and_evaluates() {
         // `(i % 2 == 0) ? i*10 : i*10 + 5` — a piecewise column. The sandbox evaluates it
         // bit-exact, the tree round-trips through serialize/deserialize, and a T_GEN value
@@ -4524,6 +7360,41 @@ mod tests {
     }
 
     #[test]
+    fn receiver_refuses_a_shipped_computation_when_it_declines_code() {
+        // THE EXECUTABLE-PAYLOAD GATE. The ONLY "code" the wire can carry is a bounded GenExpr sandbox
+        // (never arbitrary bytecode — un-lowered closures are unsendable, proven above). A receiver that
+        // declares `accept_computed: false` REFUSES even that, at decode — the first of three gates
+        // against running code you didn't ask for (the C2 acceptance contract gates INVOCATION; the
+        // sandbox bounds what an accepted call can do).
+        use crate::ast::stmt::{BinaryOpKind, Expr, Literal};
+        use logicaffeine_base::{Arena, Symbol};
+        let a: Arena<Expr> = Arena::new();
+        let i = Symbol::from_index(0);
+        let idx: &Expr = a.alloc(Expr::Identifier(i));
+        let one: &Expr = a.alloc(Expr::Literal(Literal::Number(1)));
+        let body: &Expr = a.alloc(Expr::BinaryOp { op: BinaryOpKind::Add, left: idx, right: one });
+        let expr = lower_expr_to_genexpr(body, i).expect("f(i)=i+1 lowers");
+        let f = RuntimeValue::Function(Box::new(ClosureValue {
+            body_index: usize::MAX,
+            captured_env: std::collections::HashMap::default(),
+            param_names: vec![i],
+            generated: Some(Rc::new(expr)),
+        }));
+        let bytes = message_to_wire("p", &f).expect("a generated function is sendable");
+        // Default: the computation decodes (it stays INERT until invoked through an acceptance contract).
+        assert!(
+            message_from_wire(&bytes).is_some(),
+            "by default a shipped computation decodes (inert data until a contract invokes it)"
+        );
+        // A receiver that declines code refuses to decode it at all.
+        let no_code = ReceiveLimits { accept_computed: false, ..Default::default() };
+        assert!(
+            with_receive_limits(no_code, || message_from_wire(&bytes)).is_none(),
+            "a receiver with accept_computed=false must REFUSE a shipped computation at decode"
+        );
+    }
+
+    #[test]
     fn wire_auto_modular_affine_ships_a_generator() {
         // A sawtooth column `a + b·(i mod p)` ships a tiny GenExpr, not the values, bit-exact.
         let v: Vec<i64> = (0..5000i64).map(|i| 1000 + 7 * (i % 12)).collect();
@@ -4540,10 +7411,14 @@ mod tests {
 
     #[test]
     fn wire_auto_byte_column_ships_a_tight_zero_copy_blob() {
-        // Wide-range bytes ship as a tight 1-byte-per-element blob AND read back in place as
-        // `&[u8]` with zero copy — the first-class binary type (capnp `Data`, protobuf
-        // `bytes`) that FOR's bit-packing can't offer. Beats varint (2 bytes on every ≥128).
-        let data: Vec<i64> = (0..1000).map(|i: i64| (i * 37 + 128).rem_euclid(256)).collect();
+        // Wide-range, STRUCTURE-FREE bytes (deterministic random, no affine/geometric/periodic
+        // law to exploit) ship as a tight 1-byte-per-element blob AND read back in place as
+        // `&[u8]` with zero copy — the first-class binary type (capnp `Data`, protobuf `bytes`)
+        // that FOR's bit-packing can't offer. Beats varint (2 bytes on every ≥128). The data is
+        // random precisely so the GENERATORS (which legitimately win on structured columns) don't
+        // preempt the blob — arbitrary binary is exactly when the zero-copy blob is the best form.
+        let mut rng = SplitMix64 { state: 0x6B70_B10B_CAFE_F00D };
+        let data: Vec<i64> = (0..1000).map(|_| (rng.next() % 256) as i64).collect();
         let v = RuntimeValue::List(Rc::new(RefCell::new(ListRepr::Ints(data.clone()))));
         let bytes = with_structure(WireStructure::Auto, || message_to_wire("p", &v).unwrap());
 
@@ -4669,6 +7544,28 @@ mod tests {
                 (0..16).map(|i| rec(i, names[i as usize % 4], i % 2 == 0)).collect(),
             ))))),
             ("empty list", li(vec![])),
+            ("int→int map", {
+                let mut m = MapStorage::default();
+                for k in 0..32i64 { m.insert(RuntimeValue::Int(k), RuntimeValue::Int(k * k)); }
+                RuntimeValue::Map(Rc::new(RefCell::new(m)))
+            }),
+            ("int→string map", {
+                let mut m = MapStorage::default();
+                for k in 0..16i64 { m.insert(RuntimeValue::Int(k * 10), RuntimeValue::Text(Rc::new(format!("row_{k}")))); }
+                RuntimeValue::Map(Rc::new(RefCell::new(m)))
+            }),
+            ("int→struct map", {
+                // kind-0 values respond to the dials (struct_view etc.) — composes the map crush with
+                // the struct encoders across every combo.
+                let mut m = MapStorage::default();
+                for k in 0..8i64 { m.insert(RuntimeValue::Int(k), rec(k, names[k as usize % 4], k % 2 == 0)); }
+                RuntimeValue::Map(Rc::new(RefCell::new(m)))
+            }),
+            ("text→int map", {
+                let mut m = MapStorage::default();
+                for k in 0..8i64 { m.insert(RuntimeValue::Text(Rc::new(format!("k{k}"))), RuntimeValue::Int(k)); }
+                RuntimeValue::Map(Rc::new(RefCell::new(m)))
+            }),
         ];
 
         // The fixed normalizer: encode under one canonical knob set so two values that are
@@ -4864,6 +7761,52 @@ mod tests {
                 let i = (rng.next() as usize) % m.len();
                 m[i] ^= (rng.next() & 0xFF) as u8;
                 let _ = message_from_wire(&m); // must not panic
+            }
+        }
+    }
+
+    #[test]
+    fn wire_intkey_map_decoder_never_panics_on_mutation() {
+        // The T_MAP_INTKEY two-column form (int key column + value-kind byte + value column / per-value
+        // list) is fully attacker-controlled on decode: the kind byte, both column lengths, and the
+        // kind-0 value count can each be flipped. Byte-mutating both an int→int (kind 1) and an
+        // int→text (kind 0) map message must fail cleanly — never panic, never over-allocate.
+        let mut rng = SplitMix64 { state: 0x00CD_5678 };
+        let mk_int = {
+            let mut m = MapStorage::default();
+            for k in 0..40i64 {
+                m.insert(RuntimeValue::Int(k), RuntimeValue::Int(k * 3));
+            }
+            RuntimeValue::Map(Rc::new(RefCell::new(m)))
+        };
+        let mk_text = {
+            let mut m = MapStorage::default();
+            for k in 0..12i64 {
+                m.insert(RuntimeValue::Int(k * 100), RuntimeValue::Text(Rc::new(format!("v{k}"))));
+            }
+            RuntimeValue::Map(Rc::new(RefCell::new(m)))
+        };
+        let mk_struct = {
+            let mut m = MapStorage::default();
+            for k in 0..10i64 {
+                let mut f = HashMap::new();
+                f.insert("id".to_string(), RuntimeValue::Int(k));
+                f.insert("ok".to_string(), RuntimeValue::Bool(k % 2 == 0));
+                m.insert(
+                    RuntimeValue::Int(k),
+                    RuntimeValue::Struct(Box::new(StructValue { type_name: "R".to_string(), fields: f })),
+                );
+            }
+            RuntimeValue::Map(Rc::new(RefCell::new(m)))
+        };
+        for value in [mk_int, mk_text, mk_struct] {
+            let base =
+                message_to_wire_with("", &value, WireCodec::Native, WireIntegrity::Raw).unwrap();
+            for _ in 0..3000 {
+                let mut b = base.clone();
+                let i = (rng.next() as usize) % b.len();
+                b[i] ^= (rng.next() & 0xFF) as u8;
+                let _ = message_from_wire(&b); // must not panic / OOM
             }
         }
     }
@@ -5119,6 +8062,398 @@ mod tests {
         assert_eq!(back.to_display_string(), "340282366920938463463374607431768211456");
     }
 
+    /// An exact base-10 fixed-point, built straight from its literal so the test does
+    /// not depend on the arithmetic layer.
+    fn dec_lit(s: &str) -> RuntimeValue {
+        RuntimeValue::Decimal(Rc::new(logicaffeine_base::Decimal::parse(s).unwrap()))
+    }
+
+    #[test]
+    fn decimal_round_trips_through_the_binary_wire_preserving_scale() {
+        // Money must survive the wire bit-exact, SCALE INCLUDED: `100.00` comes back
+        // `100.00`, not `100`, and `0.10` keeps its trailing zero.
+        for s in ["19.99", "-0.005", "100.00", "0", "0.10", "123456789.000001"] {
+            let bytes = message_to_wire("", &dec_lit(s)).unwrap();
+            let (_, back) = message_from_wire(&bytes).unwrap();
+            assert!(matches!(back, RuntimeValue::Decimal(_)), "stays a Decimal across the wire: {s}");
+            assert_eq!(back.to_display_string(), s, "scale + value preserved exactly: {s}");
+        }
+    }
+
+    #[test]
+    fn decimal_round_trips_through_cross_task_materialize_rebuild() {
+        let v = dec_lit("19.99");
+        let back = rebuild(materialize(&v).unwrap());
+        assert!(matches!(back, RuntimeValue::Decimal(_)));
+        assert_eq!(back.to_display_string(), "19.99");
+    }
+
+    #[test]
+    fn decimal_money_survives_wire_where_a_json_float_would_drift() {
+        // `0.30` crosses the wire bit-exact, unlike the 0.30000000000000004 a JSON/f64
+        // consumer would carry — the "JSON numbers ruin lives" footgun, removed for money.
+        let bytes = message_to_wire("", &dec_lit("0.30")).unwrap();
+        let (_, back) = message_from_wire(&bytes).unwrap();
+        assert_eq!(back.to_display_string(), "0.30");
+        assert_ne!(0.1_f64 + 0.2, 0.3);
+    }
+
+    /// An exact complex from rational parts (`re_n/re_d + im_n/im_d · i`).
+    fn cplx(re: (i64, i64), im: (i64, i64)) -> RuntimeValue {
+        RuntimeValue::Complex(Rc::new(logicaffeine_base::Complex::new(
+            logicaffeine_base::Rational::from_ratio_i64(re.0, re.1).unwrap(),
+            logicaffeine_base::Rational::from_ratio_i64(im.0, im.1).unwrap(),
+        )))
+    }
+
+    #[test]
+    fn complex_round_trips_through_the_binary_wire_exactly() {
+        // Both rational parts (and `i·i = −1` exactness) survive the wire bit-for-bit.
+        for z in [
+            cplx((3, 1), (4, 1)),   // 3+4i
+            cplx((0, 1), (1, 1)),   // i
+            cplx((0, 1), (-1, 1)),  // -i
+            cplx((-1, 2), (3, 4)),  // -1/2 + 3/4 i
+            cplx((7, 1), (0, 1)),   // a real (7+0i)
+        ] {
+            let bytes = message_to_wire("", &z).unwrap();
+            let (_, back) = message_from_wire(&bytes).unwrap();
+            assert!(matches!(back, RuntimeValue::Complex(_)), "stays Complex on the wire");
+            assert_eq!(back, z, "exact complex survives the wire");
+        }
+    }
+
+    #[test]
+    fn complex_round_trips_through_cross_task_materialize_rebuild() {
+        let z = cplx((3, 1), (-4, 1));
+        let back = rebuild(materialize(&z).unwrap());
+        assert!(matches!(back, RuntimeValue::Complex(_)));
+        assert_eq!(back, z);
+    }
+
+    fn modu(v: i64, n: i64) -> RuntimeValue {
+        RuntimeValue::Modular(Rc::new(logicaffeine_base::Modular::from_i64(v, n).unwrap()))
+    }
+
+    #[test]
+    fn modular_round_trips_through_the_binary_wire_preserving_the_ring() {
+        // Both the residue AND the modulus survive the wire — the ℤ/nℤ ring is preserved.
+        for z in [modu(3, 7), modu(0, 13), modu(10, 7), modu(123456, 1_000_003)] {
+            let bytes = message_to_wire("", &z).unwrap();
+            let (_, back) = message_from_wire(&bytes).unwrap();
+            assert!(matches!(back, RuntimeValue::Modular(_)), "stays Modular on the wire");
+            assert_eq!(back, z, "exact residue + modulus survive the wire");
+        }
+    }
+
+    #[test]
+    fn modular_round_trips_through_cross_task_materialize_rebuild() {
+        let z = modu(42, 97);
+        let back = rebuild(materialize(&z).unwrap());
+        assert!(matches!(back, RuntimeValue::Modular(_)));
+        assert_eq!(back, z);
+    }
+
+    /// A quantity built straight from a magnitude + unit, independent of the arithmetic layer.
+    fn qty(num: i64, den: i64, unit: &str) -> RuntimeValue {
+        let unit = logicaffeine_base::quantity::units::by_name(unit).unwrap();
+        let mag = logicaffeine_base::Rational::new(
+            logicaffeine_base::BigInt::from_i64(num),
+            logicaffeine_base::BigInt::from_i64(den),
+        )
+        .unwrap();
+        RuntimeValue::Quantity(Rc::new(crate::interpreter::QuantityValue {
+            q: logicaffeine_base::Quantity::of(mag, &unit),
+            unit,
+        }))
+    }
+
+    #[test]
+    fn quantity_round_trips_through_the_binary_wire_exactly() {
+        // Value, dimension, AND display unit all survive — including a fractional magnitude
+        // (the golden 42/127 ft) and an affine unit (°C, whose offset rides in the rebuilt unit).
+        for (q, shown) in [
+            (qty(2, 1, "inch"), "2 in"),
+            (qty(20, 1, "celsius"), "20 °C"),
+            (qty(5, 1, "kilogram"), "5 kg"),
+            (qty(42, 127, "foot"), "42/127 ft"),
+        ] {
+            let bytes = message_to_wire("", &q).unwrap();
+            let (_, back) = message_from_wire(&bytes).unwrap();
+            assert!(matches!(back, RuntimeValue::Quantity(_)), "stays a Quantity on the wire: {shown}");
+            assert_eq!(back.to_display_string(), shown, "value + unit preserved exactly: {shown}");
+            assert_eq!(back, q, "physical equality preserved: {shown}");
+        }
+    }
+
+    #[test]
+    fn quantity_round_trips_through_cross_task_materialize_rebuild() {
+        let q = qty(42, 127, "foot");
+        let back = rebuild(materialize(&q).unwrap());
+        assert!(matches!(back, RuntimeValue::Quantity(_)));
+        assert_eq!(back.to_display_string(), "42/127 ft");
+        assert_eq!(back, q);
+    }
+
+    // ===================================================================================
+    // TYPE CONFORMANCE / LOCK-IN HARNESS
+    //
+    // The contract every first-class value type must honor, and the lock that makes it
+    // impossible to add a new `RuntimeValue` variant without deciding its conformance.
+    // ===================================================================================
+
+    /// Conformance class of a runtime value.
+    #[derive(PartialEq, Eq, Debug)]
+    enum ConfClass {
+        /// A first-class value: must pass FULL conformance — `type_name`, `to_display_string`,
+        /// reflexive equality, and lossless wire round-trip (both cross-task and binary).
+        Value,
+        /// A container of other values (its own round-trip is tested elsewhere; here we only
+        /// require name/display/eq so the harness stays representation-agnostic).
+        Container,
+        /// An opaque handle or reference with no value-semantics wire identity.
+        Opaque,
+    }
+
+    /// THE LOCK. This match is exhaustive, so a NEW `RuntimeValue` variant will not compile until it
+    /// is classified here — forcing a deliberate decision about its conformance. (Completeness
+    /// Doctrine: no type enters the language without passing through the conformance harness.)
+    fn conformance_class(v: &RuntimeValue) -> ConfClass {
+        match v {
+            RuntimeValue::Int(_)
+            | RuntimeValue::BigInt(_)
+            | RuntimeValue::Rational(_)
+            | RuntimeValue::Decimal(_)
+            | RuntimeValue::Complex(_)
+            | RuntimeValue::Modular(_)
+            | RuntimeValue::Float(_)
+            | RuntimeValue::Bool(_)
+            | RuntimeValue::Text(_)
+            | RuntimeValue::Char(_)
+            | RuntimeValue::Nothing
+            | RuntimeValue::Duration(_)
+            | RuntimeValue::Date(_)
+            | RuntimeValue::Moment(_)
+            | RuntimeValue::Span { .. }
+            | RuntimeValue::Time(_)
+            | RuntimeValue::Word(_)
+            | RuntimeValue::Quantity(_)
+            | RuntimeValue::Money(_)
+            | RuntimeValue::Uuid(_)
+            | RuntimeValue::Peer(_) => ConfClass::Value,
+            RuntimeValue::List(_)
+            | RuntimeValue::Tuple(_)
+            | RuntimeValue::Set(_)
+            | RuntimeValue::Map(_)
+            | RuntimeValue::Struct(_)
+            | RuntimeValue::Inductive(_) => ConfClass::Container,
+            RuntimeValue::Function(_)
+            | RuntimeValue::Chan(_)
+            | RuntimeValue::TaskHandle(_)
+            | RuntimeValue::Crdt(_)
+            // A SIMD lane vector is a transient compute register: first-class at the AOT tier (the
+            // crypto kernels compute over it), but NOT a wire type — you serialize the underlying
+            // `Seq`, never the register. So it is not wire-round-tripped (hence Opaque here), yet it
+            // IS AOT-wired to a concrete Rust type (declared in `aot_wiring` below).
+            | RuntimeValue::Lanes(_) => ConfClass::Opaque,
+        }
+    }
+
+    /// One representative of every `ConfClass::Value` variant. If you add a value type, the lock above
+    /// forces you to classify it; add its representative here so the conformance test exercises it.
+    fn value_representatives() -> Vec<RuntimeValue> {
+        vec![
+            RuntimeValue::Int(7),
+            // A genuine BigInt (2^64, beyond i64) so it does not narrow back to Int.
+            RuntimeValue::BigInt(Rc::new(logicaffeine_base::BigInt::from_le_bytes(
+                false,
+                &[0, 0, 0, 0, 0, 0, 0, 0, 1],
+            ))),
+            // A non-integer rational (1/2) so it stays Rational.
+            RuntimeValue::Rational(Rc::new(
+                logicaffeine_base::Rational::from_ratio_i64(1, 2).unwrap(),
+            )),
+            dec_lit("19.99"),
+            cplx((3, 1), (4, 1)),
+            modu(3, 7),
+            RuntimeValue::Float(2.5),
+            RuntimeValue::Bool(true),
+            RuntimeValue::Text(Rc::new("hi".to_string())),
+            RuntimeValue::Char('x'),
+            RuntimeValue::Nothing,
+            RuntimeValue::Duration(10),
+            RuntimeValue::Date(19_000),
+            RuntimeValue::Moment(123),
+            RuntimeValue::Span { months: 3, days: 14 },
+            RuntimeValue::Time(99),
+            RuntimeValue::Word(logicaffeine_base::WordVal::from_u64(32, 42).unwrap()),
+            qty(42, 127, "foot"),
+            RuntimeValue::Money(Rc::new(logicaffeine_base::Money::of(
+                logicaffeine_base::Decimal::parse("19.99").unwrap(),
+                logicaffeine_base::money::currency::by_code("USD").unwrap(),
+            ))),
+            RuntimeValue::Uuid(Rc::new(
+                logicaffeine_base::Uuid::parse("550e8400-e29b-41d4-a716-446655440000").unwrap(),
+            )),
+            RuntimeValue::Peer(Rc::new("ws://host:9944".to_string())),
+        ]
+    }
+
+    /// The compiled-tier (AOT) wiring a runtime value's type MUST have.
+    #[derive(Debug)]
+    enum AotWiring {
+        /// First-class at the AOT tier: the codegen lowers this type's name to this concrete Rust
+        /// type (a primitive like `i64`, or a `Logos*` newtype like `LogosMoney`).
+        Rust(&'static str),
+        /// Deliberately runtime-only: a handle/reference/container with no single AOT value type
+        /// (containers lower generically by element; handles never cross into compiled value code).
+        RuntimeOnly,
+    }
+
+    /// THE AOT WIRING LOCK. Exhaustive over `RuntimeValue`, so a NEW variant will not compile until
+    /// its compiled-tier wiring is declared here — you cannot add a value type and forget to wire it
+    /// into the AOT codegen. The test below then checks the REAL codegen (`map_type_to_rust`) agrees,
+    /// so a type wired into the runtime + wire but missing from AOT FAILS. (Completeness Doctrine:
+    /// all types must be wired through EVERY tier, not just the wire.)
+    fn aot_wiring(v: &RuntimeValue) -> AotWiring {
+        use AotWiring::{Rust, RuntimeOnly};
+        match v {
+            // A BigInt reports type_name "Int" (same logical type, wider repr) → i64 codegen path.
+            RuntimeValue::Int(_) | RuntimeValue::BigInt(_) => Rust("i64"),
+            RuntimeValue::Rational(_) => Rust("LogosRational"),
+            RuntimeValue::Decimal(_) => Rust("LogosDecimal"),
+            RuntimeValue::Complex(_) => Rust("LogosComplex"),
+            RuntimeValue::Modular(_) => Rust("LogosModular"),
+            RuntimeValue::Float(_) => Rust("f64"),
+            RuntimeValue::Bool(_) => Rust("bool"),
+            RuntimeValue::Text(_) => Rust("String"),
+            RuntimeValue::Char(_) => Rust("char"),
+            RuntimeValue::Nothing => Rust("()"),
+            RuntimeValue::Duration(_) => Rust("std::time::Duration"),
+            RuntimeValue::Date(_) => Rust("LogosDate"),
+            RuntimeValue::Moment(_) => Rust("LogosMoment"),
+            RuntimeValue::Span { .. } => Rust("LogosSpan"),
+            RuntimeValue::Time(_) => Rust("LogosTime"),
+            // The representative is a 32-bit word; its type_name "Word32" is in the codegen map.
+            RuntimeValue::Word(_) => Rust("Word32"),
+            // A lane vector is AOT-first-class (the crypto kernels' working registers) even though it
+            // is not wire-round-tripped — `map_type_to_rust("Lanes8Word32")` lowers it.
+            RuntimeValue::Lanes(_) => Rust("Lanes8Word32"),
+            RuntimeValue::Quantity(_) => Rust("LogosQuantity"),
+            RuntimeValue::Money(_) => Rust("LogosMoney"),
+            RuntimeValue::Uuid(_) => Rust("LogosUuid"),
+            // A peer is a runtime networking handle — it round-trips on the wire but is not a
+            // compiled-tier value type.
+            RuntimeValue::Peer(_) => RuntimeOnly,
+            // Containers lower generically (LogosSeq<T>/LogosMap<K,V>/…) via codegen_type_expr, not by
+            // a bare name; their own AOT coverage is the collection codegen tests.
+            RuntimeValue::List(_)
+            | RuntimeValue::Tuple(_)
+            | RuntimeValue::Set(_)
+            | RuntimeValue::Map(_)
+            | RuntimeValue::Struct(_)
+            | RuntimeValue::Inductive(_) => RuntimeOnly,
+            // Opaque handles never cross into compiled value code.
+            RuntimeValue::Function(_)
+            | RuntimeValue::Chan(_)
+            | RuntimeValue::TaskHandle(_)
+            | RuntimeValue::Crdt(_) => RuntimeOnly,
+        }
+    }
+
+    /// Full conformance for one value: name, display, reflexive equality, and BOTH wire round-trips.
+    fn assert_value_conformance(v: &RuntimeValue) {
+        let name = v.type_name();
+        assert!(!name.is_empty(), "type_name must be non-empty");
+        // Display must not panic.
+        let _ = v.to_display_string();
+        // Equality is reflexive (representatives are finite — no NaN).
+        assert!(v == v, "{name} value is not equal to itself");
+        // Cross-task marshalling (materialize → rebuild) is the identity.
+        let back = rebuild(materialize(v).unwrap_or_else(|_| panic!("{name} did not materialize")));
+        assert_eq!(&back, v, "{name} changed across cross-task marshalling");
+        assert_eq!(
+            conformance_class(&back),
+            ConfClass::Value,
+            "{name} changed variant across marshalling"
+        );
+        // Binary wire (encode → decode) is the identity.
+        let bytes = message_to_wire("", v).unwrap_or_else(|_| panic!("{name} did not encode to wire"));
+        let (_, back2) = message_from_wire(&bytes).unwrap_or_else(|| panic!("{name} did not decode"));
+        assert_eq!(&back2, v, "{name} changed across the binary wire");
+    }
+
+    #[test]
+    fn every_value_type_conforms_name_display_eq_and_both_wire_round_trips() {
+        let reps = value_representatives();
+        for v in &reps {
+            assert_eq!(
+                conformance_class(v),
+                ConfClass::Value,
+                "representative for {} must be a Value",
+                v.type_name()
+            );
+            assert_value_conformance(v);
+        }
+        // Sanity: the representative set is non-trivial and covers the value types we have shipped.
+        assert!(reps.len() >= 20, "expected a representative for every value type");
+    }
+
+    #[test]
+    fn every_value_type_is_wired_into_the_aot_codegen_tier() {
+        // A first-class value must compile to Rust, not just travel the wire. For every Value
+        // representative whose AOT wiring spec names a concrete Rust type, the real codegen
+        // (`map_type_to_rust`, the single source of truth for type-name → Rust) MUST lower the
+        // value's `type_name()` to exactly that. Adding a value type wired into the runtime + wire
+        // but missing from the AOT codegen fails here — the gap the wire conformance test alone
+        // could not catch. `RuntimeOnly` is the conscious, exhaustive-match-forced exemption (e.g. a
+        // networking handle); the exhaustiveness of `aot_wiring` is what makes the decision
+        // unavoidable for every new type.
+        let mut checked = 0usize;
+        for v in &value_representatives() {
+            let name = v.type_name();
+            if let AotWiring::Rust(expected) = aot_wiring(v) {
+                let mapped = crate::codegen::types::map_type_to_rust(name);
+                assert_eq!(
+                    mapped, expected,
+                    "{name}: AOT codegen lowers it to `{mapped}`, but the wiring lock expects `{expected}` \
+                     — wire the type into codegen/types.rs::map_type_to_rust"
+                );
+                // ANALYSIS tier: where the type checker knows this type name, its lowering MUST agree
+                // with the codegen — the two type-lowering paths cannot drift. (A type the checker does
+                // not yet model by name, e.g. the width-indexed `Word`, returns `Unknown` and is left to
+                // the codegen lock above; that exemption is documented, not silent.)
+                let lt = crate::analysis::types::LogosType::from_type_name(name);
+                if lt != crate::analysis::types::LogosType::Unknown {
+                    assert_eq!(
+                        lt.to_rust_type(), expected,
+                        "{name}: analysis LogosType lowers to `{}`, codegen to `{expected}` — the type checker \
+                         and codegen disagree; wire them consistently",
+                        lt.to_rust_type()
+                    );
+                }
+                checked += 1;
+            }
+        }
+        // The lock must actually be exercising the AOT tier, not silently skipping everything.
+        assert!(checked >= 18, "AOT wiring lock checked only {checked} value types");
+    }
+
+    #[test]
+    fn compound_dimension_quantity_survives_the_wire_as_its_signature() {
+        // A dimension-combining product (Area, empty display symbol) preserves its dimension and
+        // renders the signature on the far side.
+        let m = logicaffeine_base::quantity::units::by_name("meter").unwrap();
+        let area = logicaffeine_base::Quantity::of(logicaffeine_base::Rational::from_i64(3), &m)
+            .mul(&logicaffeine_base::Quantity::of(logicaffeine_base::Rational::from_i64(4), &m));
+        let area_unit =
+            logicaffeine_base::Unit::linear("", area.dimension(), logicaffeine_base::Rational::one());
+        let v = RuntimeValue::Quantity(Rc::new(crate::interpreter::QuantityValue { q: area, unit: area_unit }));
+        let (_, back) = message_from_wire(&message_to_wire("", &v).unwrap()).unwrap();
+        assert_eq!(back.to_display_string(), "12 L^2");
+        assert_eq!(back, v);
+    }
+
     #[test]
     fn our_wire_preserves_an_integer_that_json_would_corrupt() {
         // 2^53 + 1 is the smallest integer a conforming JSON (f64) consumer rounds
@@ -5220,6 +8555,316 @@ mod tests {
     }
 
     #[test]
+    fn sets_are_canonical_regardless_of_insertion_order() {
+        // SYMMETRY BREAKING ON THE WIRE: a set is order-invariant, so the SAME members in ANY
+        // insertion order MUST serialize to byte-identical wire — so content-addressing, dedup,
+        // `Send cached` keying, and FEC all hold for sets. Mirrors canonical T_MAP / T_STRUCT.
+        let mk = |order: &[i64]| {
+            RuntimeValue::Set(Rc::new(RefCell::new(
+                order.iter().map(|&n| RuntimeValue::Int(n)).collect::<Vec<_>>(),
+            )))
+        };
+        let mut e1 = Vec::new();
+        native_encode(&mk(&[5, 1, 3, 2, 4]), &mut e1).unwrap();
+        let mut e2 = Vec::new();
+        native_encode(&mk(&[4, 2, 3, 1, 5]), &mut e2).unwrap();
+        let mut e3 = Vec::new();
+        native_encode(&mk(&[1, 2, 3, 4, 5]), &mut e3).unwrap();
+        assert_eq!(e1, e2, "same set, different insertion order → byte-identical wire");
+        assert_eq!(e1, e3, "...identical to the already-sorted insertion order too");
+
+        let mut pos = 0;
+        match native_decode(&e1, &mut pos).expect("decode") {
+            RuntimeValue::Set(s) => {
+                let mut got: Vec<i64> = s
+                    .borrow()
+                    .iter()
+                    .map(|v| match v {
+                        RuntimeValue::Int(n) => *n,
+                        other => panic!("expected Int in set, got {other:?}"),
+                    })
+                    .collect();
+                got.sort_unstable();
+                assert_eq!(got, vec![1, 2, 3, 4, 5], "canonical bytes round-trip to the same members");
+            }
+            other => panic!("expected a Set, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn int_set_crushes_to_a_compressed_column() {
+        // The extreme symmetry-break case: a CONSECUTIVE int set {1..1000} (built in reverse order).
+        // Sorted, it's a perfect affine column → base+stride+count, ZERO per-element data. It must be
+        // a tiny fraction of the ~1000+ bytes the naive tagged-element encoding would write, and round
+        // -trip exactly. (A clustered/sparse set instead gets delta/RLE — never worse than the naive.)
+        let n = 1000i64;
+        let order: Vec<RuntimeValue> = (1..=n).rev().map(RuntimeValue::Int).collect();
+        let set = RuntimeValue::Set(Rc::new(RefCell::new(order)));
+        let mut enc = Vec::new();
+        native_encode(&set, &mut enc).unwrap();
+        assert!(
+            enc.len() < 64,
+            "a consecutive int set of {n} must collapse to a closed-form column, got {} bytes",
+            enc.len()
+        );
+        let mut pos = 0;
+        match native_decode(&enc, &mut pos).unwrap() {
+            RuntimeValue::Set(s) => {
+                let mut got: Vec<i64> = s
+                    .borrow()
+                    .iter()
+                    .map(|v| match v {
+                        RuntimeValue::Int(k) => *k,
+                        other => panic!("expected Int, got {other:?}"),
+                    })
+                    .collect();
+                got.sort_unstable();
+                assert_eq!(got, (1..=n).collect::<Vec<_>>(), "round-trips to the full set");
+            }
+            other => panic!("expected a Set, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn int_keyed_map_columnarizes_keys_and_values() {
+        // The map analog of the int-set crush. A map with CONSECUTIVE integer keys {0..1000} mapping
+        // to an affine value {i ↦ 2i} (inserted in REVERSE) ships as TWO columns: the keys collapse to
+        // an affine closed form (base+stride+count, no per-key data) AND the values collapse the same
+        // way (they reuse the full best-list column menu). So the whole int→int map — 1000 entries —
+        // becomes a handful of bytes, vs the ~5–6 KB the per-entry `T_MAP` would write (each key AND
+        // value a tagged inline varint). Must round-trip exactly and be insertion-order-invariant.
+        let n = 1000i64;
+        let build = |rev: bool| {
+            let mut keys: Vec<i64> = (0..n).collect();
+            if rev {
+                keys.reverse();
+            }
+            let mut m = MapStorage::default();
+            for k in keys {
+                m.insert(RuntimeValue::Int(k), RuntimeValue::Int(k * 2));
+            }
+            RuntimeValue::Map(Rc::new(RefCell::new(m)))
+        };
+
+        let mut enc = Vec::new();
+        native_encode(&build(false), &mut enc).unwrap();
+        assert!(
+            enc.len() < 64,
+            "an affine int→int map of {n} entries must collapse BOTH columns to closed forms, got {} bytes",
+            enc.len()
+        );
+
+        // Canonical: the SAME map built in the opposite insertion order is BYTE-IDENTICAL.
+        let mut enc_rev = Vec::new();
+        native_encode(&build(true), &mut enc_rev).unwrap();
+        assert_eq!(enc, enc_rev, "int-keyed map encoding must be insertion-order-invariant");
+
+        // Round-trips exactly.
+        let mut pos = 0;
+        match native_decode(&enc, &mut pos).unwrap() {
+            RuntimeValue::Map(m) => {
+                let b = m.borrow();
+                assert_eq!(b.len(), n as usize, "all entries recovered");
+                for k in 0..n {
+                    let got = b.get(&RuntimeValue::Int(k)).expect("key present");
+                    assert_eq!(*got, RuntimeValue::Int(k * 2), "value for key {k} survived");
+                }
+            }
+            other => panic!("expected a Map, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn int_keyed_map_with_non_int_values_still_columnarizes_keys() {
+        // Keys all Int but values heterogeneous-ish (Text) — the KEY column still collapses; the value
+        // list takes its own best encoding (here a string column). Must round-trip + stay canonical.
+        let build = |rev: bool| {
+            let mut ks: Vec<i64> = vec![10, 20, 30, 40];
+            if rev {
+                ks.reverse();
+            }
+            let mut m = MapStorage::default();
+            for k in ks {
+                m.insert(RuntimeValue::Int(k), RuntimeValue::Text(Rc::new(format!("item_{k}"))));
+            }
+            RuntimeValue::Map(Rc::new(RefCell::new(m)))
+        };
+        let mut a = Vec::new();
+        native_encode(&build(false), &mut a).unwrap();
+        let mut b = Vec::new();
+        native_encode(&build(true), &mut b).unwrap();
+        assert_eq!(a, b, "int-keyed map with text values must be insertion-order-invariant");
+        let mut pos = 0;
+        match native_decode(&a, &mut pos).unwrap() {
+            RuntimeValue::Map(m) => {
+                let mb = m.borrow();
+                assert_eq!(mb.len(), 4);
+                for k in [10i64, 20, 30, 40] {
+                    let got = mb.get(&RuntimeValue::Int(k)).expect("key present");
+                    assert_eq!(*got, RuntimeValue::Text(Rc::new(format!("item_{k}"))));
+                }
+            }
+            other => panic!("expected a Map, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn int_keyed_map_front_codes_string_value_column() {
+        // The database-table case: int primary key → string column with shared prefixes (URLs/paths/
+        // ids). Keys collapse to an affine column; the VALUES front-code in key order (each shipped as
+        // shared-prefix-len-with-previous + suffix), so a column of `https://…/items/<i>` ships only
+        // the changing suffix. Must be far smaller than the per-value fallback, round-trip, be canonical.
+        let n = 100i64;
+        let build = |rev: bool| {
+            let mut ks: Vec<i64> = (0..n).collect();
+            if rev {
+                ks.reverse();
+            }
+            let mut m = MapStorage::default();
+            for k in ks {
+                m.insert(
+                    RuntimeValue::Int(k),
+                    RuntimeValue::Text(Rc::new(format!("https://example.com/items/{k}"))),
+                );
+            }
+            RuntimeValue::Map(Rc::new(RefCell::new(m)))
+        };
+
+        let mut enc = Vec::new();
+        native_encode(&build(false), &mut enc).unwrap();
+        // Per-value (kind 0) would ship ~30 bytes × 100 ≈ 3 KB; front-coding the ~26-char shared prefix
+        // leaves only the suffix deltas.
+        assert!(
+            enc.len() < 1200,
+            "an int→string map with a shared value prefix must front-code its value column, got {} bytes",
+            enc.len()
+        );
+
+        let mut enc_rev = Vec::new();
+        native_encode(&build(true), &mut enc_rev).unwrap();
+        assert_eq!(enc, enc_rev, "int→string map must be insertion-order-invariant");
+
+        let mut pos = 0;
+        match native_decode(&enc, &mut pos).unwrap() {
+            RuntimeValue::Map(m) => {
+                let b = m.borrow();
+                assert_eq!(b.len(), n as usize);
+                for k in 0..n {
+                    let got = b.get(&RuntimeValue::Int(k)).expect("key present");
+                    assert_eq!(
+                        *got,
+                        RuntimeValue::Text(Rc::new(format!("https://example.com/items/{k}"))),
+                        "value for key {k} survived"
+                    );
+                }
+            }
+            other => panic!("expected a Map, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn int_keyed_map_columnarizes_struct_value_column() {
+        // The full database-table crush: int primary key → homogeneous struct record (id/name/active).
+        // The values pack COLUMNAR like a struct list — the field NAMES ship ONCE, then one column per
+        // field (the id column compresses, the active column bit-packs) — instead of re-shipping the
+        // whole self-describing struct per row (the per-value fallback). Must round-trip + be canonical.
+        let n = 100i64;
+        let rec = |id: i64| {
+            let mut f = HashMap::new();
+            f.insert("id".to_string(), RuntimeValue::Int(id));
+            f.insert("name".to_string(), RuntimeValue::Text(Rc::new(format!("user_{id}"))));
+            f.insert("active".to_string(), RuntimeValue::Bool(id % 2 == 0));
+            RuntimeValue::Struct(Box::new(StructValue { type_name: "Rec".to_string(), fields: f }))
+        };
+        let build = |rev: bool| {
+            let mut ks: Vec<i64> = (0..n).collect();
+            if rev {
+                ks.reverse();
+            }
+            let mut m = MapStorage::default();
+            for k in ks {
+                m.insert(RuntimeValue::Int(k), rec(k));
+            }
+            RuntimeValue::Map(Rc::new(RefCell::new(m)))
+        };
+
+        let mut enc = Vec::new();
+        native_encode(&build(false), &mut enc).unwrap();
+        // Per-value (kind 0) re-ships "Rec"+"id"+"name"+"active" per row ≈ 27 B × 100 ≈ 2.7 KB; the
+        // columnar form ships the schema once.
+        assert!(
+            enc.len() < 1500,
+            "an int→struct map must pack its value column columnarly (schema once), got {} bytes",
+            enc.len()
+        );
+
+        let mut enc_rev = Vec::new();
+        native_encode(&build(true), &mut enc_rev).unwrap();
+        assert_eq!(enc, enc_rev, "int→struct map must be insertion-order-invariant");
+
+        // Round-trip proof by BYTE-STABILITY (re-encode the decoded value and compare bytes), the
+        // canonical method in this codec — `RuntimeValue`'s `PartialEq` does not deep-compare struct
+        // values, so direct `assert_eq!` on a decoded struct is unavailable; byte-identity is strictly
+        // stronger (any dropped/corrupted field would perturb the re-encoding).
+        let mut pos = 0;
+        let decoded = native_decode(&enc, &mut pos).unwrap();
+        match &decoded {
+            RuntimeValue::Map(m) => assert_eq!(m.borrow().len(), n as usize, "all rows recovered"),
+            other => panic!("expected a Map, got {other:?}"),
+        }
+        let mut reenc = Vec::new();
+        native_encode(&decoded, &mut reenc).unwrap();
+        assert_eq!(reenc, enc, "decoded int→struct map must re-encode byte-identically");
+    }
+
+    #[test]
+    fn string_set_front_codes_shared_prefixes() {
+        // Sorted strings share prefixes → front-coding ships only the suffix deltas. A set of strings
+        // with long common prefixes must be smaller than the naive concat, round-trip exactly, and be
+        // canonical (insertion-order-invariant).
+        let words = ["user_1000", "user_1001", "user_1002", "user_1003", "user_2000"];
+        let mk = |order: &[usize]| {
+            RuntimeValue::Set(Rc::new(RefCell::new(
+                order
+                    .iter()
+                    .map(|&i| RuntimeValue::Text(Rc::new(words[i].to_string())))
+                    .collect::<Vec<_>>(),
+            )))
+        };
+        let mut e1 = Vec::new();
+        native_encode(&mk(&[0, 1, 2, 3, 4]), &mut e1).unwrap();
+        let mut e2 = Vec::new();
+        native_encode(&mk(&[4, 2, 0, 3, 1]), &mut e2).unwrap();
+        assert_eq!(e1, e2, "same string set, different insertion order → identical wire");
+
+        let naive: usize = words.iter().map(|w| w.len()).sum();
+        assert!(
+            e1.len() < naive,
+            "front-coding must beat the {naive}-byte naive concat (shared prefixes elided), got {}",
+            e1.len()
+        );
+
+        let mut pos = 0;
+        match native_decode(&e1, &mut pos).unwrap() {
+            RuntimeValue::Set(s) => {
+                let mut got: Vec<String> = s
+                    .borrow()
+                    .iter()
+                    .map(|v| match v {
+                        RuntimeValue::Text(t) => (**t).clone(),
+                        other => panic!("expected Text, got {other:?}"),
+                    })
+                    .collect();
+                got.sort();
+                let mut want: Vec<String> = words.iter().map(|w| w.to_string()).collect();
+                want.sort();
+                assert_eq!(got, want, "round-trips to the same members");
+            }
+            other => panic!("expected a Set, got {other:?}"),
+        }
+    }
+
+    #[test]
     fn single_entry_map_roundtrips_exactly() {
         let mut m: MapStorage = MapStorage::default();
         m.insert(RuntimeValue::Int(1), RuntimeValue::Text(Rc::new("a".to_string())));
@@ -5295,6 +8940,112 @@ mod tests {
             RuntimeValue::Text(Rc::new("nested".to_string())),
         ]))));
         assert_roundtrips(&v);
+    }
+
+    // ── Best-of-both-worlds interop: the peer codec (RuntimeValue) and the shared wire core
+    //    (an AOT-generated-style type) must produce and read the SAME bytes. This is the lock
+    //    that lets a compile-once native PE receive a program over the real fast codec. ──────
+    use logicaffeine_data::wire::{self, WireDecode, WireEncode};
+
+    // A hand-written mirror of exactly what codegen emits for a `## A CE is one of:` enum.
+    #[derive(Debug, Clone, PartialEq)]
+    enum CE {
+        CInt(i64),
+        CText(String),
+        CBool(bool),
+        CBinOp { op: String, left: Box<CE>, right: Box<CE> },
+        CList(Vec<CE>),
+    }
+    impl WireEncode for CE {
+        fn wire_encode(&self, out: &mut Vec<u8>) {
+            match self {
+                CE::CInt(v) => { wire::write_inductive_header(out, "CE", "CInt", 1); v.wire_encode(out); }
+                CE::CText(s) => { wire::write_inductive_header(out, "CE", "CText", 1); s.wire_encode(out); }
+                CE::CBool(b) => { wire::write_inductive_header(out, "CE", "CBool", 1); b.wire_encode(out); }
+                CE::CBinOp { op, left, right } => {
+                    wire::write_inductive_header(out, "CE", "CBinOp", 3);
+                    op.wire_encode(out);
+                    left.wire_encode(out);
+                    right.wire_encode(out);
+                }
+                CE::CList(xs) => { wire::write_inductive_header(out, "CE", "CList", 1); xs.wire_encode(out); }
+            }
+        }
+    }
+    impl WireDecode for CE {
+        fn wire_decode(buf: &[u8], pos: &mut usize) -> Option<Self> {
+            let (ty, ctor, _n) = wire::read_inductive_header(buf, pos)?;
+            debug_assert_eq!(ty, "CE");
+            Some(match ctor.as_str() {
+                "CInt" => CE::CInt(i64::wire_decode(buf, pos)?),
+                "CText" => CE::CText(String::wire_decode(buf, pos)?),
+                "CBool" => CE::CBool(bool::wire_decode(buf, pos)?),
+                "CBinOp" => CE::CBinOp {
+                    op: String::wire_decode(buf, pos)?,
+                    left: Box::<CE>::wire_decode(buf, pos)?,
+                    right: Box::<CE>::wire_decode(buf, pos)?,
+                },
+                "CList" => CE::CList(Vec::<CE>::wire_decode(buf, pos)?),
+                _ => return None,
+            })
+        }
+    }
+
+    // The same logical program in both value models.
+    fn ce_tree() -> CE {
+        CE::CBinOp {
+            op: "+".to_string(),
+            left: Box::new(CE::CInt(2)),
+            right: Box::new(CE::CList(vec![CE::CInt(3), CE::CBool(true), CE::CText("hi".to_string())])),
+        }
+    }
+    fn rt_ind(ty: &str, ctor: &str, args: Vec<RuntimeValue>) -> RuntimeValue {
+        RuntimeValue::Inductive(Box::new(InductiveValue {
+            inductive_type: ty.to_string(),
+            constructor: ctor.to_string(),
+            args,
+        }))
+    }
+    fn rt_tree() -> RuntimeValue {
+        rt_ind("CE", "CBinOp", vec![
+            RuntimeValue::Text(Rc::new("+".to_string())),
+            rt_ind("CE", "CInt", vec![RuntimeValue::Int(2)]),
+            rt_ind("CE", "CList", vec![RuntimeValue::List(Rc::new(RefCell::new(ListRepr::from_values(vec![
+                rt_ind("CE", "CInt", vec![RuntimeValue::Int(3)]),
+                rt_ind("CE", "CBool", vec![RuntimeValue::Bool(true)]),
+                rt_ind("CE", "CText", vec![RuntimeValue::Text(Rc::new("hi".to_string()))]),
+            ]))))]),
+        ])
+    }
+
+    #[test]
+    fn peer_and_wire_core_produce_identical_bytes() {
+        let peer_bytes = encode_value_raw(&rt_tree()).expect("peer encode");
+        let mut wire_bytes = Vec::new();
+        ce_tree().wire_encode(&mut wire_bytes);
+        assert_eq!(
+            peer_bytes, wire_bytes,
+            "the shared wire core must be byte-identical to the peer codec"
+        );
+    }
+
+    #[test]
+    fn peer_encode_then_wire_decode_reconstructs_the_generated_type() {
+        // The exact path a compile-once native PE uses: host peer-encodes, native wire-decodes.
+        let bytes = encode_value_raw(&rt_tree()).expect("peer encode");
+        let mut pos = 0usize;
+        let decoded = CE::wire_decode(&bytes, &mut pos).expect("wire decode");
+        assert_eq!(pos, bytes.len(), "must consume every byte");
+        assert_eq!(decoded, ce_tree());
+    }
+
+    #[test]
+    fn wire_encode_then_peer_decode_reconstructs_the_runtime_value() {
+        // The reverse direction: native wire-encodes, host peer-decodes.
+        let mut bytes = Vec::new();
+        ce_tree().wire_encode(&mut bytes);
+        let rv = decode_value_raw(&bytes).expect("peer decode");
+        assert_eq!(materialize(&rv).unwrap(), materialize(&rt_tree()).unwrap());
     }
 
     #[test]
@@ -6123,6 +9874,16 @@ mod tests {
             ("structs", RuntimeValue::List(Rc::new(RefCell::new(ListRepr::from_values(
                 (0..40).map(|i| point(i, i * 2)).collect(),
             ))))),
+            ("int map", {
+                let mut m = MapStorage::default();
+                for k in 0..128i64 { m.insert(RuntimeValue::Int(k), RuntimeValue::Int(k * k)); }
+                RuntimeValue::Map(Rc::new(RefCell::new(m)))
+            }),
+            ("id→row map", {
+                let mut m = MapStorage::default();
+                for k in 0..40i64 { m.insert(RuntimeValue::Int(k), point(k, k * 2)); }
+                RuntimeValue::Map(Rc::new(RefCell::new(m)))
+            }),
         ];
         for (name, v) in &workloads {
             let best = message_to_wire_best("p", v, WireGoal::Smallest).unwrap();
@@ -6165,6 +9926,320 @@ mod tests {
             message_to_wire("p", &v).unwrap(),
             "Fastest must round-trip to the exact value"
         );
+    }
+
+    #[test]
+    fn wire_auto_is_the_no_brainer_default_searching_only_when_it_pays() {
+        // `auto` is the "just send it" entry point. On a tiny message it ships the plain default (no
+        // search overhead); on a bulk payload it runs the full Smallest bake-off. It is NEVER larger
+        // than the default and always round-trips.
+        let scalar = RuntimeValue::Int(42);
+        assert_eq!(
+            message_to_wire_auto("p", &scalar).unwrap(),
+            message_to_wire("p", &scalar).unwrap(),
+            "a tiny message skips the search and ships the plain default"
+        );
+
+        let bulk = RuntimeValue::List(Rc::new(RefCell::new(ListRepr::Ints((0..256).collect()))));
+        let auto_bulk = message_to_wire_auto("p", &bulk).unwrap();
+        assert_eq!(
+            auto_bulk,
+            message_to_wire_best("p", &bulk, WireGoal::Smallest).unwrap(),
+            "a bulk payload gets the full Smallest search"
+        );
+        assert!(
+            auto_bulk.len() < message_to_wire("p", &bulk).unwrap().len(),
+            "and the search actually shrinks it below the default"
+        );
+
+        // Universal safety: never larger than the default, always round-trips — on every shape.
+        let mut big_map = MapStorage::default();
+        for k in 0..200i64 {
+            big_map.insert(RuntimeValue::Int(k), RuntimeValue::Int(k * k));
+        }
+        for v in [scalar, bulk, RuntimeValue::Map(Rc::new(RefCell::new(big_map)))] {
+            let a = message_to_wire_auto("p", &v).unwrap();
+            assert!(
+                a.len() <= message_to_wire("p", &v).unwrap().len(),
+                "auto is never larger than the default"
+            );
+            let back = message_from_wire(&a).unwrap().1;
+            assert_eq!(
+                message_to_wire("p", &back).unwrap(),
+                message_to_wire("p", &v).unwrap(),
+                "auto round-trips to the exact value"
+            );
+        }
+    }
+
+    #[test]
+    fn receiver_limits_refuse_a_too_deeply_nested_message() {
+        // A 30-deep nested value encodes fine (well under MAX_ENCODE_DEPTH) and decodes by default, but
+        // a receiver that declares a shallower max_depth REFUSES it — admission control enforced during
+        // decode, before the recursion happens.
+        let mut v = RuntimeValue::Nothing;
+        for _ in 0..30 {
+            v = RuntimeValue::List(Rc::new(RefCell::new(ListRepr::from_values(vec![v]))));
+        }
+        let bytes = message_to_wire("p", &v).unwrap();
+        assert!(message_from_wire(&bytes).is_some(), "default limits accept a 30-deep message");
+        let tight = ReceiveLimits { max_depth: 10, ..Default::default() };
+        assert!(
+            with_receive_limits(tight, || message_from_wire(&bytes)).is_none(),
+            "a receiver with max_depth=10 must refuse a 30-deep message"
+        );
+    }
+
+    #[test]
+    fn receiver_survives_a_crafted_pathologically_deep_message_no_stack_overflow() {
+        // THE DoS: an attacker crafts a message that is tiny in bytes (2 per level) but THOUSANDS of
+        // containers deep. Without a decode-depth bound this recurses until the receiver's stack
+        // overflows — a remote crash. The guard must REFUSE it cleanly, never overflow. (Hand-built raw
+        // frame: 0x00 header = Native/uncompressed/raw, then from="" , then N×[T_LIST, count=1], then a
+        // terminal — bypassing the encoder's own depth cap exactly as a hostile peer would.)
+        let mut bytes = vec![0x00u8, 0x00u8]; // frame header + from=""
+        for _ in 0..8000 {
+            bytes.push(T_LIST);
+            bytes.push(0x01); // uvarint count = 1
+        }
+        bytes.push(T_NOTHING);
+        // A tight depth budget makes the guard bail far below any stack pressure — proving the
+        // MECHANISM stops the recursion (the conservative default `max_depth` carries the same
+        // protection with margin to spare in production release builds).
+        let limits = ReceiveLimits { max_depth: 16, ..Default::default() };
+        assert!(
+            with_receive_limits(limits, || message_from_wire(&bytes)).is_none(),
+            "an 8000-deep crafted message must be refused, not crash the receiver"
+        );
+    }
+
+    #[test]
+    fn receiver_refuses_a_generator_bomb_tiny_descriptor_huge_array() {
+        // The small-message-huge-output DoS that a byte budget CANNOT see: an affine column descriptor
+        // `base,stride,count` is ~12 bytes but materializes `count` ints — a crafted billion-count is a
+        // handful of bytes yet allocates gigabytes. `max_elements` gates the count before materializing.
+        let affine = |count: u64| {
+            let mut b = vec![0x00u8, 0x00u8, T_INTS_AFFINE]; // frame + from="" + tag
+            write_uvarint(zigzag(0), &mut b); // base 0
+            write_uvarint(zigzag(1), &mut b); // stride 1
+            write_uvarint(count, &mut b);
+            b
+        };
+        assert!(
+            message_from_wire(&affine(1_000_000_000)).is_none(),
+            "a 1e9-count affine descriptor (~12 bytes) must be refused, never allocated"
+        );
+        // A within-budget descriptor still decodes to exactly that many ints (the math-hack still works).
+        match message_from_wire(&affine(100)).unwrap().1 {
+            RuntimeValue::List(l) => assert_eq!(l.borrow().to_values().len(), 100, "affine still expands within budget"),
+            other => panic!("expected a List, got {other:?}"),
+        }
+        // A tighter max_elements refuses a moderate count the default would allow, and admits a small one.
+        let tight = ReceiveLimits { max_elements: 1000, ..Default::default() };
+        assert!(with_receive_limits(tight, || message_from_wire(&affine(100_000))).is_none(), "max_elements=1000 refuses 100k");
+        assert!(with_receive_limits(tight, || message_from_wire(&affine(500))).is_some(), "max_elements=1000 admits 500");
+    }
+
+    #[test]
+    fn receiver_refuses_an_oversized_message_before_decoding() {
+        // A well-formed but large message is refused at the door when it exceeds the receiver's byte
+        // budget — the gross-size admission gate, checked before any decompress / decode work.
+        let big = RuntimeValue::List(Rc::new(RefCell::new(ListRepr::Ints((0..5000).collect()))));
+        let bytes = message_to_wire("p", &big).unwrap();
+        assert!(message_from_wire(&bytes).is_some(), "default byte budget accepts it");
+        let tight = ReceiveLimits { max_bytes: bytes.len() - 1, ..Default::default() };
+        assert!(
+            with_receive_limits(tight, || message_from_wire(&bytes)).is_none(),
+            "a message one byte over max_bytes is refused before decode"
+        );
+    }
+
+    #[test]
+    fn peer_profile_round_trips_and_falls_back_on_unknown() {
+        let p = PeerProfile {
+            limits: ReceiveLimits {
+                max_bytes: 1 << 20,
+                max_depth: 16,
+                max_elements: 10_000,
+                max_string_bytes: 4096,
+                accept_computed: false,
+            },
+            registry_epoch: 0xDEAD_BEEF,
+            features: FEAT_ZSTD | FEAT_TYPE_ID,
+        };
+        assert_eq!(decode_peer_profile(&encode_peer_profile(&p)), Some(p), "profile round-trips exactly");
+        assert_eq!(
+            decode_peer_profile(&encode_peer_profile(&PeerProfile::default())),
+            Some(PeerProfile::default()),
+            "the default profile round-trips"
+        );
+        // An unknown version is recognized and not mis-parsed.
+        let mut bad = encode_peer_profile(&p);
+        bad[0] = 99;
+        assert!(decode_peer_profile(&bad).is_none(), "an unknown profile version → None (caller uses defaults)");
+        // Truncation at any offset never panics or mis-decodes.
+        let full = encode_peer_profile(&p);
+        for cut in 0..full.len() {
+            let _ = decode_peer_profile(&full[..cut]);
+        }
+        assert!(decode_peer_profile(&[]).is_none());
+    }
+
+    #[test]
+    fn negotiate_restricts_the_sender_to_the_receivers_exposed_surface() {
+        // Both peers share an epoch and speak type-id → names elided; receiver accepts computed + both
+        // speak it → may ship code; strongest shared compression chosen; the receiver's budget surfaces.
+        let me = PeerProfile {
+            registry_epoch: 7,
+            features: FEAT_ZSTD | FEAT_LZ4 | FEAT_TYPE_ID | FEAT_COMPUTED,
+            ..Default::default()
+        };
+        let peer = PeerProfile {
+            limits: ReceiveLimits { max_bytes: 4096, ..Default::default() },
+            registry_epoch: 7,
+            features: FEAT_LZ4 | FEAT_TYPE_ID | FEAT_COMPUTED,
+        };
+        let n = negotiate(&me, &peer);
+        assert!(n.use_type_id, "matching epochs + both type-id → elide names");
+        assert!(n.may_send_computed, "receiver accepts computed + both speak it → may ship a computation");
+        assert_eq!(n.compression, WireCompression::Lz4, "strongest compression BOTH understand (peer lacks zstd)");
+        assert_eq!(n.peer_max_bytes, 4096, "the receiver's byte budget surfaces to the sender");
+
+        // A receiver that declines code, has a different epoch, and shares no compression: the sender
+        // backs OFF on every axis — exposed surface respected.
+        let strict = PeerProfile {
+            limits: ReceiveLimits { accept_computed: false, ..Default::default() },
+            registry_epoch: 999,
+            features: FEAT_TYPE_ID, // no compression, no computed
+        };
+        let n2 = negotiate(&me, &strict);
+        assert!(!n2.use_type_id, "different epochs → names must travel");
+        assert!(!n2.may_send_computed, "receiver declines code → never ship a computation");
+        assert_eq!(n2.compression, WireCompression::None, "no shared compression → send uncompressed");
+    }
+
+    #[test]
+    fn negotiated_send_uses_all_knobs_within_the_receivers_surface() {
+        let from = "p";
+        let bulk = RuntimeValue::List(Rc::new(RefCell::new(ListRepr::Ints((0..256).collect()))));
+        let default = message_to_wire(from, &bulk).unwrap();
+        // Round-trip proof by byte-stability (container `PartialEq` is shallow): decode, re-encode under
+        // the default dials, compare to the default encoding of the original.
+        let roundtrips = |enc: &[u8]| {
+            let back = message_from_wire(enc).unwrap().1;
+            assert_eq!(message_to_wire(from, &back).unwrap(), default, "negotiated send must round-trip exactly");
+        };
+
+        // FULL surface (both speak zstd): the bake-off crushes the bulk list below the default, and it
+        // still decodes with no hint.
+        let full = Negotiated {
+            use_type_id: false,
+            may_send_computed: true,
+            compression: WireCompression::Zstd,
+            peer_max_bytes: 1 << 20,
+        };
+        let enc = message_to_wire_negotiated(from, &bulk, &full, WireTypeRegistry::new(Vec::new())).unwrap();
+        assert!(enc.len() <= default.len(), "negotiated is never larger than the default");
+        assert!(enc.len() < default.len(), "the negotiated bake-off shrinks a 256-int list");
+        roundtrips(&enc);
+
+        // A receiver that shares NO compression: the send never uses a codec it can't decode, still
+        // round-trips, and is still ≤ default.
+        let nocomp = Negotiated { compression: WireCompression::None, ..full };
+        let enc_nc = message_to_wire_negotiated(from, &bulk, &nocomp, WireTypeRegistry::new(Vec::new())).unwrap();
+        assert!(enc_nc.len() <= default.len());
+        roundtrips(&enc_nc);
+
+        // TYPE-ID name elision fires ONLY when negotiated, shrinking a struct with long field names.
+        use crate::interpreter::StructValue;
+        let mut fields = HashMap::new();
+        fields.insert("organization_identifier".to_string(), RuntimeValue::Int(1));
+        fields.insert("organization_display_name".to_string(), RuntimeValue::Text(Rc::new("ACME".to_string())));
+        let s = RuntimeValue::Struct(Box::new(StructValue { type_name: "Organization".to_string(), fields }));
+        let names = vec!["organization_display_name".to_string(), "organization_identifier".to_string()];
+        let inline = message_to_wire(from, &s).unwrap();
+        let with_id = Negotiated { use_type_id: true, ..nocomp };
+        let elided = message_to_wire_negotiated(
+            from,
+            &s,
+            &with_id,
+            WireTypeRegistry::new(vec![("Organization".to_string(), names.clone())]),
+        )
+        .unwrap();
+        assert!(elided.len() < inline.len(), "type-id elides the long field NAMES from the wire");
+        // It decodes when the receiver shares the same registry (the negotiated condition), to the same value.
+        let back = with_type_registry(
+            WireTypeRegistry::new(vec![("Organization".to_string(), names)]),
+            || message_from_wire(&elided),
+        )
+        .unwrap()
+        .1;
+        assert_eq!(message_to_wire(from, &back).unwrap(), inline, "the struct round-trips through the shared registry");
+
+        // A computation the receiver DECLINED is refused at send (defense in depth).
+        use crate::ast::stmt::{BinaryOpKind, Expr, Literal};
+        use logicaffeine_base::{Arena, Symbol};
+        let a: Arena<Expr> = Arena::new();
+        let i = Symbol::from_index(0);
+        let idx: &Expr = a.alloc(Expr::Identifier(i));
+        let one: &Expr = a.alloc(Expr::Literal(Literal::Number(1)));
+        let fbody: &Expr = a.alloc(Expr::BinaryOp { op: BinaryOpKind::Add, left: idx, right: one });
+        let gen = lower_expr_to_genexpr(fbody, i).unwrap();
+        let f = RuntimeValue::Function(Box::new(ClosureValue {
+            body_index: usize::MAX,
+            captured_env: std::collections::HashMap::default(),
+            param_names: vec![i],
+            generated: Some(Rc::new(gen)),
+        }));
+        let declined = Negotiated { may_send_computed: false, ..full };
+        assert!(
+            message_to_wire_negotiated(from, &f, &declined, WireTypeRegistry::new(Vec::new())).is_err(),
+            "a computation the receiver declined is refused at SEND"
+        );
+        let accepted = Negotiated { may_send_computed: true, ..full };
+        assert!(
+            message_to_wire_negotiated(from, &f, &accepted, WireTypeRegistry::new(Vec::new())).is_ok(),
+            "an accepted computation is sent"
+        );
+    }
+
+    #[test]
+    fn wire_type_registry_epoch_is_deterministic_and_distinguishes_type_sets() {
+        // The registry epoch is the handshake's "do we share types?" key. Same types declared in any
+        // field order → SAME epoch (so two same-program peers match and may elide names); a different
+        // type set → a different epoch; empty → 0 (never elide).
+        let a = WireTypeRegistry::new(vec![("Org".to_string(), vec!["id".to_string(), "name".to_string()])]);
+        let b = WireTypeRegistry::new(vec![("Org".to_string(), vec!["name".to_string(), "id".to_string()])]);
+        assert_eq!(a.epoch(), b.epoch(), "same types in any field order → identical epoch");
+        assert_ne!(a.epoch(), 0, "a non-empty registry is never epoch 0");
+        let c = WireTypeRegistry::new(vec![("User".to_string(), vec!["id".to_string()])]);
+        assert_ne!(a.epoch(), c.epoch(), "a different type set → a different epoch");
+        assert_eq!(WireTypeRegistry::new(vec![]).epoch(), 0, "empty registry → epoch 0 (never elide)");
+        // Enums participate too: adding an enum changes the epoch, order-independently.
+        let with_enum = WireTypeRegistry::new(vec![("Org".to_string(), vec!["id".to_string(), "name".to_string()])])
+            .with_enums(vec![("Color".to_string(), vec!["Red".to_string(), "Green".to_string()])]);
+        assert_ne!(a.epoch(), with_enum.epoch(), "adding an enum type changes the epoch");
+    }
+
+    #[test]
+    fn handshake_frame_round_trips_and_is_never_confused_with_a_data_message() {
+        let prof = PeerProfile {
+            limits: ReceiveLimits { max_bytes: 4096, accept_computed: false, ..Default::default() },
+            registry_epoch: 42,
+            features: FEAT_LZ4 | FEAT_TYPE_ID,
+        };
+        let frame = make_handshake_frame("alice", &prof);
+        assert_eq!(parse_handshake_frame(&frame), Some(("alice".to_string(), prof)), "handshake round-trips");
+
+        // A real data message is NEVER parsed as a handshake (the magic can't collide with a frame header).
+        let data = message_to_wire("alice", &RuntimeValue::Int(7)).unwrap();
+        assert!(parse_handshake_frame(&data).is_none(), "a data message is not a handshake");
+        // …and a handshake frame is not a decodable data message.
+        assert!(message_from_wire(&frame).is_none(), "a handshake frame is not a data message");
+        // Truncations never panic or mis-parse.
+        for cut in 0..frame.len() {
+            let _ = parse_handshake_frame(&frame[..cut]);
+        }
     }
 
     #[test]

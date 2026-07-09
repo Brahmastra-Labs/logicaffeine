@@ -51,6 +51,7 @@ HYPERFINE_TIMEOUT="${BENCH_HYPERFINE_TIMEOUT:-300}"  # 5 min per hyperfine invoc
 SIZES_MODE="${BENCH_SIZES:-all}"  # "all" or "ref" (reference only)
 SKIP_LANGS="${SKIP_LANGS:-}"      # comma-separated list of langs to skip (e.g., "zig,nim")
 RUN_INTERP="${RUN_INTERP:-1}"     # 1 = also run the LOGOS-interpreter vs Node/V8 suite (Phase 6) -> results/latest-interp.json
+RUN_CODEC="${RUN_CODEC:-1}"       # 1 = also run the wire-codec head-to-head (Phase 7) -> results/latest-codec.json
 
 skip_lang() {
     local lang="$1"
@@ -199,7 +200,14 @@ name = "bench"
 version = "0.1.0"
 entry = "src/main.lg"
 TOML
-        (cd "$LOGOS_TMP" && "$LARGO" build --release 2>/dev/null) && {
+        # Build UNSTRIPPED so the recorded as-built size is a fair, apples-to-apples
+        # comparison with the other toolchains. `largo build --release` strips by default
+        # (great for shipping), but that would make LOGOS's as-built the already-stripped
+        # size — flattering it next to rustc/gcc, which leave their symbol table on the
+        # as-built artifact. Overriding strip keeps the symbols so `as_built` is comparable;
+        # measure-sizes.sh strips a copy for the shipped (stripped) number. The symbol table
+        # lives in non-loaded ELF sections, so runtime and peak RSS are unaffected.
+        (cd "$LOGOS_TMP" && CARGO_PROFILE_RELEASE_STRIP=false "$LARGO" build --release 2>/dev/null) && {
             # Find binary: CARGO_TARGET_DIR redirects output, so check there first
             LOGOS_BIN=""
             if [ -n "${CARGO_TARGET_DIR:-}" ] && [ -f "$CARGO_TARGET_DIR/release/bench" ]; then
@@ -577,7 +585,7 @@ OS=$(detect_os)
 if [ -n "${LOGOS_VERSION:-}" ]; then
     LOGOS_VER="$LOGOS_VERSION"
 else
-    LOGOS_VER=$(grep '^version' "$SCRIPT_DIR/../apps/logicaffeine_cli/Cargo.toml" | head -1 | sed 's/.*"\(.*\)".*/\1/')
+    LOGOS_VER=$(grep '^version' "$SCRIPT_DIR/../Cargo.toml" | head -1 | sed 's/.*"\(.*\)".*/\1/')
 fi
 
 get_version() {
@@ -611,7 +619,7 @@ LANGUAGES='[
   {"id":"rust","label":"Rust","color":"#dea584","tier":"systems"},
   {"id":"zig","label":"Zig","color":"#f7a41d","tier":"systems"},
   {"id":"logos_release","label":"LOGOS","color":"#00d4ff","tier":"systems"},
-  {"id":"go","label":"Go","color":"#00ADD8","tier":"managed"},
+  {"id":"go","label":"Go","color":"#3fb950","tier":"managed"},
   {"id":"java","label":"Java","color":"#b07219","tier":"managed"},
   {"id":"js","label":"JavaScript","color":"#f7df1e","tier":"managed"},
   {"id":"nim","label":"Nim","color":"#ffe953","tier":"transpiled"}
@@ -1080,6 +1088,50 @@ if [ "$RUN_INTERP" = "1" ] && [ -x "$SCRIPT_DIR/run-interp-vs-js.sh" ]; then
     ok "Phase 6 complete"
 else
     info "Phase 6 skipped (RUN_INTERP=$RUN_INTERP)"
+fi
+
+# ===========================================================================
+# Phase 7: Wire codec vs industry serializers (size + enc/dec + random access)
+# ===========================================================================
+# The LOGOS wire codec gets its own head-to-head vs bincode/postcard/MessagePack/
+# CBOR/JSON, plus Apache Arrow and — when protoc + capnp are on PATH — Protobuf and
+# Cap'n Proto. The wirebench harness emits results/latest-codec.json (the same data
+# its stdout table prints), which feeds the Serialization section of the page. We
+# pass the machine identity computed in Phase 5 so the metadata matches latest.json.
+if [ "$RUN_CODEC" = "1" ]; then
+    if command -v protoc >/dev/null 2>&1 && command -v capnp >/dev/null 2>&1; then
+        CODEC_FEATURES="--features heavy"   # arrow + protobuf + Cap'n Proto
+        info "Phase 7: Wire codec head-to-head (protoc + capnp present -> heavy)..."
+    else
+        CODEC_FEATURES="--features arrow-bench"   # pure-Rust competitors + Arrow (no toolchain)
+        warn "Phase 7: protoc/capnp absent -> core + Arrow only (install them for the full chart)"
+    fi
+    WIREBENCH_JSON="$RESULTS_DIR/latest-codec.json" \
+    WIREBENCH_ITERS="${WIREBENCH_ITERS:-20000}" \
+    WIREBENCH_DATE="$DATE" WIREBENCH_COMMIT="$COMMIT" \
+    WIREBENCH_CPU="$CPU" WIREBENCH_OS="$OS" LOGOS_VERSION="$LOGOS_VER" \
+        cargo run --release -p logicaffeine-wirebench $CODEC_FEATURES \
+        || warn "Phase 7 (wire codec) failed — latest-codec.json may be stale"
+    [ -f "$RESULTS_DIR/latest-codec.json" ] && \
+        cp "$RESULTS_DIR/latest-codec.json" "$RESULTS_DIR/history/v${LOGOS_VER}-codec.json"
+    ok "Phase 7 complete"
+else
+    info "Phase 7 skipped (RUN_CODEC=$RUN_CODEC)"
+fi
+
+# ===========================================================================
+# Phase 8: Regenerate README benchmark charts (SVG)
+# ===========================================================================
+# Turn the freshly-assembled result JSON into the static SVGs the root README
+# embeds. Reads results/{latest,latest-interp,latest-codec}.json plus the
+# separately-produced results/solvers.json (from run-solver-vs-z3.sh).
+if command -v python3 >/dev/null 2>&1; then
+    info "Phase 8: Regenerating README charts (SVG)..."
+    python3 "$SCRIPT_DIR/gen-readme-charts.py" \
+        && ok "Phase 8 complete: results/charts/*.svg" \
+        || warn "Phase 8 (README charts) failed — results/charts/*.svg may be stale"
+else
+    info "Phase 8 skipped (python3 not found)"
 fi
 
 info "Benchmark suite complete!"

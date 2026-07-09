@@ -7,8 +7,8 @@
 //! # Supported Collections
 //!
 //! - [`Vec<T>`]: Indexed by `i64` (1-based, converted to 0-based internally)
-//! - [`HashMap<K, V>`]: Indexed by key `K` (pass-through semantics)
-//! - [`HashMap<String, V>`]: Also supports `&str` keys for convenience
+//! - `HashMap<K, V>`: Indexed by key `K` (pass-through semantics)
+//! - `HashMap<String, V>`: Also supports `&str` keys for convenience
 //!
 //! # Panics
 //!
@@ -66,6 +66,28 @@ pub trait LogosIndexMut<I>: LogosIndex<I> {
     fn logos_set(&mut self, index: I, value: Self::Output);
 }
 
+/// Resolve a 1-based LOGOS index (negative = end-relative: `-1` is the last
+/// element) to a 0-based offset, with the canonical loud errors. ONE
+/// definition — every engine's indexing goes through this rule.
+#[inline(always)]
+pub fn resolve_logos_index(index: i64, len: usize) -> usize {
+    if index >= 1 {
+        let idx = (index - 1) as usize;
+        if idx >= len {
+            panic!("Index {} is out of bounds for seq of length {}", index, len);
+        }
+        idx
+    } else if index <= -1 {
+        let back = index.unsigned_abs() as usize;
+        if back > len {
+            panic!("Index {} is out of bounds for seq of length {}", index, len);
+        }
+        len - back
+    } else {
+        panic!("Index 0 is invalid: LOGOS uses 1-based indexing (minimum is 1, and -1 reads from the end)");
+    }
+}
+
 // === Vec<T> with i64 (1-based indexing) ===
 
 impl<T: Clone> LogosIndex<i64> for Vec<T> {
@@ -73,13 +95,7 @@ impl<T: Clone> LogosIndex<i64> for Vec<T> {
 
     #[inline(always)]
     fn logos_get(&self, index: i64) -> T {
-        if index < 1 {
-            panic!("Index {} is invalid: LOGOS uses 1-based indexing (minimum is 1)", index);
-        }
-        let idx = (index - 1) as usize;
-        if idx >= self.len() {
-            panic!("Index {} is out of bounds for seq of length {}", index, self.len());
-        }
+        let idx = resolve_logos_index(index, self.len());
         unsafe { self.get_unchecked(idx).clone() }
     }
 }
@@ -87,13 +103,7 @@ impl<T: Clone> LogosIndex<i64> for Vec<T> {
 impl<T: Clone> LogosIndexMut<i64> for Vec<T> {
     #[inline(always)]
     fn logos_set(&mut self, index: i64, value: T) {
-        if index < 1 {
-            panic!("Index {} is invalid: LOGOS uses 1-based indexing (minimum is 1)", index);
-        }
-        let idx = (index - 1) as usize;
-        if idx >= self.len() {
-            panic!("Index {} is out of bounds for seq of length {}", index, self.len());
-        }
+        let idx = resolve_logos_index(index, self.len());
         unsafe { *self.get_unchecked_mut(idx) = value; }
     }
 }
@@ -105,13 +115,7 @@ impl<T: Clone> LogosIndex<i64> for [T] {
 
     #[inline(always)]
     fn logos_get(&self, index: i64) -> T {
-        if index < 1 {
-            panic!("Index {} is invalid: LOGOS uses 1-based indexing (minimum is 1)", index);
-        }
-        let idx = (index - 1) as usize;
-        if idx >= self.len() {
-            panic!("Index {} is out of bounds for seq of length {}", index, self.len());
-        }
+        let idx = resolve_logos_index(index, self.len());
         unsafe { self.get_unchecked(idx).clone() }
     }
 }
@@ -119,13 +123,7 @@ impl<T: Clone> LogosIndex<i64> for [T] {
 impl<T: Clone> LogosIndexMut<i64> for [T] {
     #[inline(always)]
     fn logos_set(&mut self, index: i64, value: T) {
-        if index < 1 {
-            panic!("Index {} is invalid: LOGOS uses 1-based indexing (minimum is 1)", index);
-        }
-        let idx = (index - 1) as usize;
-        if idx >= self.len() {
-            panic!("Index {} is out of bounds for seq of length {}", index, self.len());
-        }
+        let idx = resolve_logos_index(index, self.len());
         unsafe { *self.get_unchecked_mut(idx) = value; }
     }
 }
@@ -159,10 +157,13 @@ impl LogosIndex<i64> for String {
 
     #[inline(always)]
     fn logos_get(&self, index: i64) -> String {
-        if index < 1 {
-            panic!("Index {} is invalid: LOGOS uses 1-based indexing (minimum is 1)", index);
-        }
-        let idx = (index - 1) as usize;
+        // Positive indexes keep the count-free ASCII fast path; only an
+        // end-relative (or zero) index pays the char count.
+        let idx = if index >= 1 {
+            (index - 1) as usize
+        } else {
+            resolve_logos_index(index, self.chars().count())
+        };
         match self.as_bytes().get(idx) {
             Some(&b) if b.is_ascii() => {
                 // Fast path: ASCII byte
@@ -192,10 +193,11 @@ pub trait LogosGetChar {
 impl LogosGetChar for String {
     #[inline(always)]
     fn logos_get_char(&self, index: i64) -> char {
-        if index < 1 {
-            panic!("Index {} is invalid: LOGOS uses 1-based indexing (minimum is 1)", index);
-        }
-        let idx = (index - 1) as usize;
+        let idx = if index >= 1 {
+            (index - 1) as usize
+        } else {
+            resolve_logos_index(index, self.chars().count())
+        };
         match self.as_bytes().get(idx) {
             Some(&b) if b.is_ascii() => b as char,
             _ => {

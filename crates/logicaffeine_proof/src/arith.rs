@@ -299,22 +299,28 @@ fn combine_coeff(m: &[usize], c1: i64, c2: i64, atoms: &[Term]) -> Option<Term> 
         // constant terms: `add (lit c1)(lit c2)` ≡ `lit (c1+c2)` by computation.
         None => Some(refl(lit_t(sum))),
         Some(m_term) => {
+            // add t1 t2 = add (mul c1 M)(mul c2 M)  [coerce]  = mul (c1+c2) M  [rev_distrib]
+            let coerce = cong2("add", &t1, &ax2("mul", lit_t(c1), m_term.clone()),
+                &t2, &ax2("mul", lit_t(c2), m_term.clone()),
+                as_scaled_mul(c1, &m_term), as_scaled_mul(c2, &m_term));
+            let rd = rev_distrib(c1, c2, &m_term);
+            let coerced = ax2("add", ax2("mul", lit_t(c1), m_term.clone()), ax2("mul", lit_t(c2), m_term.clone()));
             if sum != 1 {
-                // add t1 t2 = add (mul c1 M)(mul c2 M)  [coerce]  = mul (c1+c2) M  [rev_distrib]
-                let coerce = cong2("add", &t1, &ax2("mul", lit_t(c1), m_term.clone()),
-                    &t2, &ax2("mul", lit_t(c2), m_term.clone()),
-                    as_scaled_mul(c1, &m_term), as_scaled_mul(c2, &m_term));
-                let rd = rev_distrib(c1, c2, &m_term);
-                Some(eq_trans(
-                    ax2("add", t1, t2),
-                    ax2("add", ax2("mul", lit_t(c1), m_term.clone()), ax2("mul", lit_t(c2), m_term.clone())),
-                    result,
-                    coerce,
-                    rd,
-                ))
+                Some(eq_trans(ax2("add", t1, t2), coerced, result, coerce, rd))
             } else {
-                // c1+c2 == 1: result is the bare monomial; handled next turn.
-                None
+                // c1+c2 == 1: the result is the bare monomial, so extend the chain
+                // past `mul 1 M` (what rev_distrib's RHS reduces to) with
+                // `mul 1 M = mul M 1 = M`.
+                let mul1m = ax2("mul", lit_t(1), m_term.clone());
+                let to_bare = eq_trans(
+                    mul1m.clone(),
+                    ax2("mul", m_term.clone(), lit_t(1)),
+                    m_term.clone(),
+                    ax2("mul_comm", lit_t(1), m_term.clone()),
+                    ax1("mul_one", m_term.clone()),
+                );
+                let inner = eq_trans(coerced.clone(), mul1m, result.clone(), rd, to_bare);
+                Some(eq_trans(ax2("add", t1, t2), coerced, result, coerce, inner))
             }
         }
     }
@@ -484,11 +490,32 @@ fn merge_term(atoms: &[Term], p: &[(Mono, i64)], m: &[usize], c: i64) -> Option<
                 );
                 let proof = eq_trans(
                     ax2("add", ax2("add", ri.clone(), last_t.clone()), st.clone()),
-                    ax2("add", ax2("add", ri, st), last_t.clone()),
-                    ax2("add", ri2, last_t.clone()),
+                    ax2("add", ax2("add", ri, st.clone()), last_t.clone()),
+                    ax2("add", ri2.clone(), last_t.clone()),
                     swap,
                     cong,
                 );
+                // If the merge cancelled all of `init`, the result reifies to the
+                // bare `last_t` — eliminate the `add 0 last_t` residue so the
+                // proof's conclusion IS the canonical form.
+                let proof = if init2.is_empty() {
+                    let zfix = eq_trans(
+                        ax2("add", lit_t(0), last_t.clone()),
+                        ax2("add", last_t.clone(), lit_t(0)),
+                        last_t.clone(),
+                        ax2("add_comm", lit_t(0), last_t.clone()),
+                        ax1("add_zero", last_t.clone()),
+                    );
+                    eq_trans(
+                        ax2("add", ax2("add", reify(init, atoms), last_t.clone()), st.clone()),
+                        ax2("add", ri2, last_t.clone()),
+                        last_t.clone(),
+                        proof,
+                        zfix,
+                    )
+                } else {
+                    proof
+                };
                 let mut res = init2;
                 res.push((ml, cl));
                 Some((res, proof))
@@ -861,4 +888,80 @@ fn match_axiom(ctx: &Context, l: &Term, r: &Term) -> Option<Term> {
         }
     }
     None
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use logicaffeine_kernel::{infer_type, prelude::StandardLibrary};
+
+    fn ctx() -> Context {
+        let mut c = Context::new();
+        StandardLibrary::register(&mut c);
+        c.add_declaration("x", int());
+        c.add_declaration("y", int());
+        c
+    }
+
+    /// The oracle must find a proof AND the kernel must accept it as `Eq Int lhs rhs`.
+    fn assert_certifies(ctx: &Context, lhs: &Term, rhs: &Term) {
+        let proof = prove_int_eq(ctx, lhs, rhs)
+            .unwrap_or_else(|| panic!("oracle found no proof for {lhs:?} = {rhs:?}"));
+        let ty = infer_type(ctx, &proof)
+            .unwrap_or_else(|e| panic!("kernel rejected the proof for {lhs:?} = {rhs:?}: {e:?}"));
+        let want = eq_int_term(lhs.clone(), rhs.clone());
+        assert!(
+            conv(ctx, &ty, &want),
+            "proof types as {ty:?}, wanted Eq Int {lhs:?} {rhs:?}"
+        );
+    }
+
+    fn add_t(a: Term, b: Term) -> Term {
+        ax2("add", a, b)
+    }
+    fn mul_t(a: Term, b: Term) -> Term {
+        ax2("mul", a, b)
+    }
+
+    #[test]
+    fn coefficients_summing_to_one_recombine() {
+        // The merge gap: like monomials whose coefficients sum to exactly 1 must
+        // recombine to the bare monomial (2x + (-1)x = x), not fail the proof.
+        let ctx = ctx();
+        let x = global("x");
+        assert_certifies(&ctx, &add_t(mul_t(lit_t(2), x.clone()), mul_t(lit_t(-1), x.clone())), &x);
+        assert_certifies(&ctx, &add_t(mul_t(lit_t(-1), x.clone()), mul_t(lit_t(2), x.clone())), &x);
+        assert_certifies(
+            &ctx,
+            &add_t(mul_t(lit_t(3), x.clone()), mul_t(lit_t(-2), x.clone())),
+            &x,
+        );
+    }
+
+    #[test]
+    fn farkas_shape_big_l_certifies() {
+        // cert_farkas's summed left side: Σ λᵢ·0 must certify equal to 0.
+        let ctx = ctx();
+        let big_l = add_t(mul_t(lit_t(1), lit_t(0)), mul_t(lit_t(1), lit_t(0)));
+        assert_certifies(&ctx, &big_l, &lit_t(0));
+    }
+
+    #[test]
+    fn farkas_shape_double_constant_big_r_certifies() {
+        // The exact BigR cert_farkas builds for the double-constant system
+        // x+1 ≤ y ∧ y+1 ≤ x+1 with multipliers λ = (1, 1):
+        //   1·(y − (x+1)) + 1·((x+1) − (y+1))  =  −1
+        // encoded sub-free as add(r, mul(−1, l)) per hypothesis.
+        let ctx = ctx();
+        let x = global("x");
+        let y = global("y");
+        let l1 = add_t(x.clone(), lit_t(1));
+        let r1 = y.clone();
+        let l2 = add_t(y.clone(), lit_t(1));
+        let r2 = add_t(x.clone(), lit_t(1));
+        let diff1 = add_t(r1, mul_t(lit_t(-1), l1));
+        let diff2 = add_t(r2, mul_t(lit_t(-1), l2));
+        let big_r = add_t(mul_t(lit_t(1), diff1), mul_t(lit_t(1), diff2));
+        assert_certifies(&ctx, &big_r, &lit_t(-1));
+    }
 }

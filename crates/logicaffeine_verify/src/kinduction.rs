@@ -341,7 +341,7 @@ pub fn encode_expr_bool<'ctx>(
                     let r = encode_expr_int(ctx, right, int_vars).unwrap_or_else(|| Int::from_i64(ctx, 0));
                     l.le(&r)
                 }
-                VerifyOp::Add | VerifyOp::Sub | VerifyOp::Mul | VerifyOp::Div => {
+                VerifyOp::Add | VerifyOp::Sub | VerifyOp::Mul | VerifyOp::Div | VerifyOp::FloorDiv => {
                     Bool::from_bool(ctx, false) // arithmetic ops aren't Bool
                 }
             }
@@ -437,6 +437,17 @@ pub fn encode_expr_int<'ctx>(
                     let l = encode_expr_int(ctx, left, int_vars)?;
                     let r = encode_expr_int(ctx, right, int_vars)?;
                     Some(Int::mul(ctx, &[&l, &r]))
+                }
+                VerifyOp::Div => {
+                    let l = encode_expr_int(ctx, left, int_vars)?;
+                    let r = encode_expr_int(ctx, right, int_vars)?;
+                    Some(l.div(&r))
+                }
+                // Floor division: real division then floor (`Real::to_int`), exact toward -inf.
+                VerifyOp::FloorDiv => {
+                    let l = encode_expr_int(ctx, left, int_vars)?;
+                    let r = encode_expr_int(ctx, right, int_vars)?;
+                    Some((l.to_real() / r.to_real()).to_int())
                 }
                 _ => None,
             }
