@@ -66,7 +66,8 @@ EOF
 }
 
 sums_for() {
-  ( cd "$SITE/releases/download/$1" && { command -v sha256sum >/dev/null && sha256sum -- * || shasum -a 256 -- *; } > SHA256SUMS )
+  ( cd "$SITE/releases/download/$1" &&
+    if command -v sha256sum >/dev/null; then sha256sum -- *; else shasum -a 256 -- *; fi > SHA256SUMS )
 }
 
 make_asset "$LATEST_TAG" "0.10.0"        ""

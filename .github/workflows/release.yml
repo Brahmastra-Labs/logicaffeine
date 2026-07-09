@@ -143,6 +143,11 @@ jobs:
         shell: bash
         env:
           MACOSX_DEPLOYMENT_TARGET: ${{ matrix.target == 'x86_64-apple-darwin' && '10.15' || '11.0' }}
+          # z3-sys vendors a Z3 whose CMakeLists still declares cmake_minimum_required
+          # < 3.5; CMake 4 removed that compatibility ("Or, add
+          # -DCMAKE_POLICY_VERSION_MINIMUM=3.5"), so pin the policy floor via the
+          # environment the cmake crate forwards.
+          CMAKE_POLICY_VERSION_MINIMUM: "3.5"
           # No crt-static here: the cmake-built libz3 must agree with Rust's
           # CRT choice; full-windows ships /MD until a dispatch run proves /MT.
         run: cargo build -p logicaffeine-cli --release --target ${{ matrix.target }} --features verification-static

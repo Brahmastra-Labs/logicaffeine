@@ -61,7 +61,10 @@ jobs:
           $src = Join-Path $env:TEMP "stub.cs"
           Set-Content $src 'class P { static void Main(string[] a) { System.Console.WriteLine("largo 0.10.0"); } }'
           $csc = Get-ChildItem "$env:WINDIR\Microsoft.NET\Framework64" -Recurse -Filter csc.exe | Select-Object -Last 1
-          & $csc.FullName /nologo /out:(Join-Path $stage "largo.exe") $src
+          # Build the /out: argument as a single interpolated string — PowerShell
+          # does NOT evaluate `/out:(...)` inline, so csc saw an empty /out:.
+          $exeOut = Join-Path $stage "largo.exe"
+          & $csc.FullName /nologo "/out:$exeOut" $src
           Set-Content (Join-Path $stage "LICENSE.md") "license"
           Compress-Archive -Path "$stage\*" -DestinationPath (Join-Path $dl "largo-win32-x64.zip") -Force
           $hash = (Get-FileHash -Algorithm SHA256 (Join-Path $dl "largo-win32-x64.zip")).Hash.ToLower()

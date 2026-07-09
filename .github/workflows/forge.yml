@@ -19,19 +19,18 @@ env:
 
 jobs:
   # Runtime tests: the copy-and-patch JIT mmaps executable pages and runs
-  # real machine code, so every OS/arch pair exercises a distinct W^X path:
-  #   ubuntu x64        — mprotect, ELF stencils, x64 rel32 patching
-  #   ubuntu arm64      — the inline-asm icache flush (mprotect does NOT
-  #                       flush the instruction cache on ARM Linux)
-  #   macos arm64       — MAP_JIT + pthread_jit_write_protect_np, Mach-O
-  #                       stencils, literal-pool const holes
-  #   windows x64       — VirtualAlloc/VirtualProtect/FlushInstructionCache,
-  #                       COFF stencils (__imp_ GOT-indirection)
+  # real machine code. The stencil chain relies on rustc's x86_64 System V
+  # tail-call codegen; Windows (MS ABI) and aarch64 emit a plain `call` at
+  # continuation sites, so those targets run the bytecode VM (forge/jit compile
+  # to nothing there — proven by the cross-check job below). The runtime tests
+  # therefore cover the two SysV hosts where the JIT actually executes:
+  #   ubuntu x64  — mprotect, ELF stencils, x64 rel32 patching
+  #   macos x64   — mmap/mprotect, Mach-O stencils, literal-pool const holes
   runtime:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, ubuntu-24.04-arm, macos-latest, windows-latest]
+        os: [ubuntu-latest, macos-13]
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
