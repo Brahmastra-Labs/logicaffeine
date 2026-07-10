@@ -99,12 +99,11 @@ describe("language server", function () {
   });
 
   it("publishes socratic diagnostics for a broken document", async () => {
-    await setServerPath(SERVER_PATH);
-    await vscode.commands.executeCommand("logicaffeine.restartServer");
-
     // A real on-disk file (file:// URI) — the realistic path a user's broken
     // source takes; an untitled/in-memory buffer is an edge case the server
-    // needn't analyze.
+    // needn't analyze. Open it BEFORE (re)starting the server so the client
+    // syncs it to the freshly-started debug server via `didOpen` on init —
+    // opening after the restart races the client's readiness and can be dropped.
     const brokenPath = path.join(
       fs.mkdtempSync(path.join(os.tmpdir(), "lsp-diag-")),
       "broken.lg",
@@ -112,6 +111,9 @@ describe("language server", function () {
     fs.writeFileSync(brokenPath, BROKEN_SOURCE);
     const document = await vscode.workspace.openTextDocument(vscode.Uri.file(brokenPath));
     await vscode.window.showTextDocument(document);
+
+    await setServerPath(SERVER_PATH);
+    await vscode.commands.executeCommand("logicaffeine.restartServer");
 
     const gotDiagnostics = await pollUntil(
       () => vscode.languages.getDiagnostics(document.uri).length > 0,
