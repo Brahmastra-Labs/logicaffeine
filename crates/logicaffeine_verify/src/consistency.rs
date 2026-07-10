@@ -8,7 +8,7 @@
 use crate::ir::{VerifyExpr, VerifyOp};
 use crate::equivalence::Trace;
 use std::collections::{HashMap, HashSet};
-use z3::{ast::Ast, ast::Bool, ast::Int, Config, Context, SatResult, Solver};
+use z3::{ast::Bool, ast::Int, SatResult, Solver};
 
 // ═══════════════════════════════════════════════════════════════════════════
 // LEGACY API (backward compatibility)
@@ -42,17 +42,14 @@ pub fn check_consistency(
         return ConsistencyResult::Consistent;
     }
 
-    let mut cfg = Config::new();
-    cfg.set_param_value("timeout", "10000");
-    let ctx = Context::new(&cfg);
-    let solver = Solver::new(&ctx);
+    let solver = crate::solver::new_solver();
 
     // Declare all signal@timestep variables
     let mut var_map: HashMap<String, Bool> = HashMap::new();
     for sig in signals {
         for t in 0..=bound {
             let var_name = format!("{}@{}", sig, t);
-            var_map.insert(var_name.clone(), Bool::new_const(&ctx, var_name.as_str()));
+            var_map.insert(var_name.clone(), Bool::new_const(var_name.as_str()));
         }
     }
 
@@ -63,7 +60,7 @@ pub fn check_consistency(
     }
     for var_name in &all_vars {
         if !var_map.contains_key(var_name) {
-            var_map.insert(var_name.clone(), Bool::new_const(&ctx, var_name.as_str()));
+            var_map.insert(var_name.clone(), Bool::new_const(var_name.as_str()));
         }
     }
 
@@ -71,7 +68,7 @@ pub fn check_consistency(
     let empty_int_vars = HashMap::new();
     let empty_bv_vars = HashMap::new();
     let empty_array_vars = HashMap::new();
-    let encoder = crate::equivalence::EquivEncoder::new(&ctx, &var_map, &empty_int_vars, &empty_bv_vars, &empty_array_vars);
+    let encoder = crate::equivalence::EquivEncoder::new(&var_map, &empty_int_vars, &empty_bv_vars, &empty_array_vars);
     for prop in props {
         let encoded = encoder.encode_as_bool(prop);
         solver.assert(&encoded);
@@ -84,7 +81,7 @@ pub fn check_consistency(
             let mut conflicting = Vec::new();
             for i in 0..props.len() {
                 for j in (i + 1)..props.len() {
-                    let pair_solver = Solver::new(&ctx);
+                    let pair_solver = crate::solver::new_solver();
                     let ei = encoder.encode_as_bool(&props[i]);
                     let ej = encoder.encode_as_bool(&props[j]);
                     pair_solver.assert(&ei);
@@ -208,9 +205,6 @@ pub fn check_spec_consistency(
         };
     }
 
-    let mut cfg = Config::new();
-    cfg.set_param_value("timeout", &config.timeout_ms.to_string());
-    let ctx = Context::new(&cfg);
 
     // Collect all variable names from all formulas
     let mut all_vars: HashSet<String> = HashSet::new();
@@ -224,21 +218,21 @@ pub fn check_spec_consistency(
     for var_name in &all_vars {
         bool_vars.insert(
             var_name.clone(),
-            Bool::new_const(&ctx, var_name.as_str()),
+            Bool::new_const(var_name.as_str()),
         );
     }
     // Also detect integer variables from arithmetic contexts
     let exprs: Vec<&VerifyExpr> = formulas.iter().map(|lf| &lf.expr).collect();
     for expr in &exprs {
-        crate::equivalence::collect_int_vars_pub(expr, &mut int_vars, &ctx);
+        crate::equivalence::collect_int_vars_pub(expr, &mut int_vars);
     }
 
     let empty_bv_vars = HashMap::new();
     let empty_array_vars = HashMap::new();
-    let encoder = crate::equivalence::EquivEncoder::new(&ctx, &bool_vars, &int_vars, &empty_bv_vars, &empty_array_vars);
+    let encoder = crate::equivalence::EquivEncoder::new(&bool_vars, &int_vars, &empty_bv_vars, &empty_array_vars);
 
     // Step 1: Check full conjunction satisfiability
-    let solver = Solver::new(&ctx);
+    let solver = crate::solver::new_solver();
     for lf in formulas {
         let encoded = encoder.encode_as_bool(&lf.expr);
         solver.assert(&encoded);
@@ -248,13 +242,13 @@ pub fn check_spec_consistency(
         SatResult::Sat => {
             // Satisfiable — run vacuity and redundancy checks
             let vacuity = if config.check_vacuity {
-                detect_vacuity(&ctx, &encoder, formulas, config.timeout_ms)
+                detect_vacuity(&encoder, formulas, config.timeout_ms)
             } else {
                 vec![]
             };
 
             let redundancies = if config.check_redundancy {
-                detect_redundancy(&ctx, &encoder, formulas, config.timeout_ms)
+                detect_redundancy(&encoder, formulas, config.timeout_ms)
             } else {
                 vec![]
             };
@@ -269,11 +263,11 @@ pub fn check_spec_consistency(
         }
         SatResult::Unsat => {
             // UNSAT — extract MUS
-            let mus = extract_mus(&ctx, &encoder, formulas, config.timeout_ms);
+            let mus = extract_mus(&encoder, formulas, config.timeout_ms);
 
             // Optionally find all pairwise conflicts
             let pairwise_conflicts = if config.check_pairwise {
-                detect_pairwise_conflicts(&ctx, &encoder, formulas, config.timeout_ms)
+                detect_pairwise_conflicts(&encoder, formulas, config.timeout_ms)
             } else {
                 vec![]
             };
@@ -308,9 +302,8 @@ pub fn check_spec_consistency(
 /// If not, the formula is not necessary (removed from MUS).
 ///
 /// O(n) Z3 calls.
-fn extract_mus<'ctx>(
-    ctx: &'ctx Context,
-    encoder: &crate::equivalence::EquivEncoder<'ctx>,
+fn extract_mus(
+    encoder: &crate::equivalence::EquivEncoder,
     formulas: &[LabeledFormula],
     timeout_ms: u64,
 ) -> Vec<usize> {
@@ -319,9 +312,9 @@ fn extract_mus<'ctx>(
 
     for i in 0..n {
         // Try removing formula i — check if the rest is still UNSAT
-        let solver = Solver::new(ctx);
+        let solver = Solver::new();
         solver.set_params(&{
-            let mut params = z3::Params::new(ctx);
+            let mut params = z3::Params::new();
             params.set_u32("timeout", timeout_ms as u32);
             params
         });
@@ -374,9 +367,8 @@ fn extract_antecedent(expr: &VerifyExpr) -> Option<&VerifyExpr> {
 /// For each formula with implication shape (P → Q), checks whether P
 /// can be satisfied under the context of all other formulas.
 /// If not, the implication is vacuously true.
-fn detect_vacuity<'ctx>(
-    ctx: &'ctx Context,
-    encoder: &crate::equivalence::EquivEncoder<'ctx>,
+fn detect_vacuity(
+    encoder: &crate::equivalence::EquivEncoder,
     formulas: &[LabeledFormula],
     timeout_ms: u64,
 ) -> Vec<VacuityFinding> {
@@ -389,9 +381,9 @@ fn detect_vacuity<'ctx>(
         };
 
         // Build context: conjunction of all other formulas
-        let solver = Solver::new(ctx);
+        let solver = Solver::new();
         solver.set_params(&{
-            let mut params = z3::Params::new(ctx);
+            let mut params = z3::Params::new();
             params.set_u32("timeout", timeout_ms as u32);
             params
         });
@@ -427,18 +419,17 @@ fn detect_vacuity<'ctx>(
 ///
 /// For each formula F_i, checks whether context ∧ ¬F_i is satisfiable.
 /// If UNSAT, F_i is entailed by the others (redundant).
-fn detect_redundancy<'ctx>(
-    ctx: &'ctx Context,
-    encoder: &crate::equivalence::EquivEncoder<'ctx>,
+fn detect_redundancy(
+    encoder: &crate::equivalence::EquivEncoder,
     formulas: &[LabeledFormula],
     timeout_ms: u64,
 ) -> Vec<RedundancyFinding> {
     let mut findings = Vec::new();
 
     for i in 0..formulas.len() {
-        let solver = Solver::new(ctx);
+        let solver = Solver::new();
         solver.set_params(&{
-            let mut params = z3::Params::new(ctx);
+            let mut params = z3::Params::new();
             params.set_u32("timeout", timeout_ms as u32);
             params
         });
@@ -479,9 +470,8 @@ fn detect_redundancy<'ctx>(
 /// Identify all pairs of formulas that cannot hold simultaneously.
 ///
 /// Only meaningful when the full conjunction is UNSAT.
-fn detect_pairwise_conflicts<'ctx>(
-    ctx: &'ctx Context,
-    encoder: &crate::equivalence::EquivEncoder<'ctx>,
+fn detect_pairwise_conflicts(
+    encoder: &crate::equivalence::EquivEncoder,
     formulas: &[LabeledFormula],
     timeout_ms: u64,
 ) -> Vec<PairwiseConflict> {
@@ -489,9 +479,9 @@ fn detect_pairwise_conflicts<'ctx>(
 
     for i in 0..formulas.len() {
         for j in (i + 1)..formulas.len() {
-            let solver = Solver::new(ctx);
+            let solver = Solver::new();
             solver.set_params(&{
-                let mut params = z3::Params::new(ctx);
+                let mut params = z3::Params::new();
                 params.set_u32("timeout", timeout_ms as u32);
                 params
             });

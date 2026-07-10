@@ -10,9 +10,9 @@
 //! 2. If base fails → Counterexample. If induction fails for all k → InductionFailed.
 
 use crate::ir::{VerifyExpr, VerifyOp};
-use crate::equivalence::{Trace, CycleState, SignalValue};
+use crate::equivalence::Trace;
 use std::collections::HashMap;
-use z3::{ast, ast::Ast, ast::Bool, ast::Dynamic, ast::Int, Config, Context, SatResult, Solver};
+use z3::{ast::Ast, ast::Bool, ast::Dynamic, ast::Int, SatResult, Solver};
 
 /// Result of k-induction verification.
 #[derive(Debug)]
@@ -48,14 +48,11 @@ pub fn k_induction(
     signals: &[SignalDecl],
     max_k: u32,
 ) -> KInductionResult {
-    let mut cfg = Config::new();
-    cfg.set_param_value("timeout", "30000");
-    let ctx = Context::new(&cfg);
 
     for k in 1..=max_k {
         // ---- Base case ----
         // Check: init(0) AND T(0,1) AND T(1,2) AND ... AND T(k-2,k-1) AND NOT P(i) for some i
-        let base_result = check_base_case(&ctx, init, transition, property, signals, k);
+        let base_result = check_base_case(init, transition, property, signals, k);
         match base_result {
             SatResult::Sat => {
                 // Base case failed — property violated within k steps
@@ -70,7 +67,7 @@ pub fn k_induction(
 
         // ---- Inductive step ----
         // Check: P(0) AND P(1) AND ... AND P(k-1) AND T(0,1) AND ... AND T(k-1,k) AND NOT P(k)
-        let step_result = check_inductive_step(&ctx, transition, property, signals, k);
+        let step_result = check_inductive_step(transition, property, signals, k);
         match step_result {
             SatResult::Unsat => {
                 // Inductive step holds — property proven for all time!
@@ -90,24 +87,23 @@ pub fn k_induction(
 
 /// Check the base case: init AND transitions AND NOT(property) at some step.
 fn check_base_case(
-    ctx: &Context,
     init: &VerifyExpr,
     transition: &VerifyExpr,
     property: &VerifyExpr,
-    signals: &[SignalDecl],
+    _signals: &[SignalDecl],
     k: u32,
 ) -> SatResult {
-    let solver = Solver::new(ctx);
+    let solver = Solver::new();
 
     // Assert init at step 0
     let init_0 = instantiate_at(init, 0);
-    let init_z3 = encode_to_bool(ctx, &init_0);
+    let init_z3 = encode_to_bool(&init_0);
     solver.assert(&init_z3);
 
     // Assert transitions T(0,1), T(1,2), ..., T(k-2, k-1)
     for t in 0..k.saturating_sub(1) {
         let trans = instantiate_transition(transition, t);
-        let trans_z3 = encode_to_bool(ctx, &trans);
+        let trans_z3 = encode_to_bool(&trans);
         solver.assert(&trans_z3);
     }
 
@@ -116,11 +112,11 @@ fn check_base_case(
     let mut not_props: Vec<Bool> = Vec::new();
     for t in 0..k {
         let prop_t = instantiate_at(property, t);
-        let prop_z3 = encode_to_bool(ctx, &prop_t);
+        let prop_z3 = encode_to_bool(&prop_t);
         not_props.push(prop_z3.not());
     }
     let not_prop_refs: Vec<&Bool> = not_props.iter().collect();
-    let some_violation = Bool::or(ctx, &not_prop_refs);
+    let some_violation = Bool::or(&not_prop_refs);
     solver.assert(&some_violation);
 
     solver.check()
@@ -128,31 +124,30 @@ fn check_base_case(
 
 /// Check the inductive step: P holds for k steps, transition, NOT P at step k.
 fn check_inductive_step(
-    ctx: &Context,
     transition: &VerifyExpr,
     property: &VerifyExpr,
-    signals: &[SignalDecl],
+    _signals: &[SignalDecl],
     k: u32,
 ) -> SatResult {
-    let solver = Solver::new(ctx);
+    let solver = Solver::new();
 
     // Assert P(0), P(1), ..., P(k-1)
     for t in 0..k {
         let prop_t = instantiate_at(property, t);
-        let prop_z3 = encode_to_bool(ctx, &prop_t);
+        let prop_z3 = encode_to_bool(&prop_t);
         solver.assert(&prop_z3);
     }
 
     // Assert transitions T(0,1), T(1,2), ..., T(k-1, k)
     for t in 0..k {
         let trans = instantiate_transition(transition, t);
-        let trans_z3 = encode_to_bool(ctx, &trans);
+        let trans_z3 = encode_to_bool(&trans);
         solver.assert(&trans_z3);
     }
 
     // Assert NOT P(k)
     let prop_k = instantiate_at(property, k);
-    let prop_k_z3 = encode_to_bool(ctx, &prop_k);
+    let prop_k_z3 = encode_to_bool(&prop_k);
     solver.assert(&prop_k_z3.not());
 
     solver.check()
@@ -247,206 +242,204 @@ fn rename_timestep(expr: &VerifyExpr, suffix: &str, step: u32) -> VerifyExpr {
 /// Encode a VerifyExpr to a Z3 Bool using check_equivalence infrastructure.
 /// We encode by creating: expr <-> true, then if equiv, the expr is always true.
 /// For direct encoding, we use the internal equivalence encoder.
-fn encode_to_bool<'ctx>(ctx: &'ctx Context, expr: &VerifyExpr) -> Bool<'ctx> {
+fn encode_to_bool(expr: &VerifyExpr) -> Bool {
     // Build variable maps
     let mut all_vars = std::collections::HashSet::new();
     crate::equivalence::collect_vars_pub(expr, &mut all_vars);
 
-    let mut bool_vars: HashMap<String, Bool<'ctx>> = HashMap::new();
-    let mut int_vars: HashMap<String, Int<'ctx>> = HashMap::new();
+    let mut bool_vars: HashMap<String, Bool> = HashMap::new();
+    let mut int_vars: HashMap<String, Int> = HashMap::new();
 
     for name in &all_vars {
-        bool_vars.insert(name.clone(), Bool::new_const(ctx, name.as_str()));
+        bool_vars.insert(name.clone(), Bool::new_const(name.as_str()));
     }
-    crate::equivalence::collect_int_vars_pub(expr, &mut int_vars, ctx);
+    crate::equivalence::collect_int_vars_pub(expr, &mut int_vars);
 
     // Use a simple recursive encoder
-    encode_expr_bool(ctx, expr, &bool_vars, &int_vars)
+    encode_expr_bool(expr, &bool_vars, &int_vars)
 }
 
 /// Simple recursive Bool encoder for k-induction formulas.
-pub fn encode_expr_bool<'ctx>(
-    ctx: &'ctx Context,
+pub fn encode_expr_bool(
     expr: &VerifyExpr,
-    bool_vars: &HashMap<String, Bool<'ctx>>,
-    int_vars: &HashMap<String, Int<'ctx>>,
-) -> Bool<'ctx> {
+    bool_vars: &HashMap<String, Bool>,
+    int_vars: &HashMap<String, Int>,
+) -> Bool {
     match expr {
-        VerifyExpr::Bool(b) => Bool::from_bool(ctx, *b),
+        VerifyExpr::Bool(b) => Bool::from_bool(*b),
         VerifyExpr::Var(name) => {
             if let Some(bv) = bool_vars.get(name) {
                 bv.clone()
             } else {
-                Bool::new_const(ctx, name.as_str())
+                Bool::new_const(name.as_str())
             }
         }
-        VerifyExpr::Not(inner) => encode_expr_bool(ctx, inner, bool_vars, int_vars).not(),
+        VerifyExpr::Not(inner) => encode_expr_bool(inner, bool_vars, int_vars).not(),
         VerifyExpr::Binary { op, left, right } => {
             match op {
                 VerifyOp::And => {
-                    let l = encode_expr_bool(ctx, left, bool_vars, int_vars);
-                    let r = encode_expr_bool(ctx, right, bool_vars, int_vars);
-                    Bool::and(ctx, &[&l, &r])
+                    let l = encode_expr_bool(left, bool_vars, int_vars);
+                    let r = encode_expr_bool(right, bool_vars, int_vars);
+                    Bool::and(&[&l, &r])
                 }
                 VerifyOp::Or => {
-                    let l = encode_expr_bool(ctx, left, bool_vars, int_vars);
-                    let r = encode_expr_bool(ctx, right, bool_vars, int_vars);
-                    Bool::or(ctx, &[&l, &r])
+                    let l = encode_expr_bool(left, bool_vars, int_vars);
+                    let r = encode_expr_bool(right, bool_vars, int_vars);
+                    Bool::or(&[&l, &r])
                 }
                 VerifyOp::Implies => {
-                    let l = encode_expr_bool(ctx, left, bool_vars, int_vars);
-                    let r = encode_expr_bool(ctx, right, bool_vars, int_vars);
+                    let l = encode_expr_bool(left, bool_vars, int_vars);
+                    let r = encode_expr_bool(right, bool_vars, int_vars);
                     l.implies(&r)
                 }
                 VerifyOp::Eq => {
                     // Could be Bool or Int equality
-                    let li = encode_expr_int(ctx, left, int_vars);
-                    let ri = encode_expr_int(ctx, right, int_vars);
+                    let li = encode_expr_int(left, int_vars);
+                    let ri = encode_expr_int(right, int_vars);
                     if let (Some(l), Some(r)) = (li, ri) {
-                        l._eq(&r)
+                        l.eq(&r)
                     } else {
-                        let l = encode_expr_bool(ctx, left, bool_vars, int_vars);
-                        let r = encode_expr_bool(ctx, right, bool_vars, int_vars);
+                        let l = encode_expr_bool(left, bool_vars, int_vars);
+                        let r = encode_expr_bool(right, bool_vars, int_vars);
                         l.iff(&r)
                     }
                 }
                 VerifyOp::Neq => {
-                    let li = encode_expr_int(ctx, left, int_vars);
-                    let ri = encode_expr_int(ctx, right, int_vars);
+                    let li = encode_expr_int(left, int_vars);
+                    let ri = encode_expr_int(right, int_vars);
                     if let (Some(l), Some(r)) = (li, ri) {
-                        l._eq(&r).not()
+                        l.eq(&r).not()
                     } else {
-                        let l = encode_expr_bool(ctx, left, bool_vars, int_vars);
-                        let r = encode_expr_bool(ctx, right, bool_vars, int_vars);
+                        let l = encode_expr_bool(left, bool_vars, int_vars);
+                        let r = encode_expr_bool(right, bool_vars, int_vars);
                         l.iff(&r).not()
                     }
                 }
                 VerifyOp::Gt => {
-                    let l = encode_expr_int(ctx, left, int_vars).unwrap_or_else(|| Int::from_i64(ctx, 0));
-                    let r = encode_expr_int(ctx, right, int_vars).unwrap_or_else(|| Int::from_i64(ctx, 0));
+                    let l = encode_expr_int(left, int_vars).unwrap_or_else(|| Int::from_i64(0));
+                    let r = encode_expr_int(right, int_vars).unwrap_or_else(|| Int::from_i64(0));
                     l.gt(&r)
                 }
                 VerifyOp::Lt => {
-                    let l = encode_expr_int(ctx, left, int_vars).unwrap_or_else(|| Int::from_i64(ctx, 0));
-                    let r = encode_expr_int(ctx, right, int_vars).unwrap_or_else(|| Int::from_i64(ctx, 0));
+                    let l = encode_expr_int(left, int_vars).unwrap_or_else(|| Int::from_i64(0));
+                    let r = encode_expr_int(right, int_vars).unwrap_or_else(|| Int::from_i64(0));
                     l.lt(&r)
                 }
                 VerifyOp::Gte => {
-                    let l = encode_expr_int(ctx, left, int_vars).unwrap_or_else(|| Int::from_i64(ctx, 0));
-                    let r = encode_expr_int(ctx, right, int_vars).unwrap_or_else(|| Int::from_i64(ctx, 0));
+                    let l = encode_expr_int(left, int_vars).unwrap_or_else(|| Int::from_i64(0));
+                    let r = encode_expr_int(right, int_vars).unwrap_or_else(|| Int::from_i64(0));
                     l.ge(&r)
                 }
                 VerifyOp::Lte => {
-                    let l = encode_expr_int(ctx, left, int_vars).unwrap_or_else(|| Int::from_i64(ctx, 0));
-                    let r = encode_expr_int(ctx, right, int_vars).unwrap_or_else(|| Int::from_i64(ctx, 0));
+                    let l = encode_expr_int(left, int_vars).unwrap_or_else(|| Int::from_i64(0));
+                    let r = encode_expr_int(right, int_vars).unwrap_or_else(|| Int::from_i64(0));
                     l.le(&r)
                 }
                 VerifyOp::Add | VerifyOp::Sub | VerifyOp::Mul | VerifyOp::Div | VerifyOp::FloorDiv => {
-                    Bool::from_bool(ctx, false) // arithmetic ops aren't Bool
+                    Bool::from_bool(false) // arithmetic ops aren't Bool
                 }
             }
         }
         VerifyExpr::Iff(l, r) => {
-            let lb = encode_expr_bool(ctx, l, bool_vars, int_vars);
-            let rb = encode_expr_bool(ctx, r, bool_vars, int_vars);
+            let lb = encode_expr_bool(l, bool_vars, int_vars);
+            let rb = encode_expr_bool(r, bool_vars, int_vars);
             lb.iff(&rb)
         }
         VerifyExpr::ForAll { vars, body } => {
             if vars.is_empty() {
-                return encode_expr_bool(ctx, body, bool_vars, int_vars);
+                return encode_expr_bool(body, bool_vars, int_vars);
             }
-            let body_bool = encode_expr_bool(ctx, body, bool_vars, int_vars);
-            let bound_consts: Vec<Dynamic<'ctx>> = vars.iter().map(|(name, ty)| {
+            let body_bool = encode_expr_bool(body, bool_vars, int_vars);
+            let bound_consts: Vec<Dynamic> = vars.iter().map(|(name, ty)| {
                 match ty {
                     crate::ir::VerifyType::Int | crate::ir::VerifyType::Object => {
-                        Dynamic::from_ast(&Int::new_const(ctx, name.as_str()))
+                        Dynamic::from_ast(&Int::new_const(name.as_str()))
                     }
                     crate::ir::VerifyType::Bool => {
-                        Dynamic::from_ast(&Bool::new_const(ctx, name.as_str()))
+                        Dynamic::from_ast(&Bool::new_const(name.as_str()))
                     }
                     crate::ir::VerifyType::Real => {
-                        Dynamic::from_ast(&z3::ast::Real::new_const(ctx, name.as_str()))
+                        Dynamic::from_ast(&z3::ast::Real::new_const(name.as_str()))
                     }
                     crate::ir::VerifyType::BitVector(w) => {
-                        Dynamic::from_ast(&z3::ast::BV::new_const(ctx, name.as_str(), *w))
+                        Dynamic::from_ast(&z3::ast::BV::new_const(name.as_str(), *w))
                     }
-                    _ => Dynamic::from_ast(&Int::new_const(ctx, name.as_str())),
+                    _ => Dynamic::from_ast(&Int::new_const(name.as_str())),
                 }
             }).collect();
-            let refs: Vec<&dyn Ast<'ctx>> = bound_consts.iter().map(|d| d as &dyn Ast<'ctx>).collect();
-            z3::ast::forall_const(ctx, &refs, &[], &body_bool)
+            let refs: Vec<&dyn Ast> = bound_consts.iter().map(|d| d as &dyn Ast).collect();
+            z3::ast::forall_const(&refs, &[], &body_bool)
         }
         VerifyExpr::Exists { vars, body } => {
             if vars.is_empty() {
-                return encode_expr_bool(ctx, body, bool_vars, int_vars);
+                return encode_expr_bool(body, bool_vars, int_vars);
             }
-            let body_bool = encode_expr_bool(ctx, body, bool_vars, int_vars);
-            let bound_consts: Vec<Dynamic<'ctx>> = vars.iter().map(|(name, ty)| {
+            let body_bool = encode_expr_bool(body, bool_vars, int_vars);
+            let bound_consts: Vec<Dynamic> = vars.iter().map(|(name, ty)| {
                 match ty {
                     crate::ir::VerifyType::Int | crate::ir::VerifyType::Object => {
-                        Dynamic::from_ast(&Int::new_const(ctx, name.as_str()))
+                        Dynamic::from_ast(&Int::new_const(name.as_str()))
                     }
                     crate::ir::VerifyType::Bool => {
-                        Dynamic::from_ast(&Bool::new_const(ctx, name.as_str()))
+                        Dynamic::from_ast(&Bool::new_const(name.as_str()))
                     }
                     crate::ir::VerifyType::Real => {
-                        Dynamic::from_ast(&z3::ast::Real::new_const(ctx, name.as_str()))
+                        Dynamic::from_ast(&z3::ast::Real::new_const(name.as_str()))
                     }
                     crate::ir::VerifyType::BitVector(w) => {
-                        Dynamic::from_ast(&z3::ast::BV::new_const(ctx, name.as_str(), *w))
+                        Dynamic::from_ast(&z3::ast::BV::new_const(name.as_str(), *w))
                     }
-                    _ => Dynamic::from_ast(&Int::new_const(ctx, name.as_str())),
+                    _ => Dynamic::from_ast(&Int::new_const(name.as_str())),
                 }
             }).collect();
-            let refs: Vec<&dyn Ast<'ctx>> = bound_consts.iter().map(|d| d as &dyn Ast<'ctx>).collect();
-            z3::ast::exists_const(ctx, &refs, &[], &body_bool)
+            let refs: Vec<&dyn Ast> = bound_consts.iter().map(|d| d as &dyn Ast).collect();
+            z3::ast::exists_const(&refs, &[], &body_bool)
         }
-        _ => Bool::from_bool(ctx, true),
+        _ => Bool::from_bool(true),
     }
 }
 
 /// Try to encode an expression as a Z3 Int. Returns None if not integer-typed.
-pub fn encode_expr_int<'ctx>(
-    ctx: &'ctx Context,
+pub fn encode_expr_int(
     expr: &VerifyExpr,
-    int_vars: &HashMap<String, Int<'ctx>>,
-) -> Option<Int<'ctx>> {
+    int_vars: &HashMap<String, Int>,
+) -> Option<Int> {
     match expr {
-        VerifyExpr::Int(n) => Some(Int::from_i64(ctx, *n)),
+        VerifyExpr::Int(n) => Some(Int::from_i64(*n)),
         VerifyExpr::Var(name) => {
             if let Some(iv) = int_vars.get(name) {
                 Some(iv.clone())
             } else {
                 // If it looks like it should be an int, create one
-                Some(Int::new_const(ctx, name.as_str()))
+                Some(Int::new_const(name.as_str()))
             }
         }
         VerifyExpr::Binary { op, left, right } => {
             match op {
                 VerifyOp::Add => {
-                    let l = encode_expr_int(ctx, left, int_vars)?;
-                    let r = encode_expr_int(ctx, right, int_vars)?;
-                    Some(Int::add(ctx, &[&l, &r]))
+                    let l = encode_expr_int(left, int_vars)?;
+                    let r = encode_expr_int(right, int_vars)?;
+                    Some(Int::add(&[&l, &r]))
                 }
                 VerifyOp::Sub => {
-                    let l = encode_expr_int(ctx, left, int_vars)?;
-                    let r = encode_expr_int(ctx, right, int_vars)?;
-                    Some(Int::sub(ctx, &[&l, &r]))
+                    let l = encode_expr_int(left, int_vars)?;
+                    let r = encode_expr_int(right, int_vars)?;
+                    Some(Int::sub(&[&l, &r]))
                 }
                 VerifyOp::Mul => {
-                    let l = encode_expr_int(ctx, left, int_vars)?;
-                    let r = encode_expr_int(ctx, right, int_vars)?;
-                    Some(Int::mul(ctx, &[&l, &r]))
+                    let l = encode_expr_int(left, int_vars)?;
+                    let r = encode_expr_int(right, int_vars)?;
+                    Some(Int::mul(&[&l, &r]))
                 }
                 VerifyOp::Div => {
-                    let l = encode_expr_int(ctx, left, int_vars)?;
-                    let r = encode_expr_int(ctx, right, int_vars)?;
+                    let l = encode_expr_int(left, int_vars)?;
+                    let r = encode_expr_int(right, int_vars)?;
                     Some(l.div(&r))
                 }
                 // Floor division: real division then floor (`Real::to_int`), exact toward -inf.
                 VerifyOp::FloorDiv => {
-                    let l = encode_expr_int(ctx, left, int_vars)?;
-                    let r = encode_expr_int(ctx, right, int_vars)?;
+                    let l = encode_expr_int(left, int_vars)?;
+                    let r = encode_expr_int(right, int_vars)?;
                     Some((l.to_real() / r.to_real()).to_int())
                 }
                 _ => None,

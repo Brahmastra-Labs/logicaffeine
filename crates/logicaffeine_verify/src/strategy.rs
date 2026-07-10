@@ -160,7 +160,7 @@ fn verify_with_strategy(
     }
 }
 
-fn contains_liveness_pattern(expr: &VerifyExpr) -> bool {
+fn contains_liveness_pattern(_expr: &VerifyExpr) -> bool {
     // Simple heuristic: check for patterns that suggest liveness
     // G(F(p)) patterns would typically have nested temporal operators
     // For now, we don't have explicit temporal operators in VerifyExpr,

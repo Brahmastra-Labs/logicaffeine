@@ -16,5 +16,5 @@ readme = "README.md"
 publish = false
 
 [dependencies]
-z3 = "0.12"
+z3 = "0.20"
 logicaffeine-forge = { workspace = true }

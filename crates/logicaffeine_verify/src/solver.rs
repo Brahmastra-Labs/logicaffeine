@@ -32,10 +32,23 @@
 use std::collections::HashMap;
 
 use z3::ast::{Ast, Bool, Dynamic, Int};
-use z3::{Config, Context, FuncDecl, SatResult, Solver, Sort};
+use z3::{FuncDecl, Params, SatResult, Solver, Sort};
 
 use crate::error::{CounterExample, VerificationError, VerificationResult};
 use crate::ir::{VerifyExpr, VerifyOp, VerifyType};
+
+/// A solver carrying the crate-wide default timeout.
+///
+/// z3 0.20 makes the context implicit (thread-local), so the per-`Config`
+/// timeout the old API set becomes a global parameter installed exactly once.
+/// 30s is a generous safety bound (it never changes a verification *result* —
+/// only bounds how long a pathological query may run before returning Unknown).
+pub(crate) fn new_solver() -> Solver {
+    use std::sync::Once;
+    static INIT: Once = Once::new();
+    INIT.call_once(|| z3::set_global_param("timeout", "30000"));
+    Solver::new()
+}
 
 /// Low-level Z3-based verifier for single-shot validity checks.
 ///
@@ -57,7 +70,7 @@ use crate::ir::{VerifyExpr, VerifyOp, VerifyType};
 /// assert!(verifier.check_int_greater_than(10, 5).is_ok());
 /// ```
 pub struct Verifier {
-    cfg: Config,
+    timeout_ms: u32,
 }
 
 impl Verifier {
@@ -71,9 +84,16 @@ impl Verifier {
     /// let verifier = Verifier::new();
     /// ```
     pub fn new() -> Self {
-        let mut cfg = Config::new();
-        cfg.set_param_value("timeout", "10000");
-        Self { cfg }
+        Self { timeout_ms: 10000 }
+    }
+
+    /// Build a solver carrying this verifier's timeout.
+    fn solver(&self) -> Solver {
+        let solver = crate::solver::new_solver();
+        let mut params = Params::new();
+        params.set_u32("timeout", self.timeout_ms);
+        solver.set_params(&params);
+        solver
     }
 
     /// Check if a boolean value is valid (always true).
@@ -90,10 +110,9 @@ impl Verifier {
     /// assert!(verifier.check_bool(false).is_err());
     /// ```
     pub fn check_bool(&self, value: bool) -> VerificationResult {
-        let ctx = Context::new(&self.cfg);
-        let solver = Solver::new(&ctx);
+        let solver = self.solver();
 
-        let assertion = Bool::from_bool(&ctx, value);
+        let assertion = Bool::from_bool(value);
 
         // To prove P is valid: check if NOT(P) is UNSAT
         // If NOT(P) is unsatisfiable, then P is always true
@@ -124,11 +143,10 @@ impl Verifier {
     /// assert!(verifier.check_int_greater_than(3, 5).is_err());  // 3 > 5 is false
     /// ```
     pub fn check_int_greater_than(&self, value: i64, bound: i64) -> VerificationResult {
-        let ctx = Context::new(&self.cfg);
-        let solver = Solver::new(&ctx);
+        let solver = self.solver();
 
-        let v = z3::ast::Int::from_i64(&ctx, value);
-        let b = z3::ast::Int::from_i64(&ctx, bound);
+        let v = z3::ast::Int::from_i64(value);
+        let b = z3::ast::Int::from_i64(bound);
         let assertion = v.gt(&b);
 
         // To prove P is valid: check if NOT(P) is UNSAT
@@ -159,11 +177,10 @@ impl Verifier {
     /// assert!(verifier.check_int_less_than(10, 5).is_err()); // 10 < 5 is false
     /// ```
     pub fn check_int_less_than(&self, value: i64, bound: i64) -> VerificationResult {
-        let ctx = Context::new(&self.cfg);
-        let solver = Solver::new(&ctx);
+        let solver = self.solver();
 
-        let v = z3::ast::Int::from_i64(&ctx, value);
-        let b = z3::ast::Int::from_i64(&ctx, bound);
+        let v = z3::ast::Int::from_i64(value);
+        let b = z3::ast::Int::from_i64(bound);
         let assertion = v.lt(&b);
 
         solver.assert(&assertion.not());
@@ -191,12 +208,11 @@ impl Verifier {
     /// assert!(verifier.check_int_equals(1, 2).is_err());
     /// ```
     pub fn check_int_equals(&self, left: i64, right: i64) -> VerificationResult {
-        let ctx = Context::new(&self.cfg);
-        let solver = Solver::new(&ctx);
+        let solver = self.solver();
 
-        let l = z3::ast::Int::from_i64(&ctx, left);
-        let r = z3::ast::Int::from_i64(&ctx, right);
-        let assertion = l._eq(&r);
+        let l = z3::ast::Int::from_i64(left);
+        let r = z3::ast::Int::from_i64(right);
+        let assertion = l.eq(&r);
 
         solver.assert(&assertion.not());
 
@@ -232,12 +248,11 @@ impl Verifier {
     ///
     /// // P ∨ ¬P is a tautology
     /// let p = ctx.bool_var("p");
-    /// let tautology = Bool::or(ctx.z3_context(), &[&p, &p.not()]);
+    /// let tautology = Bool::or(&[&p, &p.not()]);
     /// assert!(ctx.check_valid(&solver, &tautology).is_ok());
     /// ```
     pub fn context(&self) -> VerificationContext {
-        let ctx = Context::new(&self.cfg);
-        VerificationContext::new(ctx)
+        VerificationContext::new(self.timeout_ms)
     }
 }
 
@@ -253,46 +268,43 @@ impl Default for Verifier {
 /// For most use cases, prefer [`VerificationSession`] which works with
 /// the higher-level [`VerifyExpr`] IR.
 pub struct VerificationContext {
-    ctx: Context,
+    timeout_ms: u32,
 }
 
 impl VerificationContext {
-    fn new(ctx: Context) -> Self {
-        Self { ctx }
-    }
-
-    /// Get the underlying Z3 context.
-    ///
-    /// Use this when you need to call Z3 functions that require a context reference.
-    pub fn z3_context(&self) -> &Context {
-        &self.ctx
+    fn new(timeout_ms: u32) -> Self {
+        Self { timeout_ms }
     }
 
     /// Create a new solver for this context.
     ///
     /// The solver accumulates assertions and can check their satisfiability.
     pub fn solver(&self) -> Solver {
-        Solver::new(&self.ctx)
+        let solver = crate::solver::new_solver();
+        let mut params = Params::new();
+        params.set_u32("timeout", self.timeout_ms);
+        solver.set_params(&params);
+        solver
     }
 
     /// Create a boolean constant.
     pub fn bool_val(&self, value: bool) -> Bool {
-        Bool::from_bool(&self.ctx, value)
+        Bool::from_bool(value)
     }
 
     /// Create an integer constant.
     pub fn int_val(&self, value: i64) -> z3::ast::Int {
-        z3::ast::Int::from_i64(&self.ctx, value)
+        z3::ast::Int::from_i64(value)
     }
 
     /// Create a named boolean variable.
     pub fn bool_var(&self, name: &str) -> Bool {
-        Bool::new_const(&self.ctx, name)
+        Bool::new_const(name)
     }
 
     /// Create a named integer variable.
     pub fn int_var(&self, name: &str) -> z3::ast::Int {
-        z3::ast::Int::new_const(&self.ctx, name)
+        z3::ast::Int::new_const(name)
     }
 
     /// Check if an assertion is valid (always true).
@@ -461,17 +473,14 @@ impl VerificationSession {
         value: &VerifyExpr,
         predicate: &VerifyExpr,
     ) -> VerificationResult {
-        // Create a fresh Z3 context
-        let mut cfg = Config::new();
-        cfg.set_param_value("timeout", "10000");
-        let ctx = Context::new(&cfg);
-        let solver = Solver::new(&ctx);
+        // Create a fresh solver carrying the standard timeout
+        let solver = timed_solver();
 
         // Copy existing vars and add the bound variable
         let mut vars = self.vars.clone();
         vars.insert(var_name.to_string(), var_type);
 
-        let encoder = Encoder::new(&ctx, &vars);
+        let encoder = Encoder::new(&vars);
 
         // Add all existing assumptions
         for assumption in &self.assumptions {
@@ -534,14 +543,11 @@ impl VerificationSession {
     /// assert!(session.verify(&VerifyExpr::lt(VerifyExpr::var("x"), VerifyExpr::int(5))).is_err());
     /// ```
     pub fn verify(&self, expr: &VerifyExpr) -> VerificationResult {
-        // Create a fresh Z3 context for this verification
-        let mut cfg = Config::new();
-        cfg.set_param_value("timeout", "10000");
-        let ctx = Context::new(&cfg);
-        let solver = Solver::new(&ctx);
+        // Create a fresh solver carrying the standard timeout
+        let solver = timed_solver();
 
-        // Create an encoder for this context
-        let encoder = Encoder::new(&ctx, &self.vars);
+        // Create an encoder for this verification
+        let encoder = Encoder::new(&self.vars);
 
         // Add all assumptions
         for assumption in &self.assumptions {
@@ -582,12 +588,9 @@ impl VerificationSession {
     /// assumptions are jointly unsatisfiable, and `Err` on solver-unknown —
     /// three-valued, so an unknown never reads as either verdict.
     pub fn check_sat(&self) -> Result<bool, VerificationError> {
-        let mut cfg = Config::new();
-        cfg.set_param_value("timeout", "10000");
-        let ctx = Context::new(&cfg);
-        let solver = Solver::new(&ctx);
+        let solver = timed_solver();
 
-        let encoder = Encoder::new(&ctx, &self.vars);
+        let encoder = Encoder::new(&self.vars);
         for assumption in &self.assumptions {
             let ast = encoder.encode(assumption);
             if let Some(b) = ast.as_bool() {
@@ -621,10 +624,7 @@ impl VerificationSession {
         property: &VerifyExpr,
         bound: u32,
     ) -> VerificationResult {
-        let mut cfg = Config::new();
-        cfg.set_param_value("timeout", "10000");
-        let ctx = Context::new(&cfg);
-        let solver = Solver::new(&ctx);
+        let solver = timed_solver();
 
         // Declare state variables for each step: s_0, s_1, ..., s_bound
         let mut step_vars: HashMap<String, VerifyType> = self.vars.clone();
@@ -639,7 +639,7 @@ impl VerificationSession {
 
             step_vars.insert(format!("s{}", suffix), VerifyType::Int);
 
-            let encoder = Encoder::new(&ctx, &step_vars);
+            let encoder = Encoder::new(&step_vars);
 
             // Assert initial condition at step 0
             if step == 0 {
@@ -686,7 +686,7 @@ impl VerificationSession {
 /// Rename a variable in a VerifyExpr (simple textual substitution).
 /// Recursively traverses ALL variants — no silent drops.
 pub fn rename_var_in_expr(expr: &VerifyExpr, from: &str, to: &str) -> VerifyExpr {
-    use crate::ir::BitVecOp;
+    
     let r = |e: &VerifyExpr| rename_var_in_expr(e, from, to);
     match expr {
         // Leaf: variable — rename if matches
@@ -766,40 +766,48 @@ impl Default for VerificationSession {
     }
 }
 
-/// Internal encoder that converts VerifyExpr to Z3 AST.
-struct Encoder<'ctx> {
-    ctx: &'ctx Context,
-    vars: &'ctx HashMap<String, VerifyType>,
+/// Build a fresh solver carrying the standard 10-second timeout.
+fn timed_solver() -> Solver {
+    let solver = crate::solver::new_solver();
+    let mut params = Params::new();
+    params.set_u32("timeout", 10000);
+    solver.set_params(&params);
+    solver
 }
 
-impl<'ctx> Encoder<'ctx> {
-    fn new(ctx: &'ctx Context, vars: &'ctx HashMap<String, VerifyType>) -> Self {
-        Self { ctx, vars }
+/// Internal encoder that converts VerifyExpr to Z3 AST.
+struct Encoder<'a> {
+    vars: &'a HashMap<String, VerifyType>,
+}
+
+impl<'a> Encoder<'a> {
+    fn new(vars: &'a HashMap<String, VerifyType>) -> Self {
+        Self { vars }
     }
 
-    fn encode(&self, expr: &VerifyExpr) -> Dynamic<'ctx> {
+    fn encode(&self, expr: &VerifyExpr) -> Dynamic {
         match expr {
-            VerifyExpr::Int(n) => Dynamic::from_ast(&Int::from_i64(self.ctx, *n)),
-            VerifyExpr::Bool(b) => Dynamic::from_ast(&Bool::from_bool(self.ctx, *b)),
+            VerifyExpr::Int(n) => Dynamic::from_ast(&Int::from_i64(*n)),
+            VerifyExpr::Bool(b) => Dynamic::from_ast(&Bool::from_bool(*b)),
 
             VerifyExpr::Var(name) => {
                 let ty = self.vars.get(name).cloned().unwrap_or(VerifyType::Int);
                 match ty {
-                    VerifyType::Int => Dynamic::from_ast(&Int::new_const(self.ctx, name.as_str())),
-                    VerifyType::Bool => Dynamic::from_ast(&Bool::new_const(self.ctx, name.as_str())),
+                    VerifyType::Int => Dynamic::from_ast(&Int::new_const(name.as_str())),
+                    VerifyType::Bool => Dynamic::from_ast(&Bool::new_const(name.as_str())),
                     VerifyType::Object => {
-                        Dynamic::from_ast(&Int::new_const(self.ctx, name.as_str()))
+                        Dynamic::from_ast(&Int::new_const(name.as_str()))
                     }
                     VerifyType::Real => {
-                        Dynamic::from_ast(&z3::ast::Real::new_const(self.ctx, name.as_str()))
+                        Dynamic::from_ast(&z3::ast::Real::new_const(name.as_str()))
                     }
                     VerifyType::BitVector(width) => {
-                        Dynamic::from_ast(&z3::ast::BV::new_const(self.ctx, name.as_str(), width))
+                        Dynamic::from_ast(&z3::ast::BV::new_const(name.as_str(), width))
                     }
                     VerifyType::Array(ref idx_ty, ref elem_ty) => {
                         let idx_sort = self.type_to_sort(idx_ty);
                         let elem_sort = self.type_to_sort(elem_ty);
-                        Dynamic::from_ast(&z3::ast::Array::new_const(self.ctx, name.as_str(), &idx_sort, &elem_sort))
+                        Dynamic::from_ast(&z3::ast::Array::new_const(name.as_str(), &idx_sort, &elem_sort))
                     }
                 }
             }
@@ -824,9 +832,9 @@ impl<'ctx> Encoder<'ctx> {
             }
 
             VerifyExpr::ApplyInt { name, args } => {
-                let int_sort = Sort::int(self.ctx);
+                let int_sort = Sort::int();
                 let domain: Vec<&Sort> = args.iter().map(|_| &int_sort).collect();
-                let func_decl = FuncDecl::new(self.ctx, name.as_str(), &domain, &int_sort);
+                let func_decl = FuncDecl::new(name.as_str(), &domain, &int_sort);
                 let encoded_args: Vec<Dynamic> =
                     args.iter().map(|a| self.encode(a)).collect();
                 let arg_refs: Vec<&dyn Ast> =
@@ -840,13 +848,13 @@ impl<'ctx> Encoder<'ctx> {
                 }
                 let body_encoded = {
                     let b = self.encode(body);
-                    b.as_bool().unwrap_or_else(|| Bool::from_bool(self.ctx, true))
+                    b.as_bool().unwrap_or_else(|| Bool::from_bool(true))
                 };
-                let bound_consts: Vec<Dynamic<'ctx>> = vars.iter().map(|(name, ty)| {
+                let bound_consts: Vec<Dynamic> = vars.iter().map(|(name, ty)| {
                     self.make_quantifier_var(name, ty)
                 }).collect();
-                let bound_refs: Vec<&dyn Ast<'ctx>> = bound_consts.iter().map(|d| d as &dyn Ast<'ctx>).collect();
-                Dynamic::from_ast(&z3::ast::forall_const(self.ctx, &bound_refs, &[], &body_encoded))
+                let bound_refs: Vec<&dyn Ast> = bound_consts.iter().map(|d| d as &dyn Ast).collect();
+                Dynamic::from_ast(&z3::ast::forall_const(&bound_refs, &[], &body_encoded))
             }
 
             VerifyExpr::Exists { vars, body } => {
@@ -855,19 +863,19 @@ impl<'ctx> Encoder<'ctx> {
                 }
                 let body_encoded = {
                     let b = self.encode(body);
-                    b.as_bool().unwrap_or_else(|| Bool::from_bool(self.ctx, true))
+                    b.as_bool().unwrap_or_else(|| Bool::from_bool(true))
                 };
-                let bound_consts: Vec<Dynamic<'ctx>> = vars.iter().map(|(name, ty)| {
+                let bound_consts: Vec<Dynamic> = vars.iter().map(|(name, ty)| {
                     self.make_quantifier_var(name, ty)
                 }).collect();
-                let bound_refs: Vec<&dyn Ast<'ctx>> = bound_consts.iter().map(|d| d as &dyn Ast<'ctx>).collect();
-                Dynamic::from_ast(&z3::ast::exists_const(self.ctx, &bound_refs, &[], &body_encoded))
+                let bound_refs: Vec<&dyn Ast> = bound_consts.iter().map(|d| d as &dyn Ast).collect();
+                Dynamic::from_ast(&z3::ast::exists_const(&bound_refs, &[], &body_encoded))
             }
 
             // ---- Bitvector operations ----
 
             VerifyExpr::BitVecConst { width, value } => {
-                Dynamic::from_ast(&z3::ast::BV::from_u64(self.ctx, *value, *width))
+                Dynamic::from_ast(&z3::ast::BV::from_u64(*value, *width))
             }
 
             VerifyExpr::BitVecBinary { op, left, right } => {
@@ -930,7 +938,7 @@ impl<'ctx> Encoder<'ctx> {
                 let f = self.encode(from);
                 let t = self.encode(to);
                 if let (Some(fb), Some(tb)) = (f.as_bool(), t.as_bool()) {
-                    Dynamic::from_ast(&Bool::and(self.ctx, &[&fb, &tb]))
+                    Dynamic::from_ast(&Bool::and(&[&fb, &tb]))
                 } else {
                     f
                 }
@@ -945,43 +953,43 @@ impl<'ctx> Encoder<'ctx> {
                     Dynamic::from_ast(&lb.iff(&rb))
                 } else {
                     // Fallback: encode as (l → r) ∧ (r → l) at value level
-                    Dynamic::from_ast(&l._eq(&r))
+                    Dynamic::from_ast(&l.eq(&r))
                 }
             }
         }
     }
 
-    fn type_to_sort(&self, ty: &VerifyType) -> z3::Sort<'ctx> {
+    fn type_to_sort(&self, ty: &VerifyType) -> z3::Sort {
         match ty {
-            VerifyType::Int => z3::Sort::int(self.ctx),
-            VerifyType::Bool => z3::Sort::bool(self.ctx),
-            VerifyType::Object => z3::Sort::int(self.ctx),
-            VerifyType::Real => z3::Sort::real(self.ctx),
-            VerifyType::BitVector(width) => z3::Sort::bitvector(self.ctx, *width),
+            VerifyType::Int => z3::Sort::int(),
+            VerifyType::Bool => z3::Sort::bool(),
+            VerifyType::Object => z3::Sort::int(),
+            VerifyType::Real => z3::Sort::real(),
+            VerifyType::BitVector(width) => z3::Sort::bitvector(*width),
             VerifyType::Array(idx, elem) => {
                 let idx_sort = self.type_to_sort(idx);
                 let elem_sort = self.type_to_sort(elem);
-                z3::Sort::array(self.ctx, &idx_sort, &elem_sort)
+                z3::Sort::array(&idx_sort, &elem_sort)
             }
         }
     }
 
-    fn make_quantifier_var(&self, name: &str, ty: &VerifyType) -> Dynamic<'ctx> {
+    fn make_quantifier_var(&self, name: &str, ty: &VerifyType) -> Dynamic {
         match ty {
-            VerifyType::Int => Dynamic::from_ast(&Int::new_const(self.ctx, name)),
-            VerifyType::Bool => Dynamic::from_ast(&Bool::new_const(self.ctx, name)),
-            VerifyType::BitVector(w) => Dynamic::from_ast(&z3::ast::BV::new_const(self.ctx, name, *w)),
-            VerifyType::Object => Dynamic::from_ast(&Int::new_const(self.ctx, name)),
-            VerifyType::Real => Dynamic::from_ast(&z3::ast::Real::new_const(self.ctx, name)),
+            VerifyType::Int => Dynamic::from_ast(&Int::new_const(name)),
+            VerifyType::Bool => Dynamic::from_ast(&Bool::new_const(name)),
+            VerifyType::BitVector(w) => Dynamic::from_ast(&z3::ast::BV::new_const(name, *w)),
+            VerifyType::Object => Dynamic::from_ast(&Int::new_const(name)),
+            VerifyType::Real => Dynamic::from_ast(&z3::ast::Real::new_const(name)),
             VerifyType::Array(idx, elem) => {
                 let idx_sort = self.type_to_sort(idx);
                 let elem_sort = self.type_to_sort(elem);
-                Dynamic::from_ast(&z3::ast::Array::new_const(self.ctx, name, &idx_sort, &elem_sort))
+                Dynamic::from_ast(&z3::ast::Array::new_const(name, &idx_sort, &elem_sort))
             }
         }
     }
 
-    fn encode_binary(&self, op: &VerifyOp, l: Dynamic<'ctx>, r: Dynamic<'ctx>) -> Dynamic<'ctx> {
+    fn encode_binary(&self, op: &VerifyOp, l: Dynamic, r: Dynamic) -> Dynamic {
         match op {
             // Arithmetic
             VerifyOp::Add => {
@@ -1027,61 +1035,61 @@ impl<'ctx> Encoder<'ctx> {
                 if let (Some(li), Some(ri)) = (l.as_int(), r.as_int()) {
                     Dynamic::from_ast(&li.gt(&ri))
                 } else {
-                    Dynamic::from_ast(&Bool::from_bool(self.ctx, false))
+                    Dynamic::from_ast(&Bool::from_bool(false))
                 }
             }
             VerifyOp::Lt => {
                 if let (Some(li), Some(ri)) = (l.as_int(), r.as_int()) {
                     Dynamic::from_ast(&li.lt(&ri))
                 } else {
-                    Dynamic::from_ast(&Bool::from_bool(self.ctx, false))
+                    Dynamic::from_ast(&Bool::from_bool(false))
                 }
             }
             VerifyOp::Gte => {
                 if let (Some(li), Some(ri)) = (l.as_int(), r.as_int()) {
                     Dynamic::from_ast(&li.ge(&ri))
                 } else {
-                    Dynamic::from_ast(&Bool::from_bool(self.ctx, false))
+                    Dynamic::from_ast(&Bool::from_bool(false))
                 }
             }
             VerifyOp::Lte => {
                 if let (Some(li), Some(ri)) = (l.as_int(), r.as_int()) {
                     Dynamic::from_ast(&li.le(&ri))
                 } else {
-                    Dynamic::from_ast(&Bool::from_bool(self.ctx, false))
+                    Dynamic::from_ast(&Bool::from_bool(false))
                 }
             }
 
             // Equality
-            VerifyOp::Eq => Dynamic::from_ast(&l._eq(&r)),
-            VerifyOp::Neq => Dynamic::from_ast(&l._eq(&r).not()),
+            VerifyOp::Eq => Dynamic::from_ast(&l.eq(&r)),
+            VerifyOp::Neq => Dynamic::from_ast(&l.eq(&r).not()),
 
             // Logic
             VerifyOp::And => {
                 if let (Some(lb), Some(rb)) = (l.as_bool(), r.as_bool()) {
-                    Dynamic::from_ast(&Bool::and(self.ctx, &[&lb, &rb]))
+                    Dynamic::from_ast(&Bool::and(&[&lb, &rb]))
                 } else {
-                    Dynamic::from_ast(&Bool::from_bool(self.ctx, false))
+                    Dynamic::from_ast(&Bool::from_bool(false))
                 }
             }
             VerifyOp::Or => {
                 if let (Some(lb), Some(rb)) = (l.as_bool(), r.as_bool()) {
-                    Dynamic::from_ast(&Bool::or(self.ctx, &[&lb, &rb]))
+                    Dynamic::from_ast(&Bool::or(&[&lb, &rb]))
                 } else {
-                    Dynamic::from_ast(&Bool::from_bool(self.ctx, false))
+                    Dynamic::from_ast(&Bool::from_bool(false))
                 }
             }
             VerifyOp::Implies => {
                 if let (Some(lb), Some(rb)) = (l.as_bool(), r.as_bool()) {
                     Dynamic::from_ast(&lb.implies(&rb))
                 } else {
-                    Dynamic::from_ast(&Bool::from_bool(self.ctx, true))
+                    Dynamic::from_ast(&Bool::from_bool(true))
                 }
             }
         }
     }
 
-    fn encode_bv_binary(&self, op: &crate::ir::BitVecOp, l: Dynamic<'ctx>, r: Dynamic<'ctx>) -> Dynamic<'ctx> {
+    fn encode_bv_binary(&self, op: &crate::ir::BitVecOp, l: Dynamic, r: Dynamic) -> Dynamic {
         use crate::ir::BitVecOp;
         if let (Some(lb), Some(rb)) = (l.as_bv(), r.as_bv()) {
             match op {
@@ -1101,19 +1109,19 @@ impl<'ctx> Encoder<'ctx> {
                 BitVecOp::SLt => Dynamic::from_ast(&lb.bvslt(&rb)),
                 BitVecOp::ULe => Dynamic::from_ast(&lb.bvule(&rb)),
                 BitVecOp::SLe => Dynamic::from_ast(&lb.bvsle(&rb)),
-                BitVecOp::Eq => Dynamic::from_ast(&lb._eq(&rb)),
+                BitVecOp::Eq => Dynamic::from_ast(&lb.eq(&rb)),
             }
         } else {
             l
         }
     }
 
-    fn encode_apply(&self, name: &str, args: &[VerifyExpr]) -> Dynamic<'ctx> {
-        let int_sort = Sort::int(self.ctx);
+    fn encode_apply(&self, name: &str, args: &[VerifyExpr]) -> Dynamic {
+        let int_sort = Sort::int();
         let domain: Vec<&Sort> = args.iter().map(|_| &int_sort).collect();
-        let range = Sort::bool(self.ctx);
+        let range = Sort::bool();
 
-        let func_decl = FuncDecl::new(self.ctx, name, &domain, &range);
+        let func_decl = FuncDecl::new(name, &domain, &range);
 
         let encoded_args: Vec<Dynamic> = args.iter().map(|a| self.encode(a)).collect();
         let arg_refs: Vec<&dyn Ast> = encoded_args.iter().map(|a| a as &dyn Ast).collect();
@@ -1170,7 +1178,7 @@ mod tests {
 
         // P ∨ ¬P is a tautology
         let p = vctx.bool_var("p");
-        let tautology = Bool::or(vctx.z3_context(), &[&p, &p.not()]);
+        let tautology = Bool::or(&[&p, &p.not()]);
 
         assert!(vctx.check_valid(&solver, &tautology).is_ok());
     }
@@ -1183,7 +1191,7 @@ mod tests {
 
         // P ∧ ¬P is a contradiction (not valid)
         let p = vctx.bool_var("p");
-        let contradiction = Bool::and(vctx.z3_context(), &[&p, &p.not()]);
+        let contradiction = Bool::and(&[&p, &p.not()]);
 
         assert!(vctx.check_valid(&solver, &contradiction).is_err());
     }

@@ -8,10 +8,10 @@
 //! using variable-restricted weakening: project A onto shared variables.
 
 use crate::ir::VerifyExpr;
-use crate::equivalence::{Trace, CycleState, SignalValue};
+use crate::equivalence::Trace;
 use crate::kinduction;
 use std::collections::{HashMap, HashSet};
-use z3::{ast::Ast, ast::Bool, ast::Int, Config, Context, SatResult, Solver};
+use z3::{ast::Bool, ast::Int, SatResult, Solver};
 
 /// Result of interpolation-based model checking.
 #[derive(Debug)]
@@ -34,13 +34,10 @@ pub enum InterpolationResult {
 ///
 /// Returns None if A AND B is SAT (no interpolant exists).
 pub fn interpolate(a: &VerifyExpr, b: &VerifyExpr) -> Option<VerifyExpr> {
-    let mut cfg = Config::new();
-    cfg.set_param_value("timeout", "10000");
-    let ctx = Context::new(&cfg);
-    let solver = Solver::new(&ctx);
+    let solver = crate::solver::new_solver();
 
-    let a_bool = encode_to_bool(&ctx, a);
-    let b_bool = encode_to_bool(&ctx, b);
+    let a_bool = encode_to_bool(a);
+    let b_bool = encode_to_bool(b);
 
     // Check if A AND B is UNSAT
     solver.assert(&a_bool);
@@ -60,15 +57,15 @@ pub fn interpolate(a: &VerifyExpr, b: &VerifyExpr) -> Option<VerifyExpr> {
 
             // Verify the projection is valid: A => projected and projected AND B is UNSAT
             let check_implies = {
-                let s = Solver::new(&ctx);
-                s.assert(&encode_to_bool(&ctx, a));
-                s.assert(&encode_to_bool(&ctx, &VerifyExpr::not(projected.clone())));
+                let s = crate::solver::new_solver();
+                s.assert(&encode_to_bool(a));
+                s.assert(&encode_to_bool(&VerifyExpr::not(projected.clone())));
                 matches!(s.check(), SatResult::Unsat)
             };
             let check_contra = {
-                let s = Solver::new(&ctx);
-                s.assert(&encode_to_bool(&ctx, &projected));
-                s.assert(&encode_to_bool(&ctx, b));
+                let s = crate::solver::new_solver();
+                s.assert(&encode_to_bool(&projected));
+                s.assert(&encode_to_bool(b));
                 matches!(s.check(), SatResult::Unsat)
             };
 
@@ -76,7 +73,7 @@ pub fn interpolate(a: &VerifyExpr, b: &VerifyExpr) -> Option<VerifyExpr> {
                 Some(projected)
             } else {
                 // Fallback: try to build interpolant by enumerating shared-var clauses from A
-                build_interpolant_from_clauses(a, b, &shared, &ctx)
+                build_interpolant_from_clauses(a, b, &shared)
             }
         }
         SatResult::Sat => None,
@@ -115,7 +112,6 @@ fn build_interpolant_from_clauses(
     a: &VerifyExpr,
     b: &VerifyExpr,
     shared: &HashSet<&String>,
-    ctx: &Context,
 ) -> Option<VerifyExpr> {
     // Extract top-level conjuncts from A
     let clauses = extract_conjuncts(a);
@@ -129,7 +125,7 @@ fn build_interpolant_from_clauses(
     if shared_clauses.is_empty() {
         // No shared-variable clauses — try negating B's structure
         // If B = NOT(p), the interpolant is p
-        return try_interpolant_from_b_negation(b, shared, ctx);
+        return try_interpolant_from_b_negation(b, shared);
     }
 
     let mut candidate = shared_clauses[0].clone();
@@ -138,15 +134,15 @@ fn build_interpolant_from_clauses(
     }
 
     // Verify: candidate AND B is UNSAT
-    let s = Solver::new(ctx);
-    s.assert(&encode_to_bool(ctx, &candidate));
-    s.assert(&encode_to_bool(ctx, b));
+    let s = Solver::new();
+    s.assert(&encode_to_bool(&candidate));
+    s.assert(&encode_to_bool(b));
     if matches!(s.check(), SatResult::Unsat) {
         Some(candidate)
     } else {
         // Shared clauses alone don't contradict B — try strengthening
         // Use A as implied by shared clauses + implication from full A
-        try_interpolant_from_b_negation(b, shared, ctx)
+        try_interpolant_from_b_negation(b, shared)
     }
 }
 
@@ -154,7 +150,6 @@ fn build_interpolant_from_clauses(
 fn try_interpolant_from_b_negation(
     b: &VerifyExpr,
     shared: &HashSet<&String>,
-    ctx: &Context,
 ) -> Option<VerifyExpr> {
     // If B mentions only shared variables, NOT(B) is a valid interpolant
     // (since A AND B is UNSAT means A => NOT(B))
@@ -224,24 +219,21 @@ pub fn itp_model_check(
     property: &VerifyExpr,
     bound: u32,
 ) -> InterpolationResult {
-    let mut cfg = Config::new();
-    cfg.set_param_value("timeout", "30000");
-    let ctx = Context::new(&cfg);
 
     // Phase 1: BMC check — is there a counterexample within bound?
     for k in 0..bound {
-        let solver = Solver::new(&ctx);
+        let solver = crate::solver::new_solver();
 
         let init_0 = kinduction::instantiate_at(init, 0);
-        solver.assert(&encode_to_bool(&ctx, &init_0));
+        solver.assert(&encode_to_bool(&init_0));
 
         for t in 0..k {
             let trans = kinduction::instantiate_transition(transition, t);
-            solver.assert(&encode_to_bool(&ctx, &trans));
+            solver.assert(&encode_to_bool(&trans));
         }
 
         let prop_k = kinduction::instantiate_at(property, k);
-        solver.assert(&encode_to_bool(&ctx, &prop_k).not());
+        solver.assert(&encode_to_bool(&prop_k).not());
 
         match solver.check() {
             SatResult::Sat => {
@@ -255,14 +247,14 @@ pub fn itp_model_check(
     }
 
     // Phase 2: Check if the property is inductive
-    let solver = Solver::new(&ctx);
+    let solver = crate::solver::new_solver();
     let prop_t = kinduction::instantiate_at(property, 0);
     let trans = kinduction::instantiate_transition(transition, 0);
     let prop_t1 = kinduction::instantiate_at(property, 1);
 
-    solver.assert(&encode_to_bool(&ctx, &prop_t));
-    solver.assert(&encode_to_bool(&ctx, &trans));
-    solver.assert(&encode_to_bool(&ctx, &prop_t1).not());
+    solver.assert(&encode_to_bool(&prop_t));
+    solver.assert(&encode_to_bool(&trans));
+    solver.assert(&encode_to_bool(&prop_t1).not());
 
     match solver.check() {
         SatResult::Unsat => InterpolationResult::Safe,
@@ -285,16 +277,16 @@ pub fn itp_model_check(
 }
 
 /// Encode a VerifyExpr to Z3 Bool (reuses kinduction infrastructure).
-fn encode_to_bool<'ctx>(ctx: &'ctx Context, expr: &VerifyExpr) -> Bool<'ctx> {
-    let mut bool_vars: HashMap<String, Bool<'ctx>> = HashMap::new();
-    let mut int_vars: HashMap<String, Int<'ctx>> = HashMap::new();
+fn encode_to_bool(expr: &VerifyExpr) -> Bool {
+    let mut bool_vars: HashMap<String, Bool> = HashMap::new();
+    let mut int_vars: HashMap<String, Int> = HashMap::new();
 
     let mut all_vars = std::collections::HashSet::new();
     crate::equivalence::collect_vars_pub(expr, &mut all_vars);
     for name in &all_vars {
-        bool_vars.insert(name.clone(), Bool::new_const(ctx, name.as_str()));
+        bool_vars.insert(name.clone(), Bool::new_const(name.as_str()));
     }
-    crate::equivalence::collect_int_vars_pub(expr, &mut int_vars, ctx);
+    crate::equivalence::collect_int_vars_pub(expr, &mut int_vars);
 
-    kinduction::encode_expr_bool(ctx, expr, &bool_vars, &int_vars)
+    kinduction::encode_expr_bool(expr, &bool_vars, &int_vars)
 }

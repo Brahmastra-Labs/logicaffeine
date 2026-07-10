@@ -17,7 +17,7 @@ use crate::ir::{VerifyExpr, VerifyOp};
 use crate::equivalence::Trace;
 use crate::kinduction;
 use std::collections::{HashMap, HashSet};
-use z3::{ast::Ast, ast::Bool, ast::Int, Config, Context, SatResult, Solver};
+use z3::{ast::Bool, SatResult};
 
 #[derive(Debug, Clone)]
 pub struct AbstractModel {
@@ -97,8 +97,6 @@ pub fn abstract_model_full(
     let mut abstract_trans_parts: Vec<VerifyExpr> = Vec::new();
     abstract_trans_parts.push(transition.clone());
 
-    let cfg = Config::new();
-    let ctx = Context::new(&cfg);
 
     for pred in predicates {
         let pred_next = replace_t_with_t1(pred);
@@ -120,8 +118,8 @@ pub fn abstract_model_full(
         );
 
         let is_inductive = {
-            let solver = Solver::new(&ctx);
-            let encoded = encode_bool(&ctx, &check_inst);
+            let solver = crate::solver::new_solver();
+            let encoded = encode_bool(&check_inst);
             solver.assert(&encoded);
             matches!(solver.check(), SatResult::Unsat)
         };
@@ -271,7 +269,7 @@ pub fn cegar_verify(
                 // the concrete model.
                 return AbstractionResult::Safe;
             }
-            kinduction::KInductionResult::Counterexample { trace, k } => {
+            kinduction::KInductionResult::Counterexample { trace: _, k } => {
                 // Abstract counterexample found. Check if it is concrete
                 // by running k-induction on the concrete model.
                 let concrete_result = kinduction::k_induction(
@@ -434,14 +432,14 @@ fn collect_comparison_predicates(expr: &VerifyExpr, out: &mut Vec<VerifyExpr>) {
 }
 
 /// Encode a VerifyExpr to Z3 Bool (local helper, similar to ic3's encode_bool).
-fn encode_bool<'ctx>(ctx: &'ctx Context, expr: &VerifyExpr) -> Bool<'ctx> {
+fn encode_bool(expr: &VerifyExpr) -> Bool {
     let mut bool_vars = HashMap::new();
     let mut int_vars = HashMap::new();
     let mut all_vars = HashSet::new();
     crate::equivalence::collect_vars_pub(expr, &mut all_vars);
     for name in &all_vars {
-        bool_vars.insert(name.clone(), Bool::new_const(ctx, name.as_str()));
+        bool_vars.insert(name.clone(), Bool::new_const(name.as_str()));
     }
-    crate::equivalence::collect_int_vars_pub(expr, &mut int_vars, ctx);
-    kinduction::encode_expr_bool(ctx, expr, &bool_vars, &int_vars)
+    crate::equivalence::collect_int_vars_pub(expr, &mut int_vars);
+    kinduction::encode_expr_bool(expr, &bool_vars, &int_vars)
 }

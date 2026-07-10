@@ -223,42 +223,39 @@ fn k_induction_with_schedule(
     property: &VerifyExpr,
     max_k: u32,
 ) -> MultiClockResult {
-    use z3::{Config, Context, SatResult, Solver, ast::Bool, ast::Ast};
+    use z3::{SatResult, ast::Bool};
 
     let period = step_transitions.len() as u32;
     if period == 0 {
         return MultiClockResult::Safe;
     }
 
-    let mut cfg = Config::new();
-    cfg.set_param_value("timeout", "30000");
-    let ctx = Context::new(&cfg);
 
     for k in 1..=max_k {
         // ---- Base case ----
         // init(0) AND T_0(0,1) AND T_1(1,2) AND ... AND T_{k-2}(k-2,k-1) AND NOT P(i) for some i
         let base_result = {
-            let solver = Solver::new(&ctx);
+            let solver = crate::solver::new_solver();
 
             let init_0 = kinduction::instantiate_at(init, 0);
-            let init_z3 = encode_to_bool_mc(&ctx, &init_0);
+            let init_z3 = encode_to_bool_mc(&init_0);
             solver.assert(&init_z3);
 
             for t in 0..k.saturating_sub(1) {
                 let sched_idx = (t % period) as usize;
                 let trans = kinduction::instantiate_transition(&step_transitions[sched_idx], t);
-                let trans_z3 = encode_to_bool_mc(&ctx, &trans);
+                let trans_z3 = encode_to_bool_mc(&trans);
                 solver.assert(&trans_z3);
             }
 
             let mut not_props: Vec<Bool> = Vec::new();
             for t in 0..k {
                 let prop_t = kinduction::instantiate_at(property, t);
-                let prop_z3 = encode_to_bool_mc(&ctx, &prop_t);
+                let prop_z3 = encode_to_bool_mc(&prop_t);
                 not_props.push(prop_z3.not());
             }
             let not_prop_refs: Vec<&Bool> = not_props.iter().collect();
-            let some_violation = Bool::or(&ctx, &not_prop_refs);
+            let some_violation = Bool::or(&not_prop_refs);
             solver.assert(&some_violation);
 
             solver.check()
@@ -277,23 +274,23 @@ fn k_induction_with_schedule(
         // ---- Inductive step ----
         // P(0) AND P(1) AND ... AND P(k-1) AND T_0(0,1) AND ... AND T_{k-1}(k-1,k) AND NOT P(k)
         let step_result = {
-            let solver = Solver::new(&ctx);
+            let solver = crate::solver::new_solver();
 
             for t in 0..k {
                 let prop_t = kinduction::instantiate_at(property, t);
-                let prop_z3 = encode_to_bool_mc(&ctx, &prop_t);
+                let prop_z3 = encode_to_bool_mc(&prop_t);
                 solver.assert(&prop_z3);
             }
 
             for t in 0..k {
                 let sched_idx = (t % period) as usize;
                 let trans = kinduction::instantiate_transition(&step_transitions[sched_idx], t);
-                let trans_z3 = encode_to_bool_mc(&ctx, &trans);
+                let trans_z3 = encode_to_bool_mc(&trans);
                 solver.assert(&trans_z3);
             }
 
             let prop_k = kinduction::instantiate_at(property, k);
-            let prop_k_z3 = encode_to_bool_mc(&ctx, &prop_k);
+            let prop_k_z3 = encode_to_bool_mc(&prop_k);
             solver.assert(&prop_k_z3.not());
 
             solver.check()
@@ -312,17 +309,17 @@ fn k_induction_with_schedule(
 }
 
 /// Encode a VerifyExpr to Z3 Bool for multi-clock verification.
-fn encode_to_bool_mc<'ctx>(ctx: &'ctx z3::Context, expr: &VerifyExpr) -> z3::ast::Bool<'ctx> {
+fn encode_to_bool_mc(expr: &VerifyExpr) -> z3::ast::Bool {
     let mut all_vars = HashSet::new();
     crate::equivalence::collect_vars_pub(expr, &mut all_vars);
 
-    let mut bool_vars: HashMap<String, z3::ast::Bool<'ctx>> = HashMap::new();
-    let mut int_vars: HashMap<String, z3::ast::Int<'ctx>> = HashMap::new();
+    let mut bool_vars: HashMap<String, z3::ast::Bool> = HashMap::new();
+    let mut int_vars: HashMap<String, z3::ast::Int> = HashMap::new();
 
     for name in &all_vars {
-        bool_vars.insert(name.clone(), z3::ast::Bool::new_const(ctx, name.as_str()));
+        bool_vars.insert(name.clone(), z3::ast::Bool::new_const(name.as_str()));
     }
-    crate::equivalence::collect_int_vars_pub(expr, &mut int_vars, ctx);
+    crate::equivalence::collect_int_vars_pub(expr, &mut int_vars);
 
-    kinduction::encode_expr_bool(ctx, expr, &bool_vars, &int_vars)
+    kinduction::encode_expr_bool(expr, &bool_vars, &int_vars)
 }

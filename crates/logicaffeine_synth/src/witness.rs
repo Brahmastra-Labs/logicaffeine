@@ -15,7 +15,7 @@
 
 use logicaffeine_forge::jit::{compile_straightline, ChainOutcome, MicroOp};
 use z3::ast::{Ast, BV};
-use z3::{Context, SatResult, Solver};
+use z3::{SatResult, Solver};
 
 use crate::spec::{OpSpec, SpecKind};
 
@@ -58,17 +58,15 @@ fn run_reference(op: &MicroOp, a: i64, b: i64) -> Option<i64> {
 }
 
 fn spec_value(spec: &OpSpec, a: i64, b: i64) -> Option<i64> {
-    let cfg = z3::Config::new();
-    let ctx = Context::new(&cfg);
-    let av = BV::from_i64(&ctx, a, 64);
-    let bv = BV::from_i64(&ctx, b, 64);
-    let pre = (spec.pre)(&ctx, &av, &bv);
-    let solver = Solver::new(&ctx);
+    let av = BV::from_i64(a, 64);
+    let bv = BV::from_i64(b, 64);
+    let pre = (spec.pre)(&av, &bv);
+    let solver = Solver::new();
     solver.assert(&pre);
     if solver.check() != SatResult::Sat {
         return None; // precondition excludes this input
     }
-    let r = (spec.result)(&ctx, &av, &bv);
+    let r = (spec.result)(&av, &bv);
     let simplified = r.simplify();
     // as_u64 then reinterpret: z3's signed accessor refuses the MIN bit
     // pattern; the u64 road is total and bit-exact.
@@ -117,12 +115,10 @@ fn check_one(spec: &OpSpec, op: &MicroOp, a: i64, b: i64) -> Result<(), String> 
 /// models pinned to each spec's interesting boundary (`r` maximal/minimal
 /// under the post).
 fn solver_witnesses(spec: &OpSpec, n: usize) -> Vec<(i64, i64)> {
-    let cfg = z3::Config::new();
-    let ctx = Context::new(&cfg);
-    let solver = Solver::new(&ctx);
-    let a = BV::new_const(&ctx, "a", 64);
-    let b = BV::new_const(&ctx, "b", 64);
-    solver.assert(&(spec.pre)(&ctx, &a, &b));
+    let solver = Solver::new();
+    let a = BV::new_const("a", 64);
+    let b = BV::new_const("b", 64);
+    solver.assert(&(spec.pre)(&a, &b));
     let mut out = Vec::new();
     for _ in 0..n {
         if solver.check() != SatResult::Sat {
@@ -139,7 +135,7 @@ fn solver_witnesses(spec: &OpSpec, n: usize) -> Vec<(i64, i64)> {
         out.push((av, bv));
         // Exclude this model so the next check yields a fresh witness.
         solver.assert(
-            &(a._eq(&BV::from_i64(&ctx, av, 64)) & b._eq(&BV::from_i64(&ctx, bv, 64))).not(),
+            &(a.eq(&BV::from_i64(av, 64)) & b.eq(&BV::from_i64(bv, 64))).not(),
         );
     }
     out

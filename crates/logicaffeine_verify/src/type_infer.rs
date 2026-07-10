@@ -4,7 +4,7 @@
 //! unifies constraints per variable, detects conflicts, and propagates
 //! bitvector widths.
 
-use crate::ir::{BitVecOp, VerifyExpr, VerifyOp, VerifyType};
+use crate::ir::{VerifyExpr, VerifyOp, VerifyType};
 use std::collections::HashMap;
 
 #[derive(Debug, Clone)]
@@ -115,7 +115,7 @@ fn collect_constraints(
             collect_constraints(right, constraints)
         }
 
-        VerifyExpr::BitVecExtract { high, low, operand } => {
+        VerifyExpr::BitVecExtract { high, low: _, operand } => {
             // Operand must be a BV with width > high
             let min_width = high + 1;
             constrain_as_bv(operand, min_width, constraints)?;
