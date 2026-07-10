@@ -1,5 +1,7 @@
 import * as assert from "assert";
 import * as fs from "fs";
+import * as os from "os";
+import * as path from "path";
 import * as vscode from "vscode";
 
 /**
@@ -100,10 +102,15 @@ describe("language server", function () {
     await setServerPath(SERVER_PATH);
     await vscode.commands.executeCommand("logicaffeine.restartServer");
 
-    const document = await vscode.workspace.openTextDocument({
-      language: "logicaffeine",
-      content: BROKEN_SOURCE,
-    });
+    // A real on-disk file (file:// URI) — the realistic path a user's broken
+    // source takes; an untitled/in-memory buffer is an edge case the server
+    // needn't analyze.
+    const brokenPath = path.join(
+      fs.mkdtempSync(path.join(os.tmpdir(), "lsp-diag-")),
+      "broken.lg",
+    );
+    fs.writeFileSync(brokenPath, BROKEN_SOURCE);
+    const document = await vscode.workspace.openTextDocument(vscode.Uri.file(brokenPath));
     await vscode.window.showTextDocument(document);
 
     const gotDiagnostics = await pollUntil(

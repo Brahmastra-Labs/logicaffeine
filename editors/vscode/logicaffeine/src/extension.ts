@@ -41,10 +41,17 @@ export async function activate(context: ExtensionContext) {
   context.subscriptions.push(
     commands.registerCommand("logicaffeine.showServerLog", () => outputChannel.show()),
     commands.registerCommand("logicaffeine.restartServer", async () => {
-      if (client) {
-        await client.restart();
-      } else {
-        await startServer(context, outputChannel);
+      try {
+        if (client) {
+          await client.restart();
+        } else {
+          await startServer(context, outputChannel);
+        }
+      } catch (err) {
+        // A bogus `logicaffeine.lsp.path` leaves the client in `startFailed`,
+        // where restart()'s internal stop() throws. The extension host must
+        // stay alive — swallow it (already surfaced via the server log).
+        outputChannel.appendLine(`server restart failed: ${err}`);
       }
     }),
   );
