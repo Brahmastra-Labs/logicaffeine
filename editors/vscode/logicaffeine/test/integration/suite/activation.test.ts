@@ -1,4 +1,7 @@
 import * as assert from "assert";
+import * as fs from "fs";
+import * as os from "os";
+import * as path from "path";
 import * as vscode from "vscode";
 
 describe("extension activation", () => {
@@ -33,10 +36,15 @@ describe("extension activation", () => {
     }
     this.timeout(120_000);
 
-    const document = await vscode.workspace.openTextDocument({
-      language: "logicaffeine",
-      content: "## Main\n    Let be.\n",
-    });
+    // Open a REAL on-disk file (a `file://` URI) — the realistic path a user's
+    // broken source takes. An untitled/in-memory buffer is an edge case the
+    // language server needn't analyze; a saved `.lg` is the actual contract.
+    const brokenPath = path.join(
+      fs.mkdtempSync(path.join(os.tmpdir(), "vsix-gate-")),
+      "broken.lg",
+    );
+    fs.writeFileSync(brokenPath, "## Main\n    Let be.\n");
+    const document = await vscode.workspace.openTextDocument(vscode.Uri.file(brokenPath));
     await vscode.window.showTextDocument(document);
 
     const deadline = Date.now() + 90_000;

@@ -32,13 +32,21 @@ async function main() {
   }
 
   const extensionRoot = path.resolve(__dirname, "..", "..", "..");
+  // macOS caps a Unix-domain socket path (`sun_path`) at 103 chars; VSCode's
+  // default `.vscode-test/user-data/<v>-main.sock` overflows it on the runner
+  // and startup dies with `listen EINVAL`. Point at a short user-data dir on
+  // POSIX (Windows uses named pipes and has no such limit).
+  const launchArgs = [path.join(extensionRoot, "test", "fixtures", "proj")];
+  if (process.platform !== "win32") {
+    launchArgs.push("--user-data-dir", "/tmp/vsc-ud");
+  }
   await runTests({
     vscodeExecutablePath,
     // A stub dev extension: the extension under test is the INSTALLED one,
     // so this run must NOT disable installed extensions.
     extensionDevelopmentPath: path.join(extensionRoot, "test", "fixtures", "stub-ext"),
     extensionTestsPath: path.resolve(__dirname, "suite", "index"),
-    launchArgs: [path.join(extensionRoot, "test", "fixtures", "proj")],
+    launchArgs,
     extensionTestsEnv: { VSIX_GATE: "1" },
   });
 }
