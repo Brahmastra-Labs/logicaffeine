@@ -7,8 +7,16 @@ use std::path::Path;
 use std::process::{Command, Output};
 
 /// A `Command` for the freshly-built `largo` binary.
+///
+/// `env!("CARGO_BIN_EXE_largo")` bakes the *build-time* target path into the test
+/// binary; when the suite runs from a nextest archive (CI), that path doesn't exist
+/// in the fresh test-job checkout. nextest re-exports the extracted binary at
+/// runtime via `CARGO_BIN_EXE_largo`, so prefer the runtime value and fall back to
+/// the compile-time constant for a plain `cargo test`.
 pub fn largo() -> Command {
-    Command::new(env!("CARGO_BIN_EXE_largo"))
+    let exe = std::env::var_os("CARGO_BIN_EXE_largo")
+        .unwrap_or_else(|| env!("CARGO_BIN_EXE_largo").into());
+    Command::new(exe)
 }
 
 /// Run `largo` with `args` in `dir`, capturing output.

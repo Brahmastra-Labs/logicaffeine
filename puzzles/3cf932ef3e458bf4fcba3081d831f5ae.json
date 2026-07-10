@@ -1,0 +1,51 @@
+{
+  "puzzle_id": "3cf932ef3e458bf4fcba3081d831f5ae",
+  "url": "https://logic.puzzlebaron.com/play.php?u2=3cf932ef3e458bf4fcba3081d831f5ae",
+  "story": "Backstory and Goal Every year Simon takes an \"adventure holiday\" with a friend to some new location within the United States.  Determine each trip's activity, state and year, as well as the friend Simon went with. Remember, as with all grid-based logic puzzles, no option in any category will ever be used more than once.  If you get stuck or run into problems, try the \"Clear Errors\" button to remove any mistakes that might be present on the grid, or the \"Hint\" button to see the next logical step in the puzzle.",
+  "clues": [
+    "Of the hunting vacation and the 2004 holiday, one was with Neal and the other was in Connecticut.",
+    "The Florida trip was the hunting trip.",
+    "Neither the holiday with Bill nor the Florida vacation is the 2001 trip.",
+    "The holiday with Yvonne wasn't in Kentucky.",
+    "Of the skydiving trip and the Maine holiday, one was in 2003 and the other was with Bill.",
+    "The 2003 holiday wasn't the cycling trip."
+  ],
+  "categories": {
+    "a": {
+      "group": "",
+      "items": [
+        "2001",
+        "2002",
+        "2003",
+        "2004"
+      ]
+    },
+    "b": {
+      "group": "",
+      "items": [
+        "Bill",
+        "Lillie",
+        "Neal",
+        "Yvonne"
+      ]
+    },
+    "c": {
+      "group": "",
+      "items": [
+        "cycling",
+        "hunting",
+        "kayaking",
+        "skydiving"
+      ]
+    },
+    "d": {
+      "group": "",
+      "items": [
+        "Connecticut",
+        "Florida",
+        "Kentucky",
+        "Maine"
+      ]
+    }
+  }
+}

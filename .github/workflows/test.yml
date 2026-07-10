@@ -123,6 +123,12 @@ jobs:
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
+        # The wasm linker tests (vm::wasm::link) and forge runtime-object gates
+        # spawn `rustc --target wasm32-unknown-unknown` at RUNTIME to build a wasm
+        # object; without the target installed they fail with "wasm32 sysroot lib
+        # dir missing". The test binary itself is host-compiled in the archive job.
+        with:
+          targets: wasm32-unknown-unknown
 
       - name: Install Z3, mold, clang
         run: sudo apt-get update && sudo apt-get install -y z3 libz3-dev mold clang
@@ -171,6 +177,10 @@ jobs:
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
+        # The WASM-JIT differential and any runtime rustc→wasm build need the
+        # wasm32 target present.
+        with:
+          targets: wasm32-unknown-unknown
 
       - name: Install Z3, mold, clang
         run: sudo apt-get update && sudo apt-get install -y z3 libz3-dev mold clang
@@ -184,7 +194,13 @@ jobs:
       - name: Run web tests
         run: |
           set -o pipefail
-          cargo nextest run -p logicaffeine-tests --features web-tests --profile full --retries 1
+          # The web-tests feature pulls in the whole logicaffeine-web (Dioxus) crate.
+          # Scope to the three web-gated test binaries so this step compiles the web
+          # app + those tests ONLY — not a second full run of the entire
+          # logicaffeine-tests suite (already covered by the partitions), whose slow
+          # e2e cargo-build tests pushed this step past the 45-min job timeout.
+          cargo nextest run -p logicaffeine-tests --features web-tests --profile full --retries 1 \
+            --test struggle_tests --test unlock_logic_tests --test learn_state_tests
 
       # The CLI's verification feature (largo-full's substrate) must keep
       # compiling — release.yml builds it only on tags, so gate it per-PR
