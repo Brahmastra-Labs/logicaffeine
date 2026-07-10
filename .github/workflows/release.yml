@@ -112,8 +112,11 @@ jobs:
       - name: Install Z3 static-build toolchain (Linux, full)
         if: matrix.flavor == 'full' && runner.os == 'Linux'
         run: |
+          # Z3 4.16's C++ uses std::format (C++20), which needs gcc >= 13 —
+          # ubuntu-22.04 ships gcc-11, so pull gcc-13 from the toolchain PPA.
+          sudo add-apt-repository -y ppa:ubuntu-toolchain-r/test
           sudo apt-get update
-          sudo apt-get install -y cmake g++ libclang-dev
+          sudo apt-get install -y cmake gcc-13 g++-13 libclang-dev
       # macOS: cmake + Apple clang + libclang ship on the runner image.
       # Windows: cmake + MSVC + LLVM (libclang) ship on the runner image.
 
@@ -142,7 +145,10 @@ jobs:
         if: matrix.flavor == 'full'
         shell: bash
         env:
-          MACOSX_DEPLOYMENT_TARGET: ${{ matrix.target == 'x86_64-apple-darwin' && '10.15' || '11.0' }}
+          # Z3 4.16's C++ uses std::format/std::to_chars; libc++ only ships those
+          # from macOS 13.3, so the Z3-static (full) darwin binaries take a 13.3
+          # deployment floor (the lean binaries keep the low 10.15/11.0 floor).
+          MACOSX_DEPLOYMENT_TARGET: ${{ contains(matrix.target, 'apple') && '13.3' || '11.0' }}
           # z3-sys vendors a Z3 whose CMakeLists still declares cmake_minimum_required
           # < 3.5; CMake 4 removed that compatibility ("Or, add
           # -DCMAKE_POLICY_VERSION_MINIMUM=3.5"), so pin the policy floor via the
@@ -150,7 +156,11 @@ jobs:
           CMAKE_POLICY_VERSION_MINIMUM: "3.5"
           # No crt-static here: the cmake-built libz3 must agree with Rust's
           # CRT choice; full-windows ships /MD until a dispatch run proves /MT.
-        run: cargo build -p logicaffeine-cli --release --target ${{ matrix.target }} --features verification-static
+        run: |
+          # Z3 4.16 needs a C++20 std::format-capable compiler; on Linux use the
+          # gcc-13 installed above (ubuntu-22.04's default gcc-11 lacks it).
+          if [ "$(uname)" = "Linux" ]; then export CC=gcc-13 CXX=g++-13; fi
+          cargo build -p logicaffeine-cli --release --target ${{ matrix.target }} --features verification-static
 
       - name: Assert no dynamic libz3 (full, unix)
         if: matrix.flavor == 'full' && runner.os != 'Windows'
