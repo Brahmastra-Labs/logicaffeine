@@ -33,8 +33,12 @@ use std::time::Duration;
 use logicaffeine_compile::compile;
 
 /// Default wall-clock budget for a single PE evaluation. Totality failures surface as
-/// [`Outcome::Timeout`] at this deadline.
-pub const DEFAULT_BUDGET: Duration = Duration::from_secs(60);
+/// [`Outcome::Timeout`] at this deadline. Sized for a *loaded* CI runner, not the dev box:
+/// at 60s the differential corpus/generative shards intermittently overshot under parallel
+/// load, timed out to empty output, and diverged (flaky retries). 180s gives the ~3× headroom
+/// a constrained runner needs while still catching a genuine non-terminating PE (an infinite
+/// loop exceeds any finite deadline, and the suite's 30-min per-test terminate is the backstop).
+pub const DEFAULT_BUDGET: Duration = Duration::from_secs(180);
 
 /// Stack size for in-process evaluation threads. Matches the `RUST_MIN_STACK` the cargo
 /// execution paths use (`compile.rs:4232`); the genuine LOGOS PE needs it.
