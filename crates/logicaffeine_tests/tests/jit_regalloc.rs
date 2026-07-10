@@ -4236,7 +4236,7 @@ mod precise_list_recursion {
 #[cfg(target_arch = "x86_64")]
 fn heap_sort_tiers_via_precise_regalloc_function() {
     let src = std::fs::read_to_string(
-        "/home/tristen/logicaffeine/benchmarks/programs/heap_sort/main.lg",
+        concat!(env!("CARGO_MANIFEST_DIR"), "/../../benchmarks/programs/heap_sort/main.lg"),
     )
     .expect("heap_sort source");
     let src = src.to_string();
@@ -4270,7 +4270,7 @@ fn heap_sort_tiers_via_precise_regalloc_function() {
 #[cfg(target_arch = "x86_64")]
 fn quicksort_tiers_via_precise_regalloc_function() {
     let src = std::fs::read_to_string(
-        "/home/tristen/logicaffeine/benchmarks/programs/quicksort/main.lg",
+        concat!(env!("CARGO_MANIFEST_DIR"), "/../../benchmarks/programs/quicksort/main.lg"),
     )
     .expect("quicksort source");
     let src = src.to_string();

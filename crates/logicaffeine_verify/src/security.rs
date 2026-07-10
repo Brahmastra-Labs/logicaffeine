@@ -31,9 +31,6 @@ pub fn check_non_interference(
     transition: &VerifyExpr,
     signals: &[TaintedSignal],
 ) -> SecurityResult {
-    let mut cfg = z3::Config::new();
-    cfg.set_param_value("timeout", "30000");
-    let ctx = z3::Context::new(&cfg);
 
     let public_inputs: Vec<&TaintedSignal> = signals.iter()
         .filter(|s| s.label == SecurityLabel::Public)
@@ -48,14 +45,14 @@ pub fn check_non_interference(
 
     // Create two copies of the system: copy1 and copy2
     // Public inputs are the same, secret inputs differ
-    let solver = z3::Solver::new(&ctx);
+    let solver = crate::solver::new_solver();
 
     // Assert public inputs are the same in both copies
     for sig in &public_inputs {
         let v1 = format!("{}@0_copy1", sig.name);
         let v2 = format!("{}@0_copy2", sig.name);
         let eq = VerifyExpr::iff(VerifyExpr::var(&v1), VerifyExpr::var(&v2));
-        solver.assert(&encode_bool(&ctx, &eq));
+        solver.assert(&encode_bool(&eq));
     }
 
     // Assert at least one secret input differs
@@ -64,14 +61,14 @@ pub fn check_non_interference(
         let v1 = format!("{}@0_copy1", first_secret.name);
         let v2 = format!("{}@0_copy2", first_secret.name);
         let neq = VerifyExpr::not(VerifyExpr::iff(VerifyExpr::var(&v1), VerifyExpr::var(&v2)));
-        solver.assert(&encode_bool(&ctx, &neq));
+        solver.assert(&encode_bool(&neq));
     }
 
     // Assert transitions for both copies
     let t1 = rename_copy(transition, "copy1");
     let t2 = rename_copy(transition, "copy2");
-    solver.assert(&encode_bool(&ctx, &t1));
-    solver.assert(&encode_bool(&ctx, &t2));
+    solver.assert(&encode_bool(&t1));
+    solver.assert(&encode_bool(&t2));
 
     // Check if public outputs differ
     // We check all variables that appear in the transition outputs
@@ -80,8 +77,8 @@ pub fn check_non_interference(
     crate::equivalence::collect_vars_pub(&t1, &mut transition_vars);
     for sig in &public_inputs {
         // Check at step 0 (always — constrained by public equality)
-        let o1_0 = format!("{}@0_copy1", sig.name);
-        let o2_0 = format!("{}@0_copy2", sig.name);
+        let _o1_0 = format!("{}@0_copy1", sig.name);
+        let _o2_0 = format!("{}@0_copy2", sig.name);
         // Only check step-1 if the transition actually mentions this signal at step 1
         let step1_name = format!("{}@1_copy1", sig.name);
         if transition_vars.contains(&step1_name) {
@@ -98,25 +95,25 @@ pub fn check_non_interference(
 
     // Check each output diff individually — ANY SAT means information leak
     for diff in &output_diffs {
-        let mut check_solver = z3::Solver::new(&ctx);
+        let check_solver = crate::solver::new_solver();
 
         // Re-assert all base constraints
         for sig in &public_inputs {
             let v1 = format!("{}@0_copy1", sig.name);
             let v2 = format!("{}@0_copy2", sig.name);
             let eq = VerifyExpr::iff(VerifyExpr::var(&v1), VerifyExpr::var(&v2));
-            check_solver.assert(&encode_bool(&ctx, &eq));
+            check_solver.assert(&encode_bool(&eq));
         }
         if !secret_inputs.is_empty() {
             let first_secret = &secret_inputs[0];
             let v1 = format!("{}@0_copy1", first_secret.name);
             let v2 = format!("{}@0_copy2", first_secret.name);
             let neq = VerifyExpr::not(VerifyExpr::iff(VerifyExpr::var(&v1), VerifyExpr::var(&v2)));
-            check_solver.assert(&encode_bool(&ctx, &neq));
+            check_solver.assert(&encode_bool(&neq));
         }
-        check_solver.assert(&encode_bool(&ctx, &t1));
-        check_solver.assert(&encode_bool(&ctx, &t2));
-        check_solver.assert(&encode_bool(&ctx, diff));
+        check_solver.assert(&encode_bool(&t1));
+        check_solver.assert(&encode_bool(&t2));
+        check_solver.assert(&encode_bool(diff));
 
         match check_solver.check() {
             z3::SatResult::Sat => {
@@ -148,14 +145,14 @@ fn rename_copy(expr: &VerifyExpr, suffix: &str) -> VerifyExpr {
     }
 }
 
-fn encode_bool<'ctx>(ctx: &'ctx z3::Context, expr: &VerifyExpr) -> z3::ast::Bool<'ctx> {
+fn encode_bool(expr: &VerifyExpr) -> z3::ast::Bool {
     let mut bool_vars = HashMap::new();
     let mut int_vars = HashMap::new();
     let mut all_vars = std::collections::HashSet::new();
     crate::equivalence::collect_vars_pub(expr, &mut all_vars);
     for name in &all_vars {
-        bool_vars.insert(name.clone(), z3::ast::Bool::new_const(ctx, name.as_str()));
+        bool_vars.insert(name.clone(), z3::ast::Bool::new_const(name.as_str()));
     }
-    crate::equivalence::collect_int_vars_pub(expr, &mut int_vars, ctx);
-    kinduction::encode_expr_bool(ctx, expr, &bool_vars, &int_vars)
+    crate::equivalence::collect_int_vars_pub(expr, &mut int_vars);
+    kinduction::encode_expr_bool(expr, &bool_vars, &int_vars)
 }

@@ -13,14 +13,15 @@ description = "Z3-based static verification for Logicaffeine (requires Pro+ lice
 readme = "README.md"
 
 [features]
-# Build Z3 from the source vendored in z3-sys and link it statically —
-# the release-binary flavor (`largo-full`). Default stays dynamic against
-# the system libz3.
-static-link-z3 = ["z3/static-link-z3"]
+# Build Z3 from vendored source and link it statically — the release-binary
+# flavor (`largo-full`). z3 0.20 renamed this feature `vendored` (builds the
+# z3-src crate via cmake; the vendored Z3 4.16 compiles cleanly under libc++,
+# which the old 4.12 did not on macOS). Default stays dynamic against system Z3.
+static-link-z3 = ["z3/vendored"]
 
 [dependencies]
 # SMT solver
-z3 = "0.12"
+z3 = "0.20"
 
 # Serialization for license cache
 serde = { version = "1.0", features = ["derive"] }

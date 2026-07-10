@@ -93,7 +93,7 @@ fn synthesize_safety(
 
     // Try: all outputs = true
     let mut transitions = Vec::new();
-    let mut output_assignments: Vec<(String, VerifyExpr)> = outputs.iter()
+    let output_assignments: Vec<(String, VerifyExpr)> = outputs.iter()
         .map(|o| (o.name.clone(), VerifyExpr::bool(true)))
         .collect();
 

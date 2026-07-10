@@ -75,9 +75,6 @@ pub fn ic3(
     property: &VerifyExpr,
     max_frames: u32,
 ) -> Ic3Result {
-    let mut cfg = z3::Config::new();
-    cfg.set_param_value("timeout", "30000");
-    let ctx = z3::Context::new(&cfg);
 
     // Collect all variable names for model extraction
     let mut all_vars = HashSet::new();
@@ -92,16 +89,16 @@ pub fn ic3(
         kinduction::instantiate_at(init, 0),
         VerifyExpr::not(kinduction::instantiate_at(property, 0)),
     );
-    if is_sat(&ctx, &init_violation) {
-        let trace = extract_trace_from_bmc(&ctx, init, transition, property, 1, &signal_names);
+    if is_sat(&init_violation) {
+        let trace = extract_trace_from_bmc(init, transition, property, 1, &signal_names);
         return Ic3Result::Unsafe { trace };
     }
 
     // Phase 1: BMC — check for counterexamples up to max_frames depth
     for k in 1..max_frames {
         let bmc_check = build_bmc_check(init, transition, property, k);
-        if is_sat(&ctx, &bmc_check) {
-            let trace = extract_trace_from_bmc(&ctx, init, transition, property, k, &signal_names);
+        if is_sat(&bmc_check) {
+            let trace = extract_trace_from_bmc(init, transition, property, k, &signal_names);
             return Ic3Result::Unsafe { trace };
         }
     }
@@ -132,20 +129,20 @@ pub fn ic3(
                 ),
             );
 
-            if !is_sat(&ctx, &cti_formula) {
+            if !is_sat(&cti_formula) {
                 // No CTI — this frame is OK
                 blocked = true;
                 break;
             }
 
             // CTI found — extract the bad predecessor state and block it
-            let bad_state = extract_cti_state(&ctx, &cti_formula, &signal_names);
+            let bad_state = extract_cti_state(&cti_formula, &signal_names);
 
             // Check if the bad state is reachable from init (recursively)
-            if is_reachable_from_init(&ctx, init, transition, &bad_state, k as u32, &signal_names) {
+            if is_reachable_from_init(init, transition, &bad_state, k as u32, &signal_names) {
                 // Real counterexample — extract full trace
                 let trace = extract_trace_from_bmc(
-                    &ctx, init, transition, property, k as u32, &signal_names,
+                    init, transition, property, k as u32, &signal_names,
                 );
                 return Ic3Result::Unsafe { trace };
             }
@@ -153,7 +150,7 @@ pub fn ic3(
             // Block the bad state: add its negation as a clause
             // Generalize: try to drop literals from the blocking clause
             let blocking_clause = generalize_blocking_clause(
-                &ctx, transition, property, &bad_state, &frames[k - 1],
+                transition, property, &bad_state, &frames[k - 1],
             );
             // Add blocking clause to frame k-1 and all earlier frames (down to 1)
             for fi in 1..k {
@@ -163,10 +160,10 @@ pub fn ic3(
         }
 
         // Propagate clauses forward
-        propagate_clauses(&ctx, transition, &mut frames, k);
+        propagate_clauses(transition, &mut frames, k);
 
         // Convergence check: does F_k == F_{k-1}?
-        if check_convergence(&ctx, &frames, k) {
+        if check_convergence(&frames, k) {
             let invariant = frames[k].to_expr();
             return Ic3Result::Safe { invariant };
         }
@@ -238,12 +235,11 @@ fn build_bmc_check(
 /// Extract a CTI (counterexample to induction) state from a SAT formula.
 /// Returns a conjunction of literals describing the bad predecessor state.
 fn extract_cti_state(
-    ctx: &z3::Context,
     formula: &VerifyExpr,
     signal_names: &[String],
 ) -> VerifyExpr {
-    let solver = z3::Solver::new(ctx);
-    let encoded = encode_bool(ctx, formula);
+    let solver = crate::solver::new_solver();
+    let encoded = encode_bool(formula);
     solver.assert(&encoded);
 
     if !matches!(solver.check(), SatResult::Sat) {
@@ -256,7 +252,7 @@ fn extract_cti_state(
     for sig in signal_names {
         let var_name = format!("{}@0", sig);
         // Try boolean
-        let bool_var = Bool::new_const(ctx, var_name.as_str());
+        let bool_var = Bool::new_const(var_name.as_str());
         if let Some(val) = model.eval(&bool_var, true) {
             if let Some(b) = val.as_bool() {
                 if b {
@@ -267,7 +263,7 @@ fn extract_cti_state(
             }
         }
         // Try integer
-        let int_var = Int::new_const(ctx, var_name.as_str());
+        let int_var = Int::new_const(var_name.as_str());
         if let Some(val) = model.eval(&int_var, true) {
             if let Some(n) = val.as_i64() {
                 literals.push(VerifyExpr::eq(
@@ -293,11 +289,10 @@ fn extract_cti_state(
 /// A literal can be dropped if the remaining clause still blocks the CTI
 /// (i.e., the clause is still inductive relative to the frame).
 fn generalize_blocking_clause(
-    ctx: &z3::Context,
     transition: &VerifyExpr,
     property: &VerifyExpr,
     bad_state: &VerifyExpr,
-    frame: &Frame,
+    _frame: &Frame,
 ) -> VerifyExpr {
     // Start with NOT(bad_state) — the full blocking clause
     let full_clause = VerifyExpr::not(bad_state.clone());
@@ -324,7 +319,7 @@ fn generalize_blocking_clause(
 
         // Build the negated candidate (the state we're blocking)
         let candidate_state = conjoin(&candidate);
-        let candidate_clause = VerifyExpr::not(candidate_state.clone());
+        let _candidate_clause = VerifyExpr::not(candidate_state.clone());
 
         // Check: is the candidate clause still consistent with the frame?
         // (frame AND candidate_state AND T AND NOT P) should still be UNSAT
@@ -337,7 +332,7 @@ fn generalize_blocking_clause(
             ),
         );
         // If the weakened state can still reach NOT P, we need this literal
-        if is_sat(ctx, &check) {
+        if is_sat(&check) {
             // Can't drop literal i — keep it
         } else {
             // Literal i is redundant — drop it
@@ -378,7 +373,6 @@ fn conjoin(exprs: &[VerifyExpr]) -> VerifyExpr {
 
 /// Check if a bad state is reachable from init within k steps.
 fn is_reachable_from_init(
-    ctx: &z3::Context,
     init: &VerifyExpr,
     transition: &VerifyExpr,
     bad_state: &VerifyExpr,
@@ -393,7 +387,7 @@ fn is_reachable_from_init(
         // Check if bad_state is reachable at step `depth`
         let bad_at_depth = kinduction::instantiate_at(bad_state, depth);
         let check = VerifyExpr::and(formula, bad_at_depth);
-        if is_sat(ctx, &check) {
+        if is_sat(&check) {
             return true;
         }
     }
@@ -402,7 +396,6 @@ fn is_reachable_from_init(
 
 /// Propagate clauses from frame[i] to frame[i+1] where they are inductive.
 fn propagate_clauses(
-    ctx: &z3::Context,
     transition: &VerifyExpr,
     frames: &mut Vec<Frame>,
     k: usize,
@@ -424,14 +417,14 @@ fn propagate_clauses(
                 ),
             ),
         );
-        if !is_sat(ctx, &check) {
+        if !is_sat(&check) {
             frames[k].add_clause(clause);
         }
     }
 }
 
 /// Check if frames[k-1] and frames[k] have converged (same clause set modulo entailment).
-fn check_convergence(ctx: &z3::Context, frames: &[Frame], k: usize) -> bool {
+fn check_convergence(frames: &[Frame], k: usize) -> bool {
     if k == 0 { return false; }
 
     let fk = frames[k].to_expr();
@@ -442,7 +435,7 @@ fn check_convergence(ctx: &z3::Context, frames: &[Frame], k: usize) -> bool {
         kinduction::instantiate_at(&fk_prev, 0),
         VerifyExpr::not(kinduction::instantiate_at(&fk, 0)),
     );
-    if is_sat(ctx, &fwd) {
+    if is_sat(&fwd) {
         return false;
     }
 
@@ -451,32 +444,31 @@ fn check_convergence(ctx: &z3::Context, frames: &[Frame], k: usize) -> bool {
         kinduction::instantiate_at(&fk, 0),
         VerifyExpr::not(kinduction::instantiate_at(&fk_prev, 0)),
     );
-    !is_sat(ctx, &bwd)
+    !is_sat(&bwd)
 }
 
 /// Extract a concrete counterexample trace from a BMC check.
 fn extract_trace_from_bmc(
-    ctx: &z3::Context,
     init: &VerifyExpr,
     transition: &VerifyExpr,
     property: &VerifyExpr,
     depth: u32,
     signal_names: &[String],
 ) -> Trace {
-    let solver = z3::Solver::new(ctx);
+    let solver = crate::solver::new_solver();
 
     // Build BMC formula
     let init_0 = kinduction::instantiate_at(init, 0);
-    solver.assert(&encode_bool(ctx, &init_0));
+    solver.assert(&encode_bool(&init_0));
 
     for t in 0..depth {
         let trans = kinduction::instantiate_transition(transition, t);
-        solver.assert(&encode_bool(ctx, &trans));
+        solver.assert(&encode_bool(&trans));
     }
 
     // Assert NOT P at depth
     let not_prop = VerifyExpr::not(kinduction::instantiate_at(property, depth));
-    solver.assert(&encode_bool(ctx, &not_prop));
+    solver.assert(&encode_bool(&not_prop));
 
     if !matches!(solver.check(), SatResult::Sat) {
         return Trace { cycles: vec![] };
@@ -491,7 +483,7 @@ fn extract_trace_from_bmc(
             let var_name = format!("{}@{}", sig, step);
 
             // Try boolean
-            let bool_var = Bool::new_const(ctx, var_name.as_str());
+            let bool_var = Bool::new_const(var_name.as_str());
             if let Some(val) = model.eval(&bool_var, true) {
                 if let Some(b) = val.as_bool() {
                     signals.insert(sig.clone(), SignalValue::Bool(b));
@@ -500,7 +492,7 @@ fn extract_trace_from_bmc(
             }
 
             // Try integer
-            let int_var = Int::new_const(ctx, var_name.as_str());
+            let int_var = Int::new_const(var_name.as_str());
             if let Some(val) = model.eval(&int_var, true) {
                 if let Some(n) = val.as_i64() {
                     signals.insert(sig.clone(), SignalValue::Int(n));
@@ -526,28 +518,26 @@ fn extract_trace_from_bmc(
 }
 
 /// Check if a formula is satisfiable (internal, takes pre-built context).
-fn is_sat(ctx: &z3::Context, expr: &VerifyExpr) -> bool {
-    let solver = z3::Solver::new(ctx);
-    let encoded = encode_bool(ctx, expr);
+fn is_sat(expr: &VerifyExpr) -> bool {
+    let solver = crate::solver::new_solver();
+    let encoded = encode_bool(expr);
     solver.assert(&encoded);
     matches!(solver.check(), z3::SatResult::Sat)
 }
 
 /// Check if a formula is satisfiable (public, creates its own Z3 context).
 pub fn check_sat(expr: &VerifyExpr) -> bool {
-    let cfg = z3::Config::new();
-    let ctx = z3::Context::new(&cfg);
-    is_sat(&ctx, expr)
+    is_sat(expr)
 }
 
-fn encode_bool<'ctx>(ctx: &'ctx z3::Context, expr: &VerifyExpr) -> z3::ast::Bool<'ctx> {
+fn encode_bool(expr: &VerifyExpr) -> z3::ast::Bool {
     let mut bool_vars = HashMap::new();
     let mut int_vars = HashMap::new();
     let mut all_vars = std::collections::HashSet::new();
     crate::equivalence::collect_vars_pub(expr, &mut all_vars);
     for name in &all_vars {
-        bool_vars.insert(name.clone(), z3::ast::Bool::new_const(ctx, name.as_str()));
+        bool_vars.insert(name.clone(), z3::ast::Bool::new_const(name.as_str()));
     }
-    crate::equivalence::collect_int_vars_pub(expr, &mut int_vars, ctx);
-    kinduction::encode_expr_bool(ctx, expr, &bool_vars, &int_vars)
+    crate::equivalence::collect_int_vars_pub(expr, &mut int_vars);
+    kinduction::encode_expr_bool(expr, &bool_vars, &int_vars)
 }

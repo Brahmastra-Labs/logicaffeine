@@ -137,7 +137,7 @@ enum LtlPattern {
 /// Detect the LTL pattern of a specification.
 fn detect_ltl_pattern(spec: &VerifyExpr) -> LtlPattern {
     // Pattern: NOT(something) at top level → safety (G(NOT(bad)))
-    if let VerifyExpr::Not(inner) = spec {
+    if let VerifyExpr::Not(_inner) = spec {
         return LtlPattern::Safety(spec.clone());
     }
 

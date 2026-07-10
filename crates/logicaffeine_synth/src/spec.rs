@@ -9,7 +9,6 @@
 
 use logicaffeine_forge::jit::MicroOp;
 use z3::ast::{Ast, Bool, BV};
-use z3::Context;
 
 /// Which micro-op family a spec describes, with the frame shape the
 /// witness harness needs to build it.
@@ -27,27 +26,27 @@ pub struct OpSpec {
     /// Build the micro-op computing `frame[2] = frame[0] op frame[1]`.
     pub build: fn() -> MicroOp,
     /// Precondition over (a, b).
-    pub pre: for<'c> fn(&'c Context, &BV<'c>, &BV<'c>) -> Bool<'c>,
+    pub pre: fn(&BV, &BV) -> Bool,
     /// Postcondition: the exact result value.
-    pub result: for<'c> fn(&'c Context, &BV<'c>, &BV<'c>) -> BV<'c>,
+    pub result: fn(&BV, &BV) -> BV,
 }
 
-fn pre_true<'c>(ctx: &'c Context, _a: &BV<'c>, _b: &BV<'c>) -> Bool<'c> {
-    Bool::from_bool(ctx, true)
+fn pre_true(_a: &BV, _b: &BV) -> Bool {
+    Bool::from_bool(true)
 }
 
-fn pre_divisor_nonzero<'c>(ctx: &'c Context, _a: &BV<'c>, b: &BV<'c>) -> Bool<'c> {
-    b._eq(&BV::from_i64(ctx, 0, 64)).not()
+fn pre_divisor_nonzero(_a: &BV, b: &BV) -> Bool {
+    b.eq(&BV::from_i64(0, 64)).not()
 }
 
 /// `div` side-exits on BOTH its edge cases: a zero divisor and the one
 /// overflowing quotient `i64::MIN / -1` (exact arithmetic — the deopt hands
 /// it to the promoting tiers rather than wrapping).
-fn pre_div_defined<'c>(ctx: &'c Context, a: &BV<'c>, b: &BV<'c>) -> Bool<'c> {
-    let min = BV::from_i64(ctx, i64::MIN, 64);
-    let neg1 = BV::from_i64(ctx, -1, 64);
-    let overflow = Bool::and(ctx, &[&a._eq(&min), &b._eq(&neg1)]);
-    Bool::and(ctx, &[&pre_divisor_nonzero(ctx, a, b), &overflow.not()])
+fn pre_div_defined(a: &BV, b: &BV) -> Bool {
+    let min = BV::from_i64(i64::MIN, 64);
+    let neg1 = BV::from_i64(-1, 64);
+    let overflow = Bool::and(&[&a.eq(&min), &b.eq(&neg1)]);
+    Bool::and(&[&pre_divisor_nonzero(a, b), &overflow.not()])
 }
 
 /// Integer arithmetic is EXACT: an op whose true value escapes i64 side-exits
@@ -56,30 +55,30 @@ fn pre_div_defined<'c>(ctx: &'c Context, a: &BV<'c>, b: &BV<'c>) -> Bool<'c> {
 /// by comparing the 128-bit exact value against the sign-extension of the
 /// wrapped 64-bit result (equal iff no overflow). The witness harness then
 /// requires both machine code and reference to side-exit when this fails.
-fn no_overflow<'c>(exact128: &BV<'c>, narrow64: &BV<'c>) -> Bool<'c> {
-    exact128._eq(&narrow64.sign_ext(64))
+fn no_overflow(exact128: &BV, narrow64: &BV) -> Bool {
+    exact128.eq(&narrow64.sign_ext(64))
 }
 
-fn pre_add_no_overflow<'c>(_ctx: &'c Context, a: &BV<'c>, b: &BV<'c>) -> Bool<'c> {
+fn pre_add_no_overflow(a: &BV, b: &BV) -> Bool {
     no_overflow(&a.sign_ext(64).bvadd(&b.sign_ext(64)), &a.bvadd(b))
 }
 
-fn pre_sub_no_overflow<'c>(_ctx: &'c Context, a: &BV<'c>, b: &BV<'c>) -> Bool<'c> {
+fn pre_sub_no_overflow(a: &BV, b: &BV) -> Bool {
     no_overflow(&a.sign_ext(64).bvsub(&b.sign_ext(64)), &a.bvsub(b))
 }
 
-fn pre_mul_no_overflow<'c>(_ctx: &'c Context, a: &BV<'c>, b: &BV<'c>) -> Bool<'c> {
+fn pre_mul_no_overflow(a: &BV, b: &BV) -> Bool {
     no_overflow(&a.sign_ext(64).bvmul(&b.sign_ext(64)), &a.bvmul(b))
 }
 
 /// The kernel's shift-amount rule: `wrapping_shl(b as u32)` masks the
 /// amount to the low six bits.
-fn shift_amount<'c>(ctx: &'c Context, b: &BV<'c>) -> BV<'c> {
-    b.bvand(&BV::from_i64(ctx, 63, 64))
+fn shift_amount(b: &BV) -> BV {
+    b.bvand(&BV::from_i64(63, 64))
 }
 
-fn bool_to_bv<'c>(ctx: &'c Context, cond: Bool<'c>) -> BV<'c> {
-    cond.ite(&BV::from_i64(ctx, 1, 64), &BV::from_i64(ctx, 0, 64))
+fn bool_to_bv(cond: Bool) -> BV {
+    cond.ite(&BV::from_i64(1, 64), &BV::from_i64(0, 64))
 }
 
 pub fn all_specs() -> Vec<OpSpec> {
@@ -89,21 +88,21 @@ pub fn all_specs() -> Vec<OpSpec> {
             kind: SpecKind::Checked,
             build: || MicroOp::Add { dst: 2, lhs: 0, rhs: 1 },
             pre: pre_add_no_overflow,
-            result: |_c, a, b| a.bvadd(b),
+            result: |a, b| a.bvadd(b),
         },
         OpSpec {
             name: "sub",
             kind: SpecKind::Checked,
             build: || MicroOp::Sub { dst: 2, lhs: 0, rhs: 1 },
             pre: pre_sub_no_overflow,
-            result: |_c, a, b| a.bvsub(b),
+            result: |a, b| a.bvsub(b),
         },
         OpSpec {
             name: "mul",
             kind: SpecKind::Checked,
             build: || MicroOp::Mul { dst: 2, lhs: 0, rhs: 1 },
             pre: pre_mul_no_overflow,
-            result: |_c, a, b| a.bvmul(b),
+            result: |a, b| a.bvmul(b),
         },
         OpSpec {
             name: "div",
@@ -112,7 +111,7 @@ pub fn all_specs() -> Vec<OpSpec> {
             pre: pre_div_defined,
             // On the defined domain (no zero divisor, no MIN/-1 overflow)
             // bvsdiv truncates toward zero — exactly the kernel's `/`.
-            result: |_c, a, b| a.bvsdiv(b),
+            result: |a, b| a.bvsdiv(b),
         },
         OpSpec {
             name: "mod",
@@ -120,35 +119,35 @@ pub fn all_specs() -> Vec<OpSpec> {
             build: || MicroOp::Mod { dst: 2, lhs: 0, rhs: 1 },
             pre: pre_divisor_nonzero,
             // bvsrem takes the DIVIDEND's sign — exactly `wrapping_rem`.
-            result: |_c, a, b| a.bvsrem(b),
+            result: |a, b| a.bvsrem(b),
         },
         OpSpec {
             name: "and",
             kind: SpecKind::Binop,
             build: || MicroOp::BitAnd { dst: 2, lhs: 0, rhs: 1 },
             pre: pre_true,
-            result: |_c, a, b| a.bvand(b),
+            result: |a, b| a.bvand(b),
         },
         OpSpec {
             name: "or",
             kind: SpecKind::Binop,
             build: || MicroOp::BitOr { dst: 2, lhs: 0, rhs: 1 },
             pre: pre_true,
-            result: |_c, a, b| a.bvor(b),
+            result: |a, b| a.bvor(b),
         },
         OpSpec {
             name: "xor",
             kind: SpecKind::Binop,
             build: || MicroOp::BitXor { dst: 2, lhs: 0, rhs: 1 },
             pre: pre_true,
-            result: |_c, a, b| a.bvxor(b),
+            result: |a, b| a.bvxor(b),
         },
         OpSpec {
             name: "shl",
             kind: SpecKind::Binop,
             build: || MicroOp::Shl { dst: 2, lhs: 0, rhs: 1 },
             pre: pre_true,
-            result: |c, a, b| a.bvshl(&shift_amount(c, b)),
+            result: |a, b| a.bvshl(&shift_amount(b)),
         },
         OpSpec {
             name: "shr",
@@ -156,28 +155,28 @@ pub fn all_specs() -> Vec<OpSpec> {
             build: || MicroOp::Shr { dst: 2, lhs: 0, rhs: 1 },
             pre: pre_true,
             // Arithmetic shift (the kernel's Int is signed).
-            result: |c, a, b| a.bvashr(&shift_amount(c, b)),
+            result: |a, b| a.bvashr(&shift_amount(b)),
         },
         OpSpec {
             name: "lt",
             kind: SpecKind::Binop,
             build: || MicroOp::Lt { dst: 2, lhs: 0, rhs: 1 },
             pre: pre_true,
-            result: |c, a, b| bool_to_bv(c, a.bvslt(b)),
+            result: |a, b| bool_to_bv(a.bvslt(b)),
         },
         OpSpec {
             name: "lteq",
             kind: SpecKind::Binop,
             build: || MicroOp::LtEq { dst: 2, lhs: 0, rhs: 1 },
             pre: pre_true,
-            result: |c, a, b| bool_to_bv(c, a.bvsle(b)),
+            result: |a, b| bool_to_bv(a.bvsle(b)),
         },
         OpSpec {
             name: "eq",
             kind: SpecKind::Binop,
             build: || MicroOp::Eq { dst: 2, lhs: 0, rhs: 1 },
             pre: pre_true,
-            result: |c, a, b| bool_to_bv(c, a._eq(b)),
+            result: |a, b| bool_to_bv(a.eq(b)),
         },
     ]
 }
@@ -188,14 +187,12 @@ pub fn all_specs() -> Vec<OpSpec> {
 /// shard the (multi-minute) satisfiability sweep across specs without re-deriving
 /// the encoding.
 pub fn prove_spec_satisfiable(spec: &OpSpec) -> Result<(), String> {
-    let cfg = z3::Config::new();
-    let ctx = Context::new(&cfg);
-    let solver = z3::Solver::new(&ctx);
-    let a = BV::new_const(&ctx, "a", 64);
-    let b = BV::new_const(&ctx, "b", 64);
-    let r = BV::new_const(&ctx, "r", 64);
-    solver.assert(&(spec.pre)(&ctx, &a, &b));
-    solver.assert(&r._eq(&(spec.result)(&ctx, &a, &b)));
+    let solver = z3::Solver::new();
+    let a = BV::new_const("a", 64);
+    let b = BV::new_const("b", 64);
+    let r = BV::new_const("r", 64);
+    solver.assert(&(spec.pre)(&a, &b));
+    solver.assert(&r.eq(&(spec.result)(&a, &b)));
     if solver.check() != z3::SatResult::Sat {
         return Err(format!("spec '{}' is uninhabited", spec.name));
     }
@@ -219,14 +216,12 @@ pub fn prove_commutative(name: &'static str) -> Result<(), String> {
         .into_iter()
         .find(|s| s.name == name)
         .ok_or_else(|| format!("no spec named {name}"))?;
-    let cfg = z3::Config::new();
-    let ctx = Context::new(&cfg);
-    let solver = z3::Solver::new(&ctx);
-    let a = BV::new_const(&ctx, "a", 64);
-    let b = BV::new_const(&ctx, "b", 64);
-    let lhs = (spec.result)(&ctx, &a, &b);
-    let rhs = (spec.result)(&ctx, &b, &a);
-    solver.assert(&lhs._eq(&rhs).not());
+    let solver = z3::Solver::new();
+    let a = BV::new_const("a", 64);
+    let b = BV::new_const("b", 64);
+    let lhs = (spec.result)(&a, &b);
+    let rhs = (spec.result)(&b, &a);
+    solver.assert(&lhs.eq(&rhs).not());
     match solver.check() {
         z3::SatResult::Unsat => Ok(()),
         z3::SatResult::Sat => Err(format!("{name} is not commutative: {:?}", solver.get_model())),
@@ -243,7 +238,7 @@ pub fn deliberately_wrong_spec_for_canary() -> OpSpec {
         kind: SpecKind::Binop,
         build: || MicroOp::Add { dst: 2, lhs: 0, rhs: 1 },
         pre: pre_true,
-        result: |_c, a, b| a.bvsub(b),
+        result: |a, b| a.bvsub(b),
     }
 }
 
@@ -252,12 +247,10 @@ pub fn deliberately_wrong_spec_for_canary() -> OpSpec {
 /// machine side-exits (exact arithmetic — the deopt hands the overflowing
 /// quotient to the promoting tiers instead of wrapping).
 pub fn prove_min_div_excluded() -> Result<(), String> {
-    let cfg = z3::Config::new();
-    let ctx = Context::new(&cfg);
-    let solver = z3::Solver::new(&ctx);
-    let min = BV::from_i64(&ctx, i64::MIN, 64);
-    let neg1 = BV::from_i64(&ctx, -1, 64);
-    solver.assert(&pre_div_defined(&ctx, &min, &neg1));
+    let solver = z3::Solver::new();
+    let min = BV::from_i64(i64::MIN, 64);
+    let neg1 = BV::from_i64(-1, 64);
+    solver.assert(&pre_div_defined(&min, &neg1));
     match solver.check() {
         z3::SatResult::Unsat => Ok(()),
         _ => Err("div precondition admits MIN / -1 — the side-exit case leaked into the spec".to_string()),

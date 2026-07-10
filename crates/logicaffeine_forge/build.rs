@@ -26,12 +26,16 @@ fn main() {
     let gen_path = out_dir.join("stencils.rs");
     let target = env::var("TARGET").unwrap();
 
-    // The JIT is native-only; for wasm just emit an empty table so the
-    // include! (compiled out for wasm anyway) always resolves.
-    if target.contains("wasm32") {
+    // Stencil extraction requires rustc to emit tail calls at continuation
+    // sites — that only holds under the x86_64 System V ABI (Linux + macOS).
+    // On Windows x64 (MS ABI), aarch64, and wasm32 the crate is compiled to
+    // nothing, so emit an empty table the (compiled-out) include! resolves
+    // against and skip the extraction (and its tail-call gate) entirely.
+    let jit_host = target.contains("x86_64") && !target.contains("windows");
+    if !jit_host {
         fs::write(
             &gen_path,
-            "/// Empty on wasm (the JIT is native-only).\npub const ADD_STENCIL: &[u8] = &[];\n/// Empty on wasm (the JIT is native-only).\npub static STENCILS: &[Stencil] = &[];\n",
+            "/// Empty: the JIT is x86_64-SysV-only (this target runs the bytecode VM).\npub const ADD_STENCIL: &[u8] = &[];\n/// Empty: the JIT is x86_64-SysV-only (this target runs the bytecode VM).\npub static STENCILS: &[Stencil] = &[];\n",
         )
         .unwrap();
         return;

@@ -1,4 +1,6 @@
-#![cfg(not(target_arch = "wasm32"))]
+// Native tier is available only where the forge JIT is (x86_64 System V — Linux +
+// macOS). On Windows/aarch64/wasm this crate is empty and the VM runs bytecode.
+#![cfg(all(target_arch = "x86_64", not(target_os = "windows")))]
 #![doc = include_str!("../README.md")]
 
 use std::sync::atomic::{AtomicU32, Ordering};

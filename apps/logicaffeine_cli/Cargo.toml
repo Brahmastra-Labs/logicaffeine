@@ -51,8 +51,9 @@ rustyline = "15"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 
-# The native tier (copy-and-patch JIT) — native targets only.
-[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+# The native tier (copy-and-patch JIT) — x86_64 System V only (Linux + macOS).
+# On Windows/aarch64/wasm largo runs the bytecode VM, so this is target-gated.
+[target.'cfg(all(target_arch = "x86_64", not(target_os = "windows")))'.dependencies]
 logicaffeine-jit = { workspace = true }
 
 [dev-dependencies]

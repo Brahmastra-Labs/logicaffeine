@@ -37,9 +37,6 @@ pub fn check_liveness(
     property: &VerifyExpr,
     max_k: u32,
 ) -> LivenessResult {
-    let mut cfg = z3::Config::new();
-    cfg.set_param_value("timeout", "30000");
-    let ctx = z3::Context::new(&cfg);
 
     // Collect signal names for trace extraction
     let mut all_vars = HashSet::new();
@@ -55,16 +52,16 @@ pub fn check_liveness(
     // If NOT (UNSAT), then property MUST hold within max_k steps from any init state → Live.
     // If YES (SAT), we found a finite prefix where property never holds → potential NotLive.
     for k in 1..=max_k {
-        let solver = z3::Solver::new(&ctx);
+        let solver = crate::solver::new_solver();
 
         // Assert init at step 0
         let init_0 = kinduction::instantiate_at(init, 0);
-        solver.assert(&encode_bool(&ctx, &init_0));
+        solver.assert(&encode_bool(&init_0));
 
         // Assert transitions
         for t in 0..k {
             let trans = kinduction::instantiate_transition(transition, t);
-            solver.assert(&encode_bool(&ctx, &trans));
+            solver.assert(&encode_bool(&trans));
         }
 
         // Assert fairness constraints are met somewhere in the trace
@@ -73,11 +70,11 @@ pub fn check_liveness(
             let mut fair_options: Vec<z3::ast::Bool> = Vec::new();
             for t in 0..=k {
                 let fair_t = kinduction::instantiate_at(fair, t);
-                fair_options.push(encode_bool(&ctx, &fair_t));
+                fair_options.push(encode_bool(&fair_t));
             }
             let fair_refs: Vec<&z3::ast::Bool> = fair_options.iter().collect();
             if !fair_refs.is_empty() {
-                let some_fair = z3::ast::Bool::or(&ctx, &fair_refs);
+                let some_fair = z3::ast::Bool::or(&fair_refs);
                 solver.assert(&some_fair);
             }
         }
@@ -85,7 +82,7 @@ pub fn check_liveness(
         // Assert property NEVER holds in k+1 steps
         for t in 0..=k {
             let prop_t = kinduction::instantiate_at(property, t);
-            solver.assert(&encode_bool(&ctx, &prop_t).not());
+            solver.assert(&encode_bool(&prop_t).not());
         }
 
         match solver.check() {
@@ -93,7 +90,7 @@ pub fn check_liveness(
                 // Found a path where property never holds for k steps
                 if k == max_k {
                     // Extract concrete trace
-                    let trace = extract_liveness_trace(&ctx, &solver, k, &signal_names);
+                    let trace = extract_liveness_trace(&solver, k, &signal_names);
                     let loop_point = find_loop_point(&trace);
                     return LivenessResult::NotLive { trace, loop_point };
                 }
@@ -108,20 +105,20 @@ pub fn check_liveness(
     }
 
     // Exhausted bound without proving liveness — find concrete trace
-    let solver = z3::Solver::new(&ctx);
+    let solver = crate::solver::new_solver();
     let init_0 = kinduction::instantiate_at(init, 0);
-    solver.assert(&encode_bool(&ctx, &init_0));
+    solver.assert(&encode_bool(&init_0));
     for t in 0..max_k {
         let trans = kinduction::instantiate_transition(transition, t);
-        solver.assert(&encode_bool(&ctx, &trans));
+        solver.assert(&encode_bool(&trans));
     }
     for t in 0..=max_k {
         let prop_t = kinduction::instantiate_at(property, t);
-        solver.assert(&encode_bool(&ctx, &prop_t).not());
+        solver.assert(&encode_bool(&prop_t).not());
     }
 
     if matches!(solver.check(), z3::SatResult::Sat) {
-        let trace = extract_liveness_trace(&ctx, &solver, max_k, &signal_names);
+        let trace = extract_liveness_trace(&solver, max_k, &signal_names);
         let loop_point = find_loop_point(&trace);
         LivenessResult::NotLive { trace, loop_point }
     } else {
@@ -143,7 +140,6 @@ fn extract_signal_names(all_vars: &HashSet<String>) -> Vec<String> {
 
 /// Extract a concrete trace from a SAT solver model.
 fn extract_liveness_trace(
-    ctx: &z3::Context,
     solver: &z3::Solver,
     k: u32,
     signal_names: &[String],
@@ -158,14 +154,14 @@ fn extract_liveness_trace(
         let mut signals = HashMap::new();
         for sig in signal_names {
             let var_name = format!("{}@{}", sig, step);
-            let bool_var = z3::ast::Bool::new_const(ctx, var_name.as_str());
+            let bool_var = z3::ast::Bool::new_const(var_name.as_str());
             if let Some(val) = model.eval(&bool_var, true) {
                 if let Some(b) = val.as_bool() {
                     signals.insert(sig.clone(), SignalValue::Bool(b));
                     continue;
                 }
             }
-            let int_var = z3::ast::Int::new_const(ctx, var_name.as_str());
+            let int_var = z3::ast::Int::new_const(var_name.as_str());
             if let Some(val) = model.eval(&int_var, true) {
                 if let Some(n) = val.as_i64() {
                     signals.insert(sig.clone(), SignalValue::Int(n));
@@ -242,14 +238,14 @@ fn collect_vars(expr: &VerifyExpr, vars: &mut HashSet<String>) {
     }
 }
 
-fn encode_bool<'ctx>(ctx: &'ctx z3::Context, expr: &VerifyExpr) -> z3::ast::Bool<'ctx> {
+fn encode_bool(expr: &VerifyExpr) -> z3::ast::Bool {
     let mut bool_vars = HashMap::new();
     let mut int_vars = HashMap::new();
     let mut all_vars = std::collections::HashSet::new();
     crate::equivalence::collect_vars_pub(expr, &mut all_vars);
     for name in &all_vars {
-        bool_vars.insert(name.clone(), z3::ast::Bool::new_const(ctx, name.as_str()));
+        bool_vars.insert(name.clone(), z3::ast::Bool::new_const(name.as_str()));
     }
-    crate::equivalence::collect_int_vars_pub(expr, &mut int_vars, ctx);
-    kinduction::encode_expr_bool(ctx, expr, &bool_vars, &int_vars)
+    crate::equivalence::collect_int_vars_pub(expr, &mut int_vars);
+    kinduction::encode_expr_bool(expr, &bool_vars, &int_vars)
 }

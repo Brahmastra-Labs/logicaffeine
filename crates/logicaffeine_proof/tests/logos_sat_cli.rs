@@ -9,7 +9,17 @@ use logicaffeine_proof::cdcl::Lit;
 use logicaffeine_proof::dimacs;
 use logicaffeine_proof::rup::check_refutation;
 
-const BIN: &str = env!("CARGO_BIN_EXE_logos-sat");
+/// Path to the `logos-sat` binary under test.
+///
+/// `env!("CARGO_BIN_EXE_logos-sat")` bakes the *build-time* target path; when the
+/// suite runs from a nextest archive (CI) that path doesn't exist in the fresh
+/// test-job checkout. nextest re-exports the extracted binary at runtime via
+/// `CARGO_BIN_EXE_logos-sat`, so prefer that, falling back to the compile-time
+/// constant for a plain `cargo test`.
+fn bin() -> std::ffi::OsString {
+    std::env::var_os("CARGO_BIN_EXE_logos-sat")
+        .unwrap_or_else(|| env!("CARGO_BIN_EXE_logos-sat").into())
+}
 
 fn tmp(name: &str) -> PathBuf {
     let mut p = std::env::temp_dir();
@@ -25,7 +35,7 @@ fn write(name: &str, contents: &str) -> PathBuf {
 
 /// Run the binary; return (exit_code, stdout).
 fn run(args: &[&str]) -> (i32, String) {
-    let out = Command::new(BIN).args(args).output().expect("spawn logos-sat");
+    let out = Command::new(bin()).args(args).output().expect("spawn logos-sat");
     (out.status.code().unwrap_or(-1), String::from_utf8_lossy(&out.stdout).into_owned())
 }
 

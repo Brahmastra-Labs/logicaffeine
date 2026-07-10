@@ -25,9 +25,6 @@ pub fn verify_parameterized(
     param_type: VerifyType,
     constraint: Option<&VerifyExpr>,
 ) -> ParameterizedResult {
-    let mut cfg = z3::Config::new();
-    cfg.set_param_value("timeout", "10000");
-    let ctx = z3::Context::new(&cfg);
 
     // Build: forall param. constraint(param) -> property(param)
     let body = if let Some(c) = constraint {
@@ -43,8 +40,8 @@ pub fn verify_parameterized(
 
     // Check: NOT(quantified) is UNSAT means universally valid
     let negated = VerifyExpr::not(quantified);
-    let solver = z3::Solver::new(&ctx);
-    let encoded = encode_bool(&ctx, &negated);
+    let solver = crate::solver::new_solver();
+    let encoded = encode_bool(&negated);
     solver.assert(&encoded);
 
     match solver.check() {
@@ -54,8 +51,8 @@ pub fn verify_parameterized(
             for val in 0..=100u64 {
                 let specialized = substitute_param(property, parameter, val as i64);
                 let neg_spec = VerifyExpr::not(specialized);
-                let solver2 = z3::Solver::new(&ctx);
-                solver2.assert(&encode_bool(&ctx, &neg_spec));
+                let solver2 = crate::solver::new_solver();
+                solver2.assert(&encode_bool(&neg_spec));
                 if matches!(solver2.check(), z3::SatResult::Sat) {
                     return ParameterizedResult::Counterexample {
                         param_value: val,
@@ -70,8 +67,8 @@ pub fn verify_parameterized(
             for val in 0..=20u64 {
                 let specialized = substitute_param(property, parameter, val as i64);
                 let neg_spec = VerifyExpr::not(specialized);
-                let solver2 = z3::Solver::new(&ctx);
-                solver2.assert(&encode_bool(&ctx, &neg_spec));
+                let solver2 = crate::solver::new_solver();
+                solver2.assert(&encode_bool(&neg_spec));
                 if matches!(solver2.check(), z3::SatResult::Sat) {
                     return ParameterizedResult::Counterexample {
                         param_value: val,
@@ -111,17 +108,17 @@ fn substitute_param(expr: &VerifyExpr, param: &str, value: i64) -> VerifyExpr {
     }
 }
 
-fn encode_bool<'ctx>(ctx: &'ctx z3::Context, expr: &VerifyExpr) -> z3::ast::Bool<'ctx> {
+fn encode_bool(expr: &VerifyExpr) -> z3::ast::Bool {
     let mut bool_vars = HashMap::new();
     let mut int_vars = HashMap::new();
     let mut all_vars = std::collections::HashSet::new();
     crate::equivalence::collect_vars_pub(expr, &mut all_vars);
     for name in &all_vars {
-        bool_vars.insert(name.clone(), z3::ast::Bool::new_const(ctx, name.as_str()));
+        bool_vars.insert(name.clone(), z3::ast::Bool::new_const(name.as_str()));
     }
-    crate::equivalence::collect_int_vars_pub(expr, &mut int_vars, ctx);
+    crate::equivalence::collect_int_vars_pub(expr, &mut int_vars);
     let mut bv_vars = HashMap::new();
     let mut array_vars = HashMap::new();
-    crate::equivalence::collect_quantifier_bound_vars_pub(expr, &mut int_vars, &mut bv_vars, &mut array_vars, ctx);
-    crate::kinduction::encode_expr_bool(ctx, expr, &bool_vars, &int_vars)
+    crate::equivalence::collect_quantifier_bound_vars_pub(expr, &mut int_vars, &mut bv_vars, &mut array_vars);
+    crate::kinduction::encode_expr_bool(expr, &bool_vars, &int_vars)
 }

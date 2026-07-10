@@ -43,9 +43,6 @@ pub fn verify_compositional(components: &[ComponentSpec]) -> CompositionalResult
         return CompositionalResult::AllVerified;
     }
 
-    let mut cfg = z3::Config::new();
-    cfg.set_param_value("timeout", "30000");
-    let ctx = z3::Context::new(&cfg);
 
     // Phase 1: Verify each component in isolation (assumptions → guarantees)
     for comp in components {
@@ -117,9 +114,9 @@ pub fn verify_compositional(components: &[ComponentSpec]) -> CompositionalResult
             for assumption in &comp.assumes {
                 // Check: guarantees_conj → assumption
                 let check = VerifyExpr::implies(guarantees_conj.clone(), assumption.clone());
-                let solver = z3::Solver::new(&ctx);
+                let solver = crate::solver::new_solver();
                 let not_check = VerifyExpr::not(check);
-                let encoded = encode_bool(&ctx, &not_check);
+                let encoded = encode_bool(&not_check);
                 solver.assert(&encoded);
                 match solver.check() {
                     z3::SatResult::Sat => {
@@ -139,14 +136,14 @@ pub fn verify_compositional(components: &[ComponentSpec]) -> CompositionalResult
     CompositionalResult::AllVerified
 }
 
-fn encode_bool<'ctx>(ctx: &'ctx z3::Context, expr: &VerifyExpr) -> z3::ast::Bool<'ctx> {
+fn encode_bool(expr: &VerifyExpr) -> z3::ast::Bool {
     let mut bool_vars = HashMap::new();
     let mut int_vars = HashMap::new();
     let mut all_vars = std::collections::HashSet::new();
     crate::equivalence::collect_vars_pub(expr, &mut all_vars);
     for name in &all_vars {
-        bool_vars.insert(name.clone(), z3::ast::Bool::new_const(ctx, name.as_str()));
+        bool_vars.insert(name.clone(), z3::ast::Bool::new_const(name.as_str()));
     }
-    crate::equivalence::collect_int_vars_pub(expr, &mut int_vars, ctx);
-    kinduction::encode_expr_bool(ctx, expr, &bool_vars, &int_vars)
+    crate::equivalence::collect_int_vars_pub(expr, &mut int_vars);
+    kinduction::encode_expr_bool(expr, &bool_vars, &int_vars)
 }

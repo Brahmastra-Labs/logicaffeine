@@ -1,4 +1,9 @@
-#![cfg(not(target_arch = "wasm32"))]
+// The copy-and-patch JIT extracts stencils from rustc's tail-call codegen, which
+// only holds under the x86_64 System V ABI (Linux + macOS). On Windows x64 (MS
+// ABI) and aarch64, rustc emits a plain `call` at continuation sites, so the
+// stencil chain would grow the stack — those targets run the bytecode VM instead
+// (this crate compiles to nothing there, exactly like wasm32).
+#![cfg(all(target_arch = "x86_64", not(target_os = "windows")))]
 #![doc = include_str!("../README.md")]
 
 use std::fmt;

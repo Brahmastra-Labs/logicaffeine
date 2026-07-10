@@ -22,7 +22,7 @@
 
 use crate::ir::{VerifyExpr, VerifyOp, VerifyType, BitVecOp};
 use std::collections::{HashMap, HashSet};
-use z3::{ast::Ast, ast::Bool, ast::Dynamic, ast::Int, Config, Context, SatResult, Solver};
+use z3::{ast::Ast, ast::Bool, ast::Dynamic, ast::Int, SatResult};
 
 /// Result of checking semantic equivalence.
 #[derive(Debug)]
@@ -122,10 +122,7 @@ pub fn check_equivalence(
     signals: &[String],
     bound: usize,
 ) -> EquivalenceResult {
-    let mut cfg = Config::new();
-    cfg.set_param_value("timeout", "10000"); // 10 second timeout
-    let ctx = Context::new(&cfg);
-    let solver = Solver::new(&ctx);
+    let solver = crate::solver::new_solver();
 
     // 1. Collect all variable names referenced in both expressions
     let mut all_vars: HashSet<String> = HashSet::new();
@@ -148,28 +145,27 @@ pub fn check_equivalence(
     for var_name in &all_vars {
         bool_vars.insert(
             var_name.clone(),
-            Bool::new_const(&ctx, var_name.as_str()),
+            Bool::new_const(var_name.as_str()),
         );
     }
     // Pre-declare integer variables found in Int-typed positions
-    collect_int_vars(fol_expr, &mut int_vars, &ctx);
-    collect_int_vars(sva_expr, &mut int_vars, &ctx);
+    collect_int_vars(fol_expr, &mut int_vars);
+    collect_int_vars(sva_expr, &mut int_vars);
     // Also collect variables used as array indices/values (they need Int sort)
-    collect_array_index_vars(fol_expr, &mut int_vars, &ctx);
-    collect_array_index_vars(sva_expr, &mut int_vars, &ctx);
+    collect_array_index_vars(fol_expr, &mut int_vars);
+    collect_array_index_vars(sva_expr, &mut int_vars);
     // Collect quantifier-bound variables with their declared types
-    collect_quantifier_bound_vars(fol_expr, &mut int_vars, &mut bv_vars, &mut array_vars, &ctx);
-    collect_quantifier_bound_vars(sva_expr, &mut int_vars, &mut bv_vars, &mut array_vars, &ctx);
+    collect_quantifier_bound_vars(fol_expr, &mut int_vars, &mut bv_vars, &mut array_vars);
+    collect_quantifier_bound_vars(sva_expr, &mut int_vars, &mut bv_vars, &mut array_vars);
     // Pre-declare bitvector variables found in BV-typed positions
-    collect_bv_vars(fol_expr, &mut bv_vars, &ctx);
-    collect_bv_vars(sva_expr, &mut bv_vars, &ctx);
+    collect_bv_vars(fol_expr, &mut bv_vars);
+    collect_bv_vars(sva_expr, &mut bv_vars);
     // Pre-declare array variables found in array-typed positions
-    collect_array_vars(fol_expr, &mut array_vars, &ctx);
-    collect_array_vars(sva_expr, &mut array_vars, &ctx);
+    collect_array_vars(fol_expr, &mut array_vars);
+    collect_array_vars(sva_expr, &mut array_vars);
 
     // 3. Encode both expressions into Z3 using the dynamic encoder
     let encoder = EquivEncoder {
-        ctx: &ctx,
         bool_vars: &bool_vars,
         int_vars: &int_vars,
         bv_vars: &bv_vars,
@@ -192,7 +188,7 @@ pub fn check_equivalence(
     let not_iff = if let (Some(fb), Some(sb)) = (fol_z3.as_bool(), sva_z3.as_bool()) {
         fb.iff(&sb).not()
     } else {
-        fol_z3._eq(&sva_z3).not()
+        fol_z3.eq(&sva_z3).not()
     };
 
     solver.assert(&not_iff);
@@ -205,7 +201,7 @@ pub fn check_equivalence(
         SatResult::Sat => {
             // Found an assignment where they differ → extract counterexample
             let model = solver.get_model().unwrap();
-            let trace = extract_trace(&ctx, &model, signals, bound, &bool_vars, &int_vars, &bv_vars);
+            let trace = extract_trace(&model, signals, bound, &bool_vars, &int_vars, &bv_vars);
             EquivalenceResult::NotEquivalent { counterexample: trace }
         }
         SatResult::Unknown => EquivalenceResult::Unknown,
@@ -232,19 +228,18 @@ pub fn collect_vars_pub(expr: &VerifyExpr, vars: &mut HashSet<String>) {
 }
 
 /// Collect integer-typed variable names from a VerifyExpr (public API).
-pub fn collect_int_vars_pub<'ctx>(expr: &VerifyExpr, int_vars: &mut HashMap<String, Int<'ctx>>, ctx: &'ctx Context) {
-    collect_int_vars(expr, int_vars, ctx);
+pub fn collect_int_vars_pub(expr: &VerifyExpr, int_vars: &mut HashMap<String, Int>) {
+    collect_int_vars(expr, int_vars);
 }
 
 /// Collect quantifier-bound variables from a VerifyExpr (public API).
-pub fn collect_quantifier_bound_vars_pub<'ctx>(
+pub fn collect_quantifier_bound_vars_pub(
     expr: &VerifyExpr,
-    int_vars: &mut HashMap<String, Int<'ctx>>,
-    bv_vars: &mut HashMap<String, z3::ast::BV<'ctx>>,
-    array_vars: &mut HashMap<String, z3::ast::Array<'ctx>>,
-    ctx: &'ctx Context,
+    int_vars: &mut HashMap<String, Int>,
+    bv_vars: &mut HashMap<String, z3::ast::BV>,
+    array_vars: &mut HashMap<String, z3::ast::Array>,
 ) {
-    collect_quantifier_bound_vars(expr, int_vars, bv_vars, array_vars, ctx);
+    collect_quantifier_bound_vars(expr, int_vars, bv_vars, array_vars);
 }
 
 /// Collect all variable names referenced in a VerifyExpr.
@@ -298,7 +293,7 @@ fn collect_vars(expr: &VerifyExpr, vars: &mut HashSet<String>) {
 }
 
 /// Collect variable names that appear in integer-typed positions (inside arithmetic ops).
-fn collect_int_vars<'ctx>(expr: &VerifyExpr, int_vars: &mut HashMap<String, Int<'ctx>>, ctx: &'ctx Context) {
+fn collect_int_vars(expr: &VerifyExpr, int_vars: &mut HashMap<String, Int>) {
     match expr {
         VerifyExpr::Int(_) => {}
         VerifyExpr::Bool(_) => {}
@@ -307,135 +302,135 @@ fn collect_int_vars<'ctx>(expr: &VerifyExpr, int_vars: &mut HashMap<String, Int<
             match op {
                 // Arithmetic ops: children are integer-typed
                 VerifyOp::Add | VerifyOp::Sub | VerifyOp::Mul | VerifyOp::Div | VerifyOp::FloorDiv => {
-                    collect_int_var_leaves(left, int_vars, ctx);
-                    collect_int_var_leaves(right, int_vars, ctx);
+                    collect_int_var_leaves(left, int_vars);
+                    collect_int_var_leaves(right, int_vars);
                 }
                 // Comparison ops: children are integer-typed
                 VerifyOp::Gt | VerifyOp::Lt | VerifyOp::Gte | VerifyOp::Lte => {
-                    collect_int_var_leaves(left, int_vars, ctx);
-                    collect_int_var_leaves(right, int_vars, ctx);
+                    collect_int_var_leaves(left, int_vars);
+                    collect_int_var_leaves(right, int_vars);
                 }
                 // Eq/Neq: could be bool or int — check if children look integer
                 VerifyOp::Eq | VerifyOp::Neq => {
                     if expr_is_integer(left) || expr_is_integer(right) {
-                        collect_int_var_leaves(left, int_vars, ctx);
-                        collect_int_var_leaves(right, int_vars, ctx);
+                        collect_int_var_leaves(left, int_vars);
+                        collect_int_var_leaves(right, int_vars);
                     }
                 }
                 _ => {}
             }
-            collect_int_vars(left, int_vars, ctx);
-            collect_int_vars(right, int_vars, ctx);
+            collect_int_vars(left, int_vars);
+            collect_int_vars(right, int_vars);
         }
-        VerifyExpr::Not(inner) => collect_int_vars(inner, int_vars, ctx),
+        VerifyExpr::Not(inner) => collect_int_vars(inner, int_vars),
         VerifyExpr::Iff(l, r) => {
-            collect_int_vars(l, int_vars, ctx);
-            collect_int_vars(r, int_vars, ctx);
+            collect_int_vars(l, int_vars);
+            collect_int_vars(r, int_vars);
         }
         VerifyExpr::ForAll { body, .. } | VerifyExpr::Exists { body, .. } => {
-            collect_int_vars(body, int_vars, ctx);
+            collect_int_vars(body, int_vars);
         }
         VerifyExpr::Apply { args, .. } | VerifyExpr::ApplyInt { args, .. } => {
-            for arg in args { collect_int_vars(arg, int_vars, ctx); }
+            for arg in args { collect_int_vars(arg, int_vars); }
         }
         _ => {}
     }
 }
 
 /// Recursively collect Var leaves from integer-typed subexpressions.
-fn collect_int_var_leaves<'ctx>(expr: &VerifyExpr, int_vars: &mut HashMap<String, Int<'ctx>>, ctx: &'ctx Context) {
+fn collect_int_var_leaves(expr: &VerifyExpr, int_vars: &mut HashMap<String, Int>) {
     match expr {
         VerifyExpr::Var(name) => {
             if !int_vars.contains_key(name) {
-                int_vars.insert(name.clone(), Int::new_const(ctx, name.as_str()));
+                int_vars.insert(name.clone(), Int::new_const(name.as_str()));
             }
         }
         VerifyExpr::Binary { left, right, .. } => {
-            collect_int_var_leaves(left, int_vars, ctx);
-            collect_int_var_leaves(right, int_vars, ctx);
+            collect_int_var_leaves(left, int_vars);
+            collect_int_var_leaves(right, int_vars);
         }
         _ => {}
     }
 }
 
 /// Collect variable names that appear in bitvector-typed positions.
-fn collect_bv_vars<'ctx>(expr: &VerifyExpr, bv_vars: &mut HashMap<String, z3::ast::BV<'ctx>>, ctx: &'ctx Context) {
+fn collect_bv_vars(expr: &VerifyExpr, bv_vars: &mut HashMap<String, z3::ast::BV>) {
     match expr {
         VerifyExpr::BitVecBinary { op: _, left, right } => {
-            collect_bv_var_leaves(left, bv_vars, ctx, None);
-            collect_bv_var_leaves(right, bv_vars, ctx, None);
-            collect_bv_vars(left, bv_vars, ctx);
-            collect_bv_vars(right, bv_vars, ctx);
+            collect_bv_var_leaves(left, bv_vars, None);
+            collect_bv_var_leaves(right, bv_vars, None);
+            collect_bv_vars(left, bv_vars);
+            collect_bv_vars(right, bv_vars);
         }
         VerifyExpr::BitVecExtract { operand, .. } => {
-            collect_bv_var_leaves(operand, bv_vars, ctx, None);
-            collect_bv_vars(operand, bv_vars, ctx);
+            collect_bv_var_leaves(operand, bv_vars, None);
+            collect_bv_vars(operand, bv_vars);
         }
         VerifyExpr::BitVecConcat(l, r) => {
-            collect_bv_var_leaves(l, bv_vars, ctx, None);
-            collect_bv_var_leaves(r, bv_vars, ctx, None);
-            collect_bv_vars(l, bv_vars, ctx);
-            collect_bv_vars(r, bv_vars, ctx);
+            collect_bv_var_leaves(l, bv_vars, None);
+            collect_bv_var_leaves(r, bv_vars, None);
+            collect_bv_vars(l, bv_vars);
+            collect_bv_vars(r, bv_vars);
         }
         VerifyExpr::Binary { left, right, .. } => {
-            collect_bv_vars(left, bv_vars, ctx);
-            collect_bv_vars(right, bv_vars, ctx);
+            collect_bv_vars(left, bv_vars);
+            collect_bv_vars(right, bv_vars);
         }
-        VerifyExpr::Not(inner) => collect_bv_vars(inner, bv_vars, ctx),
+        VerifyExpr::Not(inner) => collect_bv_vars(inner, bv_vars),
         VerifyExpr::Iff(l, r) => {
-            collect_bv_vars(l, bv_vars, ctx);
-            collect_bv_vars(r, bv_vars, ctx);
+            collect_bv_vars(l, bv_vars);
+            collect_bv_vars(r, bv_vars);
         }
         VerifyExpr::ForAll { body, .. } | VerifyExpr::Exists { body, .. } => {
-            collect_bv_vars(body, bv_vars, ctx);
+            collect_bv_vars(body, bv_vars);
         }
         VerifyExpr::Apply { args, .. } | VerifyExpr::ApplyInt { args, .. } => {
-            for arg in args { collect_bv_vars(arg, bv_vars, ctx); }
+            for arg in args { collect_bv_vars(arg, bv_vars); }
         }
         VerifyExpr::Select { array, index } => {
-            collect_bv_vars(array, bv_vars, ctx);
-            collect_bv_vars(index, bv_vars, ctx);
+            collect_bv_vars(array, bv_vars);
+            collect_bv_vars(index, bv_vars);
         }
         VerifyExpr::Store { array, index, value } => {
-            collect_bv_vars(array, bv_vars, ctx);
-            collect_bv_vars(index, bv_vars, ctx);
-            collect_bv_vars(value, bv_vars, ctx);
+            collect_bv_vars(array, bv_vars);
+            collect_bv_vars(index, bv_vars);
+            collect_bv_vars(value, bv_vars);
         }
         VerifyExpr::AtState { state, expr } => {
-            collect_bv_vars(state, bv_vars, ctx);
-            collect_bv_vars(expr, bv_vars, ctx);
+            collect_bv_vars(state, bv_vars);
+            collect_bv_vars(expr, bv_vars);
         }
         VerifyExpr::Transition { from, to } => {
-            collect_bv_vars(from, bv_vars, ctx);
-            collect_bv_vars(to, bv_vars, ctx);
+            collect_bv_vars(from, bv_vars);
+            collect_bv_vars(to, bv_vars);
         }
         _ => {}
     }
 }
 
 /// Recursively collect Var leaves from bitvector-typed subexpressions.
-fn collect_bv_var_leaves<'ctx>(expr: &VerifyExpr, bv_vars: &mut HashMap<String, z3::ast::BV<'ctx>>, ctx: &'ctx Context, width_hint: Option<u32>) {
+fn collect_bv_var_leaves(expr: &VerifyExpr, bv_vars: &mut HashMap<String, z3::ast::BV>, width_hint: Option<u32>) {
     match expr {
         VerifyExpr::Var(name) => {
             if !bv_vars.contains_key(name) {
                 // Determine width from context or default to 8
                 let width = width_hint.unwrap_or_else(|| infer_bv_width_from_name(name));
-                bv_vars.insert(name.clone(), z3::ast::BV::new_const(ctx, name.as_str(), width));
+                bv_vars.insert(name.clone(), z3::ast::BV::new_const(name.as_str(), width));
             }
         }
-        VerifyExpr::BitVecConst { width, .. } => {
+        VerifyExpr::BitVecConst { width: _, .. } => {
             // A constant tells us the width of sibling vars
             // (handled by the caller)
         }
         VerifyExpr::BitVecBinary { left, right, .. } => {
             // Try to extract width from either side
             let w = bv_expr_width(expr);
-            collect_bv_var_leaves(left, bv_vars, ctx, w);
-            collect_bv_var_leaves(right, bv_vars, ctx, w);
+            collect_bv_var_leaves(left, bv_vars, w);
+            collect_bv_var_leaves(right, bv_vars, w);
         }
         VerifyExpr::Binary { left, right, .. } => {
-            collect_bv_var_leaves(left, bv_vars, ctx, width_hint);
-            collect_bv_var_leaves(right, bv_vars, ctx, width_hint);
+            collect_bv_var_leaves(left, bv_vars, width_hint);
+            collect_bv_var_leaves(right, bv_vars, width_hint);
         }
         _ => {}
     }
@@ -481,93 +476,92 @@ fn bv_expr_width(expr: &VerifyExpr) -> Option<u32> {
 
 /// Collect variable names that appear in array-typed positions.
 /// Also collects index/value variables as int vars since arrays use Int → Int by default.
-fn collect_array_vars<'ctx>(expr: &VerifyExpr, array_vars: &mut HashMap<String, z3::ast::Array<'ctx>>, ctx: &'ctx Context) {
-    collect_array_vars_inner(expr, array_vars, ctx);
+fn collect_array_vars(expr: &VerifyExpr, array_vars: &mut HashMap<String, z3::ast::Array>) {
+    collect_array_vars_inner(expr, array_vars);
 }
 
-fn collect_array_vars_inner<'ctx>(expr: &VerifyExpr, array_vars: &mut HashMap<String, z3::ast::Array<'ctx>>, ctx: &'ctx Context) {
+fn collect_array_vars_inner(expr: &VerifyExpr, array_vars: &mut HashMap<String, z3::ast::Array>) {
     match expr {
         VerifyExpr::Select { array, index } => {
             if let VerifyExpr::Var(name) = array.as_ref() {
                 if !array_vars.contains_key(name) {
-                    let int_sort = z3::Sort::int(ctx);
+                    let int_sort = z3::Sort::int();
                     array_vars.insert(
                         name.clone(),
-                        z3::ast::Array::new_const(ctx, name.as_str(), &int_sort, &int_sort),
+                        z3::ast::Array::new_const(name.as_str(), &int_sort, &int_sort),
                     );
                 }
             }
-            collect_array_vars_inner(array, array_vars, ctx);
-            collect_array_vars_inner(index, array_vars, ctx);
+            collect_array_vars_inner(array, array_vars);
+            collect_array_vars_inner(index, array_vars);
         }
         VerifyExpr::Store { array, index, value } => {
             if let VerifyExpr::Var(name) = array.as_ref() {
                 if !array_vars.contains_key(name) {
-                    let int_sort = z3::Sort::int(ctx);
+                    let int_sort = z3::Sort::int();
                     array_vars.insert(
                         name.clone(),
-                        z3::ast::Array::new_const(ctx, name.as_str(), &int_sort, &int_sort),
+                        z3::ast::Array::new_const(name.as_str(), &int_sort, &int_sort),
                     );
                 }
             }
-            collect_array_vars_inner(array, array_vars, ctx);
-            collect_array_vars_inner(index, array_vars, ctx);
-            collect_array_vars_inner(value, array_vars, ctx);
+            collect_array_vars_inner(array, array_vars);
+            collect_array_vars_inner(index, array_vars);
+            collect_array_vars_inner(value, array_vars);
         }
         VerifyExpr::Binary { left, right, .. } => {
-            collect_array_vars_inner(left, array_vars, ctx);
-            collect_array_vars_inner(right, array_vars, ctx);
+            collect_array_vars_inner(left, array_vars);
+            collect_array_vars_inner(right, array_vars);
         }
-        VerifyExpr::Not(inner) => collect_array_vars_inner(inner, array_vars, ctx),
+        VerifyExpr::Not(inner) => collect_array_vars_inner(inner, array_vars),
         VerifyExpr::Iff(l, r) => {
-            collect_array_vars_inner(l, array_vars, ctx);
-            collect_array_vars_inner(r, array_vars, ctx);
+            collect_array_vars_inner(l, array_vars);
+            collect_array_vars_inner(r, array_vars);
         }
         VerifyExpr::ForAll { body, .. } | VerifyExpr::Exists { body, .. } => {
-            collect_array_vars_inner(body, array_vars, ctx);
+            collect_array_vars_inner(body, array_vars);
         }
         _ => {}
     }
 }
 
 /// Collect variables used as array indices or values (they need Int sort, not Bool).
-fn collect_array_index_vars<'ctx>(expr: &VerifyExpr, int_vars: &mut HashMap<String, Int<'ctx>>, ctx: &'ctx Context) {
+fn collect_array_index_vars(expr: &VerifyExpr, int_vars: &mut HashMap<String, Int>) {
     match expr {
         VerifyExpr::Select { array, index } => {
-            collect_int_var_leaves(index, int_vars, ctx);
-            collect_array_index_vars(array, int_vars, ctx);
-            collect_array_index_vars(index, int_vars, ctx);
+            collect_int_var_leaves(index, int_vars);
+            collect_array_index_vars(array, int_vars);
+            collect_array_index_vars(index, int_vars);
         }
         VerifyExpr::Store { array, index, value } => {
-            collect_int_var_leaves(index, int_vars, ctx);
-            collect_int_var_leaves(value, int_vars, ctx);
-            collect_array_index_vars(array, int_vars, ctx);
-            collect_array_index_vars(index, int_vars, ctx);
-            collect_array_index_vars(value, int_vars, ctx);
+            collect_int_var_leaves(index, int_vars);
+            collect_int_var_leaves(value, int_vars);
+            collect_array_index_vars(array, int_vars);
+            collect_array_index_vars(index, int_vars);
+            collect_array_index_vars(value, int_vars);
         }
         VerifyExpr::Binary { left, right, .. } => {
-            collect_array_index_vars(left, int_vars, ctx);
-            collect_array_index_vars(right, int_vars, ctx);
+            collect_array_index_vars(left, int_vars);
+            collect_array_index_vars(right, int_vars);
         }
-        VerifyExpr::Not(inner) => collect_array_index_vars(inner, int_vars, ctx),
+        VerifyExpr::Not(inner) => collect_array_index_vars(inner, int_vars),
         VerifyExpr::Iff(l, r) => {
-            collect_array_index_vars(l, int_vars, ctx);
-            collect_array_index_vars(r, int_vars, ctx);
+            collect_array_index_vars(l, int_vars);
+            collect_array_index_vars(r, int_vars);
         }
         VerifyExpr::ForAll { body, .. } | VerifyExpr::Exists { body, .. } => {
-            collect_array_index_vars(body, int_vars, ctx);
+            collect_array_index_vars(body, int_vars);
         }
         _ => {}
     }
 }
 
 /// Collect quantifier-bound variables with their declared types.
-fn collect_quantifier_bound_vars<'ctx>(
+fn collect_quantifier_bound_vars(
     expr: &VerifyExpr,
-    int_vars: &mut HashMap<String, Int<'ctx>>,
-    bv_vars: &mut HashMap<String, z3::ast::BV<'ctx>>,
-    array_vars: &mut HashMap<String, z3::ast::Array<'ctx>>,
-    ctx: &'ctx Context,
+    int_vars: &mut HashMap<String, Int>,
+    bv_vars: &mut HashMap<String, z3::ast::BV>,
+    array_vars: &mut HashMap<String, z3::ast::Array>,
 ) {
     match expr {
         VerifyExpr::ForAll { vars, body } | VerifyExpr::Exists { vars, body } => {
@@ -575,21 +569,21 @@ fn collect_quantifier_bound_vars<'ctx>(
                 match ty {
                     VerifyType::Int | VerifyType::Object | VerifyType::Real => {
                         if !int_vars.contains_key(name) {
-                            int_vars.insert(name.clone(), Int::new_const(ctx, name.as_str()));
+                            int_vars.insert(name.clone(), Int::new_const(name.as_str()));
                         }
                     }
                     VerifyType::BitVector(w) => {
                         if !bv_vars.contains_key(name) {
-                            bv_vars.insert(name.clone(), z3::ast::BV::new_const(ctx, name.as_str(), *w));
+                            bv_vars.insert(name.clone(), z3::ast::BV::new_const(name.as_str(), *w));
                         }
                     }
                     VerifyType::Array(idx, elem) => {
                         if !array_vars.contains_key(name) {
-                            let idx_sort = type_to_z3_sort(ctx, idx);
-                            let elem_sort = type_to_z3_sort(ctx, elem);
+                            let idx_sort = type_to_z3_sort(idx);
+                            let elem_sort = type_to_z3_sort(elem);
                             array_vars.insert(
                                 name.clone(),
-                                z3::ast::Array::new_const(ctx, name.as_str(), &idx_sort, &elem_sort),
+                                z3::ast::Array::new_const(name.as_str(), &idx_sort, &elem_sort),
                             );
                         }
                     }
@@ -598,35 +592,35 @@ fn collect_quantifier_bound_vars<'ctx>(
                     }
                 }
             }
-            collect_quantifier_bound_vars(body, int_vars, bv_vars, array_vars, ctx);
+            collect_quantifier_bound_vars(body, int_vars, bv_vars, array_vars);
         }
         VerifyExpr::Binary { left, right, .. } => {
-            collect_quantifier_bound_vars(left, int_vars, bv_vars, array_vars, ctx);
-            collect_quantifier_bound_vars(right, int_vars, bv_vars, array_vars, ctx);
+            collect_quantifier_bound_vars(left, int_vars, bv_vars, array_vars);
+            collect_quantifier_bound_vars(right, int_vars, bv_vars, array_vars);
         }
         VerifyExpr::Not(inner) => {
-            collect_quantifier_bound_vars(inner, int_vars, bv_vars, array_vars, ctx);
+            collect_quantifier_bound_vars(inner, int_vars, bv_vars, array_vars);
         }
         VerifyExpr::Iff(l, r) => {
-            collect_quantifier_bound_vars(l, int_vars, bv_vars, array_vars, ctx);
-            collect_quantifier_bound_vars(r, int_vars, bv_vars, array_vars, ctx);
+            collect_quantifier_bound_vars(l, int_vars, bv_vars, array_vars);
+            collect_quantifier_bound_vars(r, int_vars, bv_vars, array_vars);
         }
         _ => {}
     }
 }
 
 /// Convert a VerifyType to a Z3 Sort (standalone function).
-fn type_to_z3_sort<'ctx>(ctx: &'ctx Context, ty: &VerifyType) -> z3::Sort<'ctx> {
+fn type_to_z3_sort(ty: &VerifyType) -> z3::Sort {
     match ty {
-        VerifyType::Int => z3::Sort::int(ctx),
-        VerifyType::Bool => z3::Sort::bool(ctx),
-        VerifyType::Object => z3::Sort::int(ctx),
-        VerifyType::Real => z3::Sort::real(ctx),
-        VerifyType::BitVector(w) => z3::Sort::bitvector(ctx, *w),
+        VerifyType::Int => z3::Sort::int(),
+        VerifyType::Bool => z3::Sort::bool(),
+        VerifyType::Object => z3::Sort::int(),
+        VerifyType::Real => z3::Sort::real(),
+        VerifyType::BitVector(w) => z3::Sort::bitvector(*w),
         VerifyType::Array(idx, elem) => {
-            let idx_sort = type_to_z3_sort(ctx, idx);
-            let elem_sort = type_to_z3_sort(ctx, elem);
-            z3::Sort::array(ctx, &idx_sort, &elem_sort)
+            let idx_sort = type_to_z3_sort(idx);
+            let elem_sort = type_to_z3_sort(elem);
+            z3::Sort::array(&idx_sort, &elem_sort)
         }
     }
 }
@@ -640,32 +634,30 @@ fn expr_is_integer(expr: &VerifyExpr) -> bool {
 }
 
 /// Encoder that handles Bool, Int, BitVec, and Array Z3 expressions for equivalence checking.
-pub struct EquivEncoder<'ctx> {
-    ctx: &'ctx Context,
-    bool_vars: &'ctx HashMap<String, Bool<'ctx>>,
-    int_vars: &'ctx HashMap<String, Int<'ctx>>,
-    bv_vars: &'ctx HashMap<String, z3::ast::BV<'ctx>>,
-    array_vars: &'ctx HashMap<String, z3::ast::Array<'ctx>>,
+pub struct EquivEncoder<'a> {
+    bool_vars: &'a HashMap<String, Bool>,
+    int_vars: &'a HashMap<String, Int>,
+    bv_vars: &'a HashMap<String, z3::ast::BV>,
+    array_vars: &'a HashMap<String, z3::ast::Array>,
 }
 
-impl<'ctx> EquivEncoder<'ctx> {
+impl<'a> EquivEncoder<'a> {
     /// Create a full encoder with all variable maps.
     pub fn new(
-        ctx: &'ctx Context,
-        bool_vars: &'ctx HashMap<String, Bool<'ctx>>,
-        int_vars: &'ctx HashMap<String, Int<'ctx>>,
-        bv_vars: &'ctx HashMap<String, z3::ast::BV<'ctx>>,
-        array_vars: &'ctx HashMap<String, z3::ast::Array<'ctx>>,
+        bool_vars: &'a HashMap<String, Bool>,
+        int_vars: &'a HashMap<String, Int>,
+        bv_vars: &'a HashMap<String, z3::ast::BV>,
+        array_vars: &'a HashMap<String, z3::ast::Array>,
     ) -> Self {
-        Self { ctx, bool_vars, int_vars, bv_vars, array_vars }
+        Self { bool_vars, int_vars, bv_vars, array_vars }
     }
 
     /// Encode as a Dynamic Z3 expression (may be Bool or Int).
-    fn encode(&self, expr: &VerifyExpr) -> Dynamic<'ctx> {
+    fn encode(&self, expr: &VerifyExpr) -> Dynamic {
         match expr {
-            VerifyExpr::Bool(b) => Dynamic::from_ast(&Bool::from_bool(self.ctx, *b)),
+            VerifyExpr::Bool(b) => Dynamic::from_ast(&Bool::from_bool(*b)),
 
-            VerifyExpr::Int(n) => Dynamic::from_ast(&Int::from_i64(self.ctx, *n)),
+            VerifyExpr::Int(n) => Dynamic::from_ast(&Int::from_i64(*n)),
 
             VerifyExpr::Var(name) => {
                 // Check in order of specificity: BV > Array > Int > Bool
@@ -678,7 +670,7 @@ impl<'ctx> EquivEncoder<'ctx> {
                 } else if let Some(bv) = self.bool_vars.get(name) {
                     Dynamic::from_ast(bv)
                 } else {
-                    Dynamic::from_ast(&Bool::new_const(self.ctx, name.as_str()))
+                    Dynamic::from_ast(&Bool::new_const(name.as_str()))
                 }
             }
 
@@ -689,14 +681,14 @@ impl<'ctx> EquivEncoder<'ctx> {
                     // Boolean ops
                     VerifyOp::And => {
                         if let (Some(lb), Some(rb)) = (l.as_bool(), r.as_bool()) {
-                            Dynamic::from_ast(&Bool::and(self.ctx, &[&lb, &rb]))
+                            Dynamic::from_ast(&Bool::and(&[&lb, &rb]))
                         } else {
                             l // fallback
                         }
                     }
                     VerifyOp::Or => {
                         if let (Some(lb), Some(rb)) = (l.as_bool(), r.as_bool()) {
-                            Dynamic::from_ast(&Bool::or(self.ctx, &[&lb, &rb]))
+                            Dynamic::from_ast(&Bool::or(&[&lb, &rb]))
                         } else {
                             l
                         }
@@ -711,36 +703,36 @@ impl<'ctx> EquivEncoder<'ctx> {
                     // Equality: works for both Bool and Int
                     VerifyOp::Eq => {
                         if let (Some(li), Some(ri)) = (l.as_int(), r.as_int()) {
-                            Dynamic::from_ast(&li._eq(&ri))
+                            Dynamic::from_ast(&li.eq(&ri))
                         } else if let (Some(lb), Some(rb)) = (l.as_bool(), r.as_bool()) {
                             Dynamic::from_ast(&lb.iff(&rb))
                         } else {
-                            Dynamic::from_ast(&l._eq(&r))
+                            Dynamic::from_ast(&l.eq(&r))
                         }
                     }
                     VerifyOp::Neq => {
                         if let (Some(li), Some(ri)) = (l.as_int(), r.as_int()) {
-                            Dynamic::from_ast(&li._eq(&ri).not())
+                            Dynamic::from_ast(&li.eq(&ri).not())
                         } else if let (Some(lb), Some(rb)) = (l.as_bool(), r.as_bool()) {
                             Dynamic::from_ast(&lb.iff(&rb).not())
                         } else {
-                            Dynamic::from_ast(&l._eq(&r).not())
+                            Dynamic::from_ast(&l.eq(&r).not())
                         }
                     }
                     // Arithmetic ops → Int
                     VerifyOp::Add => {
                         if let (Some(li), Some(ri)) = (l.as_int(), r.as_int()) {
-                            Dynamic::from_ast(&Int::add(self.ctx, &[&li, &ri]))
+                            Dynamic::from_ast(&Int::add(&[&li, &ri]))
                         } else { l }
                     }
                     VerifyOp::Sub => {
                         if let (Some(li), Some(ri)) = (l.as_int(), r.as_int()) {
-                            Dynamic::from_ast(&Int::sub(self.ctx, &[&li, &ri]))
+                            Dynamic::from_ast(&Int::sub(&[&li, &ri]))
                         } else { l }
                     }
                     VerifyOp::Mul => {
                         if let (Some(li), Some(ri)) = (l.as_int(), r.as_int()) {
-                            Dynamic::from_ast(&Int::mul(self.ctx, &[&li, &ri]))
+                            Dynamic::from_ast(&Int::mul(&[&li, &ri]))
                         } else { l }
                     }
                     VerifyOp::Div => {
@@ -758,22 +750,22 @@ impl<'ctx> EquivEncoder<'ctx> {
                     VerifyOp::Gt => {
                         if let (Some(li), Some(ri)) = (l.as_int(), r.as_int()) {
                             Dynamic::from_ast(&li.gt(&ri))
-                        } else { Dynamic::from_ast(&Bool::from_bool(self.ctx, false)) }
+                        } else { Dynamic::from_ast(&Bool::from_bool(false)) }
                     }
                     VerifyOp::Lt => {
                         if let (Some(li), Some(ri)) = (l.as_int(), r.as_int()) {
                             Dynamic::from_ast(&li.lt(&ri))
-                        } else { Dynamic::from_ast(&Bool::from_bool(self.ctx, false)) }
+                        } else { Dynamic::from_ast(&Bool::from_bool(false)) }
                     }
                     VerifyOp::Gte => {
                         if let (Some(li), Some(ri)) = (l.as_int(), r.as_int()) {
                             Dynamic::from_ast(&li.ge(&ri))
-                        } else { Dynamic::from_ast(&Bool::from_bool(self.ctx, false)) }
+                        } else { Dynamic::from_ast(&Bool::from_bool(false)) }
                     }
                     VerifyOp::Lte => {
                         if let (Some(li), Some(ri)) = (l.as_int(), r.as_int()) {
                             Dynamic::from_ast(&li.le(&ri))
-                        } else { Dynamic::from_ast(&Bool::from_bool(self.ctx, false)) }
+                        } else { Dynamic::from_ast(&Bool::from_bool(false)) }
                     }
                 }
             }
@@ -793,29 +785,29 @@ impl<'ctx> EquivEncoder<'ctx> {
                 if let (Some(lbool), Some(rbool)) = (lb.as_bool(), rb.as_bool()) {
                     Dynamic::from_ast(&lbool.iff(&rbool))
                 } else {
-                    Dynamic::from_ast(&lb._eq(&rb))
+                    Dynamic::from_ast(&lb.eq(&rb))
                 }
             }
 
             VerifyExpr::ApplyInt { name, args } => {
-                let encoded_args: Vec<Dynamic<'ctx>> = args.iter().map(|a| self.encode(a)).collect();
-                let arg_sorts: Vec<z3::Sort<'ctx>> = encoded_args.iter().map(|a| a.get_sort()).collect();
-                let arg_sort_refs: Vec<&z3::Sort<'ctx>> = arg_sorts.iter().collect();
-                let int_sort = z3::Sort::int(self.ctx);
-                let func_decl = z3::FuncDecl::new(self.ctx, name.as_str(), &arg_sort_refs, &int_sort);
-                let arg_refs: Vec<&dyn z3::ast::Ast<'ctx>> = encoded_args.iter().map(|a| a as &dyn z3::ast::Ast<'ctx>).collect();
+                let encoded_args: Vec<Dynamic> = args.iter().map(|a| self.encode(a)).collect();
+                let arg_sorts: Vec<z3::Sort> = encoded_args.iter().map(|a| a.get_sort()).collect();
+                let arg_sort_refs: Vec<&z3::Sort> = arg_sorts.iter().collect();
+                let int_sort = z3::Sort::int();
+                let func_decl = z3::FuncDecl::new(name.as_str(), &arg_sort_refs, &int_sort);
+                let arg_refs: Vec<&dyn z3::ast::Ast> = encoded_args.iter().map(|a| a as &dyn z3::ast::Ast).collect();
                 func_decl.apply(&arg_refs)
             }
 
             // Uninterpreted functions: create unique Z3 function symbol per name
             VerifyExpr::Apply { name, args } => {
-                let encoded_args: Vec<Dynamic<'ctx>> = args.iter().map(|a| self.encode(a)).collect();
+                let encoded_args: Vec<Dynamic> = args.iter().map(|a| self.encode(a)).collect();
                 // Create a unique uninterpreted boolean function for each name
-                let arg_sorts: Vec<z3::Sort<'ctx>> = encoded_args.iter().map(|a| a.get_sort()).collect();
-                let arg_sort_refs: Vec<&z3::Sort<'ctx>> = arg_sorts.iter().collect();
-                let bool_sort = z3::Sort::bool(self.ctx);
-                let func_decl = z3::FuncDecl::new(self.ctx, name.as_str(), &arg_sort_refs, &bool_sort);
-                let arg_refs: Vec<&dyn z3::ast::Ast<'ctx>> = encoded_args.iter().map(|a| a as &dyn z3::ast::Ast<'ctx>).collect();
+                let arg_sorts: Vec<z3::Sort> = encoded_args.iter().map(|a| a.get_sort()).collect();
+                let arg_sort_refs: Vec<&z3::Sort> = arg_sorts.iter().collect();
+                let bool_sort = z3::Sort::bool();
+                let func_decl = z3::FuncDecl::new(name.as_str(), &arg_sort_refs, &bool_sort);
+                let arg_refs: Vec<&dyn z3::ast::Ast> = encoded_args.iter().map(|a| a as &dyn z3::ast::Ast).collect();
                 func_decl.apply(&arg_refs)
             }
 
@@ -825,11 +817,11 @@ impl<'ctx> EquivEncoder<'ctx> {
                     return self.encode(body);
                 }
                 let body_encoded = self.encode_as_bool(body);
-                let bound_consts: Vec<Dynamic<'ctx>> = vars.iter().map(|(name, ty)| {
+                let bound_consts: Vec<Dynamic> = vars.iter().map(|(name, ty)| {
                     self.make_quantifier_var(name, ty)
                 }).collect();
-                let bound_refs: Vec<&dyn Ast<'ctx>> = bound_consts.iter().map(|d| d as &dyn Ast<'ctx>).collect();
-                Dynamic::from_ast(&z3::ast::forall_const(self.ctx, &bound_refs, &[], &body_encoded))
+                let bound_refs: Vec<&dyn Ast> = bound_consts.iter().map(|d| d as &dyn Ast).collect();
+                Dynamic::from_ast(&z3::ast::forall_const(&bound_refs, &[], &body_encoded))
             }
 
             VerifyExpr::Exists { vars, body } => {
@@ -837,17 +829,17 @@ impl<'ctx> EquivEncoder<'ctx> {
                     return self.encode(body);
                 }
                 let body_encoded = self.encode_as_bool(body);
-                let bound_consts: Vec<Dynamic<'ctx>> = vars.iter().map(|(name, ty)| {
+                let bound_consts: Vec<Dynamic> = vars.iter().map(|(name, ty)| {
                     self.make_quantifier_var(name, ty)
                 }).collect();
-                let bound_refs: Vec<&dyn Ast<'ctx>> = bound_consts.iter().map(|d| d as &dyn Ast<'ctx>).collect();
-                Dynamic::from_ast(&z3::ast::exists_const(self.ctx, &bound_refs, &[], &body_encoded))
+                let bound_refs: Vec<&dyn Ast> = bound_consts.iter().map(|d| d as &dyn Ast).collect();
+                Dynamic::from_ast(&z3::ast::exists_const(&bound_refs, &[], &body_encoded))
             }
 
             // ---- Bitvector operations ----
 
             VerifyExpr::BitVecConst { width, value } => {
-                Dynamic::from_ast(&z3::ast::BV::from_u64(self.ctx, *value, *width))
+                Dynamic::from_ast(&z3::ast::BV::from_u64(*value, *width))
             }
 
             VerifyExpr::BitVecBinary { op, left, right } => {
@@ -908,7 +900,7 @@ impl<'ctx> EquivEncoder<'ctx> {
                 let f = self.encode(from);
                 let t = self.encode(to);
                 if let (Some(fb), Some(tb)) = (f.as_bool(), t.as_bool()) {
-                    Dynamic::from_ast(&Bool::and(self.ctx, &[&fb, &tb]))
+                    Dynamic::from_ast(&Bool::and(&[&fb, &tb]))
                 } else {
                     f
                 }
@@ -917,39 +909,39 @@ impl<'ctx> EquivEncoder<'ctx> {
     }
 
     /// Create a Z3 constant for a quantifier-bound variable with the correct sort.
-    fn make_quantifier_var(&self, name: &str, ty: &VerifyType) -> Dynamic<'ctx> {
+    fn make_quantifier_var(&self, name: &str, ty: &VerifyType) -> Dynamic {
         match ty {
-            VerifyType::Int => Dynamic::from_ast(&Int::new_const(self.ctx, name)),
-            VerifyType::Bool => Dynamic::from_ast(&Bool::new_const(self.ctx, name)),
-            VerifyType::BitVector(w) => Dynamic::from_ast(&z3::ast::BV::new_const(self.ctx, name, *w)),
-            VerifyType::Object => Dynamic::from_ast(&Int::new_const(self.ctx, name)),
-            VerifyType::Real => Dynamic::from_ast(&z3::ast::Real::new_const(self.ctx, name)),
+            VerifyType::Int => Dynamic::from_ast(&Int::new_const(name)),
+            VerifyType::Bool => Dynamic::from_ast(&Bool::new_const(name)),
+            VerifyType::BitVector(w) => Dynamic::from_ast(&z3::ast::BV::new_const(name, *w)),
+            VerifyType::Object => Dynamic::from_ast(&Int::new_const(name)),
+            VerifyType::Real => Dynamic::from_ast(&z3::ast::Real::new_const(name)),
             VerifyType::Array(idx, elem) => {
                 let idx_sort = self.type_to_sort(idx);
                 let elem_sort = self.type_to_sort(elem);
-                Dynamic::from_ast(&z3::ast::Array::new_const(self.ctx, name, &idx_sort, &elem_sort))
+                Dynamic::from_ast(&z3::ast::Array::new_const(name, &idx_sort, &elem_sort))
             }
         }
     }
 
     /// Convert a VerifyType to a Z3 Sort.
-    fn type_to_sort(&self, ty: &VerifyType) -> z3::Sort<'ctx> {
+    fn type_to_sort(&self, ty: &VerifyType) -> z3::Sort {
         match ty {
-            VerifyType::Int => z3::Sort::int(self.ctx),
-            VerifyType::Bool => z3::Sort::bool(self.ctx),
-            VerifyType::Object => z3::Sort::int(self.ctx),
-            VerifyType::Real => z3::Sort::real(self.ctx),
-            VerifyType::BitVector(w) => z3::Sort::bitvector(self.ctx, *w),
+            VerifyType::Int => z3::Sort::int(),
+            VerifyType::Bool => z3::Sort::bool(),
+            VerifyType::Object => z3::Sort::int(),
+            VerifyType::Real => z3::Sort::real(),
+            VerifyType::BitVector(w) => z3::Sort::bitvector(*w),
             VerifyType::Array(idx, elem) => {
                 let idx_sort = self.type_to_sort(idx);
                 let elem_sort = self.type_to_sort(elem);
-                z3::Sort::array(self.ctx, &idx_sort, &elem_sort)
+                z3::Sort::array(&idx_sort, &elem_sort)
             }
         }
     }
 
     /// Encode a bitvector binary operation.
-    fn encode_bv_binary(&self, op: &BitVecOp, l: Dynamic<'ctx>, r: Dynamic<'ctx>) -> Dynamic<'ctx> {
+    fn encode_bv_binary(&self, op: &BitVecOp, l: Dynamic, r: Dynamic) -> Dynamic {
         if let (Some(lb), Some(rb)) = (l.as_bv(), r.as_bv()) {
             match op {
                 BitVecOp::And => Dynamic::from_ast(&lb.bvand(&rb)),
@@ -968,7 +960,7 @@ impl<'ctx> EquivEncoder<'ctx> {
                 BitVecOp::SLt => Dynamic::from_ast(&lb.bvslt(&rb)),
                 BitVecOp::ULe => Dynamic::from_ast(&lb.bvule(&rb)),
                 BitVecOp::SLe => Dynamic::from_ast(&lb.bvsle(&rb)),
-                BitVecOp::Eq => Dynamic::from_ast(&lb._eq(&rb)),
+                BitVecOp::Eq => Dynamic::from_ast(&lb.eq(&rb)),
             }
         } else {
             l
@@ -976,26 +968,25 @@ impl<'ctx> EquivEncoder<'ctx> {
     }
 
     /// Encode as a Z3 Bool, coercing if necessary.
-    pub fn encode_as_bool(&self, expr: &VerifyExpr) -> Bool<'ctx> {
+    pub fn encode_as_bool(&self, expr: &VerifyExpr) -> Bool {
         let dyn_expr = self.encode(expr);
         dyn_expr.as_bool().unwrap_or_else(|| {
             // If we got an Int or other type, it can't be directly used as Bool.
             // Fail closed: false, not true. Unsupported constructs must NOT
             // silently become equivalent to anything (Sprint 0A consistency).
-            Bool::from_bool(self.ctx, false)
+            Bool::from_bool(false)
         })
     }
 }
 
 /// Extract a counterexample trace from a Z3 model.
-fn extract_trace<'ctx>(
-    ctx: &'ctx Context,
-    model: &z3::Model<'ctx>,
+fn extract_trace(
+    model: &z3::Model,
     signals: &[String],
     bound: usize,
-    bool_vars: &HashMap<String, Bool<'ctx>>,
-    int_vars: &HashMap<String, Int<'ctx>>,
-    bv_vars: &HashMap<String, z3::ast::BV<'ctx>>,
+    bool_vars: &HashMap<String, Bool>,
+    int_vars: &HashMap<String, Int>,
+    bv_vars: &HashMap<String, z3::ast::BV>,
 ) -> Trace {
     let mut cycles = Vec::new();
     for t in 0..=bound {

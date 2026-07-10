@@ -13,8 +13,14 @@ use std::process::Command;
 use tempfile::TempDir;
 
 /// The compiled `largo` binary under test (cargo builds it for integration tests).
+///
+/// Prefer the runtime `CARGO_BIN_EXE_largo` (nextest re-exports the extracted
+/// binary here when the suite runs from an archive) over the compile-time
+/// `env!`, whose baked build-time path doesn't exist in a fresh CI checkout.
 fn largo() -> Command {
-    Command::new(env!("CARGO_BIN_EXE_largo"))
+    let exe = std::env::var_os("CARGO_BIN_EXE_largo")
+        .unwrap_or_else(|| env!("CARGO_BIN_EXE_largo").into());
+    Command::new(exe)
 }
 
 fn node_available() -> bool {
