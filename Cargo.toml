@@ -51,7 +51,7 @@ default-members = [
 # tools (wirebench, wiki_trace). Members inherit it via `version.workspace = true`;
 # a release bump edits this line and the [workspace.dependencies] internal
 # entries below (scripts/bump-version.sh does both).
-version = "0.10.0"
+version = "0.10.1"
 authors = ["Tristen Harr <tristen@brahmastra-labs.com>"]
 license = "BUSL-1.1"
 repository = "https://github.com/Brahmastra-Labs/logicaffeine"
@@ -76,21 +76,21 @@ serde_json = "1.0"
 
 # Internal crates — members depend on these via `{ workspace = true }` so the
 # version+path pair lives in exactly one place.
-logicaffeine-base = { version = "0.10.0", path = "crates/logicaffeine_base" }
-logicaffeine-lexicon = { version = "0.10.0", path = "crates/logicaffeine_lexicon" }
-logicaffeine-kernel = { version = "0.10.0", path = "crates/logicaffeine_kernel" }
-logicaffeine-data = { version = "0.10.0", path = "crates/logicaffeine_data" }
-logicaffeine-system = { version = "0.10.0", path = "crates/logicaffeine_system" }
-logicaffeine-language = { version = "0.10.0", path = "crates/logicaffeine_language" }
-logicaffeine-proof = { version = "0.10.0", path = "crates/logicaffeine_proof" }
-logicaffeine-compile = { version = "0.10.0", path = "crates/logicaffeine_compile" }
-logicaffeine-runtime = { version = "0.10.0", path = "crates/logicaffeine_runtime" }
-logicaffeine-verify = { version = "0.10.0", path = "crates/logicaffeine_verify" }
-logicaffeine-forge = { version = "0.10.0", path = "crates/logicaffeine_forge" }
-logicaffeine-jit = { version = "0.10.0", path = "crates/logicaffeine_jit" }
-logicaffeine-tv = { version = "0.10.0", path = "crates/logicaffeine_tv" }
-logicaffeine-synth = { version = "0.10.0", path = "crates/logicaffeine_synth" }
-logicaffeine-web = { version = "0.10.0", path = "apps/logicaffeine_web" }
+logicaffeine-base = { version = "0.10.1", path = "crates/logicaffeine_base" }
+logicaffeine-lexicon = { version = "0.10.1", path = "crates/logicaffeine_lexicon" }
+logicaffeine-kernel = { version = "0.10.1", path = "crates/logicaffeine_kernel" }
+logicaffeine-data = { version = "0.10.1", path = "crates/logicaffeine_data" }
+logicaffeine-system = { version = "0.10.1", path = "crates/logicaffeine_system" }
+logicaffeine-language = { version = "0.10.1", path = "crates/logicaffeine_language" }
+logicaffeine-proof = { version = "0.10.1", path = "crates/logicaffeine_proof" }
+logicaffeine-compile = { version = "0.10.1", path = "crates/logicaffeine_compile" }
+logicaffeine-runtime = { version = "0.10.1", path = "crates/logicaffeine_runtime" }
+logicaffeine-verify = { version = "0.10.1", path = "crates/logicaffeine_verify" }
+logicaffeine-forge = { version = "0.10.1", path = "crates/logicaffeine_forge" }
+logicaffeine-jit = { version = "0.10.1", path = "crates/logicaffeine_jit" }
+logicaffeine-tv = { version = "0.10.1", path = "crates/logicaffeine_tv" }
+logicaffeine-synth = { version = "0.10.1", path = "crates/logicaffeine_synth" }
+logicaffeine-web = { version = "0.10.1", path = "apps/logicaffeine_web" }
 
 # KNUTH DOCUMENTATION STANDARD (Section 1.8)
 [workspace.metadata.docs.rs]

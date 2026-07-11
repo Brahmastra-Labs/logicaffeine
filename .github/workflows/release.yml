@@ -159,10 +159,22 @@ jobs:
         run: |
           # Z3 4.16 needs a C++20 std::format-capable compiler; on Linux use the
           # gcc-13 installed above (ubuntu-22.04's default gcc-11 lacks it).
-          if [ "$(uname)" = "Linux" ]; then export CC=gcc-13 CXX=g++-13; fi
+          if [ "$(uname)" = "Linux" ]; then
+            export CC=gcc-13 CXX=g++-13
+            # gcc-13's libstdc++ tags symbols GLIBCXX_3.4.31, which stock ubuntu-22.04
+            # (and older) don't ship — a dynamically-linked full binary then dies at
+            # startup with "GLIBCXX_3.4.31 not found". Statically bundle libstdc++ so
+            # the binary self-contains its C++ runtime and runs on any glibc. A search
+            # dir holding ONLY libstdc++.a makes the linker's -lstdc++ (emitted by
+            # z3-sys) resolve to the static archive instead of the .so.
+            STDCPP_DIR="${RUNNER_TEMP:-/tmp}/staticstdcpp"
+            mkdir -p "$STDCPP_DIR"
+            ln -sf "$(g++-13 -print-file-name=libstdc++.a)" "$STDCPP_DIR/libstdc++.a"
+            export RUSTFLAGS="-L $STDCPP_DIR -C link-arg=-static-libgcc"
+          fi
           cargo build -p logicaffeine-cli --release --target ${{ matrix.target }} --features verification-static
 
-      - name: Assert no dynamic libz3 (full, unix)
+      - name: Assert no dynamic libz3 / libstdc++ (full, unix)
         if: matrix.flavor == 'full' && runner.os != 'Windows'
         shell: bash
         run: |
@@ -171,6 +183,13 @@ jobs:
             if otool -L "$BIN" | grep -qi libz3; then echo "dynamic libz3 leaked in"; exit 1; fi
           else
             if ldd "$BIN" | grep -qi libz3; then echo "dynamic libz3 leaked in"; exit 1; fi
+            # The full binary MUST statically bundle libstdc++: gcc-13 tags symbols
+            # GLIBCXX_3.4.31, which stock ubuntu-22.04 (and older) don't ship, so a
+            # dynamic libstdc++ dependency crashes at startup ("GLIBCXX_3.4.31 not
+            # found"). A leaked dynamic libstdc++ here is exactly the v0.10.0 bug.
+            if readelf -d "$BIN" | grep -qiE 'NEEDED.*libstdc\+\+'; then
+              echo "dynamic libstdc++ leaked in — would fail on stock glibc (GLIBCXX_3.4.31 not found)"; exit 1
+            fi
           fi
 
       # darwin-x64 is cross-compiled on arm64 runners — no smoke run there

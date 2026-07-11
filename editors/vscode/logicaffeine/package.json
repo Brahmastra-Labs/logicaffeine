@@ -2,7 +2,7 @@
   "name": "logicaffeine",
   "displayName": "LOGOS",
   "description": "The English programming language: literate-Markdown programs, socratic errors, kernel-certified theorem proving, and Rust's borrow checker speaking English.",
-  "version": "0.10.0",
+  "version": "0.10.1",
   "publisher": "brahmastra-labs",
   "repository": {
     "type": "git",

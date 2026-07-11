@@ -6,6 +6,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.10.1] - 2026-07-11
+
+### Fixed
+- **Prebuilt `largo-full` Linux binaries now run on stock glibc.** The Z3-static (`--full`) binaries are built with gcc-13 (required for Z3 4.16's C++20 `std::format`), whose libstdc++ tags symbols `GLIBCXX_3.4.31` — absent on stock ubuntu-22.04 and older — so the dynamically-linked full binary died at startup with `GLIBCXX_3.4.31 not found` (v0.10.0's `largo-full-linux-x64` and `largo-full-linux-arm64`). The full Linux builds now statically bundle libstdc++ (a library-search dir holding only `libstdc++.a` forces the linker's `-lstdc++`, emitted by z3-sys, to resolve to the static archive), so the binary self-contains its C++ runtime and runs on any glibc; a release-time assertion (`Assert no dynamic libz3 / libstdc++`) locks it so a dynamic libstdc++ can never regress back in. The lean binaries and all published crates were unaffected.
+
 ## [0.10.0] - 2026-07-08
 
 ### Fixed

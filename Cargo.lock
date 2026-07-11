@@ -4190,7 +4190,7 @@ checksum = "953f07c43838f8e6f9758cab68bf5bed85465e7587ebe0b823f1bcd81978ad3a"
 
 [[package]]
 name = "logicaffeine-base"
-version = "0.10.0"
+version = "0.10.1"
 dependencies = [
  "bumpalo",
  "md-5",
@@ -4200,7 +4200,7 @@ dependencies = [
 
 [[package]]
 name = "logicaffeine-cli"
-version = "0.10.0"
+version = "0.10.1"
 dependencies = [
  "anstream 0.6.21",
  "anstyle",
@@ -4229,7 +4229,7 @@ dependencies = [
 
 [[package]]
 name = "logicaffeine-compile"
-version = "0.10.0"
+version = "0.10.1"
 dependencies = [
  "async-recursion",
  "bincode",
@@ -4263,7 +4263,7 @@ dependencies = [
 
 [[package]]
 name = "logicaffeine-data"
-version = "0.10.0"
+version = "0.10.1"
 dependencies = [
  "bincode",
  "getrandom 0.2.17",
@@ -4275,7 +4275,7 @@ dependencies = [
 
 [[package]]
 name = "logicaffeine-forge"
-version = "0.10.0"
+version = "0.10.1"
 dependencies = [
  "libc",
  "object",
@@ -4284,7 +4284,7 @@ dependencies = [
 
 [[package]]
 name = "logicaffeine-jit"
-version = "0.10.0"
+version = "0.10.1"
 dependencies = [
  "logicaffeine-compile",
  "logicaffeine-forge",
@@ -4292,7 +4292,7 @@ dependencies = [
 
 [[package]]
 name = "logicaffeine-kernel"
-version = "0.10.0"
+version = "0.10.1"
 dependencies = [
  "logicaffeine-base",
  "serde",
@@ -4301,7 +4301,7 @@ dependencies = [
 
 [[package]]
 name = "logicaffeine-language"
-version = "0.10.0"
+version = "0.10.1"
 dependencies = [
  "bumpalo",
  "logicaffeine-base",
@@ -4313,7 +4313,7 @@ dependencies = [
 
 [[package]]
 name = "logicaffeine-lexicon"
-version = "0.10.0"
+version = "0.10.1"
 dependencies = [
  "logicaffeine-base",
  "logicaffeine-lexicon",
@@ -4324,7 +4324,7 @@ dependencies = [
 
 [[package]]
 name = "logicaffeine-lsp"
-version = "0.10.0"
+version = "0.10.1"
 dependencies = [
  "dashmap 6.2.1",
  "env_logger",
@@ -4341,7 +4341,7 @@ dependencies = [
 
 [[package]]
 name = "logicaffeine-proof"
-version = "0.10.0"
+version = "0.10.1"
 dependencies = [
  "logicaffeine-base",
  "logicaffeine-kernel",
@@ -4351,11 +4351,11 @@ dependencies = [
 
 [[package]]
 name = "logicaffeine-runtime"
-version = "0.10.0"
+version = "0.10.1"
 
 [[package]]
 name = "logicaffeine-synth"
-version = "0.10.0"
+version = "0.10.1"
 dependencies = [
  "logicaffeine-forge",
  "z3",
@@ -4363,7 +4363,7 @@ dependencies = [
 
 [[package]]
 name = "logicaffeine-system"
-version = "0.10.0"
+version = "0.10.1"
 dependencies = [
  "async-lock",
  "async-trait",
@@ -4400,7 +4400,7 @@ dependencies = [
 
 [[package]]
 name = "logicaffeine-tests"
-version = "0.10.0"
+version = "0.10.1"
 dependencies = [
  "bincode",
  "csv",
@@ -4432,7 +4432,7 @@ dependencies = [
 
 [[package]]
 name = "logicaffeine-tv"
-version = "0.10.0"
+version = "0.10.1"
 dependencies = [
  "logicaffeine-compile",
  "logicaffeine-verify",
@@ -4440,7 +4440,7 @@ dependencies = [
 
 [[package]]
 name = "logicaffeine-verify"
-version = "0.10.0"
+version = "0.10.1"
 dependencies = [
  "dirs",
  "serde",
@@ -4452,7 +4452,7 @@ dependencies = [
 
 [[package]]
 name = "logicaffeine-web"
-version = "0.10.0"
+version = "0.10.1"
 dependencies = [
  "async-recursion",
  "bumpalo",
