@@ -105,30 +105,103 @@
     </style>
 
     <script>
-        // CSR takeover, judged on DOM truth: the prerendered copy (#main) stays
-        // on screen until the app (#app) has committed real, VISIBLE route
-        // content — so a lazy route chunk streaming in never leaves the page
-        // blank, and the swap happens in the same frame the content lands.
+        // CSR takeover as a maintained INVARIANT, not a one-shot swap: the user
+        // always sees either the live app (#app) or the prerendered copy (#main),
+        // never a blank frame. A rAF watchdog keeps #main hidden only while
+        // #app-root is genuinely live (a child element AND real text); if the app
+        // ever goes empty — a boot crash, a failed lazy chunk, any render
+        // regression — it RESTORES #main so the static prerendered page (readable,
+        // nav links work) shows instead of a blank screen. #main is only removed
+        // after the app has been durably live; if that never happens we leave the
+        // prerendered copy up. Because it is rAF-driven it also cures the
+        // "blank until you tab back" case: rAF is throttled while hidden and
+        // resumes on foreground, re-asserting the invariant the moment you return.
         (function () {
-            function takeOver() {
-                const main = document.getElementById('main');
-                if (!main) return true;
-                const root = document.getElementById('app-root');
-                if (root && root.innerText && root.innerText.trim().length > 0) {
-                    main.remove();
-                    return true;
-                }
-                return false;
+            var MIN = 24, STABLE_MS = 1500, GIVE_UP_MS = 20000;
+            function live() {
+                var r = document.getElementById('app-root');
+                return !!(r && r.firstElementChild && (r.innerText || '').trim().length >= MIN);
             }
-            addEventListener('DOMContentLoaded', function () {
-                if (takeOver()) return;
-                const app = document.getElementById('app');
-                if (!app) return;
-                const obs = new MutationObserver(function () {
-                    if (takeOver()) obs.disconnect();
-                });
-                obs.observe(app, { childList: true, subtree: true, characterData: true });
-            });
+            var stableSince = 0, t0 = 0, removed = false;
+            function tick(now) {
+                var main = document.getElementById('main');
+                if (removed || !main) return;
+                if (!t0) t0 = now;
+                if (live()) {
+                    main.style.display = 'none';
+                    if (!stableSince) stableSince = now;
+                    if (now - stableSince > STABLE_MS) { main.remove(); removed = true; return; }
+                } else {
+                    main.style.display = '';
+                    stableSince = 0;
+                }
+                if (now - t0 > GIVE_UP_MS) { main.style.display = ''; return; }
+                requestAnimationFrame(tick);
+            }
+            function start() { if (document.getElementById('main')) requestAnimationFrame(tick); }
+            if (document.readyState === 'loading') addEventListener('DOMContentLoaded', start);
+            else start();
+        })();
+
+        // Background chunk prefetch: the site code-splits each route body into
+        // its own wasm blob, so the FIRST visit to every other page would block
+        // on downloading that chunk. Once the first page is idle we quietly warm
+        // ALL of them — network + compile in one primitive — so later navigation
+        // is instant. `chunks.json` (its content-hashed URLs) is written at build
+        // time by scripts/gen-prefetch-manifest.sh; if it's absent (dev, no split)
+        // or the connection is constrained, this is a no-op.
+        (function () {
+            if (window.__wasmPrefetchStarted) return;
+            window.__wasmPrefetchStarted = true;
+
+            var conn = navigator.connection || {};
+            // Data-saver or a slow link: don't spend the visitor's bytes eagerly.
+            if (conn.saveData) return;
+            var et = conn.effectiveType || '';
+            if (et === '2g' || et === 'slow-2g') return;
+            // Compiling every chunk is real CPU work (the engine is duplicated
+            // across them); on low-core devices warm the network only.
+            var compile = (navigator.hardwareConcurrency || 8) >= 4
+                && typeof WebAssembly !== 'undefined'
+                && typeof WebAssembly.compileStreaming === 'function';
+
+            function warm(url) {
+                var opts = { priority: 'low' };
+                if (compile) {
+                    return WebAssembly.compileStreaming(fetch(url, opts)).then(
+                        function () {},
+                        function () { return fetch(url, opts).then(function () {}, function () {}); }
+                    );
+                }
+                return fetch(url, opts).then(function () {}, function () {});
+            }
+
+            function run() {
+                fetch('/chunks.json', { priority: 'low' })
+                    .then(function (r) { return r.ok ? r.json() : []; })
+                    .then(function (chunks) {
+                        if (!Array.isArray(chunks) || chunks.length === 0) return;
+                        // Small-first (the manifest is pre-sorted), concurrency-capped
+                        // drip so we never contend with the page the user asked for.
+                        var i = 0;
+                        function next() {
+                            if (i >= chunks.length) return;
+                            var c = chunks[i++];
+                            (c && c.url ? warm(c.url) : Promise.resolve()).then(next);
+                        }
+                        next();
+                        next();
+                    })
+                    .catch(function () {});
+            }
+
+            function schedule() {
+                if ('requestIdleCallback' in window) requestIdleCallback(run, { timeout: 5000 });
+                else setTimeout(run, 2000);
+            }
+
+            if (document.readyState === 'complete') schedule();
+            else addEventListener('load', schedule);
         })();
     </script>
 </head>

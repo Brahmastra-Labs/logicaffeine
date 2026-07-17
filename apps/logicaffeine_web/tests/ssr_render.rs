@@ -78,3 +78,16 @@ fn every_prerendered_page_carries_structured_data() {
         );
     }
 }
+
+#[test]
+fn landing_showcase_fallback_renders_a_loading_skeleton() {
+    // The interactive hero showcase is a lazy component; while the app boots the
+    // user must see a loading skeleton, never a blank panel. The native SSG render
+    // commits the suspense fallback, so the skeleton markup must be present here —
+    // this locks the fallback against regressing back to an empty `<div>`.
+    let html = render_route("/");
+    assert!(
+        html.contains("mini-studio-skeleton") && html.contains("skeleton-line"),
+        "landing / prerender is missing the showcase loading skeleton"
+    );
+}

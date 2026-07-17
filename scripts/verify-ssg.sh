@@ -88,6 +88,22 @@ for route in $routes; do
         echo "FAIL $route: no #app mount point — the wasm takeover has nowhere to render"
         fail=1
     fi
+
+    # #main must carry real prerendered body, not an empty shell: the whole point
+    # of SSG is a working first paint (and the takeover's static fallback). An
+    # empty #main passed every head-only check above while the page rendered blank.
+    main_body_chars="$(python3 - "$file" <<'PY'
+import re, sys
+html = open(sys.argv[1]).read()
+m = re.search(r'<div id="main">(.*?)</body>', html, re.DOTALL)
+body = m.group(1) if m else ""
+print(len(re.sub(r'<[^>]+>|\s', '', body)))
+PY
+)"
+    if [ "${main_body_chars:-0}" -lt 200 ]; then
+        echo "FAIL $route: #main carries only ${main_body_chars:-0} chars of body text — empty/near-empty prerender"
+        fail=1
+    fi
 done
 
 if [ "$fail" -ne 0 ]; then

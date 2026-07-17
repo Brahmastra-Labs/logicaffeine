@@ -62,19 +62,30 @@ jobs:
       # snapshot inside it can pin a STALE Dioxus.toml (observed: old [web.app]
       # title substituted into the shell). Drop it — recapture is cheap, the real
       # cargo caches are untouched.
-      # --wasm-split + --features split: route and landing-showcase bodies (and the
-      # LOGOS engine they pin) ship as lazily-fetched chunks, so a first-time
-      # visitor downloads ~1.1 MB of wasm instead of ~12 MB. This relies on the
-      # splitter fixes in the pinned dioxus fork (see the CLI install step above).
+      # wasm-split is DISABLED: the fork's splitter miscompiles the DOM-edit stream
+      # for most routes (the interpreter boots into `reading 'listening'` on an
+      # undefined node), so `/`, `/pricing`, `/news`, `/roadmap`, `/guide` all
+      # render blank in production — only `/studio` survived. Without splitting,
+      # every route renders correctly; the tradeoff is a ~12 MB eager bundle
+      # (~3-4 MB brotli) instead of the ~1.1 MB split entry. The per-route render
+      # lock (test-ssg-render) gates this so a blank route can never ship again.
+      # Re-add `--wasm-split --features split` once the fork's wasm-split-cli is
+      # fixed and the render lock stays green with it on.
       - name: Build Dioxus App (SSG)
         run: |
           rm -rf target/dx
-          dx build -p logicaffeine-web --release --ssg --fullstack --wasm-split --features split
+          dx build -p logicaffeine-web --release --ssg --fullstack
 
       # The prerender writes into web/prerendered (the client build rewrites
       # public/index.html after the prerender pass — see merge-ssg.sh).
       - name: Merge prerendered pages
         run: ./scripts/merge-ssg.sh
+
+      # Emit public/chunks.json = the content-hashed lazy-chunk URLs the shell's
+      # background-prefetch loop warms once the first page is idle, so later
+      # navigation is instant instead of blocking on each page's wasm download.
+      - name: Generate prefetch manifest
+        run: ./scripts/gen-prefetch-manifest.sh
 
       # Fail the deploy if the bundle outgrows the budget — locks in libp2p staying out of
       # the default build (and any future bloat).
@@ -85,6 +96,16 @@ jobs:
       # produced its HTML with per-page canonical/OG/JSON-LD head intact.
       - name: Verify prerendered routes
         run: ./scripts/verify-ssg.sh
+
+      # Render lock: prove EVERY route renders the LIVE app after wasm boot,
+      # WITHOUT pumping the event loop — the gate the blank-homepage regression
+      # (wasm-split miscompiling the DOM-edit stream) slipped past, because the
+      # screenshot test below waits with waitForFunction, which keeps the loop
+      # serviced and hides a stalled/crashed render.
+      - name: Render lock (no blank/crashed routes)
+        run: |
+          npm install --no-save puppeteer-core@23
+          CHROME_BIN="$(command -v google-chrome || command -v chromium-browser)" ./scripts/test-ssg-render.sh
 
       # Headless-browser boot: prerendered page CSR takeover (no duplicated DOM)
       # and an SPA-fallback route still boots the app.

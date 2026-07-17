@@ -355,6 +355,13 @@ body:has(.landing) {
 .orb2 { top: 120px; right: -200px; background: radial-gradient(circle at 40% 35%, var(--color-accent-purple), transparent 60%); animation-delay: -5s; }
 .orb3 { bottom: -260px; left: 20%; background: radial-gradient(circle at 40% 35%, rgba(34,197,94,0.9), transparent 60%); animation-delay: -10s; }
 
+@media (max-width: 640px) {
+  /* Purely decorative: shrink and stop animating the 520px blurred orbs on
+     phones — a continuous blur(42px) repaint is the most expensive thing on a
+     mobile GPU here, for zero content value. */
+  .bg-orb { width: 300px; height: 300px; filter: blur(32px); animation: none; }
+}
+
 .container {
   width: 100%;
   max-width: 1120px;
@@ -1064,6 +1071,36 @@ html { scroll-behavior: smooth; }
 .showcase-loading {
   min-height: 635px;
 }
+.hello-loading {
+  min-height: 220px;
+}
+/* Loading skeleton shown while the wasm boots / a lazy body streams in — reads
+   as "loading," never as a blank/broken panel. */
+.mini-studio-skeleton { pointer-events: none; }
+.skeleton-body {
+  flex: 1;
+  padding: 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+.skeleton-line {
+  height: 14px;
+  border-radius: 6px;
+  background: linear-gradient(90deg, rgba(255,255,255,0.05) 25%, rgba(255,255,255,0.12) 37%, rgba(255,255,255,0.05) 63%);
+  background-size: 400% 100%;
+  animation: skeleton-shimmer 1.4s ease infinite;
+}
+.skeleton-line.w40 { width: 40%; }
+.skeleton-line.w50 { width: 50%; }
+.skeleton-line.w60 { width: 60%; }
+.skeleton-line.w70 { width: 70%; }
+.skeleton-line.w80 { width: 80%; }
+.skeleton-line.w90 { width: 90%; }
+@keyframes skeleton-shimmer {
+  0% { background-position: 100% 50%; }
+  100% { background-position: 0% 50%; }
+}
 .mini-studio::before {
   content: "";
   position: absolute;
@@ -1584,8 +1621,8 @@ html { scroll-behavior: smooth; }
   .h-title { font-size: var(--font-display-lg); }
   .step-arrow { display: none; }
   .steps { flex-direction: column; }
-  .mini-studio { height: 89vh !important; }
-  .showcase-loading { min-height: 89vh; }
+  .mini-studio { height: 78vh !important; }
+  .showcase-loading { min-height: 78vh; }
   .mini-studio-body { grid-template-columns: 1fr; }
   .mini-explorer { display: none; }
   .mini-file-tabs { display: flex; }
@@ -1598,7 +1635,7 @@ html { scroll-behavior: smooth; }
 }
 
 @media (max-width: 768px) {
-  .mini-studio { height: 89vh !important; }
+  .mini-studio { height: 78vh !important; }
   .mini-studio-head {
     justify-content: flex-end;
   }
@@ -1619,7 +1656,7 @@ html { scroll-behavior: smooth; }
 }
 
 @media (max-width: 480px) {
-  .mini-studio { height: 89vh !important; }
+  .mini-studio { height: 78vh !important; }
   .mini-exec-btn .btn-label { display: none; }
 }
 
@@ -1695,7 +1732,26 @@ pub fn Landing() -> Element {
                         }
 
                         SuspenseBoundary {
-                            fallback: |_| rsx! { div { class: "showcase-loading" } },
+                            fallback: |_| rsx! {
+                                div { class: "showcase-loading",
+                                    div { class: "mini-studio mini-studio-skeleton",
+                                        div { class: "mini-studio-head",
+                                            div { class: "win-dots",
+                                                div { class: "wdot wr" }
+                                                div { class: "wdot wy" }
+                                                div { class: "wdot wg" }
+                                            }
+                                        }
+                                        div { class: "skeleton-body",
+                                            div { class: "skeleton-line w70" }
+                                            div { class: "skeleton-line w90" }
+                                            div { class: "skeleton-line w50" }
+                                            div { class: "skeleton-line w80" }
+                                            div { class: "skeleton-line w40" }
+                                        }
+                                    }
+                                }
+                            },
                             LandingShowcase {}
                         }
                     }
@@ -1765,7 +1821,15 @@ pub fn Landing() -> Element {
                     h2 { class: "section-title", "Hello World in LOGOS" }
 
                     SuspenseBoundary {
-                        fallback: |_| rsx! { div { class: "hello-loading" } },
+                        fallback: |_| rsx! {
+                            div { class: "hello-loading",
+                                div { class: "skeleton-body",
+                                    div { class: "skeleton-line w80" }
+                                    div { class: "skeleton-line w60" }
+                                    div { class: "skeleton-line w70" }
+                                }
+                            }
+                        },
                         LandingHelloWorld {}
                     }
                     div { class: "hello-pill-wrap",

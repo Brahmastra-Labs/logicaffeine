@@ -8,23 +8,25 @@
 # two budgets:
 #
 #   MAIN  — the eager bundle (logicaffeine-web_bg-*.wasm) every visitor downloads
-#           before anything is interactive. wasm-split moves the LOGOS engine into
-#           lazy chunks, so this measures ~1.1 MiB; budget 2 MiB. A heavy
-#           dependency leaking into an eager code path fails here.
-#   TOTAL — all .wasm artifacts together (eager bundle + lazy route/engine chunks).
-#           dx duplicates shared engine code across chunks, so this is a loose
-#           backstop against runaway growth: measured ~52 MiB, budget 60 MiB.
+#           before anything is interactive. wasm-split is TEMPORARILY DISABLED
+#           (the fork's splitter miscompiles rendering — see deploy-frontend.yml),
+#           so the LOGOS engine now ships in the eager bundle: measures ~12 MiB,
+#           budget 14 MiB. Restore the ~2 MiB budget when split is re-enabled. A
+#           heavy NEW dependency leaking in still fails here (14 MiB is a tight
+#           cap over the measured ~12 MiB).
+#   TOTAL — all .wasm artifacts together (eager bundle + any lazy chunks).
+#           A loose backstop against runaway growth: budget 60 MiB.
 #
 # Usage:
 #   ./scripts/wasm-size-gate.sh [build-dir] [main-budget-mb] [total-budget-mb]
 # Defaults: build-dir = target/dx/logicaffeine-web/release/web/public,
-#           main = 2 MiB, total = 60 MiB.
-# Run it AFTER `dx build --release --ssg --fullstack --wasm-split --features split`.
+#           main = 14 MiB, total = 60 MiB.
+# Run it AFTER `dx build --release --ssg --fullstack`.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 BUILD_DIR="${1:-$ROOT/target/dx/logicaffeine-web/release/web/public}"
-MAIN_BUDGET_MB="${2:-2}"
+MAIN_BUDGET_MB="${2:-14}"
 TOTAL_BUDGET_MB="${3:-60}"
 
 MAIN_BUDGET_BYTES="$(awk "BEGIN { printf \"%d\", $MAIN_BUDGET_MB * 1024 * 1024 }")"
