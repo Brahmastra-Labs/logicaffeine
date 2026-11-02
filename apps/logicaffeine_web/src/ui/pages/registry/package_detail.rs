@@ -10,8 +10,8 @@
 //!
 //! # Route
 //!
-//! Accessed via [`Route::PackageDetail`]
-//! with `name` and `version` parameters.
+//! Accessed via [`Route::PackageDetail`](crate::ui::router::Route::PackageDetail)
+//! with its `name` parameter.
 
 use crate::ui::components::main_nav::{ActivePage, MainNav};
 use crate::ui::seo::PageHead;

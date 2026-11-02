@@ -16,13 +16,12 @@
 //!
 //! ## Marketing & Info
 //! - [`Landing`] - Marketing homepage with feature highlights
-//! - [`Pricing`] - Pricing and licensing, and the form that asks the team for a price
+//! - [`Contact`] - The contact page; `/pricing` redirects here
 //! - [`Roadmap`] - Development roadmap with milestone progress
 //!
 //! ## Legal & Account
 //! - [`Privacy`] - Privacy policy page
 //! - [`Terms`] - Terms of service page
-//! - [`Success`] - Post-checkout license activation page
 //!
 //! ## Package Registry
 //! - [`registry`] - Package browsing and details submodule
