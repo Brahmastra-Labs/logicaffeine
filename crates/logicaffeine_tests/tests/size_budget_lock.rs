@@ -284,3 +284,22 @@ fn ci_and_the_release_run_the_checks() {
         "release.yml must check logicaffeine-lsp's size against its budget"
     );
 }
+
+/// The web bundle builds for size. Cloudflare Pages refuses any file over 25 MiB, and at the release profile's
+/// opt-level 3 the main wasm was 27.4 MiB (v0.11.0) — the deploy failed on the upload, after every gate before it
+/// passed. At `s` it is 20.8 MiB. The `[web]` wasm budget stays under that limit, so the size gate refuses a bundle
+/// the host would refuse.
+#[test]
+fn the_web_bundle_builds_for_size_and_its_budget_fits_the_host() {
+    let manifest: toml::Table = read("Cargo.toml").parse().expect("Cargo.toml parses as TOML");
+    let profile = manifest["profile"]["wasm-release"].as_table().expect("[profile.wasm-release]");
+    assert_eq!(
+        profile.get("opt-level").and_then(|v| v.as_str()),
+        Some("s"),
+        "[profile.wasm-release] opt-level must be \"s\": at 3 the main wasm passes Cloudflare Pages' 25 MiB per-file limit"
+    );
+    const PAGES_FILE_LIMIT: i64 = 25 * 1024 * 1024;
+    let web = budgets()["web"].as_table().expect("[web] in .config/size-budgets.toml").clone();
+    let wasm = web["wasm"].as_integer().expect("[web] wasm is a byte count");
+    assert!(wasm < PAGES_FILE_LIMIT, "[web] wasm budget {wasm} B is not under Cloudflare Pages' {PAGES_FILE_LIMIT} B per-file limit");
+}

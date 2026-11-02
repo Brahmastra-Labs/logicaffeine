@@ -6,6 +6,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Changed
+- The web bundle builds for size (`[profile.wasm-release]` opt-level `s`): at opt-level 3 the main wasm was 27.4 MiB, over Cloudflare Pages' 25 MiB per-file limit, and the deploy failed at the upload; at `s` it is 20.8 MiB, inside the `[web]` budget. The in-browser interpreter is built for size with it.
+
 ## [0.11.0] - 2026-11-02
 
 ### Added

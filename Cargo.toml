@@ -185,14 +185,15 @@ opt-level = 2
 debug = false
 strip = "debuginfo"
 
-# Web release build (dx `--release`). opt-level stays at release's 3 so the in-wasm
-# LOGOS interpreter keeps its speed. debug=true is required by dx's wasm-split pass
+# Web release build (dx `--release`), built for size: Cloudflare Pages serves no file over 25 MiB, and at
+# release's opt-level 3 the main wasm is 27.4 MiB (20.8 MiB at "s"). debug=true is required by dx's wasm-split pass
 # (the splitter reads the DWARF symbol table to slice the call graph); wasm-opt
 # strips the DWARF afterward per Dioxus.toml [web.wasm_opt] debug=false, so the
 # served binary carries no debug sections and binaryen never hits the DWARF-version
 # SIGABRT.
 [profile.wasm-release]
 inherits = "release"
+opt-level = "s"
 debug = true
 strip = true
 lto = true

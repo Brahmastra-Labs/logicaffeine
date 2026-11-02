@@ -6,6 +6,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Added
+- `size_budget_lock::the_web_bundle_builds_for_size_and_its_budget_fits_the_host`: `[profile.wasm-release]` builds at opt-level `s`, and the `[web]` wasm budget stays under Cloudflare Pages' 25 MiB per-file limit.
+
 ## [0.11.0] - 2026-11-02
 
 ### Added
